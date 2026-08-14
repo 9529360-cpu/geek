@@ -2196,3 +2196,8 @@ select:focus option:checked {
 .broadcast-list .bc-item:hover { background: var(--bg-elevated); }
 .broadcast-list .bc-item input { accent-color: var(--accent); }
 .broadcast-list .bc-item .bc-type { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
+/* 名片联系人选择 */
+.bc-vcard-list { margin-top: 6px; max-height: 140px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 8px; }
+.bc-vcard-title { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.bc-vcard-item { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 2px 0; color: var(--text-primary); cursor: pointer; }
+.bc-vcard-item input { accent-color: var(--accent); }

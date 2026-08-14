@@ -683,6 +683,35 @@
           return r && r.id ? 'SENT' : 'FAIL';
         } catch (e) { return 'ERR:' + e.message; }
       })()`,
+      // 电子名片（HelloWorld svm 链路：vcardFromContactModel + addAndSendMsgToChat）
+      sendVcards: (chatId, vcards) => `(async () => {
+        try {
+          const W = window.require;
+          const wpp = window.WAPLUS_WPP || window.WPP;
+          const chat = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
+          if (!chat) return 'NO_CHAT';
+          const VcardUtils = W('WAWebFrontendVcardUtils');
+          const SendAction = W('WAWebSendMsgChatAction');
+          const vcards = ${JSON.stringify(vcards)};
+          const list = [];
+          for (const v of vcards) {
+            try {
+              const contact = wpp.whatsapp.Store.Contact.get(v.id);
+              if (contact) { const vc = await VcardUtils.vcardFromContactModel(contact); if (vc) list.push(vc); }
+            } catch (e) {}
+          }
+          if (!list.length) return 'NO_VCARD';
+          const msg = {
+            id: '3EB0' + Math.random().toString(16).slice(2, 34),
+            ack: 0, from: (W('WAWebUserPrefsMeUser')?.getMe?.()?.id) || 'me', local: true, self: 'in',
+            t: parseInt(Date.now() / 1000), to: chat.id,
+            ...(list.length > 1 ? { type: 'multi_vcard', vcardList: list } : { type: 'vcard', body: list[0].vcard }),
+            isNewMsg: true,
+          };
+          await SendAction.addAndSendMsgToChat(chat, msg);
+          return 'SENT';
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`,
       // WA 文件+文字一起（底层 API——HelloWorld 同款：ChatStore.get 模型 + prepRawMedia + sendMediaMsgToChat，秒发）
       sendFileDirect: (chatId, file, caption) => `(async () => {
         try {
@@ -758,6 +787,14 @@
     if (!accounts.find(a => a.id === activeId) && accounts.length) {
       switchAccount(accounts[0].id);
     }
+    // 定时时间默认今天 + 当前（用户只改时间，不用填年月）
+    const schedTimeEl = document.getElementById('broadcast-schedule-time');
+    if (schedTimeEl && !schedTimeEl.value) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 30); // 默认半小时后
+      const pad = n => String(n).padStart(2, '0');
+      schedTimeEl.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    }
     const account = accounts.find(a => a.id === activeId);
     if (!account) { alert('请先切换到一个账号'); return; }
     broadcastChats = [];
@@ -772,13 +809,7 @@
     renderBroadcastList();
     loadBroadcastChats();
   }
-  // 附件：选择文件 + 列表
-  document.getElementById('broadcast-add-file').onclick = async () => {
-    try {
-      const f = await window.api.file.pick();
-      if (f) { broadcastFiles.push(f); renderBroadcastFiles(); }
-    } catch (e) { alert('选择文件失败: ' + e.message); }
-  };
+  // 附件：选择文件 + 列表（新界面用开关 change 触发——见下方群发绑定；此处移除避免重复弹窗）
   // CSV 导入联系人（每行：聊天名称或 ID，自动匹配勾选）
   document.getElementById('broadcast-import-csv').onclick = async () => {
     try {
@@ -1191,6 +1222,14 @@
                 sentOk = String(sf || '');
               } catch (e) { sentOk = 'ERR:' + e.message; }
             } else {
+              // 名片优先（选中的联系人名片发到聊天）
+              const vcards = (window.__vcardContacts || []).length ? window.__vcardContacts : null;
+              if (vcards && vcards.length) {
+                const vs = await wv.executeJavaScript(adapter.sendVcards(t.id, vcards));
+                if (!String(vs).startsWith('SENT') && !String(vs).startsWith('NO_VCARD')) {
+                  failReasons.push(`${t.name}: 名片 ${vs}`);
+                }
+              }
               const tagall = document.getElementById('broadcast-tagall')?.checked || false;
               sentOk = await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg, tagall));
             }
@@ -1267,6 +1306,35 @@
         }
       } catch (e) { /* 用户取消 */ }
       bcAddFile.checked = false;
+    }
+  });
+  const bcAddVcard = document.getElementById('broadcast-add-vcard');
+  if (bcAddVcard) bcAddVcard.addEventListener('change', async () => {
+    if (bcAddVcard.checked) {
+      const wv = wvMap.get(activeId);
+      const vlist = document.getElementById('bc-vcard-list');
+      if (!wv || !vlist) { bcAddVcard.checked = false; return; }
+      try {
+        const contacts = await wv.executeJavaScript(`(async () => {
+          try {
+            const W = window.WAPLUS_WPP || window.WPP;
+            const chats = await W.chat.list();
+            return JSON.stringify(chats.filter(c => !c.isGroup && c.name).map(c => ({ id: c.id, name: c.name })).slice(0, 300));
+          } catch (e) { return 'ERR:' + e.message; }
+        })()`);
+        const txt = String(contacts || '');
+        if (txt.startsWith('ERR:')) { alert('获取联系人失败: ' + txt); bcAddVcard.checked = false; return; }
+        const list = JSON.parse(txt);
+        if (!list.length) { alert('当前账号没有联系人'); bcAddVcard.checked = false; return; }
+        vlist.innerHTML = '<div class="bc-vcard-title">选择要发送名片的联系人：</div>' + list.map(c => `<label class="bc-vcard-item"><input type="checkbox" value="${c.id.replace(/"/g, '&quot;')}" data-name="${c.name.replace(/"/g, '&quot;')}"> <span>${c.name}</span></label>`).join('');
+        vlist.style.display = '';
+        window.__vcardContacts = [];
+        vlist.querySelectorAll('input').forEach(inp => inp.addEventListener('change', () => {
+          window.__vcardContacts = [...vlist.querySelectorAll('input:checked')].map(x => ({ id: x.value, name: x.dataset.name }));
+          const title = vlist.querySelector('.bc-vcard-title');
+          if (title) title.textContent = window.__vcardContacts.length ? `已选 ${window.__vcardContacts.length} 个联系人名片：` : '选择要发送名片的联系人：';
+        }));
+      } catch (e) { alert('加载联系人失败: ' + e.message); bcAddVcard.checked = false; }
     }
   });
   const bcSendtoRadios = document.querySelectorAll('input[name="bc-sendto"]');
