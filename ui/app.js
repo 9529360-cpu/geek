@@ -1746,8 +1746,12 @@
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const I = window.require('WAWebGroupInviteAction');
+          const W = window.WAPLUS_WPP || window.WPP;
+          const chats = await W.chat.list();
+          const chat = chats.find(c => String(c.id) === ${JSON.stringify(gid)});
+          const wid = chat ? chat.id : window.require('WAWebWidFactory').createWid(${JSON.stringify(gid)});
           let code = null;
-          try { code = await I.queryGroupInviteCode(${JSON.stringify(gid)}); } catch (e) { code = await I.revokeGroupInvite(${JSON.stringify(gid)}); }
+          try { code = await I.queryGroupInviteCode(wid); } catch (e) { code = await I.revokeGroupInvite(wid); }
           return 'OK:' + (code || '');
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
