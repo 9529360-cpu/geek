@@ -10,8 +10,10 @@
 #broadcast-overlay .bc-card-title{margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle);font-size:13px;font-weight:700;letter-spacing:.1px}
 #broadcast-overlay .bc-message{min-height:55px;border-radius:4px;line-height:1.4}
 #broadcast-overlay .bc-var-row{margin:8px 0 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-#broadcast-overlay .bc-pill{min-height:23px;padding:3px 9px;border-radius:3px;background:var(--accent-soft);border:1px solid var(--accent-border);color:var(--accent);font-weight:500}
-#broadcast-overlay .bc-pill--orange{background:rgba(255,153,53,.12);border-color:rgba(255,153,53,.34);color:#ff9935}
+#broadcast-overlay .bc-pill{min-height:23px;padding:3px 9px;border-radius:3px;background:#3051d3;border:1px solid #3051d3;color:#fff;font-weight:500}
+#broadcast-overlay #broadcast-insert-sa{background:#740dec;border-color:#740dec}
+#broadcast-overlay #broadcast-insert-var,#broadcast-overlay #broadcast-insert-nr{background:#3051d3;border-color:#3051d3}
+#broadcast-overlay .bc-pill--orange{background:#ff9935;border-color:#ff9935;color:#fff}
 #broadcast-overlay .bc-media-row{margin:4px 0 0;padding-top:4px;border-top:1px dashed var(--border-subtle)}
 #broadcast-overlay .bc-switch-row{gap:5px;padding:1px 0;font-size:11.5px;line-height:16px}
 #broadcast-overlay .bc-switch{width:27px;height:15px;border-radius:8px}
