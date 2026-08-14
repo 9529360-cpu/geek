@@ -92,10 +92,6 @@
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               <span>群组工具</span>
             </button>
-            <button type="button" id="bc-menu-grouplinks" class="bc-menu-item">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              <span>群组链接</span>
-            </button>
             <button type="button" id="bc-menu-export" class="bc-menu-item">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               <span>导出联系人</span>
@@ -665,28 +661,6 @@
         <div style="font-size:12px;color:var(--text-secondary)"><div id="gt-account-name" style="font-weight:600">—</div><div id="gt-account-id" style="font-size:11px">—</div></div>
         <button id="gt-close-bottom" class="bc-btn" style="margin-left:auto;background:var(--bg-elevated);border:1px solid var(--border-standard)">关闭</button>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- 批量加入群组弹窗 -->
-<div id="join-overlay" class="overlay hidden">
-  <div class="add-dialog broadcast-dialog">
-    <div class="settings-header">
-      <span>批量加入群组</span>
-      <button id="join-close" class="settings-close">×</button>
-    </div>
-    <div class="broadcast-body">
-      <div class="bc-section-title">群组链接 <span class="bc-meta">每行一个（t.me/xxx 或 t.me/joinchat/xxx）</span></div>
-      <textarea id="join-links" class="broadcast-message" placeholder="https://t.me/xxx&#10;https://t.me/joinchat/xxx&#10;每行一个链接"></textarea>
-      <div class="broadcast-progress hidden" id="join-progress">
-        <div class="bc-progress-bar"><div class="bc-progress-fill" id="join-progress-fill"></div></div>
-        <div class="bc-progress-text" id="join-progress-text"></div>
-      </div>
-    </div>
-    <div class="settings-footer">
-      <button id="join-cancel" class="btn-plain">取消</button>
-      <button id="join-start" class="btn-add">开始加入</button>
     </div>
   </div>
 </div>

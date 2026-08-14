@@ -1163,90 +1163,6 @@
     broadcastSelected.clear();
     renderBroadcastList();
   };
-  // ---------- 批量加入群组 ----------
-  const joinOverlay = document.getElementById('join-overlay');
-  const joinLinksEl = document.getElementById('join-links');
-  const joinProgressEl = document.getElementById('join-progress');
-  function setJoinProgress(percent, text) {
-    joinProgressEl.classList.remove('hidden');
-    document.getElementById('join-progress-fill').style.width = percent + '%';
-    document.getElementById('join-progress-text').textContent = text;
-  }
-  const joinGroupsBtn = document.getElementById('broadcast-join-groups');
-  if (joinGroupsBtn) joinGroupsBtn.onclick = () => {
-    joinLinksEl.value = '';
-    joinProgressEl.classList.add('hidden');
-    joinOverlay.classList.remove('hidden');
-  };
-  document.getElementById('join-close').onclick = () => joinOverlay.classList.add('hidden');
-  document.getElementById('join-cancel').onclick = () => joinOverlay.classList.add('hidden');
-  // 加入单个群链接：WA 用 joinGroupViaInvite API 直加（HelloWorld 同款）；TG 导航 → 找加入按钮 → 点击
-  async function joinGroupByLink(link) {
-    const account = accounts.find(a => a.id === activeId);
-    const wv = wvMap.get(activeId);
-    if (!wv) return 'NO_WV';
-    // WA 账号：API 直加（不导航——快/稳）
-    if (account && (account.type === 'whatsapp' || account.type === 'whatsapp-pure')) {
-      const path = link.replace(/^https?:\/\/(chat\.)?whatsapp\.com\//, '').replace(/^https?:\/\//, '').trim();
-      if (!path) return 'ERR:无效链接';
-      try {
-        const res = await wv.executeJavaScript(`(async () => {
-          try {
-            const A = window.require('WAWebGroupInviteAction');
-            await A.joinGroupViaInvite(${JSON.stringify(path)});
-            return 'JOINED|' + ${JSON.stringify(link.slice(0, 40))};
-          } catch (e) { return 'ERR:' + e.message; }
-        })()`);
-        return String(res);
-      } catch (e) { return 'ERR:' + e.message; }
-    }
-    // TG 账号：导航到群预览页 → 点加入 → 回 TG
-    const url = /^https?:\/\//.test(link) ? link : 'https://' + link;
-    try {
-      wv.src = url; // webview 导航到群预览页
-      await sleep(4500);
-      const res = await wv.executeJavaScript(`(() => {
-        const btn = [...document.querySelectorAll('button')].find(b => {
-          const t = (b.textContent || '').trim();
-          return /join|加入/.test(t) && !/joined|已加入|leave|退出/.test(t);
-        });
-        if (!btn) return 'NO_BTN|' + document.title.slice(0, 30);
-        const fire = (type, opts) => btn.dispatchEvent(new PointerEvent(type, Object.assign({bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1}, opts)));
-        fire('pointerdown');
-        btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 }));
-        fire('pointerup', { buttons: 0 });
-        btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 0 }));
-        btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 }));
-        return 'JOINED|' + btn.textContent.trim().slice(0, 20);
-      })()`);
-      await sleep(1500);
-      // 回到 TG 主界面
-      wv.src = 'https://web.telegram.org/a/';
-      await sleep(3000);
-      return String(res);
-    } catch (e) {
-      try { wv.src = 'https://web.telegram.org/a/'; } catch (e2) {}
-      return 'ERR:' + e.message;
-    }
-  }
-  document.getElementById('join-start').onclick = async () => {
-    const links = joinLinksEl.value.split(/\n+/).map(s => s.trim()).filter(Boolean);
-    if (!links.length) { alert('请输入群链接（每行一个）'); return; }
-    if (!confirm(`将依次加入 ${links.length} 个群组（每个约 10 秒，加入频率过快可能被限制）`)) return;
-    let ok = 0, fail = 0;
-    const fails = [];
-    for (let i = 0; i < links.length; i++) {
-      setJoinProgress(Math.round(i / links.length * 100), `加入中 ${i + 1}/${links.length}：${links[i].slice(0, 40)}`);
-      const res = await joinGroupByLink(links[i]);
-      if (String(res).includes('JOINED')) ok++;
-      else { fail++; fails.push(`${links[i].slice(0, 30)}: ${res}`); }
-      await sleep(2000); // 间隔
-    }
-    setJoinProgress(100, `完成：成功加入 ${ok}，失败 ${fail}`);
-    if (fails.length) alert(`加入完成：成功 ${ok}，失败 ${fail}\n\n失败明细：\n${fails.slice(0, 8).map(f => '· ' + f).join('\n')}`);
-    else alert(`全部加入成功（${ok} 个群组）`);
-  };
-
   // 群组标签：原版语义=保存一组群，点击后恢复并筛选这组群
   let broadcastSavedFilter = null;
   function currentBroadcastGroupTags() {
@@ -2070,19 +1986,7 @@
     document.getElementById('broadcast-menu')?.classList.add('hidden');
     openBroadcast();
   };
-  function openJoinTools(title) {
-    document.getElementById('broadcast-menu')?.classList.add('hidden');
-    const joinOv = document.getElementById('join-overlay');
-    if (joinOv) {
-      const jt = joinOv.querySelector('.join-title, .settings-header span, h3');
-      if (jt && title) jt.textContent = title;
-      joinOv.classList.remove('hidden');
-      const jl = document.getElementById('join-links');
-      if (jl) jl.value = '';
-    }
-  }
   const bcMenuGrouptools = document.getElementById('bc-menu-grouptools');
-  if (bcMenuGrouptools) bcMenuGrouptools.onclick = () => openJoinTools('群组工具');
   // ---------- 群组工具（克隆/解散/退出——真实 WA API） ----------
   const gtOverlay = document.getElementById('gt-overlay');
   const gtGroups = document.getElementById('gt-group-list');
@@ -2648,8 +2552,6 @@
       setTimeout(loadGtGroups, 2000);
     };
   }
-  const bcMenuGrouplinks = document.getElementById('bc-menu-grouplinks');
-  if (bcMenuGrouplinks) bcMenuGrouplinks.onclick = () => openJoinTools('群组链接');
   const bcMenuExport = document.getElementById('bc-menu-export');
   if (bcMenuExport) bcMenuExport.onclick = async () => {
     document.getElementById('broadcast-menu')?.classList.add('hidden');
