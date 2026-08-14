@@ -1252,12 +1252,31 @@
   }
   function renderSavedGroups() {
     const sel = document.getElementById('broadcast-saved-groups');
-    if (!sel) return;
+    const list = document.getElementById('bc-group-tag-list');
+    if (!sel || !list) return;
     const tags = currentBroadcastGroupTags();
     const current = sel.value;
     sel.innerHTML = '<option value="">全部群组（清除筛选）</option>' + tags.map(g =>
       `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}（${(g.chatIds || []).length} 个群）</option>`).join('');
     if (current && tags.some(g => g.id === current)) sel.value = current;
+    list.innerHTML = tags.length ? '' : '<span class="bc-original-empty">暂无已保存标签</span>';
+    tags.forEach(g => {
+      const wrap = document.createElement('span');
+      wrap.className = 'bc-original-tag' + (sel.value === g.id ? ' active' : '');
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'bc-original-tag__open';
+      open.innerHTML = `<span class="bc-original-tag__icon">▣</span>${escapeHtml(g.name)}<em>${(g.chatIds || []).length}</em>`;
+      open.onclick = () => applyBroadcastGroupTag(g);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'bc-original-tag__remove';
+      remove.title = '删除标签';
+      remove.textContent = '×';
+      remove.onclick = (e) => { e.stopPropagation(); deleteBroadcastGroupTag(g); };
+      wrap.append(open, remove);
+      list.appendChild(wrap);
+    });
   }
   document.getElementById('broadcast-save-group').onclick = async () => {
     const selectedGroups = broadcastChats.filter(c => broadcastSelected.has(c.id) && c.type === '群组');
@@ -1271,45 +1290,54 @@
     config.broadcastGroups = next;
     await window.api.config.set({ broadcastGroups: next });
     broadcastSavedFilter = new Set(tag.chatIds);
-    renderSavedGroups();
     document.getElementById('broadcast-saved-groups').value = tag.id;
+    renderSavedGroups();
     renderBroadcastList();
     alert(`已保存群组标签「${tag.name}」（${tag.chatIds.length} 个群）`);
   };
-  document.getElementById('broadcast-saved-groups').onchange = async (e) => {
-    const gid = e.target.value;
-    if (!gid) {
-      broadcastSavedFilter = null;
-      broadcastSelected.clear();
-      renderBroadcastList();
-      return;
-    }
-    const g = currentBroadcastGroupTags().find(x => x.id === gid);
+  function clearBroadcastGroupTagFilter() {
+    broadcastSavedFilter = null;
+    broadcastSelected.clear();
+    const sel = document.getElementById('broadcast-saved-groups');
+    if (sel) sel.value = '';
+    renderSavedGroups();
+    renderBroadcastList();
+  }
+  function applyBroadcastGroupTag(g) {
     if (!g) return;
+    const sel = document.getElementById('broadcast-saved-groups');
+    if (sel) sel.value = g.id;
     broadcastSavedFilter = new Set(g.chatIds || []);
     broadcastSelected.clear();
-    // 恢复集合，而不是追加到当前选择；已删除群会自然显示为缺失
+    // 原版 setValue 语义：整体替换当前集合，不追加
     g.chatIds.forEach(id => { if (broadcastChats.some(c => c.id === id && c.type === '群组')) broadcastSelected.add(id); });
+    renderSavedGroups();
     renderBroadcastList();
     const missing = g.chatIds.filter(id => !broadcastChats.some(c => c.id === id));
     if (missing.length) alert(`标签「${g.name}」中有 ${missing.length} 个群当前不可用，已跳过`);
-  };
-  document.getElementById('broadcast-delete-group').onclick = async () => {
-    const sel = document.getElementById('broadcast-saved-groups');
-    const gid = sel?.value;
-    const g = currentBroadcastGroupTags().find(x => x.id === gid);
-    if (!g) { alert('请先选择要删除的群组标签'); return; }
+  }
+  async function deleteBroadcastGroupTag(g) {
+    if (!g) return;
     if (!confirm(`删除群组标签「${g.name}」？不会删除真实群组。`)) return;
-    const next = (config.broadcastGroups || []).filter(x => x.id !== gid);
+    const next = (config.broadcastGroups || []).filter(x => x.id !== g.id);
     config.broadcastGroups = next;
     await window.api.config.set({ broadcastGroups: next });
-    broadcastSavedFilter = null;
-    renderSavedGroups();
-    renderBroadcastList();
+    clearBroadcastGroupTagFilter();
+  }
+  document.getElementById('broadcast-saved-groups').onchange = (e) => {
+    const g = currentBroadcastGroupTags().find(x => x.id === e.target.value);
+    if (g) applyBroadcastGroupTag(g); else clearBroadcastGroupTagFilter();
+  };
+  document.getElementById('broadcast-show-all-groups').onclick = clearBroadcastGroupTagFilter;
+  document.getElementById('broadcast-delete-group').onclick = async () => {
+    const gid = document.getElementById('broadcast-saved-groups')?.value;
+    await deleteBroadcastGroupTag(currentBroadcastGroupTags().find(x => x.id === gid));
   };
   function updateBroadcastMeta() {
     const account = accounts.find(a => a.id === activeId);
-    bMetaEl.textContent = `${account ? account.name : ''} · 共 ${broadcastChats.length} 个聊天 · 已选 ${broadcastSelected.size} 个`;
+    const visible = visibleBroadcastChats().length;
+    const scope = broadcastSavedFilter ? `标签内 ${visible} 个群` : `共 ${broadcastChats.length} 个聊天`;
+    bMetaEl.innerHTML = `<span>${escapeHtml(account ? account.name : '')}</span><span> · ${scope}</span><strong class="bc-selected-count">已选 ${broadcastSelected.size} 个</strong>`;
   }
   // 构造文件拖拽注入脚本（TG 接收 drop 后自动上传）
   function buildDropFileScript(file) {
@@ -1610,10 +1638,9 @@
       }
       if (broadcastStop) { setProgress(100, '已停止'); break; }
       const t = targets[i];
-      // 原版兼容：多行=随机选一条；行内 {A|B|C}=随机展开；变量 %nc/%nr/%sa
-      const lines = message.split(/\n+/).map(s => s.trim()).filter(Boolean);
-      const chosenMsg = lines.length > 1 ? lines[Math.floor(Math.random() * lines.length)] : message;
-      const expandedMsg = expandBroadcastVariants(chosenMsg);
+      // 原版语义：换行属于同一条完整消息，不能拆成多条随机话术。
+      // 只有显式的 {版本A|版本B} 语法才进行随机展开。
+      const expandedMsg = expandBroadcastVariants(message);
       let personalMsg = expandedMsg
         .replace(/%nc/gi, t.name || '')
         .replace(/%nr/gi, t.realName || t.name || '')
