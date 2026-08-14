@@ -1,10 +1,10 @@
 /* 群发窗口原版卡片式覆盖层：保留 HelloWorld/Bootstrap 信息层级，适配极客主题 */
 #broadcast-overlay{backdrop-filter:blur(2px);background:rgba(0,0,0,.48)}
-#broadcast-overlay .bc-dialog{width:548px;max-width:calc(100vw - 36px);height:calc(100vh - 12px);max-height:calc(100vh - 12px);border-radius:4px;border:1px solid var(--border-standard);background:var(--bg-elevated);box-shadow:0 15px 20px rgba(0,0,0,.25);overflow:hidden;display:flex;flex-direction:column}
+#broadcast-overlay .bc-dialog{width:548px;max-width:calc(100vw - 36px);height:auto;max-height:calc(100vh - 12px);border-radius:4px;border:1px solid var(--border-standard);background:var(--bg-elevated);box-shadow:0 15px 20px rgba(0,0,0,.25);overflow:hidden;display:flex;flex-direction:column}
 #broadcast-overlay .bc-header{min-height:36px;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border-standard);display:flex;align-items:center}
 #broadcast-overlay .bc-header__title{font-size:15px;font-weight:700}
 #broadcast-overlay .bc-header__close{width:28px;height:28px;font-size:22px;border-radius:3px}
-#broadcast-overlay .bc-body{min-height:0;flex:1;padding:8px 10px 10px;gap:6px;background:var(--bg-elevated);overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+#broadcast-overlay .bc-body{min-height:0;flex:0 1 auto;max-height:calc(100vh - 112px);padding:8px 10px 10px;gap:6px;background:var(--bg-elevated);overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
 #broadcast-overlay .bc-card{margin:0;padding:6px 8px;border:1px solid var(--border-standard);border-radius:4px;background:var(--bg-surface);box-shadow:none;flex-shrink:0}
 #broadcast-overlay .bc-card:first-child{padding-top:8px;padding-bottom:8px}
 #broadcast-overlay .bc-card-title{margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle);font-size:13px;font-weight:700;letter-spacing:.1px}

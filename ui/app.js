@@ -2746,7 +2746,8 @@
     const arrow = document.getElementById('bc-saved-accordion-arrow');
     if (arrow) arrow.textContent = box.classList.contains('collapsed') ? '▸' : '▾';
   };
-  bOverlay.addEventListener('click', (e) => { if (e.target === bOverlay) closeBroadcast(); });
+  // 原版 Alertify 弹窗：点击遮罩不关闭，必须使用取消/关闭按钮退出。
+
 
   // ---------- 锁屏（挂机锁） ----------
   const lockOverlay = document.getElementById('lock-overlay');
