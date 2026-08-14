@@ -16,6 +16,13 @@
 #gt-overlay .gt-original-input-group .settings-input::placeholder{color:#909399}
 #gt-overlay .gt-original-input-group .bc-btn{border-radius:0 4px 4px 0}
 #gt-overlay .gt-original-primary{border-color:#3051d3!important;background:#3051d3!important;color:#fff!important}
+#gt-overlay .gt-clone-progress{margin-top:16px;padding-top:12px;border-top:1px solid var(--border-standard)}
+#gt-overlay .gt-clone-progress-head{display:flex;justify-content:space-between;gap:8px;color:var(--text-secondary);font-size:12px}
+#gt-overlay .gt-clone-progress-head strong{color:var(--accent);font-weight:700}
+#gt-overlay .gt-clone-progress-track{height:8px;margin:8px 0 10px;overflow:hidden;border-radius:8px;background:var(--bg-hover)}
+#gt-overlay .gt-clone-progress-track>div{height:100%;width:0;border-radius:8px;background:#3051d3;transition:width .2s ease}
+#gt-overlay .gt-clone-stop{padding:5px 9px!important;background:transparent!important;border:1px solid #d9534f!important;color:#d9534f!important;font-size:11px}
+#gt-overlay .gt-clone-stop:hover{background:rgba(217,83,79,.1)!important}
 #gt-overlay .gt-original-primary:hover{background:#4969dc!important}
 #gt-overlay .gt-original-field{margin-top:18px}
 #gt-overlay .gt-original-field>label{display:block;margin-bottom:8px;color:var(--text-primary);font-size:12.5px;font-weight:700}

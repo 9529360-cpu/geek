@@ -2176,7 +2176,11 @@
       const wv = wvMap.get(activeId);
       if (!wv) { gtStatus.textContent = '当前账号页面尚未就绪'; return; }
       gtStatus.textContent = `正在克隆 ${targets.length} 个源群，每个 ${count} 个…`;
+      showCloneProgress(targets.length * count, '正在准备当前已选群组…');
+      startClonePolling(wv, targets.length * count);
       const res = await wv.executeJavaScript(`(async () => {
+        window.__gtCloneCancel = false;
+        window.__gtCloneProgress = { done: 0, total: ${targets.length * count}, label: '正在读取源群资料…' };
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const result = { created: [], errors: [] };
         try {
@@ -2189,6 +2193,7 @@
           const meWid = String(me?._serialized || me?.id?._serialized || me?.id || '');
           if (!meWid) throw new Error('无法取得当前账号ID');
           for (let sourceIndex = 0; sourceIndex < ${JSON.stringify(targets)}.length; sourceIndex++) {
+            if (window.__gtCloneCancel) { result.cancelled = true; break; }
             const source = ${JSON.stringify(targets)}[sourceIndex];
             const src = Meta.get(source.id) || await W.whatsapp.GroupMetadataStore.find(source.id).catch(() => null);
             const name = String(src?.__x_subject || source.name || '克隆群组').trim() || '克隆群组';
@@ -2200,6 +2205,7 @@
             const base = suffix ? suffix[1].trim() : name;
             const start = suffix ? Number(suffix[2]) + 1 : 1;
             for (let i = 0; i < ${count}; i++) {
+              if (window.__gtCloneCancel) { result.cancelled = true; break; }
               const newName = base + ' #' + (start + i);
               try {
                 const created = await W.group.create(newName, [meWid], undefined);
@@ -2214,6 +2220,7 @@
                 if (announce) { await M.setGroupProperty(gid, 'announce', true); applied.push('仅管理员发言'); }
                 result.created.push({source: source.name, name: newName, id: gid, applied});
               } catch (e) { result.errors.push(newName + ':' + e.message); }
+              window.__gtCloneProgress = { done: result.created.length + result.errors.filter(x => !x.includes(':头像:')).length, total: ${targets.length * count}, label: '已处理：' + newName };
               if (i < ${count} - 1 || sourceIndex < ${JSON.stringify(targets)}.length - 1) await sleep((Math.random() * (${maxDelay} - ${minDelay}) + ${minDelay}) * 1000);
             }
           }
@@ -2222,14 +2229,28 @@
       })()`);
       try {
         const data = JSON.parse(String(res));
-        gtStatus.textContent = `选中群组克隆完成：成功 ${data.created?.length || 0}，失败 ${data.errors?.length || 0}` + (data.errors?.length ? `；${data.errors.slice(0, 2).join(' | ')}` : '');
-      } catch (e) { gtStatus.textContent = '选中群组克隆失败：返回结果无法解析'; }
+        const total = targets.length * count;
+        finishCloneProgress(data.created?.length || 0, total, !!data.cancelled);
+        gtStatus.textContent = `${data.cancelled ? '选中群组克隆已停止' : '选中群组克隆完成'}：成功 ${data.created?.length || 0}，失败 ${data.errors?.length || 0}` + (data.errors?.length ? `；${data.errors.slice(0, 2).join(' | ')}` : '');
+      } catch (e) { finishCloneProgress(0, targets.length * count, false); gtStatus.textContent = '选中群组克隆失败：返回结果无法解析'; }
       setTimeout(loadGtGroups, 2000);
     };
     // 链接克隆（原版完整语义：资料、简介、头像、权限、编号、间隔）
     const gtCloneLinkBtn = document.getElementById('gt-clone-link-btn');
     const gtCloneDelayMin = document.getElementById('gt-clone-delay-min');
     const gtCloneDelayMax = document.getElementById('gt-clone-delay-max');
+    const gtCloneProgress = document.getElementById('gt-clone-progress');
+    const gtCloneProgressLabel = document.getElementById('gt-clone-progress-label');
+    const gtCloneProgressCount = document.getElementById('gt-clone-progress-count');
+    const gtCloneProgressBar = document.getElementById('gt-clone-progress-bar');
+    const gtCloneStop = document.getElementById('gt-clone-stop');
+    let gtCloneRunning = false;
+    let gtClonePollTimer = null;
+    let gtClonePollBusy = false;
+    const showCloneProgress = (total, label) => { gtCloneRunning = true; gtCloneProgress?.classList.remove('hidden'); if (gtCloneProgressCount) gtCloneProgressCount.textContent = `0/${total}`; if (gtCloneProgressLabel) gtCloneProgressLabel.textContent = label; if (gtCloneProgressBar) gtCloneProgressBar.style.width = '0%'; };
+    const startClonePolling = (wv, total) => { clearInterval(gtClonePollTimer); gtClonePollTimer = setInterval(async () => { if (!gtCloneRunning || gtClonePollBusy) return; gtClonePollBusy = true; try { const p = await wv.executeJavaScript('window.__gtCloneProgress || null'); if (p) { const done = Number(p.done) || 0; if (gtCloneProgressCount) gtCloneProgressCount.textContent = `${done}/${total}`; if (gtCloneProgressLabel && p.label) gtCloneProgressLabel.textContent = p.label; if (gtCloneProgressBar) gtCloneProgressBar.style.width = `${total ? Math.min(100, Math.round(done / total * 100)) : 0}%`; } } catch (e) {} finally { gtClonePollBusy = false; } }, 500); };
+    const finishCloneProgress = (created, total, cancelled) => { clearInterval(gtClonePollTimer); gtClonePollTimer = null; if (gtCloneProgressCount) gtCloneProgressCount.textContent = `${created}/${total}`; if (gtCloneProgressLabel) gtCloneProgressLabel.textContent = cancelled ? '已停止后续克隆' : '克隆处理完成'; if (gtCloneProgressBar) gtCloneProgressBar.style.width = `${total ? Math.round(created / total * 100) : 0}%`; gtCloneRunning = false; };
+    if (gtCloneStop) gtCloneStop.onclick = async () => { if (!gtCloneRunning) return; const wv = wvMap.get(activeId); if (wv) await wv.executeJavaScript('window.__gtCloneCancel = true').catch(() => {}); if (gtCloneProgressLabel) gtCloneProgressLabel.textContent = '正在停止…'; };
     if (gtCloneLinkBtn) gtCloneLinkBtn.onclick = async () => {
       const link = (document.getElementById('gt-clone-link') || {}).value || '';
       const code = (link.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/i) || [])[1] || link.trim();
@@ -2240,7 +2261,11 @@
       const wv = wvMap.get(activeId);
       if (!wv) { gtStatus.textContent = '当前账号页面尚未就绪'; return; }
       gtStatus.textContent = `正在读取群资料…（${count} 个）`;
+      showCloneProgress(count, '正在读取邀请链接群资料…');
+      startClonePolling(wv, count);
       const res = await wv.executeJavaScript(`(async () => {
+        window.__gtCloneCancel = false;
+        window.__gtCloneProgress = { done: 0, total: ${count}, label: '正在读取邀请链接群资料…' };
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const result = { created: [], errors: [], source: null };
         try {
@@ -2268,6 +2293,7 @@
           const start = suffix ? Number(suffix[2]) + 1 : 1;
           result.source = { id: sourceId, name, hasDesc: !!desc, hasAvatar: !!avatar, restrict, announce };
           for (let i = 0; i < ${count}; i++) {
+            if (window.__gtCloneCancel) { result.cancelled = true; break; }
             const newName = base + ' #' + (start + i);
             try {
               const created = await W.group.create(newName, [meWid], undefined);
@@ -2286,6 +2312,7 @@
               if (announce) { await M.setGroupProperty(gid, 'announce', true); applied.push('仅管理员发言'); }
               result.created.push({ name: newName, id: gid, applied });
             } catch (e) { result.errors.push(newName + ':' + e.message); }
+            window.__gtCloneProgress = { done: result.created.length + result.errors.filter(x => !x.includes(':头像:')).length, total: ${count}, label: '已处理：' + newName };
             if (i < ${count} - 1) await sleep((Math.random() * (${maxDelay} - ${minDelay}) + ${minDelay}) * 1000);
           }
           return JSON.stringify(result);
@@ -2294,8 +2321,9 @@
       try {
         const data = JSON.parse(String(res));
         const ok = data.created?.length || 0, fail = data.errors?.length || 0;
-        gtStatus.textContent = `链接克隆完成：成功 ${ok}，失败 ${fail}` + (data.errors?.length ? `；${data.errors.slice(0, 2).join(' | ')}` : '');
-      } catch (e) { gtStatus.textContent = '链接克隆失败：返回结果无法解析'; }
+        finishCloneProgress(ok, count, !!data.cancelled);
+        gtStatus.textContent = `${data.cancelled ? '链接克隆已停止' : '链接克隆完成'}：成功 ${ok}，失败 ${fail}` + (data.errors?.length ? `；${data.errors.slice(0, 2).join(' | ')}` : '');
+      } catch (e) { finishCloneProgress(0, count, false); gtStatus.textContent = '链接克隆失败：返回结果无法解析'; }
       setTimeout(loadGtGroups, 2000);
     };
     // 解散群组（移除全部成员 + 退出）
