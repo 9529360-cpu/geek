@@ -2187,6 +2187,7 @@
           const W = window.WAPLUS_WPP || window.WPP;
           const M = window.require('WAWebGroupModifyInfoJob');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
+          const makeSquare = (dataUrl, size) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => { const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size; canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size); resolve(canvas.toDataURL('image/jpeg', .92)); }; img.onerror = () => reject(new Error('头像图片解码失败')); img.src = dataUrl; });
           const Meta = window.require('WAWebGroupMetadataCollection');
           const UP = W.whatsapp?.UserPrefs;
           const me = UP && (UP.getMaybeMeLidUser?.() || UP.getMaybeMePnUser?.() || UP.getMeUser?.());
@@ -2214,7 +2215,7 @@
                 const applied = [];
                 if (desc) { await M.setGroupDescription(gid, desc, String(Date.now()), void 0); applied.push('简介'); }
                 if (avatar && Pic?.sendSetPicture) {
-                  try { const blob = await (await fetch(avatar)).blob(); const file = new File([blob], 'group-avatar.jpg', {type: blob.type || 'image/jpeg'}); await Pic.sendSetPicture(gid, file, file); applied.push('头像'); } catch (e) { result.errors.push(newName + ':头像:' + e.message); }
+                  try { const blob = await (await fetch(avatar)).blob(); const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); }); const thumb = await makeSquare(dataUrl, 96), full = await makeSquare(dataUrl, 640); await Pic.sendSetPicture(W.whatsapp.WidFactory.createWid(gid), thumb, full); applied.push('头像'); } catch (e) { result.errors.push(newName + ':头像:' + e.message); }
                 }
                 if (restrict) { await W.group.setProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
                 if (announce) { await W.group.setProperty(gid, 'announcement', true); applied.push('仅管理员发言'); }
@@ -2272,6 +2273,7 @@
           const W = window.WAPLUS_WPP || window.WPP;
           const M = window.require('WAWebGroupModifyInfoJob');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
+          const makeSquare = (dataUrl, size) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => { const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size; canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size); resolve(canvas.toDataURL('image/jpeg', .92)); }; img.onerror = () => reject(new Error('头像图片解码失败')); img.src = dataUrl; });
           const info = await W.group.getGroupInfoFromInviteCode(${JSON.stringify(code)});
           const sourceId = String(info && (info.id?._serialized || info.id || ''));
           const Meta = window.require('WAWebGroupMetadataCollection');
@@ -2303,9 +2305,10 @@
               if (desc) { await M.setGroupDescription(gid, desc, String(Date.now()), void 0); applied.push('简介'); }
               if (avatar && Pic?.sendSetPicture) {
                 try {
-                  const resp = await fetch(avatar); const blob = await resp.blob();
-                  const file = new File([blob], 'group-avatar.jpg', { type: blob.type || 'image/jpeg' });
-                  await Pic.sendSetPicture(gid, file, file); applied.push('头像');
+                  const resp = await fetch(avatar), blob = await resp.blob();
+                  const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); });
+                  const thumb = await makeSquare(dataUrl, 96), full = await makeSquare(dataUrl, 640);
+                  await Pic.sendSetPicture(W.whatsapp.WidFactory.createWid(gid), thumb, full); applied.push('头像');
                 } catch (e) { result.errors.push(newName + ':头像:' + e.message); }
               }
               if (restrict) { await W.group.setProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
@@ -2595,7 +2598,7 @@
       if (!subject && !desc && !gtPicData && !onlyAdminTalk && !onlyAdminEdit && !allEdit && !allTalk && !members.length) { gtStatus.textContent = '请至少填写一项修改'; return; }
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在保存…';
-      const picB64 = gtPicData ? gtPicData.split(',')[1] || '' : '';
+      const picData = gtPicData || '';
       const results = [];
       for (const t of targets) {
         const gid = t.id;
@@ -2611,16 +2614,15 @@
           const out = [];
           if (${JSON.stringify(subject)}) { await M.setGroupSubject(wid, ${JSON.stringify(subject)}); out.push('名称'); }
           if (${JSON.stringify(desc)}) { await M.setGroupDescription(wid, ${JSON.stringify(desc)}, '${Date.now()}', void 0).catch(()=>{}); out.push('简介'); }
-          if (${JSON.stringify(picB64)}) {
+          if (${JSON.stringify(picData)}) {
             try {
-              const bin = atob(${JSON.stringify(picB64)});
-              const arr = new Uint8Array(bin.length);
-              for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-              const blob = new Blob([arr], { type: 'image/jpeg' });
-              const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
-              await Pic.sendSetPicture(wid, file, file);
+              const dataUrl = ${JSON.stringify(picData)};
+              const makeSquare = (size) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => { const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size; canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size); resolve(canvas.toDataURL('image/jpeg', .92)); }; img.onerror = () => reject(new Error('头像图片解码失败')); img.src = dataUrl; });
+              const thumb = await makeSquare(96), full = await makeSquare(640);
+              const picWid = window.require('WAWebWidFactory').createWid(${JSON.stringify(gid)});
+              await Pic.sendSetPicture(picWid, thumb, full);
               out.push('头像');
-            } catch (e) { out.push('头像失败:' + e.message.slice(0,30)); }
+            } catch (e) { throw new Error('头像:' + e.message); }
           }
           if (${JSON.stringify(onlyAdminEdit)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'restrict', true); out.push('仅管理员编辑资料'); }
           if (${JSON.stringify(allEdit)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'restrict', false); out.push('全体成员编辑资料'); }
