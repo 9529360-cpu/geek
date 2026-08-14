@@ -48,6 +48,12 @@
 #broadcast-overlay .bc-original-tag__remove:hover{background:#f56c6c;color:#fff}
 #broadcast-overlay .bc-original-saved-actions{display:flex;gap:5px;margin-top:4px}
 #broadcast-overlay .bc-original-saved-actions .bc-btn{height:26px;padding:2px 9px}
+#broadcast-overlay .bc-inline-group-save{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:4px 0 2px;padding-top:4px;border-top:1px dashed var(--border-subtle)}
+#broadcast-overlay .bc-inline-group-save>.bc-btn{height:22px;padding:1px 6px;font-size:10.5px;white-space:nowrap}
+#broadcast-overlay .bc-inline-group-tags{display:flex;align-items:center;gap:3px;flex:1;min-width:90px;overflow:hidden}
+#broadcast-overlay .bc-inline-group-tags .bc-original-tag{font-size:10.5px;max-width:130px}
+#broadcast-overlay .bc-inline-group-tags .bc-original-tag__open{padding:2px 5px;font-size:10.5px}
+#broadcast-overlay .bc-inline-group-tags .bc-original-tag__remove{width:17px;font-size:12px}
 #broadcast-overlay .bc-original-message-list{display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:25px;flex:1}
 #broadcast-overlay .bc-original-message-chip{display:inline-flex;align-items:stretch;overflow:hidden;border:1px solid var(--border-standard);border-radius:3px;background:var(--bg-elevated)}
 #broadcast-overlay .bc-original-message-chip.active{border-color:var(--accent);background:var(--accent-soft)}
@@ -56,11 +62,12 @@
 #broadcast-overlay .bc-original-message-chip__open:hover{color:var(--accent)}
 #broadcast-overlay .bc-original-message-chip__remove{width:22px;border-left:1px solid var(--border-subtle);font-size:14px}
 #broadcast-overlay .bc-original-message-chip__remove:hover{background:#f56c6c;color:#fff}
-#broadcast-overlay .bc-saved-accordion{margin:-2px 0 12px;border:1px solid color-mix(in srgb,#3051d3 42%,var(--border-standard));border-radius:3px;overflow:hidden}
-#broadcast-overlay .bc-saved-accordion-head{width:100%;height:34px;padding:0 10px;border:0;background:#acbdff;color:#263252;display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:12px}
+#broadcast-overlay .bc-saved-accordion{display:inline-block;margin:-1px 0 5px;border:0;border-radius:3px;overflow:visible}
+#broadcast-overlay .bc-saved-accordion-head{width:auto;height:23px;padding:2px 7px;border:1px solid #9aafe9;border-radius:3px;background:#e8edff;color:#3051d3;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:10.5px}
 #broadcast-overlay .bc-saved-accordion-body{padding:8px 10px;background:#dae3f5}
 #broadcast-overlay .bc-saved-accordion.collapsed .bc-saved-accordion-body{display:none}
-#broadcast-overlay .bc-message-save-row{display:flex;gap:6px;margin-top:7px}
+#broadcast-overlay .bc-message-save-row{display:flex;gap:4px;margin-top:4px}
+#broadcast-overlay .bc-message-save-row .bc-btn{height:22px;padding:1px 7px;font-size:10.5px}
 #broadcast-overlay .bc-dropzone{display:none;width:100%;min-height:58px;margin-top:6px;border:2px dashed var(--border-standard);border-radius:4px;background:var(--bg-elevated);color:var(--text-secondary);flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer}
 #broadcast-overlay .bc-dropzone:hover{border-color:var(--accent);background:var(--accent-soft)}
 #broadcast-overlay .bc-dropzone-icon{font-size:20px;line-height:1;color:var(--text-tertiary)}

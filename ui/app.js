@@ -1143,12 +1143,16 @@
         if (e.target.checked) broadcastSelected.add(c.id);
         else broadcastSelected.delete(c.id);
         renderBroadcastSelectedChips();
+        const saveGroupBtn = document.getElementById('broadcast-save-group');
+        if (saveGroupBtn) saveGroupBtn.style.display = broadcastChats.some(chat => broadcastSelected.has(chat.id) && chat.type === '群组') ? '' : 'none';
         updateBroadcastMeta();
       };
       bListEl.appendChild(item);
     });
     if (!list.length) bListEl.innerHTML = '<div class="nav-empty">没有匹配的聊天</div>';
     renderBroadcastSelectedChips();
+    const saveGroupBtn = document.getElementById('broadcast-save-group');
+    if (saveGroupBtn) saveGroupBtn.style.display = broadcastChats.some(c => broadcastSelected.has(c.id) && c.type === '群组') ? '' : 'none';
     updateBroadcastMeta();
   }
   // 全选 / 清空 / 全选群组
