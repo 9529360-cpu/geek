@@ -116,6 +116,23 @@ const LINE_EXTENSION_PATH = path.join(
   __dirname, '..', 'resources', 'extensions', 'line-3.5.1'
 );
 
+// HelloWorld 剥离的 WhatsApp 扩展（WAPlus——群发面板/完整功能）
+const WAPLUS_EXTENSION_PATH = path.join(
+  __dirname, '..', 'resources', 'waplus-ext', '1.7.96_0'
+);
+
+async function loadWaplusExtension(partition) {
+  try {
+    const ses = session.fromPartition(partition, { cache: true });
+    const ext = await ses.loadExtension(WAPLUS_EXTENSION_PATH);
+    if (ext) {
+      console.log(`[waplus] 扩展已加载到 ${partition}: ${ext.name} ${ext.version}`);
+    }
+  } catch (error) {
+    console.error(`[waplus] 扩展加载失败 (${partition}):`, error.message);
+  }
+}
+
 async function loadLineExtension(partition) {
   try {
     const ses = session.fromPartition(partition, { cache: true });
@@ -1262,6 +1279,10 @@ function configureWebviewSecurity(window) {
     // LINE 系列账号加载官方扩展（登录聊天必需）。
     if (account.type === 'line' || account.type === 'line-business') {
       loadLineExtension(partition);
+    }
+    // WhatsApp 系列账号加载 HelloWorld 剥离的 WA 扩展（WAPlus——群发面板/完整功能）
+    if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') {
+      loadWaplusExtension(partition);
     }
   });
 
