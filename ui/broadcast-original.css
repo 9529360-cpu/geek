@@ -13,6 +13,12 @@
 #broadcast-overlay .bc-pill{min-height:23px;padding:3px 9px;border-radius:3px;background:var(--accent-soft);border:1px solid var(--accent-border);color:var(--accent);font-weight:500}
 #broadcast-overlay .bc-pill--orange{background:rgba(255,153,53,.12);border-color:rgba(255,153,53,.34);color:#ff9935}
 #broadcast-overlay .bc-media-row{margin:4px 0 0;padding-top:4px;border-top:1px dashed var(--border-subtle)}
+#broadcast-overlay .bc-switch-row{gap:5px;padding:1px 0;font-size:11.5px;line-height:16px}
+#broadcast-overlay .bc-switch{width:27px;height:15px;border-radius:8px}
+#broadcast-overlay .bc-switch::after{top:2px;left:2px;width:11px;height:11px}
+#broadcast-overlay .bc-switch-input:checked + .bc-switch::after{transform:translateX(12px)}
+#broadcast-overlay .bc-switch-label{font-size:11.5px}
+#broadcast-overlay .bc-tag-cyan,#broadcast-overlay .bc-badge-new{padding:1px 5px;font-size:9.5px;line-height:14px}
 #broadcast-overlay .bc-radio-group{display:flex;flex-direction:column;gap:0}
 #broadcast-overlay .bc-radio{min-height:22px;padding:1px 3px;font-size:11.5px;font-weight:500;display:flex;align-items:center;gap:7px}
 #broadcast-overlay .bc-radio input[type=radio]{appearance:none;width:15px;height:15px;margin:0;border:1px solid var(--border-strong);border-radius:50%;background:var(--bg-surface);box-shadow:inset 0 0 0 3px var(--bg-surface)}
