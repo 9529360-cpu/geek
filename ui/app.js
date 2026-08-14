@@ -2341,28 +2341,25 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const W = window.WAPLUS_WPP || window.WPP;
-          // 先移除全部成员（Wid 实例数组——WAWebGroupModifyParticipantsJob）
-          const chat = W.whatsapp.ChatStore.get(${JSON.stringify(gid)});
-          if (chat && chat.participants && chat.participants.length) {
-            try {
-              const Mod = window.require('WAWebGroupModifyParticipantsJob');
-              const wids = chat.participants.map(p => p.id).filter(Boolean);
-              await Mod.removeGroupParticipants(chat.id, wids).catch(() => {});
-            } catch (e) {}
-          }
-          // 退出群组：WAP stanza（WAWebGroupExitJob.leaveGroup 在旧版页面假成功）
-          const ws = W.whatsapp.websocket;
-          const N = ws.WapNode;
-          const node = new N('action', { type: 'exit', t: String(Date.now()), add: 'true', id: ws.generateId() }, [ new N('group', { jid: ${JSON.stringify(gid)} }) ]);
-          const p = ws.sendSmaxStanza(node).catch(() => {});
-          await Promise.race([p, new Promise(r => setTimeout(r, 3000))]);
-          return 'OK';
-        } catch (e) { return 'ERR:' + e.message; }
+          const W = window.WAPLUS_WPP || window.WPP, gid = ${JSON.stringify(gid)};
+          const Meta = window.require('WAWebGroupMetadataCollection');
+          const UP = W.whatsapp.UserPrefs, me = UP.getMaybeMeLidUser?.() || UP.getMaybeMePnUser?.() || UP.getMeUser?.();
+          const meId = String(me?._serialized || me?.id?._serialized || me?.id || '');
+          const meta = Meta.get(gid) || await W.whatsapp.GroupMetadataStore.find(gid).catch(() => null);
+          const participants = meta?.participants?._models || meta?.participants || [];
+          const others = participants.map(p => String(p.id?._serialized || p.id || '')).filter(id => id && id !== meId);
+          if (others.length) await W.group.removeParticipants(gid, others);
+          await W.group.leave(gid);
+          await new Promise(r => setTimeout(r, 1500));
+          const after = Meta.get(gid);
+          return JSON.stringify({ ok: true, removed: others.length, remaining: after?.participants?.length ?? 0 });
+        } catch (e) { return JSON.stringify({ ok: false, error: e.message }); }
       })()`);
-      results.push(t.name + ':' + (String(res) === 'OK' ? '解散' : '失败'));
+      let row; try { row = JSON.parse(String(res)); } catch (e) { row = { ok: false, error: '返回无法解析' }; }
+      results.push(t.name + ':' + (row.ok && row.remaining === 0 ? `解散（移除${row.removed}人）` : '失败:' + (row.error || `仍有${row.remaining}人`)));
       }
       gtStatus.textContent = '解散完成：' + results.join(' | ');
+      targets.forEach(t => gtSelected.delete(t.id));
       setTimeout(loadGtGroups, 2000);
     };
     // 退出群组（leaveGroup）
@@ -2377,19 +2374,18 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const W = window.WAPLUS_WPP || window.WPP;
-          // WAP stanza 退出（WAWebGroupExitJob.leaveGroup 在旧版页面假成功）
-          const ws = W.whatsapp.websocket;
-          const N = ws.WapNode;
-          const node = new N('action', { type: 'exit', t: String(Date.now()), add: 'true', id: ws.generateId() }, [ new N('group', { jid: ${JSON.stringify(gid)} }) ]);
-          const p = ws.sendSmaxStanza(node).catch(() => {});
-          await Promise.race([p, new Promise(r => setTimeout(r, 3000))]);
-          return 'OK';
-        } catch (e) { return 'ERR:' + e.message; }
+          const W = window.WAPLUS_WPP || window.WPP, gid = ${JSON.stringify(gid)};
+          await W.group.leave(gid);
+          await new Promise(r => setTimeout(r, 1500));
+          const meta = window.require('WAWebGroupMetadataCollection').get(gid);
+          return JSON.stringify({ ok: true, remaining: meta?.participants?.length ?? 0 });
+        } catch (e) { return JSON.stringify({ ok: false, error: e.message }); }
       })()`);
-      results.push(t.name + ':' + (String(res) === 'OK' ? '退出' : '失败'));
+      let row; try { row = JSON.parse(String(res)); } catch (e) { row = { ok: false, error: '返回无法解析' }; }
+      results.push(t.name + ':' + (row.ok && row.remaining === 0 ? '退出' : '失败:' + (row.error || `仍有${row.remaining}人`)));
       }
       gtStatus.textContent = '退出完成：' + results.join(' | ');
+      targets.forEach(t => gtSelected.delete(t.id));
       setTimeout(loadGtGroups, 2000);
     };
     // 统一链接（获取/保存/删除——原版 linkunicoparagrupos）
