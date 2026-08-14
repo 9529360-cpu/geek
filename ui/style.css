@@ -1514,3 +1514,612 @@ select:focus option:checked {
   font-weight: 600;
   padding: 9px 20px;
 }
+
+
+/* ===== 群发弹窗新设计（Gemini 设计 2026-08-14）===== */
+
+/* ============================================================
+   群发弹窗 · Element UI 风格（主色 #409EFF）
+   说明：
+   - 所有样式类以 bc- 前缀，与现有功能绑定 ID 互不冲突
+   - JS 动态追加的列表项：建议套用 .bc-item / .bc-tag / .bc-chip
+     等类；若沿用旧结构，列表行 / 勾选框也有基础兜底样式
+   ============================================================ */
+#broadcast-overlay,
+#broadcast-overlay * {
+  box-sizing: border-box;
+}
+#broadcast-overlay h1,
+#broadcast-overlay h2,
+#broadcast-overlay h3,
+#broadcast-overlay h4,
+#broadcast-overlay p {
+  margin: 0;
+}
+#broadcast-overlay button,
+#broadcast-overlay input,
+#broadcast-overlay textarea {
+  font-family: inherit;
+}
+#broadcast-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  color: #303133;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  animation: bc-fade-in 0.18s ease;
+}
+@keyframes bc-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes bc-pop-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #broadcast-overlay,
+  .bc-dialog { animation: none !important; }
+}
+
+/* ---------- 弹窗骨架 ---------- */
+.bc-dialog {
+  width: 700px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 60px);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  animation: bc-pop-in 0.22s ease;
+}
+
+/* ---------- 头部 ---------- */
+.bc-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid #EBEEF5;
+  flex-shrink: 0;
+}
+.bc-header__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #ECF5FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.bc-header__text { flex: 1; min-width: 0; }
+.bc-header__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #303133;
+  letter-spacing: 0.3px;
+}
+.bc-header__sub {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+}
+.bc-header__close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #909399;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.bc-header__close:hover { background: #F5F7FA; color: #303133; }
+
+/* ---------- 滚动内容区 ---------- */
+.bc-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  background: #F5F7FA;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bc-body::-webkit-scrollbar { width: 8px; }
+.bc-body::-webkit-scrollbar-thumb { background: #DCDFE6; border-radius: 4px; }
+.bc-body::-webkit-scrollbar-thumb:hover { background: #C0C4CC; }
+.bc-body::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 封号风险警告条 ---------- */
+.bc-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 14px;
+  background: #FDF6EC;
+  border: 1px solid #FAECD8;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #606266;
+  flex-shrink: 0;
+}
+.bc-warning__icon { flex-shrink: 0; margin-top: 2px; }
+.bc-warning b { color: #E6A23C; font-weight: 600; }
+
+/* ---------- 分区卡片 ---------- */
+.bc-section {
+  background: #fff;
+  border: 1px solid #EBEEF5;
+  border-radius: 8px;
+  padding: 14px 16px 16px;
+  flex-shrink: 0;
+}
+.bc-section__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.bc-section__num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #409EFF;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.bc-section__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+.bc-section__hint {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: #909399;
+  text-align: right;
+}
+
+/* ---------- 行 / 输入控件 ---------- */
+.bc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bc-row + .bc-row { margin-top: 10px; }
+
+.bc-field {
+  font-size: 13px;
+  color: #606266;
+  width: 56px;
+  flex-shrink: 0;
+}
+
+.bc-input {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #DCDFE6;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #303133;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.bc-input::placeholder { color: #C0C4CC; }
+.bc-input:hover { border-color: #C0C4CC; }
+.bc-input:focus {
+  border-color: #409EFF;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.18);
+}
+.bc-input--grow { flex: 1; min-width: 160px; }
+.bc-input--num { width: 88px; text-align: center; }
+.bc-input--num::-webkit-outer-spin-button,
+.bc-input--num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.bc-input--num { -moz-appearance: textfield; appearance: textfield; }
+.bc-input--time { width: 108px; }
+
+/* 搜索框（带放大镜图标） */
+.bc-search { position: relative; flex: 1; min-width: 200px; }
+.bc-search__icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #909399;
+  pointer-events: none;
+}
+.bc-search .bc-input { width: 100%; padding-left: 32px; }
+
+/* ---------- 按钮 ---------- */
+.bc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 16px;
+  border: 1px solid #DCDFE6;
+  border-radius: 4px;
+  background: #fff;
+  color: #606266;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: all 0.15s;
+}
+.bc-btn:hover { color: #409EFF; border-color: #409EFF; background: #F0F7FF; }
+.bc-btn:active { background: #E3F0FF; }
+.bc-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.35); }
+.bc-btn--primary {
+  background: #409EFF;
+  border-color: #409EFF;
+  color: #fff;
+}
+.bc-btn--primary:hover { background: #66B1FF; border-color: #66B1FF; color: #fff; }
+.bc-btn--primary:active { background: #3A8EE6; border-color: #3A8EE6; color: #fff; }
+.bc-btn--plain { color: #409EFF; border-color: #409EFF; background: #fff; }
+.bc-btn--plain:hover { background: #409EFF; color: #fff; }
+.bc-btn--text {
+  border-color: transparent;
+  background: transparent;
+  color: #409EFF;
+  padding: 0 8px;
+}
+.bc-btn--text:hover { background: #F0F7FF; color: #409EFF; }
+.bc-btn--danger-text { color: #F56C6C; }
+.bc-btn--danger-text:hover { background: #FEF0F0; color: #F56C6C; }
+.bc-btn--sm { height: 26px; padding: 0 10px; font-size: 12px; }
+.bc-btn--large {
+  height: 40px;
+  padding: 0 34px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.35);
+}
+.bc-btn--large:hover { box-shadow: 0 4px 14px rgba(64, 158, 255, 0.45); }
+.bc-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ---------- 勾选框（Element UI 风格） ---------- */
+.bc-checkbox,
+#broadcast-list input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #DCDFE6;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  outline: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.bc-checkbox:hover,
+#broadcast-list input[type="checkbox"]:hover { border-color: #409EFF; }
+.bc-checkbox:checked,
+#broadcast-list input[type="checkbox"]:checked {
+  background: #409EFF;
+  border-color: #409EFF;
+}
+.bc-checkbox:checked::after,
+#broadcast-list input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4.5px;
+  top: 1.5px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.bc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #606266;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* ---------- 开关（定时发送） ---------- */
+.bc-switch {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.bc-switch__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+.bc-switch__track {
+  position: absolute;
+  inset: 0;
+  background: #DCDFE6;
+  border-radius: 10px;
+  transition: background 0.2s;
+  pointer-events: none;
+}
+.bc-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
+}
+.bc-switch__input:checked + .bc-switch__track { background: #409EFF; }
+.bc-switch__input:checked + .bc-switch__track .bc-switch__knob { transform: translateX(20px); }
+.bc-switch__input:focus-visible + .bc-switch__track { box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.35); }
+
+/* ---------- 已选列表（发送至） ---------- */
+.bc-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-bottom: 6px;
+}
+.bc-meta { font-size: 13px; color: #606266; }
+.bc-meta b { color: #409EFF; font-weight: 600; }
+.bc-list {
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid #EBEEF5;
+  border-radius: 6px;
+  background: #FDFEFF;
+  padding: 0 10px;
+}
+.bc-list::-webkit-scrollbar { width: 6px; }
+.bc-list::-webkit-scrollbar-thumb { background: #DCDFE6; border-radius: 3px; }
+.bc-list::-webkit-scrollbar-track { background: transparent; }
+
+/* 列表行：本类 + JS 兜底（旧结构直接 append 的 div 行也能正常排版） */
+.bc-item,
+#broadcast-list > div:not(.bc-empty) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 2px;
+  border-bottom: 1px solid #F0F2F5;
+}
+.bc-item:last-child,
+#broadcast-list > div:last-child { border-bottom: none; }
+.bc-item__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bc-empty {
+  padding: 16px 0;
+  text-align: center;
+  font-size: 12px;
+  color: #C0C4CC;
+}
+
+/* 类型标签 */
+.bc-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.bc-tag--contact { color: #409EFF; background: #ECF5FF; border: 1px solid #D9ECFF; }
+.bc-tag--group   { color: #E6A23C; background: #FDF6EC; border: 1px solid #FAECD8; }
+
+/* ---------- 已保存群组 ---------- */
+.bc-saved {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #E4E7ED;
+}
+.bc-saved__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.bc-saved__title { font-size: 13px; font-weight: 600; color: #606266; }
+
+/* ---------- 消息内容 ---------- */
+.bc-textarea {
+  width: 100%;
+  min-height: 118px;
+  padding: 10px 12px;
+  border: 1px solid #DCDFE6;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.7;
+  color: #303133;
+  background: #fff;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.bc-textarea::placeholder { color: #C0C4CC; }
+.bc-textarea:hover { border-color: #C0C4CC; }
+.bc-textarea:focus {
+  border-color: #409EFF;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.18);
+}
+.bc-var-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.bc-var-label { font-size: 12px; color: #909399; }
+.bc-var-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 3px;
+  background: #ECF5FF;
+  border: 1px solid #D9ECFF;
+  color: #409EFF;
+  font-size: 12px;
+  font-family: Consolas, Menlo, monospace;
+}
+.bc-var-desc { font-size: 12px; color: #909399; margin-right: 4px; }
+
+/* ---------- 文件 / 定时 / 群组 胶囊 ---------- */
+.bc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.bc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border: 1px solid #E4E7ED;
+  border-radius: 13px;
+  background: #F5F7FA;
+  font-size: 12px;
+  color: #606266;
+}
+.bc-chip em { font-style: normal; color: #909399; }
+.bc-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #909399;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.bc-chip__remove:hover { background: #FDE2E2; color: #F56C6C; }
+.bc-chip__add {
+  border: none;
+  background: #ECF5FF;
+  color: #409EFF;
+  font-size: 12px;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.bc-chip__add:hover { background: #D9ECFF; }
+
+/* ---------- 底部：进度 + 按钮 ---------- */
+.bc-footer {
+  flex-shrink: 0;
+  padding: 12px 20px 16px;
+  background: #fff;
+  border-top: 1px solid #EBEEF5;
+}
+.bc-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.bc-progress-label { font-size: 13px; color: #606266; flex-shrink: 0; }
+.bc-progress {
+  flex: 1;
+  height: 8px;
+  background: #EBEEF5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bc-progress__bar {
+  height: 100%;
+  width: 0%;
+  background: #409EFF;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.bc-progress__bar.bc-progress__bar--done { background: #67C23A; }
+.bc-progress-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #409EFF;
+  flex-shrink: 0;
+  min-width: 34px;
+  text-align: right;
+}
+.bc-footer__btns {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.bc-footer__tip { margin-right: auto; font-size: 12px; color: #909399; }
+
+/* ---------- 纯预览演示脚本样式 ---------- */
+.preview-note {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 10001;
+  font-size: 12px;
+  color: #909399;
+  background: #fff;
+  border: 1px solid #E4E7ED;
+  border-radius: 4px;
+  padding: 6px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}

@@ -304,71 +304,229 @@
   </div>
 </div>
 
-<!-- 群发消息弹窗（三步式：选聊天→写消息→设置，对齐 HelloWorld 直观度） -->
-<div id="broadcast-overlay" class="overlay hidden">
-  <div class="add-dialog broadcast-dialog">
-    <div class="settings-header">
-      <span>群发消息</span>
-      <button id="broadcast-close" class="settings-close">×</button>
-    </div>
-    <div class="broadcast-body">
-      <!-- ① 选择聊天 -->
-      <div class="bc-section-title"><span class="bc-step">1</span> 选择聊天 <span class="bc-meta" id="broadcast-meta">加载中…</span></div>
-      <div class="bc-search-row">
-        <input type="text" id="broadcast-search" class="broadcast-search" placeholder="搜索聊天…">
-        <button id="broadcast-select-all" class="bc-btn" title="全选当前列表">全选</button>
-        <button id="broadcast-select-groups" class="bc-btn" title="只选群组">群组</button>
-        <button id="broadcast-select-contacts" class="bc-btn" title="只选联系人">联系人</button>
-        <button id="broadcast-select-none" class="bc-btn" title="清空选择">清空</button>
+<div id="broadcast-overlay">
+  <div class="bc-dialog" role="dialog" aria-modal="true" aria-label="群发消息">
+
+    <!-- 头部：标题 + 关闭 -->
+    <header class="bc-header">
+      <div class="bc-header__icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#409EFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+        </svg>
       </div>
-      <div class="broadcast-list" id="broadcast-list"></div>
-      <div class="bc-saved-row">
-        <select id="broadcast-saved-groups" class="bc-saved-select" title="已保存的群组预设"><option value="">我的群组…</option></select>
-        <button id="broadcast-save-group" class="bc-btn" title="保存当前勾选的聊天为预设">💾 保存</button>
-        <button id="broadcast-join-groups" class="bc-btn" title="批量加入群组（输入群链接）">➕ 加群</button>
+      <div class="bc-header__text">
+        <h2 class="bc-header__title">群发消息</h2>
+        <p class="bc-header__sub">向多个联系人与群组批量发送消息</p>
       </div>
-      <!-- ② 消息内容 -->
-      <div class="bc-section-title"><span class="bc-step">2</span> 消息内容</div>
-      <textarea id="broadcast-message" class="broadcast-message" placeholder="输入要群发的消息内容…（%nc 自动替换为对方名称；多行内容 = 每条随机发一句）"></textarea>
-      <div class="bc-msg-tools">
-        <div class="bc-var-row">
-          <span>插入:</span>
-          <button id="broadcast-insert-var" class="bc-btn bc-var-btn" title="发送时自动替换为每个联系人的名称">联系人名称（%nc）</button>
+      <button type="button" id="broadcast-close" class="bc-header__close" aria-label="关闭" title="关闭">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </header>
+
+    <!-- 内容区 -->
+    <div class="bc-body">
+
+      <!-- 封号风险警告 -->
+      <div class="bc-warning">
+        <svg class="bc-warning__icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E6A23C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span>批量群发存在 <b>封号风险</b>，请控制发送频率与内容，避免打扰用户。建议：单次发送不超过 500 条、间隔不低于 3 秒、内容避免营销链接。</span>
+      </div>
+
+      <!-- 一、发送至 -->
+      <section class="bc-section">
+        <div class="bc-section__head">
+          <span class="bc-section__num">1</span>
+          <span class="bc-section__name">发送至</span>
+          <span class="bc-section__hint">选择接收消息的联系人或群组</span>
         </div>
-        <div class="bc-attach-row">
-          <button id="broadcast-add-file" class="bc-btn bc-attach">📎 图片/文件</button>
-          <button id="broadcast-import-csv" class="bc-btn bc-attach">📄 导入联系人</button>
-          <div id="broadcast-file-list" class="broadcast-file-list"></div>
+
+        <!-- 搜索 + 全选 -->
+        <div class="bc-row">
+          <div class="bc-search">
+            <svg class="bc-search__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input id="broadcast-search" class="bc-input" type="text" placeholder="搜索联系人 / 群组">
+          </div>
+          <label class="bc-check">
+            <input type="checkbox" id="broadcast-select-all" class="bc-checkbox">
+            <span>全选</span>
+          </label>
         </div>
-      </div>
-      <!-- ③ 发送设置 -->
-      <div class="bc-section-title"><span class="bc-step">3</span> 发送设置</div>
-      <div class="bc-settings-row">
-        <label class="bc-interval-label">间隔
-          <input type="number" id="broadcast-interval-min" class="broadcast-interval" value="2" min="0.5" max="600" step="0.5" title="最小间隔（秒）"> ~
-          <input type="number" id="broadcast-interval-max" class="broadcast-interval" value="5" min="0.5" max="600" step="0.5" title="最大间隔（秒）"> 秒
-        </label>
-        <label class="bc-schedule"><input type="checkbox" id="broadcast-schedule-on"> 定时
-          <input type="datetime-local" id="broadcast-schedule-time" class="broadcast-schedule-time">
-        </label>
-      </div>
-      <div class="bc-sched-row">
-        <span class="bc-meta">多消息定时：</span>
-        <div id="broadcast-schedule-list" class="bc-schedule-list"></div>
-        <button id="broadcast-add-schedule" class="bc-btn" title="添加一条定时消息（到点自动发送该消息到指定群组）">＋ 定时消息</button>
-      </div>
-      <!-- 进度 -->
-      <div class="broadcast-progress hidden" id="broadcast-progress">
-        <div class="bc-progress-bar"><div class="bc-progress-fill" id="broadcast-progress-fill"></div></div>
-        <div class="bc-progress-text" id="broadcast-progress-text"></div>
-      </div>
+
+        <!-- 选择入口 -->
+        <div class="bc-row">
+          <button type="button" id="broadcast-select-contacts" class="bc-btn bc-btn--plain">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            选择联系人
+          </button>
+          <button type="button" id="broadcast-select-groups" class="bc-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            选择群组
+          </button>
+        </div>
+
+        <!-- 已选摘要 -->
+        <div class="bc-meta-bar">
+          <span id="broadcast-meta" class="bc-meta">已选 <b>2</b> 个目标（1 联系人 · 1 群组）</span>
+          <button type="button" id="broadcast-clear" class="bc-btn bc-btn--text bc-btn--danger-text">清空</button>
+        </div>
+
+        <!-- 已选列表（JS 在此追加行，建议套用 .bc-item） -->
+        <div id="broadcast-list" class="bc-list">
+          <div class="bc-item">
+            <input type="checkbox" class="bc-checkbox" checked>
+            <span class="bc-item__name">张三</span>
+            <span class="bc-tag bc-tag--contact">联系人</span>
+          </div>
+          <div class="bc-item">
+            <input type="checkbox" class="bc-checkbox" checked>
+            <span class="bc-item__name">客户交流群</span>
+            <span class="bc-tag bc-tag--group">群组</span>
+          </div>
+        </div>
+
+        <!-- 已保存群组 -->
+        <div class="bc-saved">
+          <div class="bc-saved__head">
+            <span class="bc-saved__title">已保存群组</span>
+            <span class="bc-section__hint">保存常用群组，下次一键加入</span>
+          </div>
+          <div class="bc-row">
+            <input id="broadcast-group-name" class="bc-input bc-input--grow" type="text" placeholder="输入群组名称，如：老客户A组">
+            <button type="button" id="broadcast-save-group" class="bc-btn">保存群组</button>
+            <button type="button" id="broadcast-join-groups" class="bc-btn bc-btn--plain">加入群组</button>
+          </div>
+          <div id="broadcast-saved-groups" class="bc-chips">
+            <span class="bc-chip">老客户A组 <button type="button" class="bc-chip__add">加入</button></span>
+            <span class="bc-chip">活跃用户群 <button type="button" class="bc-chip__add">加入</button></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 二、消息内容 -->
+      <section class="bc-section">
+        <div class="bc-section__head">
+          <span class="bc-section__num">2</span>
+          <span class="bc-section__name">消息内容</span>
+          <span class="bc-section__hint">可插入变量，多行内容随机发送</span>
+        </div>
+
+        <textarea id="broadcast-message" class="bc-textarea" placeholder="在这里输入要发送的消息内容…
+
+· %nc 代表对方的联系人姓名
+· 输入多行内容时，将随机发送其中一条
+· 空行会按原样保留"></textarea>
+
+        <div class="bc-var-line">
+          <span class="bc-var-label">可用变量：</span>
+          <span class="bc-var-chip">%nc</span>
+          <span class="bc-var-desc">联系人姓名</span>
+          <button type="button" id="broadcast-insert-var" class="bc-btn bc-btn--sm bc-btn--plain">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            插入变量
+          </button>
+        </div>
+
+        <div class="bc-row" style="margin-top:10px">
+          <button type="button" id="broadcast-add-file" class="bc-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+            添加文件
+          </button>
+          <button type="button" id="broadcast-import-csv" class="bc-btn bc-btn--text">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            导入 CSV 联系人
+          </button>
+          <span class="bc-section__hint">支持 .txt / .docx / .pdf / .xlsx</span>
+        </div>
+
+        <!-- 文件列表（JS 在此追加，建议套用 .bc-chip） -->
+        <div id="broadcast-files" class="bc-chips">
+          <span class="bc-chip">产品介绍.pdf <em>2.4 MB</em>
+            <button type="button" class="bc-chip__remove" title="移除">×</button>
+          </span>
+          <span class="bc-chip">优惠清单.xlsx <em>156 KB</em>
+            <button type="button" class="bc-chip__remove" title="移除">×</button>
+          </span>
+        </div>
+      </section>
+
+      <!-- 三、发送设置 -->
+      <section class="bc-section">
+        <div class="bc-section__head">
+          <span class="bc-section__num">3</span>
+          <span class="bc-section__name">发送设置</span>
+          <span class="bc-section__hint">控制发送频率，降低封号风险</span>
+        </div>
+
+        <div class="bc-row">
+          <span class="bc-field" style="flex-shrink:0">发送间隔</span>
+          <input id="broadcast-interval-min" class="bc-input bc-input--num" type="number" min="0" placeholder="3">
+          <span style="color:#909399">至</span>
+          <input id="broadcast-interval-max" class="bc-input bc-input--num" type="number" min="0" placeholder="10">
+          <span style="color:#606266">秒</span>
+          <span class="bc-section__hint">每次发送后随机等待该区间时长</span>
+        </div>
+
+        <div class="bc-row" style="margin-top:12px">
+          <span class="bc-field" style="flex-shrink:0">定时发送</span>
+          <label class="bc-switch">
+            <input type="checkbox" id="broadcast-schedule-toggle" class="bc-switch__input">
+            <span class="bc-switch__track"><span class="bc-switch__knob"></span></span>
+          </label>
+          <input type="time" id="broadcast-schedule-time" class="bc-input bc-input--time" value="09:00">
+          <button type="button" id="broadcast-add-schedule" class="bc-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            添加定时
+          </button>
+          <span class="bc-section__hint">到点自动发送，可添加多个时间点</span>
+        </div>
+
+        <!-- 定时列表（JS 在此追加，建议套用 .bc-chip） -->
+        <div id="broadcast-schedule-list" class="bc-chips">
+          <span class="bc-chip">09:00 <button type="button" class="bc-chip__remove" title="移除">×</button></span>
+          <span class="bc-chip">20:30 <button type="button" class="bc-chip__remove" title="移除">×</button></span>
+        </div>
+      </section>
+
     </div>
-    <div class="settings-footer">
-      <button id="broadcast-cancel" class="btn-plain">取消</button>
-      <button id="broadcast-pause" class="btn-plain hidden">暂停</button>
-      <button id="broadcast-export" class="btn-plain hidden">导出失败名单</button>
-      <button id="broadcast-send" class="btn-add bc-send-big">🚀 开始群发</button>
-    </div>
+
+    <!-- 底部：进度 + 取消 + 开始群发 -->
+    <footer class="bc-footer">
+      <div id="broadcast-progress" class="bc-progress-wrap">
+        <span class="bc-progress-label">发送进度</span>
+        <div class="bc-progress">
+          <div id="broadcast-progress-bar" class="bc-progress__bar" style="width:0%"></div>
+        </div>
+        <span id="broadcast-progress-text" class="bc-progress-text">0%</span>
+      </div>
+      <div class="bc-footer__btns">
+        <span class="bc-footer__tip">发送期间请勿关闭窗口</span>
+        <button type="button" id="broadcast-pause" class="bc-btn" style="display:none">暂停</button>
+        <button type="button" id="broadcast-export" class="bc-btn" style="display:none">导出失败名单</button>
+        <button type="button" id="broadcast-cancel" class="bc-btn">取消</button>
+        <button type="button" id="broadcast-send" class="bc-btn bc-btn--primary bc-btn--large">开始群发</button>
+      </div>
+    </footer>
+
   </div>
 </div>
 

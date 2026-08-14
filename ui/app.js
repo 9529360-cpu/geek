@@ -785,7 +785,7 @@
     } catch (e) { alert('导入失败: ' + e.message); }
   };
   function renderBroadcastFiles() {
-    const el = document.getElementById('broadcast-file-list');
+    const el = document.getElementById('broadcast-files');
     el.innerHTML = broadcastFiles.map((f, i) =>
       `<span class="bf-item" title="${escapeHtml(f.name)}">${escapeHtml(f.name)} <i data-i="${i}">×</i></span>`
     ).join('');
@@ -851,7 +851,7 @@
     bMessageEl.value += '%nc';
     bMessageEl.focus();
   };
-  document.getElementById('broadcast-select-none').onclick = () => {
+  document.getElementById('broadcast-clear').onclick = () => {
     broadcastSelected.clear();
     renderBroadcastList();
   };
@@ -1016,7 +1016,7 @@
   let broadcastTimer = null;
   function setProgress(percent, text) {
     bProgressEl.classList.remove('hidden');
-    document.getElementById('broadcast-progress-fill').style.width = percent + '%';
+    document.getElementById('broadcast-progress-bar').style.width = percent + '%';
     document.getElementById('broadcast-progress-text').textContent = text;
   }
   async function sendBroadcast() {
@@ -1032,7 +1032,7 @@
     }
     // 单条定时发送：勾选了定时且时间在未来 → 安排到点自动开始
     try {
-      const schedOn = document.getElementById('broadcast-schedule-on')?.checked;
+      const schedOn = document.getElementById('broadcast-schedule-toggle')?.checked;
       const schedTime = document.getElementById('broadcast-schedule-time')?.value;
       if (schedOn && schedTime) {
         const target = new Date(schedTime).getTime();
