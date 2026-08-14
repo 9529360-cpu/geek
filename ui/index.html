@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./broadcast-original.css">
+  <link rel="stylesheet" href="./group-tools-original.css">
 </head>
 <body>
 <main class="app">
@@ -507,27 +508,22 @@
 
 <!-- 群组工具（原版级：6 Tab——聊天设置/指令/输入链接/克隆/编辑/销毁） -->
 <div id="gt-overlay" class="overlay hidden">
-  <div class="settings-dialog" style="width:600px">
-    <div class="settings-header"><span>群组工具</span><button id="gt-close" class="settings-close">×</button></div>
-    <div class="gt-body" style="padding:0 0 10px;max-height:78vh;overflow-y:auto">
-      <!-- 蓝色横幅（原版） -->
-      <div style="background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:#fff;padding:14px 20px;margin-bottom:10px">
-        <div style="font-size:13px;line-height:1.6">便捷高效地管理群组，支持<strong>自动删群</strong>、<strong>自动加群</strong>、<strong>自定义操作指令</strong>、<strong>群组降级</strong>、<strong>批量编辑</strong>以及<strong>解散群组</strong>。</div>
-        <div style="font-size:10px;opacity:.6;margin-top:4px;letter-spacing:1px">HELLOWORLD STYLE</div>
-      </div>
-      <!-- 6 Tab -->
-      <div style="display:flex;gap:6px;padding:0 14px;margin-bottom:10px;flex-wrap:wrap">
-        <button class="gt-tab gt-tab-active" data-tab="gtsettings" style="background:var(--accent);color:#fff">⚙️ 聊天设置</button>
-        <button class="gt-tab" data-tab="gtcmd" style="background:var(--bg-elevated);border:1px solid var(--border-subtle)">⌘ 指令</button>
-        <button class="gt-tab" data-tab="gtlinks" style="background:var(--bg-elevated);border:1px solid var(--border-subtle)">🔗 输入链接</button>
-        <button class="gt-tab" data-tab="gtclone" style="background:var(--bg-elevated);border:1px solid var(--border-subtle)">📋 克隆群组</button>
-        <button class="gt-tab" data-tab="gtedit" style="background:var(--bg-elevated);border:1px solid var(--border-subtle)">✏️ 编辑群组</button>
-        <button class="gt-tab" data-tab="gtdestroy" style="background:var(--bg-elevated);border:1px solid var(--border-subtle)">💥 销毁群组</button>
+  <div class="settings-dialog gt-original-dialog">
+    <div class="settings-header gt-original-title"><span>群组工具</span><button id="gt-close" class="settings-close">×</button></div>
+    <div class="gt-body gt-original-body">
+      <!-- 原版 nav-pills 六标签 -->
+      <div class="gt-original-tabs">
+        <button class="gt-tab gt-tab-active" data-tab="gtsettings"><span class="gt-tab-icon">⚙</span>聊天设置</button>
+        <button class="gt-tab" data-tab="gtcmd"><span class="gt-tab-icon">⌘</span>指令</button>
+        <button class="gt-tab" data-tab="gtlinks"><span class="gt-tab-icon">↪</span>输入链接</button>
+        <button class="gt-tab" data-tab="gtclone"><span class="gt-tab-icon">⧉</span>克隆群组</button>
+        <button class="gt-tab" data-tab="gtedit"><span class="gt-tab-icon">✎</span>编辑群组</button>
+        <button class="gt-tab" data-tab="gtdestroy"><span class="gt-tab-icon">☢</span>销毁群组</button>
       </div>
       <!-- Tab 内容 -->
-      <div style="padding:0 14px">
-        <!-- 群组选择（共用——多选） -->
-        <div class="bc-card" style="padding:10px 12px;margin-bottom:10px">
+      <div class="gt-original-content">
+        <!-- 群组选择：仅编辑/销毁/增强克隆时显示 -->
+        <div id="gt-shared-selector" class="bc-card gt-original-selector hidden">
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
             <span style="font-size:13px;color:var(--text-secondary)">选择群组：</span>
             <span id="gt-sel-count" style="font-size:12px;color:var(--accent)">已选 0 个</span>
@@ -591,23 +587,27 @@
             </div>
           </div>
         </div>
-        <!-- 克隆 -->
+        <!-- 克隆：原版主流程=邀请链接 + 数量 + 间隔 -->
         <div class="gt-pane hidden" id="pane-gtclone">
-          <div class="bc-card" style="padding:12px">
-            <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:8px">克隆选中的群组（复制名称/简介创建新群，成员仅自己）：</div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:12.5px;color:var(--text-secondary)">克隆数量</span>
-              <input id="gt-clone-count" type="number" min="1" max="10" value="1" style="width:64px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
-              <button id="gt-clone" class="bc-btn" style="background:var(--accent);color:#fff;border:none">📋 开始克隆</button>
+          <div class="bc-card gt-original-pane-card">
+            <p class="gt-original-help">粘贴群组邀请链接，按原版规则复制群名称、简介、头像，并设置仅管理员可编辑群资料。</p>
+            <div class="gt-original-input-group">
+              <input id="gt-clone-link" class="settings-input" placeholder="https://chat.whatsapp.com/xxxx">
+              <button id="gt-clone-link-btn" class="bc-btn gt-original-primary">开始克隆</button>
             </div>
-            <div style="margin-top:12px;border-top:1px solid var(--border-subtle);padding-top:10px">
-              <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:6px">或粘贴群组链接克隆（原版方式）：</div>
-              <div style="display:flex;gap:8px;align-items:center">
-                <input id="gt-clone-link" class="settings-input" placeholder="https://chat.whatsapp.com/xxxx" style="flex:1">
-                <button id="gt-clone-link-btn" class="bc-btn bc-btn--small" style="background:var(--bg-elevated);border:1px solid var(--border-standard)">📋 链接克隆</button>
-              </div>
+            <div class="gt-original-field">
+              <label>克隆数量</label>
+              <div class="gt-original-range-row"><input id="gt-clone-count" type="range" min="1" max="10" value="1"><output id="gt-clone-count-value">1</output></div>
             </div>
-            <div style="margin-top:8px;font-size:11.5px;color:var(--text-tertiary)">克隆 = 复制群名称/简介创建新群（成员仅自己）。</div>
+            <div class="gt-original-field">
+              <label>每次克隆间隔</label>
+              <div class="gt-original-delay-row"><input id="gt-clone-delay-min" type="number" min="1" value="3"><span>至</span><input id="gt-clone-delay-max" type="number" min="1" value="8"><span>秒</span></div>
+            </div>
+            <details class="gt-original-advanced">
+              <summary>增强功能：从当前已加入群组克隆</summary>
+              <p>这是极客增强功能；原版主流程仍以邀请链接克隆为准。</p>
+              <button id="gt-clone" class="bc-btn">克隆已选群组</button>
+            </details>
           </div>
         </div>
         <!-- 编辑 -->
@@ -653,7 +653,7 @@
       </div>
       <div id="gt-status" style="padding:0 14px;margin-top:10px;font-size:12.5px;color:var(--text-secondary)"></div>
       <!-- 底部：账号 + 关闭 -->
-      <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 14px 0;border-top:1px solid var(--border-subtle)">
+      <div class="gt-original-account-bar">
         <div style="width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px">WA</div>
         <div style="font-size:12px;color:var(--text-secondary)"><div id="gt-account-name" style="font-weight:600">—</div><div id="gt-account-id" style="font-size:11px">—</div></div>
         <button id="gt-close-bottom" class="bc-btn" style="margin-left:auto;background:var(--bg-elevated);border:1px solid var(--border-standard)">关闭</button>

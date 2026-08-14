@@ -2104,6 +2104,7 @@
       const account = accounts.find(a => a.id === activeId);
       const wv = wvMap.get(activeId);
       if (!account || !wv) { alert('请先切换到一个 WhatsApp 账号'); return false; }
+      updateGtAccount();
       try {
         const res = await Promise.race([
           wv.executeJavaScript(`(async () => {
@@ -2207,39 +2208,76 @@
       gtStatus.textContent = '克隆完成：' + results.join(' | ');
       setTimeout(loadGtGroups, 2000);
     };
-    // 链接克隆（原版方式：粘贴群链接 → 查群信息 → 建同名群 → 复制简介）
+    // 链接克隆（原版完整语义：资料、简介、头像、权限、编号、间隔）
     const gtCloneLinkBtn = document.getElementById('gt-clone-link-btn');
+    const gtCloneDelayMin = document.getElementById('gt-clone-delay-min');
+    const gtCloneDelayMax = document.getElementById('gt-clone-delay-max');
     if (gtCloneLinkBtn) gtCloneLinkBtn.onclick = async () => {
       const link = (document.getElementById('gt-clone-link') || {}).value || '';
-      const code = link.split('chat.whatsapp.com/')[1] || link.trim();
+      const code = (link.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/i) || [])[1] || link.trim();
       if (!code) { gtStatus.textContent = '请粘贴群组链接'; return; }
-      const count = parseInt(gtCloneCount.value) || 1;
+      const count = Math.max(1, Math.min(10, parseInt(gtCloneCount.value) || 1));
+      const minDelay = Math.max(0, parseInt(gtCloneDelayMin?.value) || 3);
+      const maxDelay = Math.max(minDelay, parseInt(gtCloneDelayMax?.value) || 8);
       const wv = wvMap.get(activeId);
-      gtStatus.textContent = '正在链接克隆…';
+      if (!wv) { gtStatus.textContent = '当前账号页面尚未就绪'; return; }
+      gtStatus.textContent = `正在读取群资料…（${count} 个）`;
       const res = await wv.executeJavaScript(`(async () => {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const result = { created: [], errors: [], source: null };
         try {
           const W = window.WAPLUS_WPP || window.WPP;
-          const info = await W.group.getGroupInfoFromInviteCode(${JSON.stringify(code)});
-          const name = (info && info.subject) ? info.subject : '克隆群组';
-          const desc = (info && info.desc) ? info.desc : '';
-          const UP = W.whatsapp && W.whatsapp.UserPrefs;
-          const me = UP.getMeUser();
-          const meWid = String(me._serialized || me);
           const M = window.require('WAWebGroupModifyInfoJob');
-          const out = [];
-          for (let i = 1; i <= ${count}; i++) {
-            const n = ${count} > 1 ? name + ' #' + i : name;
-            const r = await W.group.create(n, [meWid], undefined);
-            const gid2 = String(r.gid._serialized || r.gid);
-            if (desc && gid2) {
-              try { await M.setGroupDescription(gid2, desc, String(Date.now()), void 0); } catch (e) {}
-            }
-            out.push(n + '(' + gid2.split('@')[0] + ')');
+          const Pic = window.require('WAWebContactProfilePicThumbBridge');
+          const info = await W.group.getGroupInfoFromInviteCode(${JSON.stringify(code)});
+          const sourceId = String(info && (info.id?._serialized || info.id || ''));
+          const Meta = window.require('WAWebGroupMetadataCollection');
+          const src = sourceId ? (Meta.get(sourceId) || await W.whatsapp.GroupMetadataStore.find(sourceId).catch(() => null)) : null;
+          const name = String(info?.subject || src?.__x_subject || '克隆群组').trim() || '克隆群组';
+          const desc = String(src?.__x_desc || src?.__x_displayedDesc || info?.desc || '');
+          const restrict = !!(src?.__x_restrict ?? info?.restrict);
+          const announce = !!(src?.__x_announce ?? info?.announce);
+          let avatar = null;
+          if (sourceId && W.contact?.getProfilePictureUrl) {
+            try { avatar = await W.contact.getProfilePictureUrl(sourceId, true); } catch (e) {}
           }
-          return 'OK:' + out.join(' / ');
-        } catch (e) { return 'ERR:' + e.message; }
+          const UP = W.whatsapp?.UserPrefs;
+          const me = UP && (UP.getMaybeMeLidUser?.() || UP.getMaybeMePnUser?.() || UP.getMeUser?.());
+          const meWid = String(me?._serialized || me?.id?._serialized || me?.id || '');
+          if (!meWid) throw new Error('无法取得当前账号ID');
+          const suffix = name.match(/^(.*?)(?:\\s+#(\\d+))$/);
+          const base = suffix ? suffix[1].trim() : name;
+          const start = suffix ? Number(suffix[2]) + 1 : 1;
+          result.source = { id: sourceId, name, hasDesc: !!desc, hasAvatar: !!avatar, restrict, announce };
+          for (let i = 0; i < ${count}; i++) {
+            const newName = base + ' #' + (start + i);
+            try {
+              const created = await W.group.create(newName, [meWid], undefined);
+              const gid = String(created?.gid?._serialized || created?.gid || '');
+              if (!gid) throw new Error('创建接口未返回群ID');
+              const applied = [];
+              if (desc) { await M.setGroupDescription(gid, desc, String(Date.now()), void 0); applied.push('简介'); }
+              if (avatar && Pic?.sendSetPicture) {
+                try {
+                  const resp = await fetch(avatar); const blob = await resp.blob();
+                  const file = new File([blob], 'group-avatar.jpg', { type: blob.type || 'image/jpeg' });
+                  await Pic.sendSetPicture(gid, file, file); applied.push('头像');
+                } catch (e) { result.errors.push(newName + ':头像:' + e.message); }
+              }
+              if (restrict) { await M.setGroupProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
+              if (announce) { await M.setGroupProperty(gid, 'announce', true); applied.push('仅管理员发言'); }
+              result.created.push({ name: newName, id: gid, applied });
+            } catch (e) { result.errors.push(newName + ':' + e.message); }
+            if (i < ${count} - 1) await sleep((Math.random() * (${maxDelay} - ${minDelay}) + ${minDelay}) * 1000);
+          }
+          return JSON.stringify(result);
+        } catch (e) { result.errors.push('读取/初始化:' + e.message); return JSON.stringify(result); }
       })()`);
-      gtStatus.textContent = '链接克隆：' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败:' + String(res));
+      try {
+        const data = JSON.parse(String(res));
+        const ok = data.created?.length || 0, fail = data.errors?.length || 0;
+        gtStatus.textContent = `链接克隆完成：成功 ${ok}，失败 ${fail}` + (data.errors?.length ? `；${data.errors.slice(0, 2).join(' | ')}` : '');
+      } catch (e) { gtStatus.textContent = '链接克隆失败：返回结果无法解析'; }
       setTimeout(loadGtGroups, 2000);
     };
     // 解散群组（移除全部成员 + 退出）
@@ -2358,15 +2396,32 @@
       if (gtLinkBox) gtLinkBox.style.display = 'none';
       gtStatus.textContent = '已保存到统一链接';
     };
-    // Tab 切换（6 Tab）
+    // Tab 切换（原版 nav-pills；群组选择仅在需要的页面出现）
+    const gtSharedSelector = document.getElementById('gt-shared-selector');
+    const syncGtSelectorVisibility = (tabName) => {
+      if (!gtSharedSelector) return;
+      const show = tabName === 'gtedit' || tabName === 'gtdestroy';
+      gtSharedSelector.classList.toggle('hidden', !show);
+    };
     document.querySelectorAll('.gt-tab').forEach(tab => tab.onclick = () => {
-      document.querySelectorAll('.gt-tab').forEach(t => { t.classList.remove('gt-tab-active'); t.style.background = 'var(--bg-elevated)'; t.style.color = 'var(--text-primary)'; });
+      document.querySelectorAll('.gt-tab').forEach(t => t.classList.remove('gt-tab-active'));
       tab.classList.add('gt-tab-active');
-      tab.style.background = 'var(--accent)'; tab.style.color = '#fff';
       document.querySelectorAll('.gt-pane').forEach(p => p.classList.add('hidden'));
       const pane = document.getElementById('pane-' + tab.dataset.tab);
       if (pane) pane.classList.remove('hidden');
+      syncGtSelectorVisibility(tab.dataset.tab);
     });
+    syncGtSelectorVisibility('gtsettings');
+    const gtCloneCountValue = document.getElementById('gt-clone-count-value');
+    if (gtCloneCount && gtCloneCountValue) {
+      gtCloneCountValue.value = gtCloneCount.value;
+      gtCloneCount.oninput = () => { gtCloneCountValue.value = gtCloneCount.value; gtCloneCountValue.textContent = gtCloneCount.value; };
+    }
+    const gtAdvancedClone = document.querySelector('.gt-original-advanced');
+    if (gtAdvancedClone && gtSharedSelector) gtAdvancedClone.ontoggle = () => {
+      const cloneTabActive = document.querySelector('.gt-tab.gt-tab-active')?.dataset.tab === 'gtclone';
+      gtSharedSelector.classList.toggle('hidden', !(cloneTabActive && gtAdvancedClone.open));
+    };
     // 聊天设置（localStorage——自动删群/自动加群）
     const gtAutoDelRemoved = document.getElementById('gt-auto-del-removed');
     const gtAutoDelLeft = document.getElementById('gt-auto-del-left');

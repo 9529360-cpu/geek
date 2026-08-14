@@ -1,0 +1,35 @@
+/* 群组工具：HelloWorld 原版 nav-pills 布局，去除无操作价值的宣传横幅 */
+#gt-overlay .gt-original-dialog{width:620px;max-width:calc(100vw - 36px);max-height:calc(100vh - 36px);border-radius:4px;overflow:hidden;background:var(--bg-elevated)}
+#gt-overlay .gt-original-title{height:44px;padding:0 16px;background:var(--bg-surface);border-bottom:1px solid var(--border-standard);font-size:15px;font-weight:700}
+#gt-overlay .gt-original-body{padding:10px 12px 12px;max-height:calc(100vh - 92px);overflow-y:auto;background:var(--bg-elevated)}
+#gt-overlay .gt-original-tabs{display:flex;flex-wrap:wrap;gap:5px;margin:0;padding:8px 10px;border:1px solid var(--border-standard);border-bottom:0;border-radius:4px 4px 0 0;background:var(--bg-surface)}
+#gt-overlay .gt-tab{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:6px 11px!important;border:0!important;border-radius:16px!important;background:var(--bg-elevated)!important;color:var(--text-secondary)!important;font-size:12px;font-weight:500;line-height:20px;cursor:pointer}
+#gt-overlay .gt-tab-icon{width:15px;font-family:"Segoe UI Symbol",sans-serif;font-size:13px;line-height:1;text-align:center}
+#gt-overlay .gt-tab:hover{background:var(--bg-hover)!important;color:var(--accent)!important}
+#gt-overlay .gt-tab.gt-tab-active{background:#3051d3!important;color:#fff!important}
+#gt-overlay .gt-original-content{padding:12px;border:1px solid var(--border-standard);border-radius:0 0 4px 4px;background:var(--bg-surface)}
+#gt-overlay .gt-original-pane-card{margin:0;padding:14px;border:0;border-radius:0;box-shadow:none;background:transparent}
+#gt-overlay .gt-original-selector{margin:0 0 12px;padding:10px 12px;border-radius:4px;background:var(--bg-elevated)}
+#gt-overlay .gt-original-help{margin:0 0 12px;color:var(--text-secondary);font-size:12.5px;line-height:1.6}
+#gt-overlay .gt-original-input-group{display:flex;align-items:stretch;width:100%}
+#gt-overlay .gt-original-input-group .settings-input{flex:1;min-width:0;border-radius:4px 0 0 4px;background:#fff;color:#303133;border-color:#ced4da;box-shadow:inset 0 1px 2px rgba(0,0,0,.04)}
+#gt-overlay .gt-original-input-group .settings-input::placeholder{color:#909399}
+#gt-overlay .gt-original-input-group .bc-btn{border-radius:0 4px 4px 0}
+#gt-overlay .gt-original-primary{border-color:#3051d3!important;background:#3051d3!important;color:#fff!important}
+#gt-overlay .gt-original-primary:hover{background:#4969dc!important}
+#gt-overlay .gt-original-field{margin-top:18px}
+#gt-overlay .gt-original-field>label{display:block;margin-bottom:8px;color:var(--text-primary);font-size:12.5px;font-weight:700}
+#gt-overlay .gt-original-range-row{display:flex;align-items:center;gap:12px}
+#gt-overlay .gt-original-range-row input[type=range]{flex:1;accent-color:#3051d3}
+#gt-overlay .gt-original-range-row output{min-width:32px;padding:3px 8px;border-radius:12px;background:rgba(48,81,211,.12);color:#3051d3;font-size:12px;font-weight:700;text-align:center}
+#gt-overlay .gt-original-delay-row{display:flex;align-items:center;gap:7px;color:var(--text-secondary);font-size:12px}
+#gt-overlay .gt-original-delay-row input{width:76px;padding:6px 8px;border:1px solid #ced4da;border-radius:4px;background:#fff;color:#303133;box-shadow:inset 0 1px 2px rgba(0,0,0,.04)}
+#gt-overlay .gt-original-advanced{margin-top:18px;padding-top:10px;border-top:1px dashed var(--border-standard);color:var(--text-secondary);font-size:12px}
+#gt-overlay .gt-original-advanced summary{cursor:pointer;color:var(--accent);font-weight:600}
+#gt-overlay .gt-original-advanced p{margin:8px 0;color:var(--text-tertiary);font-size:11.5px}
+#gt-overlay .gt-pane>.bc-card{margin:0;padding:14px;border:0;border-radius:0;background:transparent;box-shadow:none}
+#gt-overlay #gt-status{margin:10px 0 0!important;padding:8px 12px!important;border-radius:4px;background:var(--bg-surface);min-height:32px}
+#gt-overlay #gt-status:empty{display:none}
+#gt-overlay .gt-original-account-bar{display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 4px 0;border-top:1px solid var(--border-subtle)}
+#gt-overlay .gt-original-account-bar #gt-close-bottom{margin-left:auto!important;background:var(--bg-surface)!important}
+@media(max-width:680px){#gt-overlay .gt-original-dialog{width:calc(100vw - 20px)}#gt-overlay .gt-tab{font-size:0}#gt-overlay .gt-tab-icon{font-size:13px}}
