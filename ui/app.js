@@ -1164,6 +1164,9 @@
     if (!message && !broadcastFiles.length) { alert('请输入消息内容或添加文件'); return; }
     // 发送至单选模式：custom=勾选列表；paste/excel=号码匹配聊天；all*=全选（已由 radio change 处理）
     let targets = broadcastChats.filter(c => broadcastSelected.has(c.id));
+    // 排除列表（勾选的不发）
+    const excl = window.__broadcastExcludeSet ? window.__broadcastExcludeSet() : new Set();
+    if (excl.size) targets = targets.filter(t => !excl.has(t.id));
     const sendtoVal = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
     if (sendtoVal === 'paste' || sendtoVal === 'excel') {
       const numbers = (sendtoVal === 'paste')
@@ -1304,7 +1307,105 @@
     broadcastRunning = false;
   }
 
-  // ---------- 群发弹窗（HelloWorld 卡片式）绑定 ----------
+  // ---------- 保存消息 / 保存列表 / 排除（一比一原版） ----------
+  const savedMessagesEl = document.getElementById('bc-saved-messages');
+  const saveMessageBtn = document.getElementById('bc-save-message');
+  const deleteMessageBtn = document.getElementById('bc-delete-message');
+  let savedMessages = JSON.parse(localStorage.getItem('savedMessages') || '[]');
+  function renderSavedMessages() {
+    if (!savedMessagesEl) return;
+    savedMessagesEl.innerHTML = '<option value="">已保存消息…</option>' + savedMessages.map((m, i) => `<option value="${i}">${(m.name || '').slice(0, 24)}</option>`).join('');
+  }
+  if (saveMessageBtn) saveMessageBtn.onclick = () => {
+    const msg = bMessageEl.value.trim();
+    if (!msg) { alert('请先输入消息内容'); return; }
+    const name = prompt('保存为（名称）：', '消息' + (savedMessages.length + 1));
+    if (!name) return;
+    savedMessages.push({ name, msg });
+    localStorage.setItem('savedMessages', JSON.stringify(savedMessages));
+    renderSavedMessages();
+  };
+  if (savedMessagesEl) savedMessagesEl.onchange = () => {
+    const i = parseInt(savedMessagesEl.value);
+    if (i >= 0 && savedMessages[i]) bMessageEl.value = savedMessages[i].msg;
+  };
+  if (deleteMessageBtn) deleteMessageBtn.onclick = () => {
+    const i = parseInt(savedMessagesEl?.value || '-1');
+    if (i < 0) { alert('请先选择要删除的消息'); return; }
+    if (!confirm('删除该已保存消息？')) return;
+    savedMessages.splice(i, 1);
+    localStorage.setItem('savedMessages', JSON.stringify(savedMessages));
+    renderSavedMessages();
+  };
+  // 保存列表（已选聊天 → 预设）
+  const savedListsEl = document.getElementById('bc-saved-lists');
+  const saveListBtn = document.getElementById('bc-save-list');
+  const deleteListBtn = document.getElementById('bc-delete-list');
+  let savedLists = JSON.parse(localStorage.getItem('savedLists') || '[]');
+  function renderSavedLists() {
+    if (!savedListsEl) return;
+    savedListsEl.innerHTML = '<option value="">已保存列表…</option>' + savedLists.map((l, i) => `<option value="${i}">${(l.name || '').slice(0, 24)}（${(l.ids || []).length}）</option>`).join('');
+  }
+  if (saveListBtn) saveListBtn.onclick = () => {
+    if (!broadcastSelected.size) { alert('请先勾选聊天'); return; }
+    const name = prompt('保存为（列表名称）：', '列表' + (savedLists.length + 1));
+    if (!name) return;
+    savedLists.push({ name, ids: [...broadcastSelected] });
+    localStorage.setItem('savedLists', JSON.stringify(savedLists));
+    renderSavedLists();
+  };
+  if (savedListsEl) savedListsEl.onchange = () => {
+    const i = parseInt(savedListsEl.value);
+    if (i >= 0 && savedLists[i]) {
+      (savedLists[i].ids || []).forEach(id => broadcastSelected.add(id));
+      renderBroadcastList();
+    }
+  };
+  if (deleteListBtn) deleteListBtn.onclick = () => {
+    const i = parseInt(savedListsEl?.value || '-1');
+    if (i < 0) { alert('请先选择要删除的列表'); return; }
+    if (!confirm('删除该列表？')) return;
+    savedLists.splice(i, 1);
+    localStorage.setItem('savedLists', JSON.stringify(savedLists));
+    renderSavedLists();
+  };
+  // 排除列表（勾选不需要发送的聊天）
+  let broadcastExclude = new Set(JSON.parse(localStorage.getItem('broadcastExclude') || '[]'));
+  const excludeToggleBtn = document.getElementById('bc-exclude-toggle');
+  const excludePanel = document.getElementById('bc-exclude-panel');
+  const excludeListEl = document.getElementById('bc-exclude-list');
+  if (excludeToggleBtn) excludeToggleBtn.onclick = () => {
+    if (!excludePanel) return;
+    excludePanel.classList.toggle('hidden');
+    if (!excludePanel.classList.contains('hidden')) renderExcludeList();
+  };
+  function renderExcludeList() {
+    if (!excludeListEl) return;
+    excludeListEl.innerHTML = '';
+    broadcastChats.forEach(c => {
+      const label = document.createElement('label');
+      label.className = 'broadcast-item';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = broadcastExclude.has(c.id);
+      cb.addEventListener('change', () => {
+        if (cb.checked) broadcastExclude.add(c.id); else broadcastExclude.delete(c.id);
+        localStorage.setItem('broadcastExclude', JSON.stringify([...broadcastExclude]));
+      });
+      const span = document.createElement('span');
+      span.textContent = c.name || c.id;
+      const type = document.createElement('span');
+      type.className = 'bc-type';
+      type.textContent = c.type || '';
+      label.append(cb, span, type);
+      excludeListEl.appendChild(label);
+    });
+  }
+  // 发送时排除（doSendBroadcast 的 targets 过滤）
+  window.__broadcastExcludeSet = () => broadcastExclude;
+  renderSavedMessages();
+  renderSavedLists();
+
   const bcScheduleToggle = document.getElementById('broadcast-schedule-toggle');
   if (bcScheduleToggle) bcScheduleToggle.addEventListener('change', () => {
     const wrap = document.getElementById('bc-schedule-time-wrap');

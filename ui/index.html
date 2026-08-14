@@ -359,6 +359,11 @@
           <button type="button" id="broadcast-insert-nr" class="bc-pill" title="插入 %nr（用户真实昵称）">用户真实昵称</button>
           <button type="button" id="bc-multiversion" class="bc-pill bc-pill--orange" title="多条消息用 {A|B|C} 语法，每次随机发一条">创建多版本消息</button>
         </div>
+        <div class="bc-var-row">
+          <select id="bc-saved-messages" class="bc-input bc-saved-select"><option value="">已保存消息…</option></select>
+          <button type="button" id="bc-save-message" class="bc-btn bc-btn--small" title="把当前消息保存为模板">💾 保存消息</button>
+          <button type="button" id="bc-delete-message" class="bc-btn bc-btn--small" title="删除当前选中的已保存消息">🗑 删除</button>
+        </div>
         <div class="bc-media-row">
           <label class="bc-switch-row">
             <input type="checkbox" id="broadcast-add-file" class="bc-switch-input">
@@ -417,6 +422,16 @@
         <div class="bc-saved-row">
           <select id="broadcast-saved-groups" class="bc-input bc-saved-select"><option value="">我的群组…</option></select>
           <button type="button" id="broadcast-save-group" class="bc-btn bc-btn--small">💾 保存</button>
+        </div>
+        <div class="bc-saved-row">
+          <select id="bc-saved-lists" class="bc-input bc-saved-select"><option value="">已保存列表…</option></select>
+          <button type="button" id="bc-save-list" class="bc-btn bc-btn--small" title="把当前选中的聊天保存为列表">💾 保存列表</button>
+          <button type="button" id="bc-delete-list" class="bc-btn bc-btn--small">🗑 删除</button>
+          <button type="button" id="bc-exclude-toggle" class="bc-btn bc-btn--small" title="排除不想发送的聊天">🚫 排除</button>
+        </div>
+        <div id="bc-exclude-panel" class="bc-exclude-panel hidden">
+          <div class="bc-meta">选择不需要发送的聊天（不会收到消息）：</div>
+          <div class="broadcast-list" id="bc-exclude-list" style="max-height:110px;overflow-y:auto"></div>
         </div>
       </div>
 
