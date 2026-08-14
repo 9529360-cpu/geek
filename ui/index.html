@@ -434,13 +434,14 @@
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="all"><span>所有联系人和群组</span></label>
         </div>
         <div class="bc-saved-row">
-          <select id="broadcast-saved-groups" class="bc-input bc-saved-select"><option value="">我的群组…</option></select>
-          <button type="button" id="broadcast-save-group" class="bc-btn bc-btn--small">💾 保存</button>
+          <select id="broadcast-saved-groups" class="bc-input bc-saved-select"><option value="">群组标签…</option></select>
+          <button type="button" id="broadcast-save-group" class="bc-btn bc-btn--small">💾 保存标签</button>
+          <button type="button" id="broadcast-delete-group" class="bc-btn bc-btn--small">🗑 删除标签</button>
         </div>
         <div class="bc-saved-row">
-          <select id="bc-saved-lists" class="bc-input bc-saved-select"><option value="">已保存列表…</option></select>
-          <button type="button" id="bc-save-list" class="bc-btn bc-btn--small" title="把当前选中的聊天保存为列表">💾 保存列表</button>
-          <button type="button" id="bc-delete-list" class="bc-btn bc-btn--small">🗑 删除</button>
+          <select id="bc-saved-lists" class="bc-input bc-saved-select" style="display:none"><option value="">已保存列表…</option></select>
+          <button type="button" id="bc-save-list" class="bc-btn bc-btn--small" style="display:none">💾 保存列表</button>
+          <button type="button" id="bc-delete-list" class="bc-btn bc-btn--small" style="display:none">🗑 删除</button>
           <button type="button" id="bc-exclude-toggle" class="bc-btn bc-btn--small" title="排除不想发送的聊天">🚫 排除</button>
         </div>
         <div id="bc-exclude-panel" class="bc-exclude-panel hidden">
