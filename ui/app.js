@@ -1995,6 +1995,8 @@
   const gtCloneCount = document.getElementById('gt-clone-count');
   const gtDestroyBtn = document.getElementById('gt-destroy');
   const gtLeaveBtn = document.getElementById('gt-leave');
+  const gtDestroyDelayMin = document.getElementById('gt-destroy-delay-min');
+  const gtDestroyDelayMax = document.getElementById('gt-destroy-delay-max');
   if (gtOverlay && gtGroups) {
     document.getElementById('gt-close').onclick = () => gtOverlay.classList.add('hidden');
     async function loadGtGroups() {
@@ -2075,8 +2077,8 @@
       const targets = selectedGidList();
       if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       const count = Math.max(1, Math.min(10, parseInt(gtCloneCount.value) || 1));
-      const minDelay = Math.max(0, parseInt(gtCloneDelayMin?.value) || 3);
-      const maxDelay = Math.max(minDelay, parseInt(gtCloneDelayMax?.value) || 8);
+      const minDelay = Math.max(5, parseInt(gtCloneDelayMin?.value) || 5);
+      const maxDelay = Math.max(minDelay, parseInt(gtCloneDelayMax?.value) || 10);
       const wv = wvMap.get(activeId);
       if (!wv) { gtStatus.textContent = '当前账号页面尚未就绪'; return; }
       gtStatus.textContent = `正在克隆 ${targets.length} 个源群，每个 ${count} 个…`;
@@ -2161,8 +2163,8 @@
       const code = (link.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/i) || [])[1] || link.trim();
       if (!code) { gtStatus.textContent = '请粘贴群组链接'; return; }
       const count = Math.max(1, Math.min(10, parseInt(gtCloneCount.value) || 1));
-      const minDelay = Math.max(0, parseInt(gtCloneDelayMin?.value) || 3);
-      const maxDelay = Math.max(minDelay, parseInt(gtCloneDelayMax?.value) || 8);
+      const minDelay = Math.max(5, parseInt(gtCloneDelayMin?.value) || 5);
+      const maxDelay = Math.max(minDelay, parseInt(gtCloneDelayMax?.value) || 10);
       const wv = wvMap.get(activeId);
       if (!wv) { gtStatus.textContent = '当前账号页面尚未就绪'; return; }
       gtStatus.textContent = `正在读取群资料…（${count} 个）`;
@@ -2239,9 +2241,12 @@
       if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       if (!confirm(`确定解散选中的 ${targets.length} 个群组？（移除全部成员并退出——不可撤销）`)) return;
       const wv = wvMap.get(activeId);
+      const destroyDelayMin = Math.max(5, parseInt(gtDestroyDelayMin?.value) || 5);
+      const destroyDelayMax = Math.max(destroyDelayMin, parseInt(gtDestroyDelayMax?.value) || 10);
       gtStatus.textContent = '正在解散…';
       const results = [];
-      for (const t of targets) {
+      for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+        const t = targets[targetIndex];
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
@@ -2261,6 +2266,11 @@
       })()`);
       let row; try { row = JSON.parse(String(res)); } catch (e) { row = { ok: false, error: '返回无法解析' }; }
       results.push(t.name + ':' + (row.ok && row.remaining === 0 ? `解散（移除${row.removed}人）` : '失败:' + (row.error || `仍有${row.remaining}人`)));
+      if (targetIndex < targets.length - 1) {
+        const waitSec = destroyDelayMin + Math.random() * (destroyDelayMax - destroyDelayMin);
+        gtStatus.textContent = `已解散 ${targetIndex + 1}/${targets.length}，等待 ${Math.round(waitSec)} 秒…`;
+        await sleep(waitSec * 1000);
+      }
       }
       gtStatus.textContent = '解散完成：' + results.join(' | ');
       targets.forEach(t => gtSelected.delete(t.id));
@@ -2272,9 +2282,12 @@
       if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       if (!confirm(`确定退出选中的 ${targets.length} 个群组？`)) return;
       const wv = wvMap.get(activeId);
+      const leaveDelayMin = Math.max(5, parseInt(gtDestroyDelayMin?.value) || 5);
+      const leaveDelayMax = Math.max(leaveDelayMin, parseInt(gtDestroyDelayMax?.value) || 10);
       gtStatus.textContent = '正在退出…';
       const results = [];
-      for (const t of targets) {
+      for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+        const t = targets[targetIndex];
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
@@ -2287,6 +2300,11 @@
       })()`);
       let row; try { row = JSON.parse(String(res)); } catch (e) { row = { ok: false, error: '返回无法解析' }; }
       results.push(t.name + ':' + (row.ok && row.remaining === 0 ? '退出' : '失败:' + (row.error || `仍有${row.remaining}人`)));
+      if (targetIndex < targets.length - 1) {
+        const waitSec = leaveDelayMin + Math.random() * (leaveDelayMax - leaveDelayMin);
+        gtStatus.textContent = `已退出 ${targetIndex + 1}/${targets.length}，等待 ${Math.round(waitSec)} 秒…`;
+        await sleep(waitSec * 1000);
+      }
       }
       gtStatus.textContent = '退出完成：' + results.join(' | ');
       targets.forEach(t => gtSelected.delete(t.id));
@@ -2317,9 +2335,12 @@
       const targets = selectedGidList();
       if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       const wv = wvMap.get(activeId);
+      const linkDelayMin = Math.max(5, parseInt(document.getElementById('gt-links-min')?.value) || 5);
+      const linkDelayMax = Math.max(linkDelayMin, parseInt(document.getElementById('gt-links-max')?.value) || 10);
       gtStatus.textContent = '正在获取群链接…';
       const results = [];
-      for (const t of targets) {
+      for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+        const t = targets[targetIndex];
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
@@ -2333,6 +2354,11 @@
       const txt = String(res || '');
       results.push(t.name + ':' + (txt.startsWith('OK:') ? 'OK' : '失败'));
       if (txt.startsWith('OK:')) { window.__curGroupLink = 'https://chat.whatsapp.com/' + txt.slice(3); window.__curGroupName = t.name; if (gtLinkVal) gtLinkVal.textContent = window.__curGroupLink; if (gtLinkBox) gtLinkBox.style.display = ''; }
+      if (targetIndex < targets.length - 1) {
+        const waitSec = linkDelayMin + Math.random() * (linkDelayMax - linkDelayMin);
+        gtStatus.textContent = `已获取 ${targetIndex + 1}/${targets.length}，等待 ${Math.round(waitSec)} 秒…`;
+        await sleep(waitSec * 1000);
+      }
       }
       gtStatus.textContent = '获取链接：' + results.join(' | ');
     };
@@ -2421,7 +2447,7 @@
     if (gtLinksJoin) gtLinksJoin.onclick = async () => {
       const links = (gtLinksInput.value || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
       if (!links.length) { gtLinksStatus.textContent = '请先粘贴群链接'; return; }
-      const lo = parseInt(gtLinksMin.value) || 30, hi = parseInt(gtLinksMax.value) || 60;
+      const lo = Math.max(5, parseInt(gtLinksMin.value) || 5), hi = Math.max(lo, parseInt(gtLinksMax.value) || 10);
       const wv = wvMap.get(activeId);
       gtLinksStatus.textContent = `正在加入 ${links.length} 个群组…`;
       let ok = 0, fail = 0;
@@ -2433,7 +2459,11 @@
           catch (e) { return 'ERR:' + e.message; }
         })()`);
         if (String(res) === 'OK') ok++; else fail++;
-        await new Promise(r => setTimeout(r, (lo + Math.random() * (hi - lo)) * 1000));
+        if (i < links.length - 1) {
+          const waitSec = lo + Math.random() * (hi - lo);
+          gtLinksStatus.textContent = `已处理 ${i + 1}/${links.length}，等待 ${Math.round(waitSec)} 秒…`;
+          await new Promise(r => setTimeout(r, waitSec * 1000));
+        }
       }
       gtLinksStatus.textContent = `完成：成功 ${ok}，失败 ${fail}`;
     };
@@ -2461,6 +2491,8 @@
     const gtEditAllTalk = document.getElementById('gt-edit-alltalk'); // announcement=false：全体发言
     const gtEditMember = document.getElementById('gt-edit-member');
     const gtEditMemadmin = document.getElementById('gt-edit-memadmin');
+    const gtEditDelayMin = document.getElementById('gt-edit-delay-min');
+    const gtEditDelayMax = document.getElementById('gt-edit-delay-max');
     const gtEditSave = document.getElementById('gt-edit-save');
     let gtPicData = null; // 选中的头像（dataURL）
     if (gtEditRestrict && gtEditAllTalk) {
@@ -2495,12 +2527,15 @@
       const allTalk = !!gtEditAllTalk?.checked;
       const members = gtEditMember.value.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
       const memadmin = gtEditMemadmin.checked;
+      const editDelayMin = Math.max(5, parseInt(gtEditDelayMin?.value) || 5);
+      const editDelayMax = Math.max(editDelayMin, parseInt(gtEditDelayMax?.value) || 10);
       if (!subject && !desc && !gtPicData && !onlyAdminTalk && !onlyAdminEdit && !allEdit && !allTalk && !members.length) { gtStatus.textContent = '请至少填写一项修改'; return; }
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在保存…';
       const picData = gtPicData || '';
       const results = [];
-      for (const t of targets) {
+      for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+        const t = targets[targetIndex];
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
@@ -2545,6 +2580,11 @@
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
       results.push(t.name + ':' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败:' + String(res).replace(/^ERR:/, '')));
+      if (targetIndex < targets.length - 1) {
+        const waitSec = editDelayMin + Math.random() * (editDelayMax - editDelayMin);
+        gtStatus.textContent = `已编辑 ${targetIndex + 1}/${targets.length}，等待 ${Math.round(waitSec)} 秒…`;
+        await sleep(waitSec * 1000);
+      }
       }
       gtStatus.textContent = '保存完成：' + results.join(' | ');
       gtEditSubject.value = ''; gtEditDesc.value = ''; gtEditMember.value = ''; gtPicData = null; gtPicName.textContent = '';

@@ -563,9 +563,9 @@
             <textarea id="gt-links-input" class="bc-message" style="min-height:80px" placeholder="https://chat.whatsapp.com/xxxx"></textarea>
             <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
               <span style="font-size:12.5px;color:var(--text-secondary)">间隔</span>
-              <input id="gt-links-min" type="number" min="1" value="30" style="width:64px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
+              <input id="gt-links-min" type="number" min="5" value="5" style="width:64px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
               <span style="font-size:12.5px;color:var(--text-secondary)">至</span>
-              <input id="gt-links-max" type="number" min="1" value="60" style="width:64px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
+              <input id="gt-links-max" type="number" min="5" value="10" style="width:64px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
               <span style="font-size:12.5px;color:var(--text-secondary)">秒</span>
               <button id="gt-links-join" class="bc-btn" style="background:var(--accent);color:#fff;border:none;margin-left:auto">🚀 加入</button>
             </div>
@@ -597,7 +597,7 @@
             </div>
             <div class="gt-original-field">
               <label>每次克隆间隔</label>
-              <div class="gt-original-delay-row"><input id="gt-clone-delay-min" type="number" min="1" value="3"><span>至</span><input id="gt-clone-delay-max" type="number" min="1" value="8"><span>秒</span></div>
+              <div class="gt-original-delay-row"><input id="gt-clone-delay-min" type="number" min="5" value="5"><span>至</span><input id="gt-clone-delay-max" type="number" min="5" value="10"><span>秒</span></div>
             </div>
             <details class="gt-original-advanced">
               <summary>增强功能：从当前已加入群组克隆</summary>
@@ -639,6 +639,11 @@
               <input id="gt-edit-member" class="settings-input" placeholder="手机号码（+区号，可逗号分隔多个）" style="flex:1">
               <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap"><input type="checkbox" id="gt-edit-memadmin"> 设为管理员</label>
             </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+              <span style="width:70px;font-size:12.5px;color:var(--text-secondary)">批量间隔</span>
+              <input id="gt-edit-delay-min" type="number" min="5" value="5" class="settings-input" style="width:72px"><span style="font-size:12px;color:var(--text-secondary)">至</span>
+              <input id="gt-edit-delay-max" type="number" min="5" value="10" class="settings-input" style="width:72px"><span style="font-size:12px;color:var(--text-secondary)">秒</span>
+            </div>
             <div style="text-align:right"><button id="gt-edit-save" class="bc-btn" style="background:var(--accent);color:#fff;border:none">💾 保存修改</button></div>
           </div>
         </div>
@@ -649,6 +654,11 @@
             <div style="display:flex;gap:8px;align-items:center">
               <button id="gt-destroy" class="bc-btn" style="background:#e74c3c;color:#fff;border:none">💥 销毁群组</button>
               <button id="gt-leave" class="bc-btn" style="background:var(--bg-elevated);border:1px solid var(--border-standard)">退出群组</button>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+              <span style="font-size:12.5px;color:var(--text-secondary)">批量间隔</span>
+              <input id="gt-destroy-delay-min" type="number" min="5" value="5" class="settings-input" style="width:72px"><span style="font-size:12px;color:var(--text-secondary)">至</span>
+              <input id="gt-destroy-delay-max" type="number" min="5" value="10" class="settings-input" style="width:72px"><span style="font-size:12px;color:var(--text-secondary)">秒</span>
             </div>
             <div style="margin-top:8px;font-size:11.5px;color:var(--text-tertiary)">建议每日销毁不超过 3 个群组。</div>
           </div>
