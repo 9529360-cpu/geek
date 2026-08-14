@@ -1,0 +1,1450 @@
+(() => {
+  'use strict';
+
+  // ---------- DOM ----------
+  const accountsEl = document.getElementById('nav-accounts');
+  const tabsEl = document.getElementById('account-tabs');
+  const wvContainer = document.getElementById('webview-container');
+  const emptyState = document.getElementById('empty-state');
+  const addBtn = document.getElementById('btn-app-center');
+  const addOverlay = document.getElementById('add-overlay');
+  const addPlatformsEl = document.getElementById('add-platforms');
+  const addNameEl = document.getElementById('add-name');
+  const addCountEl = document.getElementById('add-count');
+  const settingsOverlay = document.getElementById('settings-overlay');
+  const settingsGlobal = document.getElementById('settings-global');
+  const settingsAccount = document.getElementById('settings-account');
+  const settingsTabs = document.querySelectorAll('.settings-tab');
+  const accSelect = document.getElementById('acc-select');
+
+  let accounts = [];
+  let activeId = null;
+  let activePlatform = null; // 当前平台家族 key（whatsapp/telegram/line）
+  let config = null;
+  let platforms = [];
+  let addSelectedType = null;
+  const lastAccountByPlatform = {}; // 记住每个平台最后激活的账号
+  const unreadPlatforms = new Set(); // 有未读消息的平台（闪烁状态持久，重绘不丢）
+  const unreadByAccount = {}; // accountId -> 未读数（红点显示用）
+  const wvMap = new Map(); // accountId -> webview element
+
+  // 平台家族（顶部一个图标 = 一个家族；左侧列表 = 当前家族全部账号）
+  const PLATFORM_FAMILIES = [
+    { key: 'whatsapp', label: 'WhatsApp', iconType: 'whatsapp', iconClass: 'p-icon-whatsapp', types: ['whatsapp', 'whatsapp-pure'] },
+    { key: 'telegram', label: 'Telegram', iconType: 'telegram-z', iconClass: 'p-icon-telegram-z', types: ['telegram-z', 'telegram-k'] },
+    { key: 'line', label: 'Line', iconType: 'line', iconClass: 'p-icon-line', types: ['line', 'line-business'] }
+  ];
+  function familyOf(type) {
+    return PLATFORM_FAMILIES.find(f => f.types.includes(type)) || PLATFORM_FAMILIES[0];
+  }
+
+  // ---------- 平台品牌图标（simple-icons，内联 SVG path） ----------
+  const ICON_PATHS = {
+    whatsapp: 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z',
+    telegram: 'M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z',
+    line: 'M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314'
+  };
+
+  // 平台 → 图标/品牌色 class 映射
+  function platformIconClass(type) {
+    if (type === 'whatsapp') return 'p-icon-whatsapp';
+    if (type === 'whatsapp-pure') return 'p-icon-whatsapp-pure';
+    if (type === 'telegram-z' || type === 'telegram-k') return 'p-icon-telegram-z';
+    if (type === 'line') return 'p-icon-line';
+    if (type === 'line-business') return 'p-icon-line-business';
+    return 'p-icon-whatsapp';
+  }
+  function platformIconPath(type) {
+    if (type === 'line' || type === 'line-business') return ICON_PATHS.line;
+    if (type === 'telegram-z' || type === 'telegram-k') return ICON_PATHS.telegram;
+    return ICON_PATHS.whatsapp;
+  }
+  function iconSvg(type, cls) {
+    return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${platformIconPath(type)}"/></svg>`;
+  }
+
+  // 平台下拉（对齐原版：WA=普通+纯净版 / TG=新版Z / LINE=普通+商业版）
+  const PLATFORM_GROUPS = [
+    { label: 'WhatsApp', types: ['whatsapp', 'whatsapp-pure'] },
+    { label: 'Telegram', types: ['telegram-z'] },
+    { label: 'Line', types: ['line', 'line-business'] }
+  ];
+
+  async function loadPlatforms() {
+    platforms = (await window.api.platforms.list()) || [];
+  }
+
+  // ---------- 渲染左侧账号列表（只显示当前平台的账号） ----------
+  function renderSidebar() {
+    accountsEl.innerHTML = '';
+    const list = accounts.filter(a => familyOf(a.type).key === activePlatform);
+    // 账号少 → 侧栏自动收窄（动态缩减）
+    const sideNav = document.getElementById('side-nav');
+    if (sideNav) sideNav.classList.toggle('compact', list.length <= 2);
+    if (!list.length) {
+      accountsEl.innerHTML = '<div class="nav-empty">这个平台还没有账号</div>';
+      return;
+    }
+    list.forEach((a, index) => {
+      const item = document.createElement('div');
+      item.className = 'nav-account' + (a.id === activeId ? ' active' : '');
+      item.dataset.id = a.id;
+      item.draggable = true; // 拖拽排序
+      item.innerHTML = `
+        <div class="nav-account-main">
+          <span class="p-icon ${platformIconClass(a.type)}">${iconSvg(a.type)}</span>
+          <span class="acc-dot">${unreadByAccount[a.id] || 0}</span>
+          <span class="nav-account-name" style="font-size:${a.fontSize || 16}px;color:${a.fontColor || '#18A058'}">${escapeHtml(a.name)}</span>
+        </div>`;
+      // 红点初始显示状态
+      const dotEl = item.querySelector('.acc-dot');
+      if (dotEl) {
+        const n = unreadByAccount[a.id] || 0;
+        dotEl.style.display = n > 0 ? 'flex' : 'none';
+        dotEl.textContent = n > 99 ? '99+' : String(n);
+      }
+      item.querySelector('.nav-account-main').onclick = () => switchAccount(a.id);
+      // 拖拽排序（HTML5 DnD）
+      item.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', a.id);
+        e.dataTransfer.effectAllowed = 'move';
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        accountsEl.querySelectorAll('.nav-account').forEach(el => el.classList.remove('drop-target'));
+      });
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const fromId = e.dataTransfer.getData('text/plain');
+        if (fromId && fromId !== a.id) {
+          accountsEl.querySelectorAll('.nav-account').forEach(el => el.classList.remove('drop-target'));
+          item.classList.add('drop-target');
+        }
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('drop-target'));
+      item.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        const fromId = e.dataTransfer.getData('text/plain');
+        item.classList.remove('drop-target');
+        if (!fromId || fromId === a.id) return;
+        try {
+          const fromIndex = accounts.findIndex(x => x.id === fromId);
+          const toIndex = accounts.findIndex(x => x.id === a.id);
+          if (fromIndex === -1 || toIndex === -1) return;
+          await window.api.accounts.moveTo(fromId, toIndex);
+          const r = await window.api.accounts.list();
+          accounts = r?.accounts || r || [];
+          renderSidebar();
+          renderTabs();
+        } catch (err) {
+          alert('拖拽排序失败: ' + err.message);
+        }
+      });
+      // 右键菜单（刷新/编辑/关闭）
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showContextMenu(e.clientX, e.clientY, a);
+      });
+      accountsEl.appendChild(item);
+    });
+  }
+
+  // ---------- 渲染顶栏平台图标（每个平台一个纯图标，有未读消息时闪烁） ----------
+  function renderTabs() {
+    tabsEl.innerHTML = '';
+    const families = PLATFORM_FAMILIES.filter(f =>
+      accounts.some(a => familyOf(a.type).key === f.key)
+    );
+    if (!families.length) {
+      tabsEl.innerHTML = '<span class="nav-empty" style="padding:0;font-size:12px">还没有账号，点 + 添加</span>';
+      return;
+    }
+    families.forEach((f) => {
+      const tab = document.createElement('div');
+      tab.className = 'tab-item' + (f.key === activePlatform ? ' active' : '') + (unreadPlatforms.has(f.key) ? ' flash' : '');
+      tab.dataset.platform = f.key;
+      tab.title = f.label;
+      tab.innerHTML = `
+        <span class="p-icon ${f.iconClass}">${iconSvg(f.iconType)}</span>
+        <span class="tab-dot"></span>`;
+      tab.onclick = () => switchPlatform(f.key);
+      tabsEl.appendChild(tab);
+    });
+  }
+
+  // ---------- 未读管理：红点 + 闪烁 + 通知 ----------
+  // 搞怪提示音轮换播放（主人 来消息了 / 主人 发财了…）
+  let soundIdx = 0;
+  function playMessageSound() {
+    try {
+      const n = (soundIdx % 4) + 1;
+      soundIdx++;
+      const audio = new Audio(`../resources/sounds/message-${n}.mp3`);
+      audio.volume = 0.9;
+      audio.play().catch(() => {});
+    } catch (e) { /* 播放失败不影响 */ }
+  }
+  // 平台图标闪烁（有未读消息）——状态持久化到 unreadPlatforms，重绘不丢
+  function setPlatformFlash(platformKey, on) {
+    if (on) unreadPlatforms.add(platformKey);
+    else unreadPlatforms.delete(platformKey);
+    const tab = [...tabsEl.querySelectorAll('.tab-item')].find(t => t.dataset.platform === platformKey);
+    if (tab) tab.classList.toggle('flash', on);
+  }
+  function clearPlatformFlash(platformKey) {
+    setPlatformFlash(platformKey, false);
+  }
+  function platformUnreadTotal(key) {
+    return accounts
+      .filter(a => familyOf(a.type).key === key)
+      .reduce((sum, a) => sum + (unreadByAccount[a.id] || 0), 0);
+  }
+  // 更新某账号未读数；count 增加时触发桌面通知
+  function updateUnread(accountId, count) {
+    const prev = unreadByAccount[accountId] || 0;
+    if (prev === count) return;
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+    unreadByAccount[accountId] = count;
+    const fam = familyOf(account.type).key;
+    // 顶部平台红点 + 闪烁
+    setPlatformFlash(fam, count > 0);
+    const tab = [...tabsEl.querySelectorAll('.tab-item')].find(t => t.dataset.platform === fam);
+    if (tab) {
+      const dot = tab.querySelector('.tab-dot');
+      if (dot) dot.style.display = (platformUnreadTotal(fam) > 0) ? 'flex' : 'none';
+    }
+    // 左侧账号红点
+    const item = accountsEl.querySelector(`.nav-account[data-id="${accountId}"] .acc-dot`);
+    if (item) {
+      item.style.display = count > 0 ? 'flex' : 'none';
+      item.textContent = count > 99 ? '99+' : String(count);
+    }
+    // 新未读（0 → N）→ 桌面通知 + 提示音
+    if (count > 0 && count > prev) {
+      try {
+        window.api.notify.show({ title: account.name || fam, body: `${fam.toUpperCase()} 收到 ${count} 条新消息` });
+      } catch (e) { /* ignore */ }
+      // 消息提示音（设置开关控制）
+      try {
+        if (!config || config.messageSound !== false) playMessageSound();
+      } catch (e) { /* ignore */ }
+    }
+  }
+  function clearUnread(accountId) {
+    updateUnread(accountId, 0);
+  }
+
+  // ---------- 切换平台（点顶部图标） ----------
+  async function switchPlatform(key) {
+    activePlatform = key;
+    clearPlatformFlash(key); // 查看该平台 → 停止闪烁
+    const list = accounts.filter(a => familyOf(a.type).key === key);
+    if (!list.length) return;
+    const remembered = lastAccountByPlatform[key];
+    const target = (remembered && list.some(a => a.id === remembered)) ? remembered : list[0].id;
+    renderTabs();
+    renderSidebar();
+    await switchAccount(target);
+  }
+
+  // ---------- WebView 尺寸 ----------
+  function resizeWebviews() {
+    const rect = wvContainer.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+    wvMap.forEach((wv) => {
+      wv.style.width = `${width}px`;
+      wv.style.height = `${height}px`;
+      wv.setAttribute('width', String(width));
+      wv.setAttribute('height', String(height));
+    });
+  }
+
+  // ---------- WebView 创建 ----------
+  function getWebview(account) {
+    if (wvMap.has(account.id)) return wvMap.get(account.id);
+    const wv = document.createElement('webview');
+    wv.src = account.url || 'https://web.whatsapp.com/';
+    wv.partition = account.partition;
+    if (account.userAgent) {
+      wv.setAttribute('useragent', account.userAgent);
+    }
+    wv.setAttribute('allowpopups', '');
+    // 对齐原版：webview 强制白色背景（LINE 二维码扫码需要浅色背景，外壳深色不影响）
+    wv.style.backgroundColor = 'rgb(255, 255, 255)';
+    window.__wvLog = window.__wvLog || [];
+    ['dom-ready', 'did-finish-load', 'did-fail-load', 'did-start-loading', 'did-stop-loading'].forEach((evt) => {
+      wv.addEventListener(evt, (e) => {
+        let detail = '';
+        if (evt === 'did-fail-load') {
+          detail = ` code=${e.errorCode} desc=${e.errorDescription} url=${e.validatedURL}`;
+        }
+        window.__wvLog.push(`${evt}${detail}`);
+        try { window.__wvLog.push(`url=${wv.getURL && wv.getURL()}`); } catch (err) {}
+      });
+    });
+    wv.addEventListener('dom-ready', () => {
+      resizeWebviews();
+      setTimeout(resizeWebviews, 100);
+    });
+    // 未读消息检测：页面 title 带未读数（如 "（2）WhatsApp"）→ 红点+闪烁+通知
+    wv.addEventListener('page-title-updated', (e) => {
+      const title = (e.title || '').trim();
+      const m = title.match(/^[(\[（]\s*(\d+)\s*[)\]\）]/);
+      updateUnread(account.id, m ? parseInt(m[1], 10) : 0);
+    });
+    wvContainer.appendChild(wv);
+    wv.addEventListener('dom-ready', () => {
+      if (lineReadyPartitions.has(account.partition)) {
+        lineReadyPartitions.delete(account.partition);
+        try { wv.reloadIgnoringCache(); } catch (e) { /* ignore */ }
+      }
+    });
+    wvMap.set(account.id, wv);
+    resizeWebviews();
+    return wv;
+  }
+
+  // ---------- 切换账号 ----------
+  async function switchAccount(id) {
+    const account = accounts.find(a => a.id === id);
+    if (!account) return;
+    activeId = id;
+    activePlatform = familyOf(account.type).key;
+    lastAccountByPlatform[activePlatform] = id;
+    clearUnread(id); // 查看该账号 → 清未读（红点/闪烁/通知）
+    // 持久化当前账号（防止重启/重载时 activeAccountId 过期导致切错账号）
+    window.api.accounts.switch(id).catch(() => {});
+    wvMap.forEach(wv => wv.classList.remove('active'));
+    const wv = getWebview(account);
+    wv.classList.add('active');
+    resizeWebviews();
+    setTimeout(resizeWebviews, 50);
+    emptyState.style.display = 'none';
+    renderSidebar();
+    renderTabs();
+  }
+
+  // ---------- 删除账号 ----------
+  async function removeAccount(id) {
+    if (!confirm('删除账号将清除该账号的登录数据，确定？')) return;
+    const removed = accounts.find(a => a.id === id);
+    const wv = wvMap.get(id);
+    if (wv) { wv.remove(); wvMap.delete(id); }
+    accounts = accounts.filter(a => a.id !== id);
+    await window.api.accounts.remove(id);
+    if (removed && lastAccountByPlatform[familyOf(removed.type).key] === id) {
+      delete lastAccountByPlatform[familyOf(removed.type).key];
+    }
+    if (activeId === id) {
+      // 当前平台还有账号 → 切到当前平台最后一个；否则切到下一个有账号的平台
+      const curList = accounts.filter(a => familyOf(a.type).key === activePlatform);
+      if (curList.length) {
+        activeId = curList[curList.length - 1].id;
+        await switchAccount(activeId);
+      } else {
+        const next = PLATFORM_FAMILIES.find(f => f.key !== activePlatform &&
+          accounts.some(a => familyOf(a.type).key === f.key));
+        if (next) {
+          await switchPlatform(next.key);
+        } else {
+          activeId = null;
+          activePlatform = null;
+          emptyState.style.display = 'flex';
+        }
+      }
+    }
+    renderSidebar();
+    renderTabs();
+  }
+
+  // ---------- 右键菜单（对齐原版：刷新应用/编辑应用/删除应用） ----------
+  const ctxMenu = document.getElementById('ctx-menu');
+  function showContextMenu(x, y, account) {
+    ctxMenu.innerHTML = `
+      <div class="ctx-item" data-act="refresh">刷新应用</div>
+      <div class="ctx-item" data-act="edit">编辑应用</div>
+      <div class="ctx-item" data-act="proxy">代理设置</div>
+      <div class="ctx-item ctx-danger" data-act="delete">删除应用</div>`;
+    const mw = 150, mh = 132;
+    ctxMenu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
+    ctxMenu.style.top = Math.min(y, window.innerHeight - mh - 8) + 'px';
+    ctxMenu.dataset.accountId = account.id;
+    ctxMenu.classList.remove('hidden');
+  }
+  function hideContextMenu() { ctxMenu.classList.add('hidden'); }
+
+  ctxMenu.addEventListener('click', async (e) => {
+    const item = e.target.closest('.ctx-item');
+    if (!item) return;
+    const act = item.dataset.act;
+    const accountId = ctxMenu.dataset.accountId;
+    hideContextMenu();
+    if (!accountId) return;
+    if (act === 'refresh') {
+      // 原版 refreshApp：重新加载应用列表 + 重载页面
+      const wv = wvMap.get(accountId);
+      if (wv) wv.reloadIgnoringCache();
+      try {
+        const r = await window.api.accounts.list();
+        accounts = r?.accounts || r || [];
+        renderSidebar();
+        renderTabs();
+      } catch (err) { /* 列表刷新失败不影响页面刷新 */ }
+    } else if (act === 'edit') {
+      editAccount(accountId);
+    } else if (act === 'proxy') {
+      const account = accounts.find(a => a.id === accountId);
+      if (account) showProxyDialog(account);
+    } else if (act === 'delete') {
+      removeAccount(accountId);
+    }
+  });
+  document.addEventListener('click', hideContextMenu);
+  window.addEventListener('blur', hideContextMenu);
+
+  // ---------- 独立代理IP 弹窗（原版 Proxy IP） ----------
+  const proxyOverlay = document.getElementById('proxy-overlay');
+  let proxyAccountId = null;
+  function showProxyDialog(account) {
+    proxyAccountId = account.id;
+    document.getElementById('proxy-openProxy').checked = !!account.openProxy;
+    document.getElementById('proxy-protocal').value = account.protocal || 'http';
+    document.getElementById('proxy-host').value = account.host || '';
+    document.getElementById('proxy-port').value = account.port || '';
+    document.getElementById('proxy-user').value = account.huser || '';
+    document.getElementById('proxy-pwd').value = account.hpwd || '';
+    proxyOverlay.classList.remove('hidden');
+  }
+  function closeProxyDialog() { proxyOverlay.classList.add('hidden'); }
+  document.getElementById('proxy-close').onclick = closeProxyDialog;
+  document.getElementById('proxy-cancel').onclick = closeProxyDialog;
+  proxyOverlay.onclick = (e) => { if (e.target === proxyOverlay) closeProxyDialog(); };
+  document.getElementById('proxy-save').onclick = async () => {
+    if (!proxyAccountId) return;
+    try {
+      await window.api.accounts.update(proxyAccountId, {
+        openProxy: document.getElementById('proxy-openProxy').checked,
+        protocal: document.getElementById('proxy-protocal').value,
+        host: document.getElementById('proxy-host').value.trim(),
+        port: document.getElementById('proxy-port').value.trim(),
+        huser: document.getElementById('proxy-user').value.trim(),
+        hpwd: document.getElementById('proxy-pwd').value
+      });
+      closeProxyDialog();
+    } catch (e) {
+      alert('保存失败: ' + e.message);
+    }
+  };
+
+  // 编辑应用：打开设置 → 账号设置 tab → 选中该账号
+  function editAccount(id) {
+    const accountTab = [...settingsTabs].find(t => t.dataset.tab === 'account');
+    if (accountTab) {
+      settingsTabs.forEach(t => t.classList.remove('active'));
+      accountTab.classList.add('active');
+      settingsGlobal.classList.add('hidden');
+      settingsAccount.classList.remove('hidden');
+    }
+    accSelect.value = id;
+    loadAccountSettingsForm();
+    openSettings();
+  }
+
+  // ---------- 排序 ----------
+  async function moveAccount(id, direction) {
+    try {
+      await window.api.accounts.move(id, direction);
+      // 只刷新列表，不切换账号（防止存储的旧 activeAccountId 把当前账号切走）
+      const r = await window.api.accounts.list();
+      accounts = r?.accounts || r || [];
+      renderSidebar();
+      renderTabs();
+    } catch (e) {
+      alert('排序失败: ' + e.message);
+    }
+  }
+
+  // ---------- 添加账号弹窗 ----------
+  function openAddDialog(preselectType) {
+    addSelectedType = null;
+    addNameEl.value = '';
+    addCountEl.value = '1';
+    addPlatformsEl.innerHTML = '';
+    platforms.forEach((p) => {
+      if (p.type === 'website') return;
+      const card = document.createElement('div');
+      card.className = 'add-platform-card' + (p.type === preselectType ? ' selected' : '');
+      card.dataset.type = p.type;
+      card.innerHTML = `
+        <span class="p-icon p-icon-lg ${platformIconClass(p.type)}">${iconSvg(p.type)}</span>
+        <span class="add-platform-label">${escapeHtml(p.name)}</span>`;
+      card.onclick = () => {
+        addPlatformsEl.querySelectorAll('.add-platform-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        addSelectedType = p.type;
+      };
+      addPlatformsEl.appendChild(card);
+    });
+    if (preselectType) addSelectedType = preselectType;
+    addOverlay.classList.remove('hidden');
+    setTimeout(() => addNameEl.focus(), 50);
+  }
+  function closeAddDialog() {
+    addOverlay.classList.add('hidden');
+  }
+
+  document.getElementById('add-close').onclick = closeAddDialog;
+  document.getElementById('add-cancel').onclick = closeAddDialog;
+  addOverlay.onclick = (e) => {
+    if (e.target === addOverlay) closeAddDialog();
+  };
+  document.getElementById('add-confirm').onclick = async () => {
+    const type = addSelectedType;
+    if (!type) { alert('请先选择一个平台'); return; }
+    const platform = platforms.find(p => p.type === type);
+    const label = platform ? platform.name : type;
+    const count = Math.max(1, Math.min(10, parseInt(addCountEl.value, 10) || 1));
+    let baseName = (addNameEl.value || '').trim();
+    try {
+      for (let i = 0; i < count; i++) {
+        const existing = accounts.filter(a => a.type === type).length;
+        const name = baseName
+          ? (count > 1 ? `${baseName} ${i + 1}` : baseName)
+          : `${label} ${existing + 1}`;
+        const r = await window.api.accounts.add({ name: name.trim(), type, customUrl: '' });
+        await loadAccounts();
+        if (i === 0 && r && r.account) activeId = r.account.id;
+      }
+      closeAddDialog();
+      if (activeId) switchAccount(activeId);
+    } catch (e) {
+      alert('添加失败: ' + e.message);
+    }
+  };
+
+  addBtn.onclick = () => openAddDialog();
+
+  // ---------- 侧栏折叠 ----------
+  const sideNav = document.getElementById('side-nav');
+  document.getElementById('btn-collapse').onclick = () => {
+    sideNav.classList.toggle('collapsed');
+  };
+
+  // ---------- 顶部操作栏 ----------
+  document.getElementById('btn-app-center').onclick = () => openAddDialog();
+  document.getElementById('btn-restart').onclick = async () => {
+    if (confirm('确定重启应用？')) {
+      try { await window.api.window.relaunch(); } catch (e) { alert(e.message); }
+    }
+  };
+  document.getElementById('btn-lock').onclick = lockScreen;
+  document.getElementById('btn-settings').onclick = openSettings;
+  // 托盘菜单"锁屏" → 触发渲染层锁屏
+  try {
+    window.api.tray.onLock(() => lockScreen());
+  } catch (e) { /* ignore */ }
+
+  // ---------- 群发消息（多平台） ----------
+  // 平台适配器：读取聊天列表 / 切换聊天 / 输入消息 / 发送（webview DOM 操作）
+  const BROADCAST_ADAPTERS = {
+    'telegram-z': {
+      getChats: `(() => {
+        const out = [];
+        document.querySelectorAll('.chat-item-clickable').forEach(row => {
+          const a = row.querySelector('a');
+          if (!a) return;
+          const t = row.querySelector('[class*="title"], .peer-title');
+          out.push({
+            id: (a.getAttribute('href') || '').replace('#', ''),
+            name: (t ? t.textContent : '').trim(),
+            type: (row.className || '').includes('group') ? '群组' : '联系人'
+          });
+        });
+        return JSON.stringify(out);
+      })()`,
+      switchChat: (id) => `(() => {
+        const a = document.querySelector('.chat-item-clickable a[href="#${id}"]');
+        if (!a) return false;
+        // React 应用需要完整指针事件序列（普通 click() 无效）
+        const fire = (type, opts) => a.dispatchEvent(new PointerEvent(type, Object.assign({bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1}, opts)));
+        fire('pointerdown');
+        a.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 }));
+        fire('pointerup', { buttons: 0 });
+        a.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 0 }));
+        a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 }));
+        return true;
+      })()`,
+      setMessage: (msg) => `(async () => {
+        // 轮询等 ProseMirror 编辑器就绪（聊天刚打开可能未初始化，大群加载慢）
+        let ed = null;
+        for (let i = 0; i < 60; i++) {
+          ed = document.querySelector('.form-control.ProseMirror') || document.querySelector('[contenteditable="true"]');
+          if (ed && ed.textContent !== undefined) break;
+          await new Promise(r => setTimeout(r, 250));
+        }
+        if (!ed) return 'NO_EDITOR';
+        // 等编辑器真正可编辑（ProseMirror 初始化完成）
+        for (let i = 0; i < 20; i++) {
+          ed.focus();
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(ed);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          const ok = document.execCommand('insertText', false, ${JSON.stringify(msg)});
+          await new Promise(r => setTimeout(r, 200));
+          if ((ed.textContent || '').includes(${JSON.stringify(msg)})) return 'OK';
+        }
+        return 'EMPTY';
+      })()`,
+      send: (msg) => `(async () => {
+        const modal = document.querySelector('.modal-dialog, .modal-container');
+        if (modal) {
+          // 文件发送确认弹窗：文字输入到 caption，再点 Send
+          const caption = modal.querySelector('[contenteditable="true"], .form-control, textarea, input[type="text"]');
+          const m = ${JSON.stringify(msg)};
+          if (caption && m) {
+            caption.focus();
+            document.execCommand('insertText', false, m);
+            await new Promise(r => setTimeout(r, 300));
+          }
+          const modalBtn = [...modal.querySelectorAll('button')].find(b => /primary/.test((b.className || '').toString()));
+          if (modalBtn) {
+            const fire = (type, opts) => modalBtn.dispatchEvent(new PointerEvent(type, Object.assign({bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1}, opts)));
+            fire('pointerdown');
+            modalBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 }));
+            fire('pointerup', { buttons: 0 });
+            modalBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 0 }));
+            modalBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 }));
+            return 'CLICKED';
+          }
+          return 'NO_MODAL_BTN';
+        }
+        // 普通发送按钮（纯文字）——轮询等按钮就绪（TG 可能延迟出现/短暂禁用）
+        let btn = null;
+        for (let i = 0; i < 24; i++) {
+          btn = document.querySelector('button[class*="send"], button[class*="Send"], button[aria-label*="Send"], .btn-send, button[class*="primary"], .Button.primary');
+          if (btn && !btn.disabled) break;
+          await new Promise(r => setTimeout(r, 250));
+        }
+        if (btn) {
+          btn.click();
+          return 'CLICKED';
+        }
+        // 无按钮：Enter 发送文字
+        const ed = document.querySelector('.form-control.ProseMirror') || document.querySelector('[contenteditable="true"]');
+        if (!ed) return 'NO_EDITOR';
+        ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        ed.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        // 等编辑器清空（= 发送成功），最长 15 秒
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 250));
+          if (!(ed.textContent || '').trim()) return 'SENT';
+        }
+        return 'MAYBE';
+      })()`,
+    },
+    whatsapp: {
+      // WPP 直发模式（对齐原版/HelloWorld：内部 API，不走 UI 模拟）
+      // window.WPP（wppconnect 官方）+ window.WAPLUS_WPP（HelloWorld fork——sendFileMessage 可用）
+      getChats: `(async () => {
+        try {
+          const W = window.WAPLUS_WPP || window.WPP;
+          const chats = await W.chat.list();
+          const arr = Array.isArray(chats) ? chats : (chats ? Object.values(chats) : []);
+          const out = arr.map(c => ({
+            id: String(c.id),
+            name: (c.name || c.formattedTitle || String(c.id)).trim(),
+            type: c.isGroup ? '群组' : '联系人'
+          })).filter(c => c.id.includes('@'));
+          return JSON.stringify(out);
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`,
+      sendDirect: (chatId, msg) => `(async () => {
+        try {
+          const W = window.WAPLUS_WPP || window.WPP;
+          const r = await Promise.race([
+            W.chat.sendTextMessage(${JSON.stringify(chatId)}, ${JSON.stringify(msg)}),
+            new Promise(res => setTimeout(() => res({ id: 'submitted' }), 8000)) // 慢网络/新账号兜底（8 秒后视为已提交）
+          ]);
+          return r && r.id ? 'SENT' : 'FAIL';
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`,
+      // WA 文件+文字一起（底层 API——HelloWorld 同款：ChatStore.get 模型 + prepRawMedia + sendMediaMsgToChat，秒发）
+      sendFileDirect: (chatId, file, caption) => `(async () => {
+        try {
+          const W = window.require;
+          const wpp = window.WAPLUS_WPP || window.WPP;
+          const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
+          if (!chatModel) return 'NO_CHAT';
+          const bytes = Uint8Array.from(atob('${file.base64}'), c => c.charCodeAt(0));
+          const f = new File([bytes], ${JSON.stringify(file.name || 'file')}, { type: ${JSON.stringify(file.mime || 'application/octet-stream')} });
+          const mediaData = W('WAWebMediaOpaqueData').createFromData(f, f.type);
+          const mime = ${JSON.stringify(file.mime || '')};
+          const type = mime.startsWith('image') ? 'image' : mime.startsWith('video') ? 'video' : mime.startsWith('audio') ? 'audio' : 'document';
+          const prepOptions = { isPtt: false, asDocument: type === 'document', asGif: false, isAudio: type === 'audio', asSticker: type === 'sticker', precomputedFields: { duration: null, waveform: null } };
+          const preparedMedia = W('WAWebMedia').prepRawMedia(mediaData, prepOptions);
+          await preparedMedia.waitForPrep();
+          const result = await W('WAWebMediaPrep').sendMediaMsgToChat({
+            chat: chatModel,
+            options: { addEvenWhilePreparing: false, caption: ${JSON.stringify(caption)}, type },
+            prep: preparedMedia,
+            earlyUpload: null,
+          });
+          return result ? 'SENT' : 'FAIL';
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`,
+    },
+    line: {
+      getChats: `(() => {
+        const out = [];
+        document.querySelectorAll('[class*="mdMN02Item"]').forEach(el => {
+          const t = el.querySelector('[class*="mdMN02Thumb"], [class*="Title"], [class*="title"]');
+          out.push({ id: el.getAttribute('data-id') || '', name: (t ? t.textContent : el.textContent).trim().slice(0, 40) });
+        });
+        return JSON.stringify(out);
+      })()`,
+      switchChat: (id) => `(() => {
+        const el = document.querySelector('[data-id="${id}"]');
+        if (el) { el.click(); return true; }
+        return false;
+      })()`,
+      setMessage: (msg) => `(() => {
+        const ed = document.querySelector('[class*="mdCMN09Input"], [contenteditable="true"], textarea');
+        if (!ed) return false;
+        ed.focus();
+        document.execCommand('insertText', false, ${JSON.stringify(msg)});
+        return true;
+      })()`,
+      send: `(() => {
+        const ed = document.querySelector('[class*="mdCMN09Input"], [contenteditable="true"], textarea');
+        if (!ed) return false;
+        ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+        return true;
+      })()`,
+    },
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let broadcastChats = [];      // 全部聊天
+  let broadcastSelected = new Set(); // 勾选 id
+  let broadcastFiles = [];      // 附件 [{name, base64, mime}]
+  let broadcastRunning = false;
+  let broadcastStop = false;
+  let broadcastPaused = false;
+  let broadcastFailed = [];     // 失败名单 [{name, reason}]
+
+  const bOverlay = document.getElementById('broadcast-overlay');
+  const bListEl = document.getElementById('broadcast-list');
+  const bSearchEl = document.getElementById('broadcast-search');
+  const bMessageEl = document.getElementById('broadcast-message');
+  const bMetaEl = document.getElementById('broadcast-meta');
+  const bProgressEl = document.getElementById('broadcast-progress');
+
+  function openBroadcast() {
+    const account = accounts.find(a => a.id === activeId);
+    if (!account) { alert('请先切换到一个账号'); return; }
+    broadcastChats = [];
+    broadcastSelected = new Set();
+    broadcastFiles = [];
+    bSearchEl.value = '';
+    bMessageEl.value = '';
+    renderBroadcastFiles();
+    bProgressEl.classList.add('hidden');
+    bOverlay.classList.remove('hidden');
+    renderSavedGroups();
+    renderBroadcastList();
+    loadBroadcastChats();
+  }
+  // 附件：选择文件 + 列表
+  document.getElementById('broadcast-add-file').onclick = async () => {
+    try {
+      const f = await window.api.file.pick();
+      if (f) { broadcastFiles.push(f); renderBroadcastFiles(); }
+    } catch (e) { alert('选择文件失败: ' + e.message); }
+  };
+  // CSV 导入联系人（每行：聊天名称或 ID，自动匹配勾选）
+  document.getElementById('broadcast-import-csv').onclick = async () => {
+    try {
+      const f = await window.api.file.pickCsv();
+      if (!f) return;
+      const lines = f.content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      let names = lines;
+      if (lines.length > 1 && /^(name|名称|姓名|联系人|id|聊天)/i.test(lines[0])) names = lines.slice(1);
+      const targets = names.map(l => l.split(/[,，\t]/)[0].trim()).filter(Boolean);
+      let matched = 0;
+      targets.forEach(n => {
+        const c = broadcastChats.find(c => (c.name || '') === n || c.id === n);
+        if (c && !broadcastSelected.has(c.id)) { broadcastSelected.add(c.id); matched++; }
+      });
+      renderBroadcastList();
+      alert(matched ? `CSV 导入成功：匹配 ${matched} 个聊天（共 ${targets.length} 行）` : `CSV 未匹配到聊天（${targets.length} 行）——请确认每行是聊天名称或 ID`);
+    } catch (e) { alert('导入失败: ' + e.message); }
+  };
+  function renderBroadcastFiles() {
+    const el = document.getElementById('broadcast-file-list');
+    el.innerHTML = broadcastFiles.map((f, i) =>
+      `<span class="bf-item" title="${escapeHtml(f.name)}">${escapeHtml(f.name)} <i data-i="${i}">×</i></span>`
+    ).join('');
+    el.querySelectorAll('i').forEach((x) => {
+      x.onclick = () => { broadcastFiles.splice(+x.dataset.i, 1); renderBroadcastFiles(); };
+    });
+  }
+  function closeBroadcast() { bOverlay.classList.add('hidden'); }
+  async function loadBroadcastChats() {
+    bMetaEl.textContent = '加载聊天列表…';
+    const account = accounts.find(a => a.id === activeId);
+    const wv = wvMap.get(activeId);
+    if (!account || !wv) { bMetaEl.textContent = '当前账号不可用'; return; }
+    const key = familyOf(account.type).key;
+    const adapter = BROADCAST_ADAPTERS[key] || BROADCAST_ADAPTERS['telegram-z'];
+    try {
+      const res = await wv.executeJavaScript(adapter.getChats);
+      broadcastChats = JSON.parse(String(res));
+      bMetaEl.textContent = `共 ${broadcastChats.length} 个聊天（联系人和群组）`;
+      renderBroadcastList();
+    } catch (e) {
+      bMetaEl.textContent = '读取聊天列表失败: ' + e.message;
+    }
+  }
+  function renderBroadcastList() {
+    const q = bSearchEl.value.trim().toLowerCase();
+    const list = broadcastChats.filter(c => !q || (c.name || '').toLowerCase().includes(q));
+    bListEl.innerHTML = '';
+    list.forEach((c) => {
+      const item = document.createElement('label');
+      item.className = 'broadcast-item';
+      const checked = broadcastSelected.has(c.id);
+      const badge = c.type ? `<span class="bc-type-badge ${c.type === '群组' ? 'group' : ''}">${c.type === '群组' ? '群组' : '联系人'}</span>` : '';
+      item.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''}><span class="broadcast-name">${escapeHtml(c.name || c.id)}</span>${badge}`;
+      item.querySelector('input').onchange = (e) => {
+        if (e.target.checked) broadcastSelected.add(c.id);
+        else broadcastSelected.delete(c.id);
+        updateBroadcastMeta();
+      };
+      bListEl.appendChild(item);
+    });
+    if (!list.length) bListEl.innerHTML = '<div class="nav-empty">没有匹配的聊天</div>';
+    updateBroadcastMeta();
+  }
+  // 全选 / 清空 / 全选群组
+  document.getElementById('broadcast-select-all').onclick = () => {
+    const q = bSearchEl.value.trim().toLowerCase();
+    broadcastChats.filter(c => !q || (c.name || '').toLowerCase().includes(q)).forEach(c => broadcastSelected.add(c.id));
+    renderBroadcastList();
+  };
+  document.getElementById('broadcast-select-groups').onclick = () => {
+    const q = bSearchEl.value.trim().toLowerCase();
+    broadcastChats.filter(c => c.type === '群组' && (!q || (c.name || '').toLowerCase().includes(q))).forEach(c => broadcastSelected.add(c.id));
+    renderBroadcastList();
+  };
+  document.getElementById('broadcast-select-contacts').onclick = () => {
+    const q = bSearchEl.value.trim().toLowerCase();
+    broadcastChats.filter(c => c.type === '联系人' && (!q || (c.name || '').toLowerCase().includes(q))).forEach(c => broadcastSelected.add(c.id));
+    renderBroadcastList();
+  };
+  // 插入变量按钮（%nc 联系人名称）
+  document.getElementById('broadcast-insert-var').onclick = () => {
+    bMessageEl.value += '%nc';
+    bMessageEl.focus();
+  };
+  document.getElementById('broadcast-select-none').onclick = () => {
+    broadcastSelected.clear();
+    renderBroadcastList();
+  };
+  // ---------- 批量加入群组 ----------
+  const joinOverlay = document.getElementById('join-overlay');
+  const joinLinksEl = document.getElementById('join-links');
+  const joinProgressEl = document.getElementById('join-progress');
+  function setJoinProgress(percent, text) {
+    joinProgressEl.classList.remove('hidden');
+    document.getElementById('join-progress-fill').style.width = percent + '%';
+    document.getElementById('join-progress-text').textContent = text;
+  }
+  document.getElementById('broadcast-join-groups').onclick = () => {
+    joinLinksEl.value = '';
+    joinProgressEl.classList.add('hidden');
+    joinOverlay.classList.remove('hidden');
+  };
+  document.getElementById('join-close').onclick = () => joinOverlay.classList.add('hidden');
+  document.getElementById('join-cancel').onclick = () => joinOverlay.classList.add('hidden');
+  // 加入单个群链接：导航 → 找加入按钮 → 点击 → 回 TG
+  async function joinGroupByLink(link) {
+    const wv = wvMap.get(activeId);
+    if (!wv) return 'NO_WV';
+    // 标准化链接（没有协议补 https://）
+    const url = /^https?:\/\//.test(link) ? link : 'https://' + link;
+    try {
+      wv.src = url; // webview 导航到群预览页
+      await sleep(4500);
+      const res = await wv.executeJavaScript(`(() => {
+        const btn = [...document.querySelectorAll('button')].find(b => {
+          const t = (b.textContent || '').trim();
+          return /join|加入/.test(t) && !/joined|已加入|leave|退出/.test(t);
+        });
+        if (!btn) return 'NO_BTN|' + document.title.slice(0, 30);
+        const fire = (type, opts) => btn.dispatchEvent(new PointerEvent(type, Object.assign({bubbles: true, cancelable: true, view: window, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1}, opts)));
+        fire('pointerdown');
+        btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1 }));
+        fire('pointerup', { buttons: 0 });
+        btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0, buttons: 0 }));
+        btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 }));
+        return 'JOINED|' + btn.textContent.trim().slice(0, 20);
+      })()`);
+      await sleep(1500);
+      // 回到 TG 主界面
+      wv.src = 'https://web.telegram.org/a/';
+      await sleep(3000);
+      return String(res);
+    } catch (e) {
+      try { wv.src = 'https://web.telegram.org/a/'; } catch (e2) {}
+      return 'ERR:' + e.message;
+    }
+  }
+  document.getElementById('join-start').onclick = async () => {
+    const links = joinLinksEl.value.split(/\n+/).map(s => s.trim()).filter(Boolean);
+    if (!links.length) { alert('请输入群链接（每行一个）'); return; }
+    if (!confirm(`将依次加入 ${links.length} 个群组（每个约 10 秒，加入频率过快可能被限制）`)) return;
+    let ok = 0, fail = 0;
+    const fails = [];
+    for (let i = 0; i < links.length; i++) {
+      setJoinProgress(Math.round(i / links.length * 100), `加入中 ${i + 1}/${links.length}：${links[i].slice(0, 40)}`);
+      const res = await joinGroupByLink(links[i]);
+      if (String(res).includes('JOINED')) ok++;
+      else { fail++; fails.push(`${links[i].slice(0, 30)}: ${res}`); }
+      await sleep(2000); // 间隔
+    }
+    setJoinProgress(100, `完成：成功加入 ${ok}，失败 ${fail}`);
+    if (fails.length) alert(`加入完成：成功 ${ok}，失败 ${fail}\n\n失败明细：\n${fails.slice(0, 8).map(f => '· ' + f).join('\n')}`);
+    else alert(`全部加入成功（${ok} 个群组）`);
+  };
+
+  // 群组预设：保存当前勾选 / 加载
+  function renderSavedGroups() {
+    const sel = document.getElementById('broadcast-saved-groups');
+    if (!sel) return;
+    const groups = (config || {}).broadcastGroups || [];
+    const current = sel.value;
+    sel.innerHTML = '<option value="">我的群组…</option>' + groups.map(g =>
+      `<option value="${g.id}">${escapeHtml(g.name)}（${(g.chatIds || []).length} 个）</option>`).join('');
+    if (current) sel.value = current;
+  }
+  document.getElementById('broadcast-save-group').onclick = async () => {
+    if (!broadcastSelected.size) { alert('请先勾选要保存的聊天'); return; }
+    const name = prompt('给这组聊天起个备注名：', `群组预设 ${(config.broadcastGroups || []).length + 1}`);
+    if (!name) return;
+    const groups = config.broadcastGroups || [];
+    groups.push({ id: 'bg' + Date.now(), name, chatIds: [...broadcastSelected], createdAt: Date.now() });
+    config.broadcastGroups = groups;
+    await window.api.config.set({ broadcastGroups: groups });
+    renderSavedGroups();
+    alert(`已保存「${name}」（${broadcastSelected.size} 个聊天）`);
+  };
+  document.getElementById('broadcast-saved-groups').onchange = async (e) => {
+    const gid = e.target.value;
+    if (!gid) return;
+    const g = (config.broadcastGroups || []).find(x => x.id === gid);
+    if (!g) return;
+    broadcastSelected.clear();
+    g.chatIds.forEach(id => { if (broadcastChats.some(c => c.id === id)) broadcastSelected.add(id); });
+    renderBroadcastList();
+  };
+  function updateBroadcastMeta() {
+    const account = accounts.find(a => a.id === activeId);
+    bMetaEl.textContent = `${account ? account.name : ''} · 共 ${broadcastChats.length} 个聊天 · 已选 ${broadcastSelected.size} 个`;
+  }
+  // 构造文件拖拽注入脚本（TG 接收 drop 后自动上传）
+  function buildDropFileScript(file) {
+    return `(() => {
+      try {
+        const b64 = '${file.base64}';
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const f = new File([bytes], ${JSON.stringify(file.name)}, { type: ${JSON.stringify(file.mime || 'application/octet-stream')} });
+        const dt = new DataTransfer();
+        dt.items.add(f);
+        const target = document.querySelector('.input-message-container, .composer, [contenteditable="true"]') || document.body;
+        const ev = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt });
+        target.dispatchEvent(ev);
+        return 'DROPPED';
+      } catch (e) { return 'ERR:' + e.message; }
+    })()`;
+  }
+  // 多消息定时任务（每条：时间 + 消息 + 群组预设）
+  let scheduleTasks = [];
+  function renderScheduleList() {
+    const el = document.getElementById('broadcast-schedule-list');
+    if (!scheduleTasks.length) { el.innerHTML = ''; return; }
+    el.innerHTML = scheduleTasks.map((t, i) => `
+      <div class="bc-schedule-item">
+        <input type="datetime-local" class="bc-sched-time" value="${t.time || ''}" data-i="${i}" title="发送时间">
+        <input type="text" class="bc-sched-msg" placeholder="消息内容…（支持 %nc）" value="${escapeHtml(t.message || '')}" data-i="${i}">
+        <select class="bc-sched-group" data-i="${i}" title="发送到哪个群组预设（留空=当前勾选）">
+          <option value="">当前勾选</option>
+          ${(config.broadcastGroups || []).map(g => `<option value="${g.id}" ${t.groupId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
+        </select>
+        <button class="bc-btn bc-sched-del" data-i="${i}" title="删除">×</button>
+      </div>`).join('');
+    el.querySelectorAll('.bc-sched-time').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].time = x.value; });
+    el.querySelectorAll('.bc-sched-msg').forEach(x => x.oninput = () => { scheduleTasks[+x.dataset.i].message = x.value; });
+    el.querySelectorAll('.bc-sched-group').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].groupId = x.value; });
+    el.querySelectorAll('.bc-sched-del').forEach(x => x.onclick = () => { scheduleTasks.splice(+x.dataset.i, 1); renderScheduleList(); });
+  }
+  const addSchedBtn = document.getElementById('broadcast-add-schedule');
+  if (addSchedBtn) addSchedBtn.onclick = () => {
+    scheduleTasks.push({ time: '', message: '', groupId: '' });
+    renderScheduleList();
+  };
+  // 定时任务到点执行：加载群组预设 + 设置消息 + 发送
+  async function fireScheduledTask(t) {
+    if (t.groupId) {
+      const g = (config.broadcastGroups || []).find(x => x.id === t.groupId);
+      if (g) {
+        broadcastSelected.clear();
+        g.chatIds.forEach(id => { if (broadcastChats.some(c => c.id === id)) broadcastSelected.add(id); });
+      }
+    }
+    bMessageEl.value = t.message;
+    renderBroadcastList();
+    await doSendBroadcast();
+  }
+  // 发送（入口：支持定时）
+  let broadcastTimer = null;
+  function setProgress(percent, text) {
+    bProgressEl.classList.remove('hidden');
+    document.getElementById('broadcast-progress-fill').style.width = percent + '%';
+    document.getElementById('broadcast-progress-text').textContent = text;
+  }
+  async function sendBroadcast() {
+    if (broadcastRunning) { broadcastStop = true; return; }
+    // 多消息定时：有定时任务 → 全部安排，到点自动执行
+    const pendingSched = scheduleTasks.filter(t => t.time && t.message && new Date(t.time).getTime() > Date.now());
+    if (pendingSched.length) {
+      setProgress(0, `已安排 ${pendingSched.length} 条定时消息（${pendingSched.map(t => new Date(t.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })).join(' / ')}）自动发送`);
+      pendingSched.forEach(t => {
+        setTimeout(() => { fireScheduledTask(t); }, new Date(t.time).getTime() - Date.now());
+      });
+      return;
+    }
+    // 单条定时发送：勾选了定时且时间在未来 → 安排到点自动开始
+    try {
+      const schedOn = document.getElementById('broadcast-schedule-on')?.checked;
+      const schedTime = document.getElementById('broadcast-schedule-time')?.value;
+      if (schedOn && schedTime) {
+        const target = new Date(schedTime).getTime();
+        if (target > Date.now()) {
+          clearTimeout(broadcastTimer);
+          setProgress(0, `已安排定时发送：${new Date(target).toLocaleString()} 自动开始`);
+          broadcastTimer = setTimeout(() => { doSendBroadcast(); }, target - Date.now());
+          return;
+        }
+      }
+    } catch (e) { /* 定时解析失败则立即发送 */ }
+    await doSendBroadcast();
+  }
+  // 实际群发
+  async function doSendBroadcast() {
+    if (broadcastRunning) { broadcastStop = true; return; }
+    const account = accounts.find(a => a.id === activeId);
+    const wv = wvMap.get(activeId);
+    const message = bMessageEl.value.trim();
+    if (!account || !wv) { alert('当前账号不可用'); return; }
+    if (!message && !broadcastFiles.length) { alert('请输入消息内容或添加文件'); return; }
+    const targets = broadcastChats.filter(c => broadcastSelected.has(c.id));
+    if (!targets.length) { alert('请先勾选要发送的聊天'); return; }
+    const preview = targets.slice(0, 6).map(t => t.name).join('、') + (targets.length > 6 ? '…' : '');
+    const attachInfo = broadcastFiles.length ? `\n附件：${broadcastFiles.map(f => f.name).join('、')}` : '';
+    if (!confirm(`确认向 ${targets.length} 个聊天群发？\n\n${preview}\n\n消息内容：\n${message || '（无文字）'}${attachInfo}\n\n将逐个发送（每条间隔可调防风控）。`)) return;
+
+    broadcastRunning = true;
+    broadcastStop = false;
+    broadcastPaused = false;
+    broadcastFailed = [];
+    const key = familyOf(account.type).key;
+    const adapter = BROADCAST_ADAPTERS[key] || BROADCAST_ADAPTERS['telegram-z'];
+    document.getElementById('broadcast-send').classList.add('hidden');
+    document.getElementById('broadcast-pause').classList.remove('hidden');
+    const total = targets.length;
+    let ok = 0, fail = 0;
+    const failReasons = [];
+    for (let i = 0; i < targets.length; i++) {
+      if (broadcastStop) { setProgress(100, '已停止'); break; }
+      // 暂停挂起
+      while (broadcastPaused) {
+        setProgress(Math.round(i / total * 100), `已暂停（${i}/${total}）`);
+        await sleep(800);
+        if (broadcastStop) break;
+      }
+      if (broadcastStop) { setProgress(100, '已停止'); break; }
+      const t = targets[i];
+      // %nc 变量替换为联系人姓名（对齐 HelloWorld）
+      // 多条话术随机发送：消息按行分割，每次随机选一句（对齐原版 Hello-GPT）
+      const lines = message.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      const chosenMsg = lines.length > 1 ? lines[Math.floor(Math.random() * lines.length)] : message;
+      const personalMsg = chosenMsg.replace(/%nc/gi, t.name || '');
+      setProgress(Math.round(i / total * 100), `发送中 ${i + 1}/${total}：${t.name}`);
+      // 单个聊天发送（失败自动重试 1 次，消除间歇性时序问题）
+      let sentOk = 'NO_SEND';
+      let setOk = 'NO_SET';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (adapter.sendDirect) {
+            // WPP 直发模式（WA）
+            if (broadcastFiles.length) {
+              // 文件+文字一起：主进程 CDP 注入 File 到页面 → prepRawMedia → sendMediaMsgToChat（HelloWorld 同款，大图不卡）
+              const file = broadcastFiles[0];
+              try {
+                const sf = await window.api.broadcast.sendFile({
+                  partition: account.partition,
+                  filePath: file.filePath,
+                  chatId: t.id,
+                  caption: personalMsg,
+                  mime: file.mime,
+                  name: file.name,
+                });
+                sentOk = String(sf || '');
+              } catch (e) { sentOk = 'ERR:' + e.message; }
+            } else {
+              sentOk = await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg));
+            }
+            if (sentOk === 'SENT' || sentOk === 'CLICKED') break;
+            continue;
+          }
+          await wv.executeJavaScript(adapter.switchChat(t.id));
+          await sleep(900); // 等聊天打开
+          if (broadcastFiles.length) {
+            // 附件：真实拖拽（主进程 CDP）→ 等 TG 弹出发送确认
+            for (const file of broadcastFiles) {
+              try {
+                await window.api.broadcast.dropFile({ partition: account.partition, filePath: file.filePath, mime: file.mime, platform: familyOf(account.type).key });
+                await sleep(3000); // 等 TG 弹"Send 1 Files"窗口
+              } catch (e) { failReasons.push(`${t.name}: 文件注入失败 ${e.message}`); }
+            }
+            // 文字消息：由 send 输入到弹窗 caption（弹窗会遮挡主输入框）
+            sentOk = await wv.executeJavaScript(adapter.send(personalMsg)); // 弹窗 caption + Send
+          } else {
+            // 纯文字
+            setOk = await wv.executeJavaScript(adapter.setMessage(personalMsg));
+            sentOk = await wv.executeJavaScript(adapter.send(''));
+            if (setOk !== 'OK') failReasons.push(`${t.name}: 输入失败 ${setOk}`);
+          }
+          if (sentOk === 'SENT' || sentOk === 'CLICKED') break; // 成功
+        } catch (e) {
+          if (attempt === 0) { failReasons.push(`${t.name}: EXC ${e.message}（重试）`); continue; }
+          failReasons.push(`${t.name}: EXC ${e.message}`);
+        }
+      }
+      if (sentOk === 'SENT' || sentOk === 'CLICKED') ok++;
+      else { fail++; failReasons.push(`${t.name}: send=${sentOk} set=${setOk}`); broadcastFailed.push({ name: t.name, reason: sentOk || setOk }); }
+      const intervalMin = parseFloat(document.getElementById('broadcast-interval-min')?.value) || 2;
+      const intervalMax = parseFloat(document.getElementById('broadcast-interval-max')?.value) || intervalMin;
+      const lo = Math.max(0.5, Math.min(intervalMin, intervalMax));
+      const hi = Math.max(lo, intervalMax);
+      await sleep((lo + Math.random() * (hi - lo)) * 1000); // 随机间隔防风控
+    }
+    document.getElementById('broadcast-send').classList.remove('hidden');
+    document.getElementById('broadcast-pause').classList.add('hidden');
+    setProgress(100, `完成：成功 ${ok}，失败 ${fail}${broadcastStop ? '（已停止）' : ''}`);
+    if (failReasons.length) {
+      console.log('群发失败明细:', failReasons.join(' | '));
+      window.__lastFailReasons = failReasons; // 调试：CDP 可读
+      window.__lastFailDetail = failReasons.map(r => r.slice(0, 120));
+      document.getElementById('broadcast-progress-text').textContent += '（失败名单可导出）';
+      document.getElementById('broadcast-export').classList.remove('hidden');
+      // 弹窗显示失败明细（方便定位原因）
+      const top = failReasons.slice(0, 8).map(r => '· ' + r).join('\n');
+      alert(`群发完成：成功 ${ok}，失败 ${fail}\n\n失败明细：\n${top}${failReasons.length > 8 ? `\n… 共 ${failReasons.length} 条（可导出 CSV）` : ''}`);
+    }
+    broadcastRunning = false;
+  }
+
+  document.getElementById('btn-broadcast').onclick = openBroadcast;
+  document.getElementById('broadcast-close').onclick = closeBroadcast;
+  document.getElementById('broadcast-cancel').onclick = closeBroadcast;
+  document.getElementById('broadcast-send').onclick = sendBroadcast;
+  document.getElementById('broadcast-pause').onclick = () => {
+    broadcastPaused = !broadcastPaused;
+    document.getElementById('broadcast-pause').textContent = broadcastPaused ? '继续' : '暂停';
+  };
+  document.getElementById('broadcast-export').onclick = async () => {
+    if (!broadcastFailed.length) return;
+    const csv = '\uFEFF联系人,失败原因\n' + broadcastFailed.map(f => `"${(f.name || '').replace(/"/g, '""')}","${(f.reason || '').replace(/"/g, '""')}"`).join('\n');
+    try {
+      const p = await window.api.file.save({ defaultName: '群发失败名单.csv', content: csv });
+      if (p) alert('已导出失败名单: ' + p);
+    } catch (e) { alert('导出失败: ' + e.message); }
+  };
+  bSearchEl.addEventListener('input', renderBroadcastList);
+  bOverlay.addEventListener('click', (e) => { if (e.target === bOverlay) closeBroadcast(); });
+
+  // ---------- 锁屏（挂机锁） ----------
+  const lockOverlay = document.getElementById('lock-overlay');
+  const lockPasswordEl = document.getElementById('lock-password');
+  const lockErrorEl = document.getElementById('lock-error');
+  let locked = false;
+  async function lockScreen() {
+    const cfg = await window.api.config.get();
+    if (!cfg.lockPassword) {
+      alert('请先在 设置 → 锁屏密码 设置密码');
+      openSettings();
+      return;
+    }
+    lockPasswordEl.value = '';
+    lockErrorEl.classList.add('hidden');
+    lockOverlay.classList.remove('hidden');
+    locked = true;
+    setTimeout(() => lockPasswordEl.focus(), 100);
+  }
+  async function unlockScreen() {
+    const cfg = await window.api.config.get();
+    if (lockPasswordEl.value === (cfg.lockPassword || '')) {
+      lockOverlay.classList.add('hidden');
+      locked = false;
+    } else {
+      lockErrorEl.classList.remove('hidden');
+      lockPasswordEl.value = '';
+      lockPasswordEl.focus();
+    }
+  }
+  document.getElementById('lock-unlock').onclick = unlockScreen;
+  lockPasswordEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') unlockScreen();
+  });
+  // 锁屏时拦截关闭/最小化？不拦——保持后台运行收消息（挂机锁语义）
+  // 窗口控制（无边框自绘）
+  document.getElementById('btn-win-min').onclick = () => window.api.window.minimize();
+  document.getElementById('btn-win-max').onclick = () => window.api.window.maximize();
+  document.getElementById('btn-win-close').onclick = () => window.api.window.close();
+
+  // ---------- 设置面板 ----------
+  function openSettings() {
+    loadSettingsForm();
+    settingsOverlay.classList.remove('hidden');
+  }
+  function closeSettings() {
+    settingsOverlay.classList.add('hidden');
+  }
+
+  document.getElementById('settings-close').onclick = closeSettings;
+  document.getElementById('settings-cancel').onclick = closeSettings;
+  settingsOverlay.onclick = (e) => {
+    if (e.target === settingsOverlay) closeSettings();
+  };
+
+  settingsTabs.forEach((tab) => {
+    tab.onclick = () => {
+      settingsTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const which = tab.dataset.tab;
+      settingsGlobal.classList.toggle('hidden', which !== 'global');
+      settingsAccount.classList.toggle('hidden', which !== 'account');
+    };
+  });
+
+  accSelect.onchange = loadAccountSettingsForm;
+
+  async function loadSettingsForm() {
+    config = await window.api.config.get();
+    applyTheme(config.theme, config.accent);
+    document.getElementById('cfg-theme').value = config.theme || 'dark';
+    document.getElementById('cfg-accent').value = config.accent || 'green';
+    document.getElementById('cfg-autoLaunch').checked = !!config.autoLaunch;
+    document.getElementById('cfg-isStartupMinimize').checked = !!config.isStartupMinimize;
+    document.getElementById('cfg-messageSound').checked = !!config.messageSound;
+    document.getElementById('cfg-lockPassword').value = config.lockPassword || '';
+    document.getElementById('cfg-openProxy').checked = !!config.openProxy;
+    document.getElementById('cfg-protocal').value = config.protocal || 'http';
+    document.getElementById('cfg-host').value = config.host || '';
+    document.getElementById('cfg-port').value = config.port || '';
+    document.getElementById('cfg-login').value = config.login || '';
+    document.getElementById('cfg-password').value = config.password || '';
+
+    accSelect.innerHTML = '';
+    accounts.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = `${a.name} (${(a.type === 'telegram-z' || a.type === 'telegram-k') ? 'TG' : 'WA'})`;
+      accSelect.appendChild(opt);
+    });
+    if (activeId) accSelect.value = activeId;
+    loadAccountSettingsForm();
+  }
+
+  function loadAccountSettingsForm() {
+    const account = accounts.find(a => a.id === accSelect.value);
+    if (!account) return;
+    document.getElementById('acc-name').value = account.name || '';
+    document.getElementById('acc-fontSize').value = account.fontSize || 16;
+    document.getElementById('acc-fontColor').value = account.fontColor || '#18A058';
+    document.getElementById('acc-openProxy').checked = !!account.openProxy;
+    document.getElementById('acc-host').value = account.host || '';
+    document.getElementById('acc-port').value = account.port || '';
+    document.getElementById('acc-huser').value = account.huser || '';
+    document.getElementById('acc-hpwd').value = account.hpwd || '';
+  }
+
+  document.getElementById('settings-save').onclick = async () => {
+    try {
+      const configPatch = {
+        theme: document.getElementById('cfg-theme').value,
+        accent: document.getElementById('cfg-accent').value,
+        autoLaunch: document.getElementById('cfg-autoLaunch').checked,
+        isStartupMinimize: document.getElementById('cfg-isStartupMinimize').checked,
+        messageSound: document.getElementById('cfg-messageSound').checked,
+        lockPassword: document.getElementById('cfg-lockPassword').value,
+        openProxy: document.getElementById('cfg-openProxy').checked,
+        protocal: document.getElementById('cfg-protocal').value,
+        host: document.getElementById('cfg-host').value.trim(),
+        port: document.getElementById('cfg-port').value.trim(),
+        login: document.getElementById('cfg-login').value.trim(),
+        password: document.getElementById('cfg-password').value
+      };
+      await window.api.config.set(configPatch);
+
+      const accountId = accSelect.value;
+      if (accountId) {
+        const accountPatch = {
+          name: document.getElementById('acc-name').value.trim(),
+          fontSize: parseInt(document.getElementById('acc-fontSize').value, 10),
+          fontColor: document.getElementById('acc-fontColor').value,
+          openProxy: document.getElementById('acc-openProxy').checked,
+          host: document.getElementById('acc-host').value.trim(),
+          port: document.getElementById('acc-port').value.trim(),
+          huser: document.getElementById('acc-huser').value.trim(),
+          hpwd: document.getElementById('acc-hpwd').value
+        };
+        await window.api.accounts.update(accountId, accountPatch);
+      }
+
+      await loadAccounts();
+      applyTheme(configPatch.theme, configPatch.accent); // 保存后立即换主题
+      closeSettings();
+    } catch (e) {
+      alert('保存失败: ' + e.message);
+    }
+  };
+
+  // ---------- 加载账号 ----------
+  async function loadAccounts() {
+    const r = await window.api.accounts.list();
+    accounts = r?.accounts || r || [];
+    activeId = r?.activeAccountId || activeId;
+    // 初始化当前平台（从当前账号推断；无账号时为 null）
+    if (activeId && accounts.some(a => a.id === activeId)) {
+      activePlatform = familyOf(accounts.find(a => a.id === activeId).type).key;
+    } else if (accounts.length) {
+      activePlatform = familyOf(accounts[0].type).key;
+    }
+    // 清理已删除账号的 webview
+    const ids = new Set(accounts.map(a => a.id));
+    for (const [id, wv] of wvMap) {
+      if (!ids.has(id)) { wv.remove(); wvMap.delete(id); }
+    }
+    renderSidebar();
+    renderTabs();
+    if (accounts.length) {
+      // 原版多开模型：所有账号的 webview 全部常驻（同时在线收消息），
+      // 切换只是显隐。逐个创建（不等待加载完成），避免启动阻塞。
+      for (const a of accounts) {
+        try { getWebview(a); } catch (err) { console.error('创建 webview 失败', a.id, err); }
+      }
+      const targetId = activeId && accounts.some(a => a.id === activeId)
+        ? activeId
+        : accounts[0].id;
+      await switchAccount(targetId);
+    } else {
+      activeId = null;
+      emptyState.style.display = 'flex';
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ---------- 主题应用 ----------
+  const ACCENTS = ['green', 'blue', 'purple', 'cyan', 'orange', 'pink'];
+  let currentThemeSetting = 'system';
+  let systemTheme = 'dark';
+  function applyTheme(theme, accent) {
+    currentThemeSetting = ['system', 'dark', 'light'].includes(theme) ? theme : 'system';
+    // 跟随系统：用系统当前深浅色；否则用用户选择
+    const effective = currentThemeSetting === 'system' ? systemTheme : currentThemeSetting;
+    document.documentElement.dataset.theme = effective === 'light' ? 'light' : 'dark';
+    // accent 传 null/undefined 时保留当前强调色（系统主题变化只切深浅）
+    const curAccent = document.documentElement.dataset.accent || 'green';
+    document.documentElement.dataset.accent = (accent != null && ACCENTS.includes(accent)) ? accent : curAccent;
+  }
+
+  window.addEventListener('resize', resizeWebviews);
+
+  // 定时兜底扫描未读：title 事件在启动时（页面已带未读）不触发，每 5s 扫一遍
+  // 所有平台：title 数字 + DOM 未读徽章（LINE/TG 的 title 常不带数字，必须扫 DOM）
+  setInterval(() => {
+    wvMap.forEach((wv, id) => {
+      try {
+        const account = accounts.find(a => a.id === id);
+        if (!account) return;
+        const title = wv.getTitle ? wv.getTitle() : '';
+        const m = title.match(/^[(\[（]\s*(\d+)\s*[)\]\）]/);
+        const titleUnread = m ? parseInt(m[1], 10) : 0;
+        wv.executeJavaScript(`(() => {
+          try {
+            // 精准未读徽章：badge/unread 类 + 纯数字文本（排除 count/mention 等误报类）
+            const els = document.querySelectorAll('[class*="unread"], [class*="Unread"], .badge, .Badge, [class*="badge"], [class*="Badge"]');
+            let total = 0;
+            els.forEach(el => {
+              const txt = (el.textContent || '').trim();
+              if (!/^\\d{1,3}$/.test(txt)) return; // 只认纯数字（时间戳/计数不误报）
+              const t = parseInt(txt, 10);
+              if (!isNaN(t) && t > 0) total += t;
+            });
+            return String(total);
+          } catch (e) { return '0'; }
+        })()`).then((res) => {
+          const domUnread = parseInt(String(res), 10) || 0;
+          updateUnread(id, Math.max(titleUnread, domUnread));
+        }).catch(() => updateUnread(id, titleUnread));
+      } catch (e) { /* ignore */ }
+    });
+  }, 5000);
+
+  // Line 扩展就绪后重载对应 webview（原版 onPluginInstalled 模式）
+  const lineReadyPartitions = new Set();
+  window.api.line.onExtensionReady((partition) => {
+    let found = false;
+    for (const [id, wv] of wvMap) {
+      if (wv.partition === partition) {
+        found = true;
+        setTimeout(() => {
+          try { wv.reloadIgnoringCache(); } catch (err) { console.error('reload line webview 失败', err); }
+        }, 300);
+        break;
+      }
+    }
+    if (!found) lineReadyPartitions.add(partition); // webview 还没创建，待创建后 reload
+  });
+
+  (async () => {
+    try {
+      const initCfg = await window.api.config.get();
+      config = initCfg; // 启动即初始化（设置/群发预设都要用）
+      // 读取系统深浅色（跟随系统用）
+      try { systemTheme = await window.api.theme.getSystem(); } catch (e) {}
+      applyTheme(initCfg.theme, initCfg.accent); // 启动时应用主题
+      // 系统深浅色变化 → 自动跟随
+      try {
+        window.api.theme.onSystemChanged((t) => {
+          systemTheme = t === 'light' ? 'light' : 'dark';
+          if (currentThemeSetting === 'system') applyTheme('system', null);
+        });
+      } catch (e) { /* 监听失败不影响 */ }
+    } catch (e) { /* 主题应用失败不影响 */ }
+    try { await loadPlatforms(); } catch (e) { console.error('加载平台列表失败', e); }
+    await loadAccounts();
+  })();
+})();

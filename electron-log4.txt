@@ -1,0 +1,4 @@
+
+[WARNING] Ignore caches that are heterogeneous
+
+DevTools listening on ws://127.0.0.1:9334/devtools/browser/9144dc97-f15b-4f82-a727-db0b1c91a945

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>极客</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main class="app">
+  <!-- 左侧导航栏（可折叠） -->
+  <nav class="side-nav" id="side-nav">
+    <div class="nav-top">
+      <div class="nav-logo">
+        <div class="nav-logo-badge" id="nav-logo-badge">
+          <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="gx-silver" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#f5f7fa"/>
+                <stop offset="0.55" stop-color="#b9c0c9"/>
+                <stop offset="1" stop-color="#7d858f"/>
+              </linearGradient>
+              <linearGradient id="gx-tile" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#23252a"/>
+                <stop offset="1" stop-color="#101114"/>
+              </linearGradient>
+            </defs>
+            <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#gx-tile)" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
+            <rect x="31" y="12" width="21" height="14" rx="3.5" fill="none" stroke="#00d4ff" stroke-width="1.7" opacity="0.95"/>
+            <circle cx="34.5" cy="15.5" r="1.4" fill="#00d4ff"/>
+            <rect x="35" y="39" width="23" height="17" rx="3.5" fill="none" stroke="#00d4ff" stroke-width="1.7" opacity="0.95"/>
+            <circle cx="38.5" cy="42.5" r="1.4" fill="#00d4ff"/>
+            <path d="M18 38 A14.5 14.5 0 1 1 44 29" fill="none" stroke="url(#gx-silver)" stroke-width="9.5" stroke-linecap="round"/>
+            <path d="M45.5 23 l-2.5 9 l8.5 -4.2 z" fill="url(#gx-silver)"/>
+          </svg>
+        </div>
+        <div class="nav-logo-text">
+          <div class="nav-logo-title">极客</div>
+          <div class="nav-logo-sub" id="nav-version">v1.0.0</div>
+        </div>
+      </div>
+      <button class="nav-collapse" id="btn-collapse" title="折叠/展开">«</button>
+    </div>
+    <div class="nav-section-label">账号</div>
+    <div class="nav-accounts" id="nav-accounts">
+      <!-- 账号项由 app.js 渲染 -->
+    </div>
+  </nav>
+
+  <!-- 主区 -->
+  <section class="main">
+    <!-- 顶栏：账号标签 + 快捷按钮 + 窗口控制（单行） -->
+    <header class="top-bar">
+      <div class="tabs-row">
+        <div class="tabs" id="account-tabs">
+          <!-- 账号图标标签由 app.js 渲染 -->
+        </div>
+        <div class="top-quick">
+          <button class="quick-btn" id="btn-app-center" title="应用中心">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span>应用中心</span>
+          </button>
+          <button class="quick-btn" id="btn-restart" title="重启">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+            <span>重启</span>
+          </button>
+          <button class="quick-btn" id="btn-lock" title="锁屏">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span>锁屏</span>
+          </button>
+          <button class="quick-btn" id="btn-settings" title="设置">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>设置</span>
+          </button>
+          <button class="quick-btn" id="btn-broadcast" title="群发">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.5l7.8 9M8.1 16.5l7.8-9"/></svg>
+            <span>群发</span>
+          </button>
+        </div>
+        <div class="win-controls">
+          <button class="win-btn" id="btn-win-min" title="最小化">─</button>
+          <button class="win-btn" id="btn-win-max" title="最大化/还原">□</button>
+          <button class="win-btn win-close" id="btn-win-close" title="关闭">✕</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 中央：内嵌页面区 -->
+    <div class="content">
+      <div id="webview-container" class="webview-container"></div>
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">▦</div>
+        <p>还没有账号</p>
+        <p class="muted">点击右上角「+」添加账号</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 账号右键菜单 -->
+<div id="ctx-menu" class="ctx-menu hidden"></div>
+
+<!-- 独立代理IP 弹窗 -->
+<div id="proxy-overlay" class="overlay hidden">
+  <div class="add-dialog">
+    <div class="settings-header">
+      <span>独立代理IP</span>
+      <button id="proxy-close" class="settings-close">×</button>
+    </div>
+    <div class="add-form">
+      <div class="proxy-tip">电脑已开启VPN的请勿进行设置，容易引起网络冲突</div>
+      <label class="row-item">
+        <span>启用代理</span>
+        <input type="checkbox" id="proxy-openProxy">
+      </label>
+      <div class="row-item">
+        <span>协议</span>
+        <select id="proxy-protocal">
+          <option value="http">HTTP</option>
+          <option value="https">HTTPS</option>
+          <option value="socks4">SOCKS4</option>
+          <option value="socks5">SOCKS5</option>
+        </select>
+      </div>
+      <div class="row-item">
+        <span>IP 地址</span>
+        <input type="text" id="proxy-host" placeholder="例如 127.0.0.1">
+      </div>
+      <div class="row-item">
+        <span>端口</span>
+        <input type="text" id="proxy-port" placeholder="例如 7890">
+      </div>
+      <div class="row-item">
+        <span>IP 账号</span>
+        <input type="text" id="proxy-user" placeholder="如有填此处">
+      </div>
+      <div class="row-item">
+        <span>IP 密码</span>
+        <input type="password" id="proxy-pwd" placeholder="如有填此处">
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button id="proxy-cancel" class="btn-plain">取消</button>
+      <button id="proxy-save" class="btn-add">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 添加账号弹窗 -->
+<div id="add-overlay" class="overlay hidden">
+  <div class="add-dialog">
+    <div class="settings-header">
+      <span>添加账号</span>
+      <button id="add-close" class="settings-close">×</button>
+    </div>
+    <div class="add-platforms" id="add-platforms">
+      <!-- 平台图标网格由 app.js 渲染 -->
+    </div>
+    <div class="add-form">
+      <div class="row-item">
+        <span>名称</span>
+        <input type="text" id="add-name" placeholder="默认：平台名 + 序号">
+      </div>
+      <div class="row-item">
+        <span>数量</span>
+        <input type="number" id="add-count" min="1" max="10" value="1">
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button id="add-cancel" class="btn-plain">取消</button>
+      <button id="add-confirm" class="btn-add">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置面板 -->
+<div id="settings-overlay" class="overlay hidden">
+  <div class="settings-panel">
+    <div class="settings-header">
+      <span>设置</span>
+      <button id="settings-close" class="settings-close">×</button>
+    </div>
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-tab="global">全局设置</button>
+      <button class="settings-tab" data-tab="account">账号设置</button>
+    </div>
+
+    <div id="settings-global" class="settings-body">
+      <div class="row-item">
+        <span>主题</span>
+        <select id="cfg-theme">
+          <option value="system">跟随系统</option>
+          <option value="dark">深色</option>
+          <option value="light">浅色</option>
+        </select>
+      </div>
+      <div class="row-item">
+        <span>强调色</span>
+        <select id="cfg-accent">
+          <option value="green">极客绿</option>
+          <option value="blue">深蓝</option>
+          <option value="purple">深紫</option>
+          <option value="cyan">青色</option>
+          <option value="orange">橙色</option>
+          <option value="pink">粉色</option>
+        </select>
+      </div>
+      <label class="row-item">
+        <span>开机自启</span>
+        <input type="checkbox" id="cfg-autoLaunch">
+      </label>
+      <label class="row-item">
+        <span>启动时最小化</span>
+        <input type="checkbox" id="cfg-isStartupMinimize">
+      </label>
+      <label class="row-item">
+        <span>消息声音</span>
+        <input type="checkbox" id="cfg-messageSound">
+      </label>
+      <div class="section-title">锁屏</div>
+      <div class="row-item">
+        <span>锁屏密码</span>
+        <input type="password" id="cfg-lockPassword" placeholder="设置/修改锁屏密码">
+      </div>
+      <div class="section-title">全局代理</div>
+      <label class="row-item">
+        <span>启用代理</span>
+        <input type="checkbox" id="cfg-openProxy">
+      </label>
+      <div class="row-item">
+        <span>协议</span>
+        <select id="cfg-protocal">
+          <option value="http">HTTP</option>
+          <option value="https">HTTPS</option>
+          <option value="socks4">SOCKS4</option>
+          <option value="socks5">SOCKS5</option>
+        </select>
+      </div>
+      <div class="row-item">
+        <span>主机</span>
+        <input type="text" id="cfg-host" placeholder="127.0.0.1">
+      </div>
+      <div class="row-item">
+        <span>端口</span>
+        <input type="text" id="cfg-port" placeholder="7890">
+      </div>
+      <div class="row-item">
+        <span>用户名</span>
+        <input type="text" id="cfg-login" placeholder="可选">
+      </div>
+      <div class="row-item">
+        <span>密码</span>
+        <input type="password" id="cfg-password" placeholder="可选">
+      </div>
+    </div>
+
+    <div id="settings-account" class="settings-body hidden">
+      <div class="row-item">
+        <span>选择账号</span>
+        <select id="acc-select"></select>
+      </div>
+      <div class="row-item">
+        <span>显示名</span>
+        <input type="text" id="acc-name">
+      </div>
+      <div class="row-item">
+        <span>字体大小</span>
+        <input type="number" id="acc-fontSize" min="10" max="28">
+      </div>
+      <div class="row-item">
+        <span>字体颜色</span>
+        <input type="color" id="acc-fontColor">
+      </div>
+      <div class="section-title">账号代理（优先于全局）</div>
+      <label class="row-item">
+        <span>启用账号代理</span>
+        <input type="checkbox" id="acc-openProxy">
+      </label>
+      <div class="row-item">
+        <span>主机</span>
+        <input type="text" id="acc-host" placeholder="127.0.0.1">
+      </div>
+      <div class="row-item">
+        <span>端口</span>
+        <input type="text" id="acc-port" placeholder="7890">
+      </div>
+      <div class="row-item">
+        <span>用户名</span>
+        <input type="text" id="acc-huser" placeholder="可选">
+      </div>
+      <div class="row-item">
+        <span>密码</span>
+        <input type="password" id="acc-hpwd" placeholder="可选">
+      </div>
+    </div>
+
+    <div class="settings-footer">
+      <button id="settings-cancel" class="btn-plain">取消</button>
+      <button id="settings-save" class="btn-add">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 群发消息弹窗（三步式：选聊天→写消息→设置，对齐 HelloWorld 直观度） -->
+<div id="broadcast-overlay" class="overlay hidden">
+  <div class="add-dialog broadcast-dialog">
+    <div class="settings-header">
+      <span>群发消息</span>
+      <button id="broadcast-close" class="settings-close">×</button>
+    </div>
+    <div class="broadcast-body">
+      <!-- ① 选择聊天 -->
+      <div class="bc-section-title"><span class="bc-step">1</span> 选择聊天 <span class="bc-meta" id="broadcast-meta">加载中…</span></div>
+      <div class="bc-search-row">
+        <input type="text" id="broadcast-search" class="broadcast-search" placeholder="搜索聊天…">
+        <button id="broadcast-select-all" class="bc-btn" title="全选当前列表">全选</button>
+        <button id="broadcast-select-groups" class="bc-btn" title="只选群组">群组</button>
+        <button id="broadcast-select-contacts" class="bc-btn" title="只选联系人">联系人</button>
+        <button id="broadcast-select-none" class="bc-btn" title="清空选择">清空</button>
+      </div>
+      <div class="broadcast-list" id="broadcast-list"></div>
+      <div class="bc-saved-row">
+        <select id="broadcast-saved-groups" class="bc-saved-select" title="已保存的群组预设"><option value="">我的群组…</option></select>
+        <button id="broadcast-save-group" class="bc-btn" title="保存当前勾选的聊天为预设">💾 保存</button>
+        <button id="broadcast-join-groups" class="bc-btn" title="批量加入群组（输入群链接）">➕ 加群</button>
+      </div>
+      <!-- ② 消息内容 -->
+      <div class="bc-section-title"><span class="bc-step">2</span> 消息内容</div>
+      <textarea id="broadcast-message" class="broadcast-message" placeholder="输入要群发的消息内容…（%nc 自动替换为对方名称；多行内容 = 每条随机发一句）"></textarea>
+      <div class="bc-msg-tools">
+        <div class="bc-var-row">
+          <span>插入:</span>
+          <button id="broadcast-insert-var" class="bc-btn bc-var-btn" title="发送时自动替换为每个联系人的名称">联系人名称（%nc）</button>
+        </div>
+        <div class="bc-attach-row">
+          <button id="broadcast-add-file" class="bc-btn bc-attach">📎 图片/文件</button>
+          <button id="broadcast-import-csv" class="bc-btn bc-attach">📄 导入联系人</button>
+          <div id="broadcast-file-list" class="broadcast-file-list"></div>
+        </div>
+      </div>
+      <!-- ③ 发送设置 -->
+      <div class="bc-section-title"><span class="bc-step">3</span> 发送设置</div>
+      <div class="bc-settings-row">
+        <label class="bc-interval-label">间隔
+          <input type="number" id="broadcast-interval-min" class="broadcast-interval" value="2" min="0.5" max="600" step="0.5" title="最小间隔（秒）"> ~
+          <input type="number" id="broadcast-interval-max" class="broadcast-interval" value="5" min="0.5" max="600" step="0.5" title="最大间隔（秒）"> 秒
+        </label>
+        <label class="bc-schedule"><input type="checkbox" id="broadcast-schedule-on"> 定时
+          <input type="datetime-local" id="broadcast-schedule-time" class="broadcast-schedule-time">
+        </label>
+      </div>
+      <div class="bc-sched-row">
+        <span class="bc-meta">多消息定时：</span>
+        <div id="broadcast-schedule-list" class="bc-schedule-list"></div>
+        <button id="broadcast-add-schedule" class="bc-btn" title="添加一条定时消息（到点自动发送该消息到指定群组）">＋ 定时消息</button>
+      </div>
+      <!-- 进度 -->
+      <div class="broadcast-progress hidden" id="broadcast-progress">
+        <div class="bc-progress-bar"><div class="bc-progress-fill" id="broadcast-progress-fill"></div></div>
+        <div class="bc-progress-text" id="broadcast-progress-text"></div>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button id="broadcast-cancel" class="btn-plain">取消</button>
+      <button id="broadcast-pause" class="btn-plain hidden">暂停</button>
+      <button id="broadcast-export" class="btn-plain hidden">导出失败名单</button>
+      <button id="broadcast-send" class="btn-add bc-send-big">🚀 开始群发</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量加入群组弹窗 -->
+<div id="join-overlay" class="overlay hidden">
+  <div class="add-dialog broadcast-dialog">
+    <div class="settings-header">
+      <span>批量加入群组</span>
+      <button id="join-close" class="settings-close">×</button>
+    </div>
+    <div class="broadcast-body">
+      <div class="bc-section-title">群组链接 <span class="bc-meta">每行一个（t.me/xxx 或 t.me/joinchat/xxx）</span></div>
+      <textarea id="join-links" class="broadcast-message" placeholder="https://t.me/xxx&#10;https://t.me/joinchat/xxx&#10;每行一个链接"></textarea>
+      <div class="broadcast-progress hidden" id="join-progress">
+        <div class="bc-progress-bar"><div class="bc-progress-fill" id="join-progress-fill"></div></div>
+        <div class="bc-progress-text" id="join-progress-text"></div>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button id="join-cancel" class="btn-plain">取消</button>
+      <button id="join-start" class="btn-add">开始加入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 锁屏遮罩 -->
+<div id="lock-overlay" class="lock-overlay hidden">
+  <div class="lock-box">
+    <div class="lock-logo">
+      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="lk-silver" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#f5f7fa"/><stop offset="0.55" stop-color="#b9c0c9"/><stop offset="1" stop-color="#7d858f"/>
+          </linearGradient>
+          <linearGradient id="lk-tile" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#23252a"/><stop offset="1" stop-color="#101114"/>
+          </linearGradient>
+        </defs>
+        <rect x="1.5" y="1.5" width="61" height="61" rx="15.5" fill="url(#lk-tile)" stroke="rgba(255,255,255,0.45)" stroke-width="1.8"/>
+        <rect x="31" y="12" width="21" height="14" rx="3.5" fill="none" stroke="#00d4ff" stroke-width="1.7" opacity="0.95"/>
+        <circle cx="34.5" cy="15.5" r="1.4" fill="#00d4ff"/>
+        <rect x="35" y="39" width="23" height="17" rx="3.5" fill="none" stroke="#00d4ff" stroke-width="1.7" opacity="0.95"/>
+        <circle cx="38.5" cy="42.5" r="1.4" fill="#00d4ff"/>
+        <path d="M18 38 A14.5 14.5 0 1 1 44 29" fill="none" stroke="url(#lk-silver)" stroke-width="9.5" stroke-linecap="round"/>
+        <path d="M45.5 23 l-2.5 9 l8.5 -4.2 z" fill="url(#lk-silver)"/>
+      </svg>
+    </div>
+    <div class="lock-title">已锁屏</div>
+    <div class="lock-sub">输入锁屏密码解锁</div>
+    <input type="password" id="lock-password" placeholder="锁屏密码" autocomplete="off">
+    <button id="lock-unlock" class="btn-add">解锁</button>
+    <div id="lock-error" class="lock-error hidden">密码错误，请重试</div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

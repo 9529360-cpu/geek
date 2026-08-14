@@ -1,0 +1,28 @@
+# electron-builder 打包配置
+# 当前：发布渠道留空。接入 GitHub 私有仓库自动更新时，取消注释 publish 节点并填 owner/repo。
+# 打包发布：GH_TOKEN=<token> npx electron-builder --win --publish always
+
+appId: com.stardust.geek
+productName: 极客
+directories:
+  output: dist-release
+files:
+  - src/**/*
+  - ui/**/*
+  - package.json
+icon: build/icon.ico
+
+# TODO: 接入 GitHub Releases 私有仓库自动更新时打开并填写
+# publish:
+#   provider: github
+#   owner: <你的 GitHub 用户名>
+#   repo: <仓库名>
+#   private: true
+
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
