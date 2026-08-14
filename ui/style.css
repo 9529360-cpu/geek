@@ -2143,3 +2143,56 @@ select:focus option:checked {
 .bc-btn-stop:hover { background: #F78989; }
 .bc-sending-close { width: 100%; display: flex; justify-content: flex-end; }
 .bc-sending-close .bc-btn { color: #606266; }
+
+/* ===== 群发弹窗 HelloWorld 卡片式（2026-08-14 重做） ===== */
+.bc-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.bc-card-title { font-size: 13.5px; font-weight: 700; margin: 0 0 8px; color: var(--text-primary); }
+.bc-switch-row { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0; user-select: none; }
+.bc-switch-input { position: absolute; opacity: 0; width: 0; height: 0; }
+.bc-switch { position: relative; width: 34px; height: 19px; background: var(--border-strong); border-radius: 10px; transition: background .2s; flex-shrink: 0; }
+.bc-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: transform .2s; }
+.bc-switch-input:checked + .bc-switch { background: var(--accent); }
+.bc-switch-input:checked + .bc-switch::after { transform: translateX(15px); }
+.bc-switch-label { font-size: 12.5px; color: var(--text-primary); }
+.bc-message { width: 100%; min-height: 76px; border: 1px solid var(--border-standard); border-radius: 8px; padding: 8px 10px; font-size: 13px; background: var(--bg-surface); color: var(--text-primary); resize: vertical; box-sizing: border-box; }
+.bc-message--sm { min-height: 56px; font-size: 12.5px; }
+.bc-var-row { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+.bc-var-label { font-size: 12.5px; color: var(--text-secondary); }
+.bc-pill { border: none; border-radius: 14px; padding: 4px 12px; font-size: 12px; background: var(--accent); color: #fff; cursor: pointer; }
+.bc-pill:hover { background: var(--accent-hover); }
+.bc-pill--orange { background: #ff9935; }
+.bc-pill--orange:hover { background: #ffb054; }
+.bc-tag-cyan { background: rgba(64, 158, 255, 0.12); color: #409EFF; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
+.bc-badge-new { background: #00b050; color: #fff; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 700; }
+.bc-media-row { margin: 6px 0; }
+.bc-radio { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12.5px; color: var(--text-primary); cursor: pointer; }
+.bc-radio input[type="radio"] { accent-color: var(--accent); }
+.bc-sendto-body { margin: 4px 0 8px 22px; }
+.bc-search-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.bc-input { border: 1px solid var(--border-standard); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; background: var(--bg-surface); color: var(--text-primary); }
+.bc-input--search { flex: 1; }
+.bc-input--num { width: 56px; }
+.bc-btn { border: 1px solid var(--border-standard); border-radius: 6px; padding: 5px 12px; font-size: 12.5px; background: var(--bg-surface); color: var(--text-primary); cursor: pointer; }
+.bc-btn--small { padding: 3px 8px; font-size: 12px; }
+.bc-btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.bc-btn--primary:hover { background: var(--accent-hover); }
+.bc-btn--large { padding: 8px 26px; font-size: 13.5px; border-radius: 8px; }
+.bc-btn--plain { background: transparent; border: none; color: var(--text-secondary); }
+.bc-meta { font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; }
+.bc-interval-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bc-interval-sep { font-size: 12.5px; color: var(--text-secondary); }
+.bc-hint { font-size: 11.5px; color: var(--text-tertiary); margin-left: 4px; }
+.bc-saved-row { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+.bc-saved-select { flex: 1; }
+.bc-schedule-list { margin-top: 6px; }
+.bc-schedule-list .bc-sched-item { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 3px 0; color: var(--text-secondary); }
+.bc-total { font-size: 12.5px; color: var(--text-secondary); margin-top: 4px; }
+.bc-total span { color: var(--accent); font-weight: 600; }
+.bc-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.bc-files .bc-file-chip { display: flex; align-items: center; gap: 4px; background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: 12px; padding: 2px 8px; font-size: 12px; color: var(--accent); }
+.bc-files .bc-file-chip button { border: none; background: none; color: var(--accent); cursor: pointer; font-size: 12px; }
+/* 列表项（broadcast-list 里的勾选行——JS 生成） */
+.broadcast-list .bc-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; font-size: 12.5px; cursor: pointer; }
+.broadcast-list .bc-item:hover { background: var(--bg-elevated); }
+.broadcast-list .bc-item input { accent-color: var(--accent); }
+.broadcast-list .bc-item .bc-type { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }

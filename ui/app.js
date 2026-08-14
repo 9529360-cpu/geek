@@ -664,12 +664,21 @@
           return JSON.stringify(out);
         } catch (e) { return 'ERR:' + e.message; }
       })()`,
-      sendDirect: (chatId, msg) => `(async () => {
+      sendDirect: (chatId, msg, tagall) => `(async () => {
         try {
           const W = window.WAPLUS_WPP || window.WPP;
+          const extra = {};
+          if (${!!tagall}) {
+            try {
+              const chat = W.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
+              if (chat && chat.isGroup && chat.participants) {
+                extra.mentionedJidList = chat.participants.map(p => String(p.id));
+              }
+            } catch (e) { /* 拿不到成员则普通发送 */ }
+          }
           const r = await Promise.race([
-            W.chat.sendTextMessage(${JSON.stringify(chatId)}, ${JSON.stringify(msg)}),
-            new Promise(res => setTimeout(() => res({ id: 'submitted' }), 8000)) // 慢网络/新账号兜底（8 秒后视为已提交）
+            W.chat.sendTextMessage(${JSON.stringify(chatId)}, ${JSON.stringify(msg)}, extra),
+            new Promise(res => setTimeout(() => res({ id: 'submitted' }), 8000))
           ]);
           return r && r.id ? 'SENT' : 'FAIL';
         } catch (e) { return 'ERR:' + e.message; }
@@ -1106,7 +1115,19 @@
     const message = bMessageEl.value.trim();
     if (!account || !wv) { alert('当前账号不可用'); return; }
     if (!message && !broadcastFiles.length) { alert('请输入消息内容或添加文件'); return; }
-    const targets = broadcastChats.filter(c => broadcastSelected.has(c.id));
+    // 发送至单选模式：custom=勾选列表；paste/excel=号码匹配聊天；all*=全选（已由 radio change 处理）
+    let targets = broadcastChats.filter(c => broadcastSelected.has(c.id));
+    const sendtoVal = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
+    if (sendtoVal === 'paste' || sendtoVal === 'excel') {
+      const numbers = (sendtoVal === 'paste')
+        ? (document.getElementById('bc-paste-numbers')?.value || '').split(/\n+/).map(s => s.trim()).filter(Boolean)
+        : (window.__excelNumbers || []);
+      targets = numbers.map(n => {
+        const clean = n.replace(/\s+/g, '');
+        const hit = broadcastChats.find(c => (c.name || '').includes(clean) || String(c.id).includes(clean));
+        return hit ? hit : { id: n, name: n, isNumber: true };
+      });
+    }
     if (!targets.length) { alert('请先勾选要发送的聊天'); return; }
     const preview = targets.slice(0, 6).map(t => t.name).join('、') + (targets.length > 6 ? '…' : '');
     const attachInfo = broadcastFiles.length ? `\n附件：${broadcastFiles.map(f => f.name).join('、')}` : '';
@@ -1170,7 +1191,8 @@
                 sentOk = String(sf || '');
               } catch (e) { sentOk = 'ERR:' + e.message; }
             } else {
-              sentOk = await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg));
+              const tagall = document.getElementById('broadcast-tagall')?.checked || false;
+              sentOk = await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg, tagall));
             }
             if (sentOk === 'SENT' || sentOk === 'CLICKED') break;
             continue;
@@ -1226,6 +1248,71 @@
     }
     broadcastRunning = false;
   }
+
+  // ---------- 群发弹窗（HelloWorld 卡片式）绑定 ----------
+  const bcScheduleToggle = document.getElementById('broadcast-schedule-toggle');
+  if (bcScheduleToggle) bcScheduleToggle.addEventListener('change', () => {
+    const wrap = document.getElementById('bc-schedule-time-wrap');
+    if (wrap) wrap.style.display = bcScheduleToggle.checked ? '' : 'none';
+  });
+  const bcAddFile = document.getElementById('broadcast-add-file');
+  if (bcAddFile) bcAddFile.addEventListener('change', async () => {
+    if (bcAddFile.checked) {
+      try {
+        const f = await window.api.file.pick({ multiple: true });
+        if (f) {
+          const arr = Array.isArray(f) ? f : [f];
+          arr.forEach(x => broadcastFiles.push(x));
+          renderBroadcastFiles();
+        }
+      } catch (e) { /* 用户取消 */ }
+      bcAddFile.checked = false;
+    }
+  });
+  const bcSendtoRadios = document.querySelectorAll('input[name="bc-sendto"]');
+  bcSendtoRadios.forEach(r => r.addEventListener('change', () => {
+    const v = document.querySelector('input[name="bc-sendto"]:checked').value;
+    const map = { custom: 'bc-sendto-custom', paste: 'bc-sendto-paste', excel: 'bc-sendto-excel' };
+    Object.keys(map).forEach(k => {
+      const el = document.getElementById(map[k]);
+      if (el) el.classList.toggle('hidden', k !== v);
+    });
+    if (v === 'all-contacts' || v === 'all-groups' || v === 'all') {
+      // 一键全选（联系人/群组/全部）
+      const q = bSearchEl.value.trim().toLowerCase();
+      broadcastChats.filter(c => (v === 'all' || (v === 'all-contacts' && c.type === '联系人') || (v === 'all-groups' && c.type === '群组')) && (!q || (c.name || '').toLowerCase().includes(q))).forEach(c => broadcastSelected.add(c.id));
+      renderBroadcastList();
+    }
+  }));
+  const bcPaste = document.getElementById('bc-paste-numbers');
+  if (bcPaste) bcPaste.addEventListener('input', () => {
+    const total = bcPaste.value.split(/\n+/).map(s => s.trim()).filter(Boolean).length;
+    const el = document.getElementById('bc-paste-total');
+    if (el) el.textContent = total;
+  });
+  const insertNrBtn = document.getElementById('broadcast-insert-nr');
+  if (insertNrBtn) insertNrBtn.onclick = () => { bMessageEl.value += '%nr'; };
+  const multiVerBtn = document.getElementById('bc-multiversion');
+  if (multiVerBtn) multiVerBtn.onclick = () => { bMessageEl.value += ' {版本1|版本2|版本3}'; };
+  const excelMeta = document.getElementById('bc-excel-meta');
+  const importCsvBtn = document.getElementById('broadcast-import-csv');
+  if (importCsvBtn) importCsvBtn.onclick = async () => {
+    try {
+      const f = await window.api.file.pickCsv();
+      if (!f) return;
+      const lines = (f.content || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      let col = -1;
+      if (lines.length) {
+        const header = lines[0].split(/[,;\t]/);
+        col = header.findIndex(h => /号码|电话|phone|number|whatsapp/i.test(h));
+        if (col === -1) col = 0;
+        lines.shift();
+      }
+      const numbers = lines.map(l => (l.split(/[,;\t]/)[col] || '').trim()).filter(Boolean);
+      window.__excelNumbers = numbers;
+      if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码`;
+    } catch (e) { if (excelMeta) excelMeta.textContent = '导入失败: ' + e.message; }
+  };
 
   document.getElementById('btn-broadcast').onclick = openBroadcast;
   document.getElementById('broadcast-close').onclick = closeBroadcast;
