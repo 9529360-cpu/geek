@@ -1792,8 +1792,10 @@
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const M = window.require('WAWebGroupModifyInfoJob');
-          if (${JSON.stringify(subject)}) await M.setGroupSubject(${JSON.stringify(gid)}, ${JSON.stringify(subject)});
-          if (${JSON.stringify(desc)}) await M.setGroupDescription(${JSON.stringify(gid)}, ${JSON.stringify(desc)}, '${Date.now()}', void 0).catch(()=>{});
+          const F = window.require('WAWebWidFactory');
+          const wid = F.createWid(${JSON.stringify(gid)});
+          if (${JSON.stringify(subject)}) await M.setGroupSubject(wid, ${JSON.stringify(subject)});
+          if (${JSON.stringify(desc)}) await M.setGroupDescription(wid, ${JSON.stringify(desc)}, '${Date.now()}', void 0).catch(()=>{});
           return 'OK';
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
