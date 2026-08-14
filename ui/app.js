@@ -1203,8 +1203,8 @@
     if (!selectedGroups.length) { alert('请先勾选要保存的群组'); return; }
     const name = prompt('给这组群起个标签名：', `群组标签 ${(currentBroadcastGroupTags()).length + 1}`);
     if (!name) return;
-    const groups = (config.broadcastGroups || []).filter(g => g.accountId !== activeId || !g.accountId);
-    const old = groups.find(g => g.accountId === activeId && g.name === name);
+    const groups = config.broadcastGroups || [];
+    const old = groups.find(g => g.accountId === activeId && g.name === name.trim());
     const tag = { id: old ? old.id : 'bg' + Date.now(), accountId: activeId, name: name.trim(), chatIds: selectedGroups.map(c => c.id), createdAt: old?.createdAt || Date.now(), updatedAt: Date.now() };
     const next = old ? groups.map(g => g.id === old.id ? tag : g) : [...groups, tag];
     config.broadcastGroups = next;
@@ -1855,14 +1855,21 @@
         if (txt.startsWith('ERR:')) { alert('获取联系人失败: ' + txt); bcAddVcard.checked = false; return; }
         const list = JSON.parse(txt);
         if (!list.length) { alert('当前账号没有联系人'); bcAddVcard.checked = false; return; }
-        vlist.innerHTML = '<div class="bc-vcard-title">选择要发送名片的联系人：</div>' + list.map(c => `<label class="bc-vcard-item"><input type="checkbox" value="${c.id.replace(/"/g, '&quot;')}" data-name="${c.name.replace(/"/g, '&quot;')}"> <span>${c.name}</span></label>`).join('');
+        const selectedVcards = new Set();
+        const renderVcardList = (query = '') => {
+          const q = String(query || '').trim().toLowerCase();
+          const visible = list.filter(c => !q || `${c.name} ${c.id}`.toLowerCase().includes(q));
+          vlist.innerHTML = `<div class="bc-vcard-title">${selectedVcards.size ? `已选 ${selectedVcards.size} 个联系人名片：` : '选择要发送名片的联系人：'}</div><input id="bc-vcard-search" class="bc-vcard-search" type="search" placeholder="搜索联系人或号码…" value="${escapeHtml(query)}"><div class="bc-vcard-results">${visible.map(c => `<label class="bc-vcard-item"><input type="checkbox" value="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name)}" ${selectedVcards.has(c.id) ? 'checked' : ''}> <span>${escapeHtml(c.name)}</span></label>`).join('') || '<div class="bc-vcard-empty">没有匹配的联系人</div>'}</div>`;
+          vlist.querySelector('#bc-vcard-search').oninput = e => renderVcardList(e.target.value);
+          vlist.querySelectorAll('.bc-vcard-item input').forEach(inp => inp.onchange = () => {
+            if (inp.checked) selectedVcards.add(inp.value); else selectedVcards.delete(inp.value);
+            window.__vcardContacts = list.filter(c => selectedVcards.has(c.id)).map(c => ({ id: c.id, name: c.name }));
+            renderVcardList(vlist.querySelector('#bc-vcard-search')?.value || '');
+          });
+        };
+        renderVcardList();
         vlist.style.display = '';
         window.__vcardContacts = [];
-        vlist.querySelectorAll('input').forEach(inp => inp.addEventListener('change', () => {
-          window.__vcardContacts = [...vlist.querySelectorAll('input:checked')].map(x => ({ id: x.value, name: x.dataset.name }));
-          const title = vlist.querySelector('.bc-vcard-title');
-          if (title) title.textContent = window.__vcardContacts.length ? `已选 ${window.__vcardContacts.length} 个联系人名片：` : '选择要发送名片的联系人：';
-        }));
       } catch (e) { alert('加载联系人失败: ' + e.message); bcAddVcard.checked = false; }
     }
   });
