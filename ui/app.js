@@ -1112,6 +1112,9 @@
       broadcastChats = JSON.parse(String(res));
       bMetaEl.textContent = `共 ${broadcastChats.length} 个聊天（联系人和群组）`;
       renderBroadcastList();
+      const excludeMode = document.querySelector('input[name="bc-sendto"]:checked')?.value;
+      if (excludeMode === 'exclude-contacts') renderTypedExclude('contacts');
+      if (excludeMode === 'exclude-groups') renderTypedExclude('groups');
     } catch (e) {
       bMetaEl.textContent = '读取聊天列表失败: ' + e.message;
     }
@@ -1822,7 +1825,21 @@
     });
   }
   // 发送时排除（doSendBroadcast 的 targets 过滤）
-  window.__broadcastExcludeSet = () => broadcastExclude;
+  let broadcastExcludeContacts = new Set(JSON.parse(localStorage.getItem('broadcastExcludeContacts') || '[]'));
+  let broadcastExcludeGroups = new Set(JSON.parse(localStorage.getItem('broadcastExcludeGroups') || '[]'));
+  function renderTypedExclude(kind) {
+    const sel = document.getElementById(kind === 'contacts' ? 'bc-exclude-contacts-select' : 'bc-exclude-groups-select');
+    if (!sel) return;
+    const set = kind === 'contacts' ? broadcastExcludeContacts : broadcastExcludeGroups;
+    const type = kind === 'contacts' ? '联系人' : '群组';
+    sel.innerHTML = broadcastChats.filter(c => c.type === type).map(c => `<option value="${escapeHtml(c.id)}" ${set.has(c.id) ? 'selected' : ''}>${escapeHtml(c.name || c.id)}</option>`).join('');
+    sel.onchange = () => {
+      set.clear();
+      [...sel.selectedOptions].forEach(o => set.add(o.value));
+      localStorage.setItem(kind === 'contacts' ? 'broadcastExcludeContacts' : 'broadcastExcludeGroups', JSON.stringify([...set]));
+    };
+  }
+  window.__broadcastExcludeSet = () => new Set([...broadcastExclude, ...broadcastExcludeContacts, ...broadcastExcludeGroups]);
   renderSavedMessages();
   renderSavedLists();
 
@@ -1907,7 +1924,7 @@
   const bcSendtoRadios = document.querySelectorAll('input[name="bc-sendto"]');
   bcSendtoRadios.forEach(r => r.addEventListener('change', () => {
     const v = document.querySelector('input[name="bc-sendto"]:checked').value;
-    const map = { custom: 'bc-sendto-custom', paste: 'bc-sendto-paste', excel: 'bc-sendto-excel', 'group-members': 'bc-sendto-group-members', label: 'bc-sendto-label' };
+    const map = { custom: 'bc-sendto-custom', paste: 'bc-sendto-paste', excel: 'bc-sendto-excel', 'group-members': 'bc-sendto-group-members', label: 'bc-sendto-label', 'exclude-contacts': 'bc-sendto-exclude-contacts', 'exclude-groups': 'bc-sendto-exclude-groups' };
     Object.keys(map).forEach(k => {
       const el = document.getElementById(map[k]);
       if (el) el.classList.toggle('hidden', k !== v);
@@ -1920,6 +1937,8 @@
         sel.innerHTML = groups.map(g => `<option value="${g.id}">${escapeHtml(g.name || g.id)}</option>`).join('');
       }
     }
+    if (v === 'exclude-contacts') renderTypedExclude('contacts');
+    if (v === 'exclude-groups') renderTypedExclude('groups');
     if (v === 'all-contacts' || v === 'all-groups' || v === 'all') {
       // 模式切换必须先清空，避免把上一个模式的选择混进来
       broadcastSelected.clear();

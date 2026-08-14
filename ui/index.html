@@ -455,6 +455,10 @@
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="all-contacts"><span>所有联系人</span></label>
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="all-groups"><span>所有群组</span></label>
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="all"><span>所有联系人和群组</span></label>
+          <label class="bc-radio"><input type="radio" name="bc-sendto" value="exclude-contacts"><span>排除联系人</span></label>
+          <div class="bc-sendto-body hidden" id="bc-sendto-exclude-contacts"><select id="bc-exclude-contacts-select" class="bc-input" multiple size="4" style="width:100%"></select></div>
+          <label class="bc-radio"><input type="radio" name="bc-sendto" value="exclude-groups"><span>排除群组</span></label>
+          <div class="bc-sendto-body hidden" id="bc-sendto-exclude-groups"><select id="bc-exclude-groups-select" class="bc-input" multiple size="4" style="width:100%"></select></div>
             </div>
           </details>
         </div>
@@ -462,11 +466,6 @@
           <select id="bc-saved-lists" class="bc-input bc-saved-select" style="display:none"><option value="">已保存列表…</option></select>
           <button type="button" id="bc-save-list" class="bc-btn bc-btn--small" style="display:none">💾 保存列表</button>
           <button type="button" id="bc-delete-list" class="bc-btn bc-btn--small" style="display:none">🗑 删除</button>
-          <button type="button" id="bc-exclude-toggle" class="bc-btn bc-btn--small" title="排除不想发送的聊天">🚫 排除</button>
-        </div>
-        <div id="bc-exclude-panel" class="bc-exclude-panel hidden">
-          <div class="bc-meta">选择不需要发送的聊天（不会收到消息）：</div>
-          <div class="broadcast-list" id="bc-exclude-list" style="max-height:110px;overflow-y:auto"></div>
         </div>
       </div>
 
