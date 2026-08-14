@@ -1818,6 +1818,75 @@
       if (gtLinkBox) gtLinkBox.style.display = 'none';
       gtStatus.textContent = '已保存到统一链接';
     };
+    // Tab 切换（6 Tab）
+    document.querySelectorAll('.gt-tab').forEach(tab => tab.onclick = () => {
+      document.querySelectorAll('.gt-tab').forEach(t => { t.classList.remove('gt-tab-active'); t.style.background = 'var(--bg-elevated)'; t.style.color = 'var(--text-primary)'; });
+      tab.classList.add('gt-tab-active');
+      tab.style.background = 'var(--accent)'; tab.style.color = '#fff';
+      document.querySelectorAll('.gt-pane').forEach(p => p.classList.add('hidden'));
+      const pane = document.getElementById('pane-' + tab.dataset.tab);
+      if (pane) pane.classList.remove('hidden');
+    });
+    // 聊天设置（localStorage——自动删群/自动加群）
+    const gtAutoDelRemoved = document.getElementById('gt-auto-del-removed');
+    const gtAutoDelLeft = document.getElementById('gt-auto-del-left');
+    const gtAutoJoinLinks = document.getElementById('gt-auto-join-links');
+    const gtSettingsSave = document.getElementById('gt-settings-save');
+    const gtAutoCfg = JSON.parse(localStorage.getItem('gtAutoCfg') || '{}');
+    if (gtAutoDelRemoved) gtAutoDelRemoved.checked = !!gtAutoCfg.delRemoved;
+    if (gtAutoDelLeft) gtAutoDelLeft.checked = !!gtAutoCfg.delLeft;
+    if (gtAutoJoinLinks) gtAutoJoinLinks.checked = !!gtAutoCfg.joinLinks;
+    if (gtSettingsSave) gtSettingsSave.onclick = () => {
+      localStorage.setItem('gtAutoCfg', JSON.stringify({ delRemoved: gtAutoDelRemoved.checked, delLeft: gtAutoDelLeft.checked, joinLinks: gtAutoJoinLinks.checked }));
+      gtStatus.textContent = '自动管理设置已保存';
+    };
+    // 指令设置（localStorage）
+    const gtCmdAdminOnly = document.getElementById('gt-cmd-adminonly');
+    const gtCmdDelMsg = document.getElementById('gt-cmd-delmsg');
+    const gtCmdSave = document.getElementById('gt-cmd-save');
+    const gtCmdCfg = JSON.parse(localStorage.getItem('gtCmdCfg') || '{}');
+    if (gtCmdAdminOnly) gtCmdAdminOnly.checked = gtCmdCfg.adminOnly !== false;
+    if (gtCmdDelMsg) gtCmdDelMsg.checked = !!gtCmdCfg.delMsg;
+    if (gtCmdSave) gtCmdSave.onclick = () => {
+      localStorage.setItem('gtCmdCfg', JSON.stringify({ adminOnly: gtCmdAdminOnly.checked, delMsg: gtCmdDelMsg.checked }));
+      gtStatus.textContent = '指令设置已保存';
+    };
+    // 输入链接（批量加群——joinGroupViaInvite）
+    const gtLinksInput = document.getElementById('gt-links-input');
+    const gtLinksMin = document.getElementById('gt-links-min');
+    const gtLinksMax = document.getElementById('gt-links-max');
+    const gtLinksJoin = document.getElementById('gt-links-join');
+    const gtLinksStatus = document.getElementById('gt-links-status');
+    if (gtLinksJoin) gtLinksJoin.onclick = async () => {
+      const links = (gtLinksInput.value || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+      if (!links.length) { gtLinksStatus.textContent = '请先粘贴群链接'; return; }
+      const lo = parseInt(gtLinksMin.value) || 30, hi = parseInt(gtLinksMax.value) || 60;
+      const wv = wvMap.get(activeId);
+      gtLinksStatus.textContent = `正在加入 ${links.length} 个群组…`;
+      let ok = 0, fail = 0;
+      for (let i = 0; i < links.length; i++) {
+        const path = links[i].replace(/^https?:\/\/(chat\.)?whatsapp\.com\//, '').trim();
+        gtLinksStatus.textContent = `加入中 ${i + 1}/${links.length}…`;
+        const res = await wv.executeJavaScript(`(async () => {
+          try { await window.require('WAWebGroupInviteAction').joinGroupViaInvite(${JSON.stringify(path)}); return 'OK'; }
+          catch (e) { return 'ERR:' + e.message; }
+        })()`);
+        if (String(res) === 'OK') ok++; else fail++;
+        await new Promise(r => setTimeout(r, (lo + Math.random() * (hi - lo)) * 1000));
+      }
+      gtLinksStatus.textContent = `完成：成功 ${ok}，失败 ${fail}`;
+    };
+    // 底部账号信息 + 关闭
+    const gtAccountName = document.getElementById('gt-account-name');
+    const gtAccountId = document.getElementById('gt-account-id');
+    const gtCloseBottom = document.getElementById('gt-close-bottom');
+    if (gtCloseBottom) gtCloseBottom.onclick = () => gtOverlay.classList.add('hidden');
+    function updateGtAccount() {
+      const acc = accounts.find(a => a.id === activeId);
+      if (gtAccountName) gtAccountName.textContent = acc ? acc.name : '—';
+      if (gtAccountId) gtAccountId.textContent = acc ? (acc.type || '') : '—';
+    }
+    updateGtAccount();
     // 编辑群组（名称/简介/头像/权限/添加成员——原版级）
     const gtEditBtn = document.getElementById('gt-edit');
     const gtEditPanel = document.getElementById('gt-edit-panel');
