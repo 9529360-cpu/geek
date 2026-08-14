@@ -2744,6 +2744,23 @@
     const arrow = document.getElementById('bc-saved-accordion-arrow');
     if (arrow) arrow.textContent = box.classList.contains('collapsed') ? '▸' : '▾';
   };
+  const rangeMin = document.getElementById('bc-range-min');
+  const rangeMax = document.getElementById('bc-range-max');
+  const rangeFill = document.getElementById('bc-range-fill');
+  const rangeValue = document.getElementById('bc-range-value');
+  function syncBroadcastRange() {
+    if (!rangeMin || !rangeMax) return;
+    let lo = Math.min(+rangeMin.value, +rangeMax.value), hi = Math.max(+rangeMin.value, +rangeMax.value);
+    rangeMin.value = lo; rangeMax.value = hi;
+    document.getElementById('broadcast-interval-min').value = lo;
+    document.getElementById('broadcast-interval-max').value = hi;
+    if (rangeValue) rangeValue.textContent = `${lo} 至 ${hi} 秒`;
+    if (rangeFill) { rangeFill.style.left = (lo / 60 * 100) + '%'; rangeFill.style.width = ((hi - lo) / 60 * 100) + '%'; }
+  }
+  rangeMin?.addEventListener('input', syncBroadcastRange);
+  rangeMax?.addEventListener('input', syncBroadcastRange);
+  syncBroadcastRange();
+
   // 原版 Alertify 弹窗：点击遮罩不关闭，必须使用取消/关闭按钮退出。
 
 
