@@ -946,14 +946,18 @@
           const list = [];
           for (const v of vcards) {
             try {
-              const contact = wpp.whatsapp.Store.Contact.get(v.id);
+              const wid = wpp.whatsapp.WidFactory ? wpp.whatsapp.WidFactory.createWid(v.id) : v.id;
+              const contact = (wpp.whatsapp.ContactStore && wpp.whatsapp.ContactStore.get(wid)) || await wpp.contact.get(v.id).catch(() => null);
               if (contact) { const vc = await VcardUtils.vcardFromContactModel(contact); if (vc) list.push(vc); }
             } catch (e) {}
           }
           if (!list.length) return 'NO_VCARD';
+          const UP = wpp.whatsapp.UserPrefs;
+          const me = UP && (UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : (UP.getMeUser ? UP.getMeUser() : null));
+          if (!me) return 'NO_ME';
           const msg = {
             id: '3EB0' + Math.random().toString(16).slice(2, 34),
-            ack: 0, from: (W('WAWebUserPrefsMeUser')?.getMe?.()?.id) || 'me', local: true, self: 'in',
+            ack: 0, from: me, local: true, self: 'in',
             t: parseInt(Date.now() / 1000), to: chat.id,
             ...(list.length > 1 ? { type: 'multi_vcard', vcardList: list } : { type: 'vcard', body: list[0].vcard }),
             isNewMsg: true,
@@ -1919,7 +1923,11 @@
           try {
             const W = window.WAPLUS_WPP || window.WPP;
             const chats = await W.chat.list();
-            return JSON.stringify(chats.filter(c => !c.isGroup && c.name).map(c => ({ id: c.id, name: c.name })).slice(0, 300));
+            return JSON.stringify(chats.filter(c => !c.isGroup && String(c.id) !== '0@c.us').map(c => {
+              const contact = (W.whatsapp.ContactStore && W.whatsapp.ContactStore.get(c.id)) || c.contact || null;
+              const name = c.name || c.formattedTitle || (contact && (contact.name || contact.pushname || contact.shortName || contact.formattedName)) || String(c.id);
+              return { id: String(c.id), name };
+            }).slice(0, 300));
           } catch (e) { return 'ERR:' + e.message; }
         })()`);
         const txt = String(contacts || '');
