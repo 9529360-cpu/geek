@@ -491,35 +491,67 @@
 
 
 
-<!-- 群组工具（克隆/解散/退出——真实 WA API） -->
+<!-- 群组工具（原版级：编辑/克隆/解散/退出/链接） -->
 <div id="gt-overlay" class="overlay hidden">
-  <div class="settings-dialog" style="width:460px">
+  <div class="settings-dialog" style="width:560px">
     <div class="settings-header"><span>群组工具</span><button id="gt-close" class="settings-close">×</button></div>
-    <div class="gt-body" style="padding:14px 18px">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-        <span style="font-size:13px">选择群组：</span>
-        <select id="gt-groups" class="settings-input" style="flex:1"></select>
+    <div class="gt-body" style="padding:14px 18px;max-height:75vh;overflow-y:auto">
+      <!-- 群组选择 -->
+      <div class="bc-card" style="padding:10px 12px;margin-bottom:10px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:13px;color:var(--text-secondary)">选择群组：</span>
+          <select id="gt-groups" class="settings-input" style="flex:1"></select>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button id="gt-clone" class="settings-btn" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer">克隆群组</button>
+      <!-- 操作按钮 -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button id="gt-clone" class="bc-btn bc-btn--primary" style="border:none">克隆群组</button>
         <input id="gt-clone-count" type="number" min="1" max="10" value="1" style="width:56px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
         <span style="font-size:12px;color:var(--text-secondary)">个</span>
-        <button id="gt-destroy" class="settings-btn" style="background:#e74c3c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer">解散群组</button>
-        <button id="gt-leave" class="settings-btn" style="background:var(--bg-elevated);border:1px solid var(--border-standard);border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer;color:var(--text-primary)">退出群组</button>
-        <button id="gt-getlink" class="settings-btn" style="background:var(--bg-elevated);border:1px solid var(--border-standard);border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer;color:var(--text-primary)">🔗 获取群链接</button>
-        <button id="gt-edit" class="settings-btn" style="background:var(--bg-elevated);border:1px solid var(--border-standard);border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer;color:var(--text-primary)">✏️ 编辑群组</button>
+        <button id="gt-destroy" class="bc-btn" style="background:#e74c3c;color:#fff;border:none">解散群组</button>
+        <button id="gt-leave" class="bc-btn" style="background:var(--bg-elevated);border:1px solid var(--border-standard)">退出群组</button>
+        <button id="gt-getlink" class="bc-btn" style="background:var(--bg-elevated);border:1px solid var(--border-standard)">🔗 获取链接</button>
       </div>
-      <div id="gt-edit-panel" style="margin-top:10px;display:none;border:1px solid var(--border-subtle);border-radius:6px;padding:10px">
-        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:6px">修改群名称 / 简介（留空不修改）：</div>
-        <input id="gt-edit-subject" class="settings-input" placeholder="群名称" style="width:100%;margin-bottom:6px">
-        <input id="gt-edit-desc" class="settings-input" placeholder="群简介" style="width:100%;margin-bottom:6px">
-        <button id="gt-edit-save" class="settings-btn" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer">💾 保存修改</button>
-      </div>
-      <div id="gt-link-box" style="margin-top:10px;display:none">
+      <div id="gt-link-box" style="display:none;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:10px">
         <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:4px">群组链接：<span id="gt-link-val" style="color:var(--accent);word-break:break-all"></span></div>
-        <button id="gt-save-link" class="settings-btn" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer">💾 保存到统一链接</button>
+        <button id="gt-save-link" class="bc-btn bc-btn--small" style="background:var(--accent);color:#fff;border:none">💾 保存到统一链接</button>
       </div>
-      <div id="gt-links-list" style="margin-top:10px;max-height:130px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 8px"></div>
+      <div id="gt-links-list" style="max-height:100px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 8px;margin-bottom:10px"></div>
+      <!-- 编辑群组（原版级） -->
+      <div class="bc-card" style="padding:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span style="font-size:13.5px;font-weight:600">✏️ 编辑群组</span>
+          <span style="font-size:11px;color:var(--text-tertiary)">原版功能：名称/简介/头像/权限/添加成员</span>
+        </div>
+        <div style="display:grid;gap:8px">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="width:70px;font-size:12.5px;color:var(--text-secondary)">群名称</span>
+            <input id="gt-edit-subject" class="settings-input" placeholder="修改群名称（留空不修改）" style="flex:1">
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="width:70px;font-size:12.5px;color:var(--text-secondary)">群简介</span>
+            <input id="gt-edit-desc" class="settings-input" placeholder="修改群简介（留空不修改）" style="flex:1">
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="width:70px;font-size:12.5px;color:var(--text-secondary)">群头像</span>
+            <button id="gt-edit-pic" class="bc-btn bc-btn--small" style="background:var(--bg-elevated);border:1px solid var(--border-standard)">选择图片…</button>
+            <span id="gt-pic-name" style="font-size:12px;color:var(--text-tertiary)"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="width:70px;font-size:12.5px;color:var(--text-secondary)">权限</span>
+            <label style="display:flex;align-items:center;gap:4px;font-size:12.5px"><input type="checkbox" id="gt-edit-restrict"> 仅管理员可发消息</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:12.5px"><input type="checkbox" id="gt-edit-adminedit"> 仅管理员可编辑资料</label>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="width:70px;font-size:12.5px;color:var(--text-secondary)">添加成员</span>
+            <input id="gt-edit-member" class="settings-input" placeholder="手机号码（+区号，可逗号分隔多个）" style="flex:1">
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap"><input type="checkbox" id="gt-edit-memadmin"> 设为管理员</label>
+          </div>
+        </div>
+        <div style="margin-top:10px;text-align:right">
+          <button id="gt-edit-save" class="bc-btn" style="background:var(--accent);color:#fff;border:none">💾 保存修改</button>
+        </div>
+      </div>
       <div id="gt-status" style="margin-top:10px;font-size:12.5px;color:var(--text-secondary)"></div>
     </div>
   </div>

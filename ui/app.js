@@ -1775,38 +1775,84 @@
       if (gtLinkBox) gtLinkBox.style.display = 'none';
       gtStatus.textContent = '已保存到统一链接';
     };
-    // 编辑群组（改名称/简介——WAWebGroupModifyInfoJob，实测可用）
+    // 编辑群组（名称/简介/头像/权限/添加成员——原版级）
     const gtEditBtn = document.getElementById('gt-edit');
     const gtEditPanel = document.getElementById('gt-edit-panel');
     const gtEditSubject = document.getElementById('gt-edit-subject');
     const gtEditDesc = document.getElementById('gt-edit-desc');
+    const gtEditPic = document.getElementById('gt-edit-pic');
+    const gtPicName = document.getElementById('gt-pic-name');
+    const gtEditRestrict = document.getElementById('gt-edit-restrict');
+    const gtEditAdminedit = document.getElementById('gt-edit-adminedit');
+    const gtEditMember = document.getElementById('gt-edit-member');
+    const gtEditMemadmin = document.getElementById('gt-edit-memadmin');
     const gtEditSave = document.getElementById('gt-edit-save');
-    if (gtEditBtn) gtEditBtn.onclick = () => {
-      if (!gtGroups.value) { gtStatus.textContent = '请先选择群组'; return; }
-      gtEditPanel.style.display = gtEditPanel.style.display === 'none' ? '' : 'none';
+    let gtPicData = null; // 选中的头像（dataURL）
+    if (gtEditPic) gtEditPic.onclick = () => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'image/*';
+      inp.onchange = () => {
+        const f = inp.files[0];
+        if (!f) return;
+        const rd = new FileReader();
+        rd.onload = () => { gtPicData = rd.result; if (gtPicName) gtPicName.textContent = f.name + '（' + Math.round(f.size / 1024) + 'KB）'; };
+        rd.readAsDataURL(f);
+      };
+      inp.click();
     };
     if (gtEditSave) gtEditSave.onclick = async () => {
       const gid = gtGroups.value;
       if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
       const subject = gtEditSubject.value.trim();
       const desc = gtEditDesc.value.trim();
-      if (!subject && !desc) { gtStatus.textContent = '请输入要修改的名称或简介'; return; }
+      const restrict = gtEditRestrict.checked;
+      const adminedit = gtEditAdminedit.checked;
+      const members = gtEditMember.value.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+      const memadmin = gtEditMemadmin.checked;
+      if (!subject && !desc && !gtPicData && !restrict && !adminedit && !members.length) { gtStatus.textContent = '请至少填写一项修改'; return; }
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在保存…';
+      const picB64 = gtPicData ? gtPicData.split(',')[1] || '' : '';
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const M = window.require('WAWebGroupModifyInfoJob');
-          const F = window.require('WAWebWidFactory');
-          const wid = F.createWid(${JSON.stringify(gid)});
-          if (${JSON.stringify(subject)}) await M.setGroupSubject(wid, ${JSON.stringify(subject)});
-          if (${JSON.stringify(desc)}) await M.setGroupDescription(wid, ${JSON.stringify(desc)}, '${Date.now()}', void 0).catch(()=>{});
-          return 'OK';
+          const P = window.require('WAWebGroupsParticipantsApi');
+          const Pic = window.require('WAWebContactProfilePicThumbBridge');
+          const W = window.WAPLUS_WPP || window.WPP;
+          const chats = await W.chat.list();
+          const chat = chats.find(c => String(c.id) === ${JSON.stringify(gid)});
+          const wid = chat ? chat.id : window.require('WAWebWidFactory').createWid(${JSON.stringify(gid)});
+          const out = [];
+          if (${JSON.stringify(subject)}) { await M.setGroupSubject(wid, ${JSON.stringify(subject)}); out.push('名称'); }
+          if (${JSON.stringify(desc)}) { await M.setGroupDescription(wid, ${JSON.stringify(desc)}, '${Date.now()}', void 0).catch(()=>{}); out.push('简介'); }
+          if (${JSON.stringify(picB64)}) {
+            try {
+              const bin = atob(${JSON.stringify(picB64)});
+              const arr = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+              const blob = new Blob([arr], { type: 'image/jpeg' });
+              const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+              await Pic.sendSetPicture(wid, file, file);
+              out.push('头像');
+            } catch (e) { out.push('头像失败:' + e.message.slice(0,30)); }
+          }
+          if (${JSON.stringify(restrict)}) { await M.setGroupProperty(wid, 'restrict', true).catch(()=>{}); out.push('权限'); }
+          if (${JSON.stringify(adminedit)}) { await M.setGroupProperty(wid, 'announce', true).catch(()=>{}); out.push('资料权限'); }
+          if (${JSON.stringify(members)}.length) {
+            const F = window.require('WAWebWidFactory');
+            const wids = ${JSON.stringify(members)}.map(n => F.createWid(n.includes('@') ? n : n + '@c.us'));
+            await P.addParticipants(wid, wids).catch(()=>{});
+            if (${JSON.stringify(memadmin)}) await P.promoteParticipants(wid, wids).catch(()=>{});
+            out.push('成员');
+          }
+          return 'OK:' + (out.join('、') || '无变化');
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
-      gtStatus.textContent = String(res) === 'OK' ? '群组修改已保存' : '失败：' + String(res);
-      if (String(res) === 'OK') {
-        gtEditPanel.style.display = 'none';
-        gtEditSubject.value = ''; gtEditDesc.value = '';
+      gtStatus.textContent = String(res).startsWith('OK') ? '已保存：' + String(res).slice(3) : '失败：' + String(res);
+      if (String(res).startsWith('OK')) {
+        gtEditSubject.value = ''; gtEditDesc.value = ''; gtEditMember.value = ''; gtPicData = null; gtPicName.textContent = '';
+        gtEditRestrict.checked = false; gtEditAdminedit.checked = false; gtEditMemadmin.checked = false;
         setTimeout(loadGtGroups, 2000);
       }
     };
