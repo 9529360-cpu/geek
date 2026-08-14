@@ -353,6 +353,13 @@
 
       <!-- 卡片2：消息内容 -->
       <div class="bc-card">
+        <div id="bc-saved-accordion" class="bc-saved-accordion">
+          <button type="button" id="bc-saved-accordion-toggle" class="bc-saved-accordion-head"><strong>已保存消息 ↵</strong><span id="bc-saved-accordion-arrow">▾</span></button>
+          <div id="bc-saved-accordion-body" class="bc-saved-accordion-body">
+            <div id="bc-saved-message-list" class="bc-original-message-list"><span class="bc-original-empty">暂无已保存消息</span></div>
+            <select id="bc-saved-messages" class="bc-input bc-saved-select" style="display:none"><option value="">已保存消息…</option></select>
+          </div>
+        </div>
         <h3 class="bc-card-title">消息内容</h3>
         <textarea id="broadcast-message" class="bc-message" placeholder="输入消息内容，%nc = 联系人名称（换行会保留为同一条完整消息）"></textarea>
         <div class="bc-var-row">
@@ -362,10 +369,8 @@
           <button type="button" id="broadcast-insert-nr" class="bc-pill" title="插入 %nr（用户真实昵称）">用户真实昵称</button>
           <button type="button" id="bc-multiversion" class="bc-pill bc-pill--orange" title="多条消息用 {A|B|C} 语法，每次随机发一条">创建多版本消息</button>
         </div>
-        <div class="bc-var-row">
-          <div id="bc-saved-message-list" class="bc-original-message-list"><span class="bc-original-empty">暂无已保存消息</span></div>
-          <select id="bc-saved-messages" class="bc-input bc-saved-select" style="display:none"><option value="">已保存消息…</option></select>
-          <button type="button" id="bc-save-message" class="bc-btn bc-btn--small">💾 保存消息</button>
+        <div class="bc-message-save-row">
+          <button type="button" id="bc-save-message" class="bc-btn bc-btn--small">▣ 保存消息</button>
           <button type="button" id="bc-delete-message" class="bc-btn bc-btn--small" style="display:none">删除</button>
         </div>
         <div class="bc-media-row">
@@ -374,6 +379,7 @@
             <span class="bc-switch"></span>
             <span class="bc-switch-label">添加图片/视频/文件/电子名片 <span class="bc-tag-cyan">最大100MB</span></span>
           </label>
+          <button type="button" id="broadcast-dropzone" class="bc-dropzone"><span class="bc-dropzone-icon">⇧</span><strong>拖放文件到这里，或点击选择</strong><small>图片、视频和文档，支持多选</small></button>
           <div id="broadcast-files" class="bc-files"></div>
         </div>
         <div class="bc-media-row">
@@ -399,15 +405,23 @@
         <div class="bc-radio-group">
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="custom" checked><span>联系人与群组</span></label>
           <div class="bc-sendto-body" id="bc-sendto-custom">
-            <div class="bc-search-row">
-              <input type="text" id="broadcast-search" class="bc-input bc-input--search" placeholder="搜索聊天…">
-              <button type="button" id="broadcast-select-all" class="bc-btn bc-btn--small">全选</button>
-              <button type="button" id="broadcast-select-groups" class="bc-btn bc-btn--small">群组</button>
-              <button type="button" id="broadcast-select-contacts" class="bc-btn bc-btn--small">联系人</button>
-              <button type="button" id="broadcast-clear" class="bc-btn bc-btn--small">清空</button>
+            <div id="bc-selectize" class="bc-selectize">
+              <div id="bc-selectize-control" class="bc-selectize-control">
+                <div id="bc-selected-chips" class="bc-selected-chips"></div>
+                <input type="text" id="broadcast-search" class="bc-selectize-search" placeholder="选择联系人或群组…">
+                <span class="bc-selectize-arrow">▾</span>
+              </div>
+              <div id="bc-selectize-dropdown" class="bc-selectize-dropdown hidden">
+                <div class="bc-search-actions">
+                  <button type="button" id="broadcast-select-all" class="bc-btn bc-btn--small">全选</button>
+                  <button type="button" id="broadcast-select-groups" class="bc-btn bc-btn--small">群组</button>
+                  <button type="button" id="broadcast-select-contacts" class="bc-btn bc-btn--small">联系人</button>
+                  <button type="button" id="broadcast-clear" class="bc-btn bc-btn--small">清空</button>
+                </div>
+                <div class="bc-meta" id="broadcast-meta">加载中…</div>
+                <div class="broadcast-list" id="broadcast-list"></div>
+              </div>
             </div>
-            <div class="bc-meta" id="broadcast-meta">加载中…</div>
-            <div class="broadcast-list" id="broadcast-list"></div>
           </div>
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="paste"><span>粘贴联系人号码 <span class="bc-badge-new">新功能!</span></span></label>
           <div class="bc-sendto-body hidden" id="bc-sendto-paste">

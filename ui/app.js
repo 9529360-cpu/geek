@@ -1035,6 +1035,10 @@
   const bMessageEl = document.getElementById('broadcast-message');
   const bMetaEl = document.getElementById('broadcast-meta');
   const bProgressEl = document.getElementById('broadcast-progress');
+  const bcSelectize = document.getElementById('bc-selectize');
+  const bcSelectizeControl = document.getElementById('bc-selectize-control');
+  const bcSelectizeDropdown = document.getElementById('bc-selectize-dropdown');
+  const bcSelectedChips = document.getElementById('bc-selected-chips');
 
   function openBroadcast() {
     // 没激活账号时自动激活第一个（体验改进）
@@ -1118,6 +1122,12 @@
       return !q || (c.name || '').toLowerCase().includes(q);
     });
   }
+  function renderBroadcastSelectedChips() {
+    if (!bcSelectedChips) return;
+    const selected = [...broadcastSelected].map(id => broadcastChats.find(c => c.id === id)).filter(Boolean);
+    bcSelectedChips.innerHTML = selected.map(c => `<span class="bc-selected-chip" title="${escapeHtml(c.name || c.id)}"><span>${escapeHtml(c.name || c.id)}</span><button type="button" data-id="${escapeHtml(c.id)}">×</button></span>`).join('');
+    bcSelectedChips.querySelectorAll('button').forEach(btn => btn.onclick = e => { e.stopPropagation(); broadcastSelected.delete(btn.dataset.id); renderBroadcastList(); });
+  }
   function renderBroadcastList() {
     const q = bSearchEl.value.trim().toLowerCase();
     const list = visibleBroadcastChats();
@@ -1131,11 +1141,13 @@
       item.querySelector('input').onchange = (e) => {
         if (e.target.checked) broadcastSelected.add(c.id);
         else broadcastSelected.delete(c.id);
+        renderBroadcastSelectedChips();
         updateBroadcastMeta();
       };
       bListEl.appendChild(item);
     });
     if (!list.length) bListEl.innerHTML = '<div class="nav-empty">没有匹配的聊天</div>';
+    renderBroadcastSelectedChips();
     updateBroadcastMeta();
   }
   // 全选 / 清空 / 全选群组
@@ -1815,16 +1827,21 @@
     if (wrap) wrap.style.display = bcScheduleToggle.checked ? '' : 'none';
   });
   const bcAddFile = document.getElementById('broadcast-add-file');
+  async function pickBroadcastFiles() {
+    try {
+      const f = await window.api.file.pick({ multiple: true });
+      if (f) {
+        const arr = Array.isArray(f) ? f : [f];
+        arr.forEach(x => broadcastFiles.push(x));
+        renderBroadcastFiles();
+      }
+    } catch (e) { /* 用户取消 */ }
+  }
+  const bcDropzone = document.getElementById('broadcast-dropzone');
+  if (bcDropzone) bcDropzone.onclick = pickBroadcastFiles;
   if (bcAddFile) bcAddFile.addEventListener('change', async () => {
     if (bcAddFile.checked) {
-      try {
-        const f = await window.api.file.pick({ multiple: true });
-        if (f) {
-          const arr = Array.isArray(f) ? f : [f];
-          arr.forEach(x => broadcastFiles.push(x));
-          renderBroadcastFiles();
-        }
-      } catch (e) { /* 用户取消 */ }
+      await pickBroadcastFiles();
       bcAddFile.checked = false;
     }
   });
@@ -2699,6 +2716,17 @@
     } catch (e) { alert('导出失败: ' + e.message); }
   };
   bSearchEl.addEventListener('input', renderBroadcastList);
+  if (bcSelectizeControl && bcSelectizeDropdown) {
+    bcSelectizeControl.onclick = () => { bcSelectize.classList.add('open'); bcSelectizeDropdown.classList.remove('hidden'); bSearchEl.focus(); renderBroadcastList(); };
+    document.addEventListener('click', e => { if (!bcSelectize?.contains(e.target)) { bcSelectize.classList.remove('open'); bcSelectizeDropdown.classList.add('hidden'); } });
+  }
+  const savedAccordionToggle = document.getElementById('bc-saved-accordion-toggle');
+  if (savedAccordionToggle) savedAccordionToggle.onclick = () => {
+    const box = document.getElementById('bc-saved-accordion');
+    box.classList.toggle('collapsed');
+    const arrow = document.getElementById('bc-saved-accordion-arrow');
+    if (arrow) arrow.textContent = box.classList.contains('collapsed') ? '▸' : '▾';
+  };
   bOverlay.addEventListener('click', (e) => { if (e.target === bOverlay) closeBroadcast(); });
 
   // ---------- 锁屏（挂机锁） ----------
