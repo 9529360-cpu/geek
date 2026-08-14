@@ -938,7 +938,15 @@
         try {
           const W = window.WAPLUS_WPP || window.WPP;
           if (!W.chat || typeof W.chat.sendVCardContactMessage !== 'function') return 'ERR:当前 WPP 不支持电子名片发送';
-          const contacts = ${JSON.stringify(vcards)}.map(v => ({ id: String(v.id), name: String(v.name || v.realName || v.id) }));
+          const rawContacts = ${JSON.stringify(vcards)};
+          const contacts = [];
+          for (const v of rawContacts) {
+            let id = String(v.id);
+            if (id.endsWith('@lid') && W.contact.getPnLidEntry) {
+              try { const pair = await W.contact.getPnLidEntry(id); id = String(pair?.phoneNumber?._serialized || pair?.phoneNumber || id); } catch (e) {}
+            }
+            contacts.push({ id, name: String(v.name || v.realName || id) });
+          }
           const result = await Promise.race([
             W.chat.sendVCardContactMessage(${JSON.stringify(chatId)}, contacts),
             new Promise((_, reject) => setTimeout(() => reject(new Error('名片发送超时，无回执')), 8000))
