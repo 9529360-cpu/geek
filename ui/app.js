@@ -1131,7 +1131,7 @@
   }
   function renderBroadcastList() {
     const q = bSearchEl.value.trim().toLowerCase();
-    const list = visibleBroadcastChats();
+    const list = visibleBroadcastChats().filter(c => !broadcastSelected.has(c.id));
     bListEl.innerHTML = '';
     list.forEach((c) => {
       const item = document.createElement('label');
@@ -1145,6 +1145,7 @@
         renderBroadcastSelectedChips();
         const saveGroupBtn = document.getElementById('broadcast-save-group');
         if (saveGroupBtn) saveGroupBtn.style.display = broadcastChats.some(chat => broadcastSelected.has(chat.id) && chat.type === '群组') ? '' : 'none';
+        renderBroadcastList();
         updateBroadcastMeta();
       };
       bListEl.appendChild(item);
@@ -1620,16 +1621,17 @@
               }
               sentOk = mediaOk ? 'SENT' : 'ERR:' + mediaResults.join(' | ');
             } else {
-              // 名片优先（选中的联系人名片发到聊天）
+              // 原版顺序：先发文字，再发电子名片；名片失败不继续伪报成功。
               const vcards = (window.__vcardContacts || []).length ? window.__vcardContacts : null;
-              if (vcards && vcards.length) {
-                const vs = await wv.executeJavaScript(adapter.sendVcards(t.id, vcards));
-                if (String(vs) !== 'SENT') { sentOk = 'ERR:名片:' + String(vs); failReasons.push(`${t.name}: ${sentOk}`); break; }
-              }
               const tagall = document.getElementById('broadcast-tagall')?.checked || false;
-              sentOk = await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg, tagall));
+              sentOk = personalMsg.trim() ? await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg, tagall)) : 'SENT';
+              if (sentOk === 'SENT' && vcards && vcards.length) {
+                const vs = await wv.executeJavaScript(adapter.sendVcards(t.id, vcards));
+                if (String(vs) !== 'SENT') { sentOk = 'ERR:名片:' + String(vs); failReasons.push(`${t.name}: ${sentOk}`); }
+              }
             }
             if (sentOk === 'SENT' || sentOk === 'CLICKED') break;
+            if (String(sentOk).startsWith('ERR:名片:')) break;
             continue;
           }
           await wv.executeJavaScript(adapter.switchChat(t.id));
@@ -1877,14 +1879,21 @@
           const q = String(query || '').trim().toLowerCase();
           const qCompact = q.replace(/[^\p{L}\p{N}]/gu, '');
           const visible = list.filter(c => {
+            if (selectedVcards.has(c.id)) return false;
             if (!q) return true;
             const haystack = `${c.name} ${c.id}`.toLowerCase();
             return haystack.includes(q) || haystack.replace(/[^\p{L}\p{N}]/gu, '').includes(qCompact);
           });
-          vlist.innerHTML = `<div class="bc-vcard-title">${selectedVcards.size ? `已选 ${selectedVcards.size} 个联系人名片：` : '选择要发送名片的联系人：'}</div><input id="bc-vcard-search" class="bc-vcard-search" type="search" placeholder="搜索联系人或号码…" value="${escapeHtml(query)}"><div class="bc-vcard-results">${visible.map(c => `<label class="bc-vcard-item"><input type="checkbox" value="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name)}" ${selectedVcards.has(c.id) ? 'checked' : ''}> <span>${escapeHtml(c.name)}</span></label>`).join('') || '<div class="bc-vcard-empty">没有匹配的联系人</div>'}</div>`;
+          const selectedHtml = [...selectedVcards].map(id => list.find(c => c.id === id)).filter(Boolean).map(c => `<span class="bc-vcard-selected-chip">${escapeHtml(c.name)}<button type="button" data-id="${escapeHtml(c.id)}">×</button></span>`).join('');
+          vlist.innerHTML = `<div class="bc-vcard-title">${selectedVcards.size ? `已选 ${selectedVcards.size} 个联系人名片：` : '选择要发送名片的联系人：'}</div><div class="bc-vcard-selected">${selectedHtml}</div><input id="bc-vcard-search" class="bc-vcard-search" type="search" placeholder="搜索联系人或号码…" value="${escapeHtml(query)}"><div class="bc-vcard-results">${visible.map(c => `<label class="bc-vcard-item"><input type="checkbox" value="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name)}"> <span>${escapeHtml(c.name)}</span></label>`).join('') || '<div class="bc-vcard-empty">没有匹配的联系人</div>'}</div>`;
           vlist.querySelector('#bc-vcard-search').oninput = e => renderVcardList(e.target.value);
           vlist.querySelectorAll('.bc-vcard-item input').forEach(inp => inp.onchange = () => {
             if (inp.checked) selectedVcards.add(inp.value); else selectedVcards.delete(inp.value);
+            window.__vcardContacts = list.filter(c => selectedVcards.has(c.id)).map(c => ({ id: c.id, name: c.name }));
+            renderVcardList(vlist.querySelector('#bc-vcard-search')?.value || '');
+          });
+          vlist.querySelectorAll('.bc-vcard-selected-chip button').forEach(btn => btn.onclick = () => {
+            selectedVcards.delete(btn.dataset.id);
             window.__vcardContacts = list.filter(c => selectedVcards.has(c.id)).map(c => ({ id: c.id, name: c.name }));
             renderVcardList(vlist.querySelector('#bc-vcard-search')?.value || '');
           });
