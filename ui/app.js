@@ -1425,6 +1425,117 @@
   }
   const bcMenuGrouptools = document.getElementById('bc-menu-grouptools');
   if (bcMenuGrouptools) bcMenuGrouptools.onclick = () => openJoinTools('群组工具');
+  // ---------- 群组工具（克隆/解散/退出——真实 WA API） ----------
+  const gtOverlay = document.getElementById('gt-overlay');
+  const gtGroups = document.getElementById('gt-groups');
+  const gtStatus = document.getElementById('gt-status');
+  const gtCloneBtn = document.getElementById('gt-clone');
+  const gtCloneCount = document.getElementById('gt-clone-count');
+  const gtDestroyBtn = document.getElementById('gt-destroy');
+  const gtLeaveBtn = document.getElementById('gt-leave');
+  if (gtOverlay && gtGroups) {
+    document.getElementById('gt-close').onclick = () => gtOverlay.classList.add('hidden');
+    async function loadGtGroups() {
+      // 群组工具只支持 WhatsApp——自动切到第一个 WA 账号
+      if (!accounts.find(a => a.id === activeId && (a.type === 'whatsapp' || a.type === 'whatsapp-pure'))) {
+        const waAcc = accounts.find(a => a.type === 'whatsapp' || a.type === 'whatsapp-pure');
+        if (!waAcc) { alert('请先添加一个 WhatsApp 账号'); return false; }
+        switchAccount(waAcc.id);
+        await sleep(2500);
+      }
+      const account = accounts.find(a => a.id === activeId);
+      const wv = wvMap.get(activeId);
+      if (!account || !wv) { alert('请先切换到一个 WhatsApp 账号'); return false; }
+      try {
+        const res = await wv.executeJavaScript(`(async () => {
+          try {
+            const W = window.WAPLUS_WPP || window.WPP;
+            const chats = await W.chat.list();
+            return JSON.stringify(chats.filter(c => c.isGroup && c.name).map(c => ({ id: c.id, name: c.name })));
+          } catch (e) { return 'ERR:' + e.message; }
+        })()`);
+        const txt = String(res || '');
+        if (txt.startsWith('ERR:')) { alert('获取群组失败: ' + txt); return false; }
+        const list = JSON.parse(txt);
+        gtGroups.innerHTML = list.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+        if (!list.length) gtGroups.innerHTML = '<option value="">（当前账号无群组）</option>';
+        return true;
+      } catch (e) { alert('获取群组失败: ' + e.message); return false; }
+    }
+    // 菜单"群组工具"→ 打开（加载群组）
+    bcMenuGrouptools.onclick = async () => {
+      document.getElementById('broadcast-menu')?.classList.add('hidden');
+      if (await loadGtGroups()) gtOverlay.classList.remove('hidden');
+    };
+    // 克隆群组（createGroup——名称=原群名+序号）
+    gtCloneBtn.onclick = async () => {
+      const gid = gtGroups.value;
+      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      const count = parseInt(gtCloneCount.value) || 1;
+      const wv = wvMap.get(activeId);
+      gtStatus.textContent = '正在克隆…';
+      const res = await wv.executeJavaScript(`(async () => {
+        try {
+          const C = window.require('WAWebCreateGroupAction');
+          const Meta = window.require('WAWebGroupMetadataCollection');
+          const src = Meta.get(${JSON.stringify(gid)});
+          const name = src ? src.__x_subject : '克隆群组';
+          const me = (window.require('WAWebUserPrefsMeUser').getMe()).id._serialized || (window.require('WAWebUserPrefsMeUser').getMe()).id;
+          const out = [];
+          for (let i = 1; i <= ${count}; i++) {
+            const n = ${count} > 1 ? name + ' #' + i : name;
+            await C.createGroup(n, me);
+            out.push(n);
+          }
+          return 'OK:' + out.join(' / ');
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      gtStatus.textContent = String(res).startsWith('OK') ? '克隆成功：' + String(res).slice(3) : '失败：' + String(res);
+      if (String(res).startsWith('OK')) setTimeout(loadGtGroups, 2000);
+    };
+    // 解散群组（移除全部成员 + 退出）
+    gtDestroyBtn.onclick = async () => {
+      const gid = gtGroups.value;
+      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      if (!confirm('确定解散该群组？（移除全部成员并退出——不可撤销）')) return;
+      const wv = wvMap.get(activeId);
+      gtStatus.textContent = '正在解散…';
+      const res = await wv.executeJavaScript(`(async () => {
+        try {
+          const P = window.require('WAWebGroupsParticipantsApi');
+          const Exit = window.require('WAWebGroupExitJob');
+          const Meta = window.require('WAWebGroupMetadataCollection');
+          const chat = window.WAPLUS_WPP.whatsapp.ChatStore.get(${JSON.stringify(gid)});
+          const gid = ${JSON.stringify(gid)};
+          if (chat && chat.participants) {
+            const ids = chat.participants.map(p => String(p.id));
+            await P.removeParticipants(gid, ids).catch(() => {});
+          }
+          await Exit.leaveGroup(gid).catch(() => {});
+          return 'OK';
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      gtStatus.textContent = String(res) === 'OK' ? '解散完成（已移除全部成员并退出）' : '失败：' + String(res);
+      if (String(res) === 'OK') setTimeout(loadGtGroups, 2000);
+    };
+    // 退出群组（leaveGroup）
+    gtLeaveBtn.onclick = async () => {
+      const gid = gtGroups.value;
+      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      if (!confirm('确定退出该群组？')) return;
+      const wv = wvMap.get(activeId);
+      gtStatus.textContent = '正在退出…';
+      const res = await wv.executeJavaScript(`(async () => {
+        try {
+          const Exit = window.require('WAWebGroupExitJob');
+          await Exit.leaveGroup(${JSON.stringify(gid)});
+          return 'OK';
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      gtStatus.textContent = String(res) === 'OK' ? '已退出群组' : '失败：' + String(res);
+      if (String(res) === 'OK') setTimeout(loadGtGroups, 2000);
+    };
+  }
   const bcMenuGrouplinks = document.getElementById('bc-menu-grouplinks');
   if (bcMenuGrouplinks) bcMenuGrouplinks.onclick = () => openJoinTools('群组链接');
   const bcMenuExport = document.getElementById('bc-menu-export');

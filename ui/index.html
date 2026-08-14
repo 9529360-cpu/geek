@@ -467,6 +467,28 @@
 </div>
 
 
+
+<!-- 群组工具（克隆/解散/退出——真实 WA API） -->
+<div id="gt-overlay" class="overlay hidden">
+  <div class="settings-dialog" style="width:460px">
+    <div class="settings-header"><span>群组工具</span><button id="gt-close" class="settings-close">×</button></div>
+    <div class="gt-body" style="padding:14px 18px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <span style="font-size:13px">选择群组：</span>
+        <select id="gt-groups" class="settings-input" style="flex:1"></select>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="gt-clone" class="settings-btn" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer">克隆群组</button>
+        <input id="gt-clone-count" type="number" min="1" max="10" value="1" style="width:56px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
+        <span style="font-size:12px;color:var(--text-secondary)">个</span>
+        <button id="gt-destroy" class="settings-btn" style="background:#e74c3c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer">解散群组</button>
+        <button id="gt-leave" class="settings-btn" style="background:var(--bg-elevated);border:1px solid var(--border-standard);border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer;color:var(--text-primary)">退出群组</button>
+      </div>
+      <div id="gt-status" style="margin-top:10px;font-size:12.5px;color:var(--text-secondary)"></div>
+    </div>
+  </div>
+</div>
+
 <!-- 批量加入群组弹窗 -->
 <div id="join-overlay" class="overlay hidden">
   <div class="add-dialog broadcast-dialog">
