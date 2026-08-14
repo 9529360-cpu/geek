@@ -1626,7 +1626,14 @@
           try {
             const W = window.WAPLUS_WPP || window.WPP;
             const chats = await W.chat.list();
-            return JSON.stringify(chats.filter(c => c.isGroup && c.name).map(c => ({ id: c.id, name: c.name })));
+            const out = [];
+            for (const c of chats) {
+              if (!String(c.id).includes('@g.us')) continue;
+              let name = c.name || c.formattedTitle || '';
+              if (!name) { try { const m = window.require('WAWebGroupMetadataCollection').get(c.id); name = m ? (m.__x_subject || '') : ''; } catch(e){} }
+              out.push({ id: c.id, name: name || String(c.id).slice(0, 20) });
+            }
+            return JSON.stringify(out);
           } catch (e) { return 'ERR:' + e.message; }
         })()`);
         const txt = String(res || '');
