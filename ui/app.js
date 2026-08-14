@@ -1771,6 +1771,39 @@
       if (gtLinkBox) gtLinkBox.style.display = 'none';
       gtStatus.textContent = '已保存到统一链接';
     };
+    // 编辑群组（改名称/简介——WAWebGroupModifyInfoJob，实测可用）
+    const gtEditBtn = document.getElementById('gt-edit');
+    const gtEditPanel = document.getElementById('gt-edit-panel');
+    const gtEditSubject = document.getElementById('gt-edit-subject');
+    const gtEditDesc = document.getElementById('gt-edit-desc');
+    const gtEditSave = document.getElementById('gt-edit-save');
+    if (gtEditBtn) gtEditBtn.onclick = () => {
+      if (!gtGroups.value) { gtStatus.textContent = '请先选择群组'; return; }
+      gtEditPanel.style.display = gtEditPanel.style.display === 'none' ? '' : 'none';
+    };
+    if (gtEditSave) gtEditSave.onclick = async () => {
+      const gid = gtGroups.value;
+      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      const subject = gtEditSubject.value.trim();
+      const desc = gtEditDesc.value.trim();
+      if (!subject && !desc) { gtStatus.textContent = '请输入要修改的名称或简介'; return; }
+      const wv = wvMap.get(activeId);
+      gtStatus.textContent = '正在保存…';
+      const res = await wv.executeJavaScript(`(async () => {
+        try {
+          const M = window.require('WAWebGroupModifyInfoJob');
+          if (${JSON.stringify(subject)}) await M.setGroupSubject(${JSON.stringify(gid)}, ${JSON.stringify(subject)});
+          if (${JSON.stringify(desc)}) await M.setGroupDescription(${JSON.stringify(gid)}, ${JSON.stringify(desc)}, '${Date.now()}', void 0).catch(()=>{});
+          return 'OK';
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      gtStatus.textContent = String(res) === 'OK' ? '群组修改已保存' : '失败：' + String(res);
+      if (String(res) === 'OK') {
+        gtEditPanel.style.display = 'none';
+        gtEditSubject.value = ''; gtEditDesc.value = '';
+        setTimeout(loadGtGroups, 2000);
+      }
+    };
   }
   const bcMenuGrouplinks = document.getElementById('bc-menu-grouplinks');
   if (bcMenuGrouplinks) bcMenuGrouplinks.onclick = () => openJoinTools('群组链接');
