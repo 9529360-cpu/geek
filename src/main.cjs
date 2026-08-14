@@ -1032,6 +1032,7 @@ function registerIpcHandlers() {
     const urlMatch = platform === 'whatsapp' ? ('web.whatsapp.com|127.0.0.1:' + WA_LOCAL_PORT)
       : platform === 'line' ? 'chrome-extension'
       : 'web.telegram.org';
+    const isTarget = (u) => urlMatch.includes('|') ? (u.includes('web.whatsapp.com') || u.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) : u.includes(urlMatch);
     // 1. 拿 webview 的 CDP target
     const targets = await new Promise((resolve, reject) => {
       const httpMod = require('node:http');
