@@ -70,15 +70,15 @@ const APP_TYPES = {
   whatsapp: {
     name: 'WhatsApp',
     short: 'WA',
-    url: 'https://web.whatsapp.com/',
-    hostnames: ['web.whatsapp.com'],
+    url: WA_LOCAL_URL,
+    hostnames: ['127.0.0.1'],
     allowSuffix: '.whatsapp.com'
   },
   'whatsapp-pure': {
     name: 'WhatsApp 纯净版',
     short: 'WAP',
-    url: 'https://web.whatsapp.com/',
-    hostnames: ['web.whatsapp.com'],
+    url: WA_LOCAL_URL,
+    hostnames: ['127.0.0.1'],
     allowSuffix: '.whatsapp.com'
   },
   'telegram-z': {
@@ -257,8 +257,8 @@ function publicState() {
     accounts: accountsState.accounts.map((account) => {
       const config = appTypeConfig(account.type);
       let url = config ? config.url : APP_TYPES[account.type].url;
-      // WhatsApp 默认官方最新版（正在研究最新版媒体 API——不锁旧版）
-      if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') url = 'https://web.whatsapp.com/';
+      // WhatsApp 强制本地托管（旧版页面——媒体 API 匹配，图+文秒发）——已验证可用方案
+      if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') url = WA_LOCAL_URL;
       if (account.type === 'website' && account.customUrl) {
         url = account.customUrl;
       }
