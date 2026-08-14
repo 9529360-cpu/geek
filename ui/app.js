@@ -1622,20 +1622,23 @@
       const wv = wvMap.get(activeId);
       if (!account || !wv) { alert('请先切换到一个 WhatsApp 账号'); return false; }
       try {
-        const res = await wv.executeJavaScript(`(async () => {
-          try {
-            const W = window.WAPLUS_WPP || window.WPP;
-            const chats = await W.chat.list();
-            const out = [];
-            for (const c of chats) {
-              if (!String(c.id).includes('@g.us')) continue;
-              let name = c.name || c.formattedTitle || '';
-              if (!name) { try { const m = window.require('WAWebGroupMetadataCollection').get(c.id); name = m ? (m.__x_subject || '') : ''; } catch(e){} }
-              out.push({ id: String(c.id), name: name || String(c.id).slice(0, 20) });
-            }
-            return JSON.stringify(out);
-          } catch (e) { return 'ERR:' + e.message; }
-        })()`);
+        const res = await Promise.race([
+          wv.executeJavaScript(`(async () => {
+            try {
+              const W = window.WAPLUS_WPP || window.WPP;
+              const chats = await W.chat.list();
+              const out = [];
+              for (const c of chats) {
+                if (!String(c.id).includes('@g.us')) continue;
+                let name = c.name || c.formattedTitle || '';
+                if (!name) { try { const m = window.require('WAWebGroupMetadataCollection').get(c.id); name = m ? (m.__x_subject || '') : ''; } catch(e){} }
+                out.push({ id: String(c.id), name: name || String(c.id).slice(0, 20) });
+              }
+              return JSON.stringify(out);
+            } catch (e) { return 'ERR:' + e.message; }
+          })()`),
+          new Promise(r => setTimeout(() => r('TIMEOUT'), 8000))
+        ]);
         const txt = String(res || '');
         if (txt.startsWith('ERR:')) { alert('获取群组失败: ' + txt); return false; }
         gtGroupList = JSON.parse(txt);
@@ -1647,13 +1650,14 @@
     let gtGroupList = [];
     let gtSelected = new Set();
     function renderGtGroups() {
-      if (!gtGroupListEl) return;
-      if (!gtGroupList.length) { gtGroupListEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">当前账号无群组</div>'; return; }
-      gtGroupListEl.innerHTML = gtGroupList.map(g => `<label style="display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+      const listEl = document.getElementById('gt-group-list');
+      if (!listEl) return;
+      if (!gtGroupList.length) { listEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">当前账号无群组</div>'; return; }
+      listEl.innerHTML = gtGroupList.map(g => `<label style="display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
         <input type="checkbox" data-gid="${g.id}" ${gtSelected.has(g.id) ? 'checked' : ''}>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.name}</span>
       </label>`).join('');
-      gtGroupListEl.querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => {
+      listEl.querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => {
         if (cb.checked) gtSelected.add(cb.dataset.gid); else gtSelected.delete(cb.dataset.gid);
         updateGtCount();
       });
