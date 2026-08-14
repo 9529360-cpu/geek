@@ -1312,6 +1312,13 @@
     hideSendingView();
     document.getElementById('broadcast-send').classList.remove('hidden');
     setProgress(100, `完成：成功 ${ok}，失败 ${fail}${broadcastStop ? '（已停止）' : ''}`);
+    // 记录发送历史（数据报表用）
+    try {
+      const hist = JSON.parse(localStorage.getItem('sendHistory') || '[]');
+      hist.push({ t: Date.now(), total, ok, fail, files: broadcastFiles.length, msgLen: message.length });
+      if (hist.length > 500) hist.splice(0, hist.length - 500);
+      localStorage.setItem('sendHistory', JSON.stringify(hist));
+    } catch (e) {}
     if (failReasons.length) {
       console.log('群发失败明细:', failReasons.join(' | '));
       window.__lastFailReasons = failReasons; // 调试：CDP 可读
@@ -1535,8 +1542,34 @@
         lines.shift();
       }
       const numbers = lines.map(l => (l.split(/[,;\t]/)[col] || '').trim()).filter(Boolean);
+      // 核验：WA 联系人集合存在 = 已注册（原版 verificacontatosaguarde 逻辑）
       window.__excelNumbers = numbers;
-      if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码`;
+      const account = accounts.find(a => a.id === activeId);
+      const wv = wvMap.get(activeId);
+      if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码，正在核验…`;
+      if (account && wv && (account.type === 'whatsapp' || account.type === 'whatsapp-pure')) {
+        try {
+          const chunk = numbers.slice(0, 100);
+          const res = await wv.executeJavaScript(`(async () => {
+            try {
+              const C = window.require('WAWebContactCollection').ContactCollection;
+              let ok = 0;
+              for (const n of ${JSON.stringify(chunk)}) {
+                const c = C.get(n.replace(/\\s+/g, ''));
+                if (c) ok++;
+              }
+              return 'OK:' + ok;
+            } catch (e) { return 'ERR:' + e.message; }
+          })()`);
+          const txt = String(res || '');
+          if (txt.startsWith('OK:')) {
+            const okN = parseInt(txt.split(':')[1]) || 0;
+            if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码（前 ${chunk.length} 个核验：${okN} 个有效 WhatsApp）`;
+          }
+        } catch (e) { /* 核验失败不阻塞 */ }
+      } else if (excelMeta) {
+        excelMeta.textContent = `已导入 ${numbers.length} 个号码`;
+      }
     } catch (e) { if (excelMeta) excelMeta.textContent = '导入失败: ' + e.message; }
   };
 
@@ -1677,6 +1710,60 @@
       gtStatus.textContent = String(res) === 'OK' ? '已退出群组' : '失败：' + String(res);
       if (String(res) === 'OK') setTimeout(loadGtGroups, 2000);
     };
+    // 统一链接（获取/保存/删除——原版 linkunicoparagrupos）
+    let savedGroupLinks = JSON.parse(localStorage.getItem('groupLinks') || '[]');
+    const gtGetLinkBtn = document.getElementById('gt-getlink');
+    const gtLinkBox = document.getElementById('gt-link-box');
+    const gtLinkVal = document.getElementById('gt-link-val');
+    const gtSaveLinkBtn = document.getElementById('gt-save-link');
+    const gtLinksList = document.getElementById('gt-links-list');
+    function renderGroupLinks() {
+      if (!gtLinksList) return;
+      if (!savedGroupLinks.length) { gtLinksList.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">统一链接列表为空——获取群链接后保存到这里</div>'; return; }
+      gtLinksList.innerHTML = savedGroupLinks.map((l, i) => `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;font-size:12px;color:var(--text-secondary)">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.link}">${l.name || l.link}</span>
+        <button class="gt-link-del" data-i="${i}" style="border:none;background:none;color:#e74c3c;cursor:pointer;font-size:12px">✕</button>
+      </div>`).join('');
+      gtLinksList.querySelectorAll('.gt-link-del').forEach(b => b.onclick = () => {
+        savedGroupLinks.splice(parseInt(b.dataset.i), 1);
+        localStorage.setItem('groupLinks', JSON.stringify(savedGroupLinks));
+        renderGroupLinks();
+      });
+    }
+    renderGroupLinks();
+    if (gtGetLinkBtn) gtGetLinkBtn.onclick = async () => {
+      const gid = gtGroups.value;
+      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      const wv = wvMap.get(activeId);
+      gtStatus.textContent = '正在获取群链接…';
+      const res = await wv.executeJavaScript(`(async () => {
+        try {
+          const I = window.require('WAWebGroupInviteAction');
+          let code = null;
+          try { code = await I.queryGroupInviteCode(${JSON.stringify(gid)}); } catch (e) { code = await I.revokeGroupInvite(${JSON.stringify(gid)}); }
+          return 'OK:' + (code || '');
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      const txt = String(res || '');
+      if (txt.startsWith('OK:')) {
+        const code = txt.slice(3);
+        if (gtLinkBox) gtLinkBox.style.display = '';
+        if (gtLinkVal) gtLinkVal.textContent = 'https://chat.whatsapp.com/' + code;
+        window.__curGroupLink = 'https://chat.whatsapp.com/' + code;
+        gtStatus.textContent = '已获取群链接';
+      } else {
+        gtStatus.textContent = '获取失败：' + txt;
+      }
+    };
+    if (gtSaveLinkBtn) gtSaveLinkBtn.onclick = () => {
+      if (!window.__curGroupLink) return;
+      const name = gtGroups.options[gtGroups.selectedIndex]?.text || '群组';
+      savedGroupLinks.push({ name, link: window.__curGroupLink });
+      localStorage.setItem('groupLinks', JSON.stringify(savedGroupLinks));
+      renderGroupLinks();
+      if (gtLinkBox) gtLinkBox.style.display = 'none';
+      gtStatus.textContent = '已保存到统一链接';
+    };
   }
   const bcMenuGrouplinks = document.getElementById('bc-menu-grouplinks');
   if (bcMenuGrouplinks) bcMenuGrouplinks.onclick = () => openJoinTools('群组链接');
@@ -1701,6 +1788,26 @@
       const p = await window.api.file.save({ defaultName: '联系人导出.csv', content: csv });
       if (p) alert(`已导出 ${list.length} 个联系人: ${p}`);
     } catch (e) { alert('导出失败: ' + e.message); }
+  };
+  // 数据报表（发送历史统计）
+  const bcMenuReport = document.getElementById('bc-menu-report');
+  if (bcMenuReport) bcMenuReport.onclick = () => {
+    document.getElementById('broadcast-menu')?.classList.add('hidden');
+    const hist = JSON.parse(localStorage.getItem('sendHistory') || '[]');
+    const total = hist.reduce((s, h) => s + h.total, 0);
+    const ok = hist.reduce((s, h) => s + h.ok, 0);
+    const fail = hist.reduce((s, h) => s + h.fail, 0);
+    const today = new Date().toDateString();
+    const todayCount = hist.filter(h => new Date(h.t).toDateString() === today).reduce((s, h) => s + h.total, 0);
+    const days = {};
+    hist.forEach(h => { const d = new Date(h.t).toDateString(); days[d] = (days[d] || 0) + h.total; });
+    const daily = Object.entries(days).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7);
+    const recent = hist.slice(-10).reverse().map(h => {
+      const dt = new Date(h.t);
+      const pad = n => String(n).padStart(2, '0');
+      return `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())} | 共${h.total} 成功${h.ok} 失败${h.fail}${h.files ? ' | 含文件' : ''}`;
+    });
+    alert(`📊 数据报表（共 ${hist.length} 次群发）\n\n━━ 总览 ━━\n消息总数：${total}\n成功：${ok}\n失败：${fail}\n成功占比：${total ? Math.round(ok / total * 100) : 0}%\n今日发送：${todayCount}\n\n━━ 最近 7 天 ━━\n${daily.map(([d, n]) => `${d.slice(4)}：${n} 条`).join('\n') || '无数据'}\n\n━━ 最近记录 ━━\n${recent.join('\n') || '暂无'}`);
   };
   const bcMenuBackup = document.getElementById('bc-menu-backup');
   if (bcMenuBackup) bcMenuBackup.onclick = async () => {
