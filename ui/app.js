@@ -1446,9 +1446,9 @@
     if (broadcastRunning) { broadcastStop = true; return; }
     const account = accounts.find(a => a.id === activeId);
     const wv = wvMap.get(activeId);
-    const message = bMessageEl.value.trim();
+    const message = bMessageEl.value;
     if (!account || !wv) { alert('当前账号不可用'); return; }
-    if (!message && !broadcastFiles.length) { alert('请输入消息内容或添加文件'); return; }
+    if (!message.trim() && !broadcastFiles.length) { alert('请输入消息内容或添加文件'); return; }
     // 发送至单选模式：custom=勾选列表；paste/excel=号码匹配聊天；all*=全选（已由 radio change 处理）
     let targets = broadcastChats.filter(c => broadcastSelected.has(c.id));
     // 排除列表（勾选的不发）
@@ -1658,13 +1658,15 @@
       if (sentOk === 'SENT' || sentOk === 'CLICKED') ok++;
       else { fail++; failReasons.push(`${t.name}: send=${sentOk} set=${setOk}`); broadcastFailed.push({ name: t.name, reason: sentOk || setOk }); }
       broadcastOkCount = ok;
-      const intervalMin = parseFloat(document.getElementById('broadcast-interval-min')?.value) || 2;
-      const intervalMax = parseFloat(document.getElementById('broadcast-interval-max')?.value) || intervalMin;
-      const lo = Math.max(0.5, Math.min(intervalMin, intervalMax));
-      const hi = Math.max(lo, intervalMax);
-      const waitSec = lo + Math.random() * (hi - lo);
-      startCountdown(waitSec); // 倒计时（HelloWorld 风格：下一次发送 MM:SSs）
-      await sleep(waitSec * 1000); // 随机间隔防风控
+      if (i < targets.length - 1 && !broadcastStop) {
+        const intervalMin = parseFloat(document.getElementById('broadcast-interval-min')?.value) || 2;
+        const intervalMax = parseFloat(document.getElementById('broadcast-interval-max')?.value) || intervalMin;
+        const lo = Math.max(0.5, Math.min(intervalMin, intervalMax));
+        const hi = Math.max(lo, intervalMax);
+        const waitSec = lo + Math.random() * (hi - lo);
+        startCountdown(waitSec); // 倒计时（HelloWorld 风格：下一次发送 MM:SSs）
+        await sleep(waitSec * 1000); // 随机间隔防风控
+      }
     }
     broadcastRunning = false;
     hideSendingView();
