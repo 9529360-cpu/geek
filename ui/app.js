@@ -1050,6 +1050,19 @@
     bSearchEl.value = '';
     bMessageEl.value = '';
     renderBroadcastFiles();
+    const addFileToggle = document.getElementById('broadcast-add-file');
+    if (addFileToggle) addFileToggle.checked = false;
+    const dropzone = document.getElementById('broadcast-dropzone');
+    if (dropzone) dropzone.style.display = 'none';
+    const addVcardToggle = document.getElementById('broadcast-add-vcard');
+    if (addVcardToggle) addVcardToggle.checked = false;
+    const vcardList = document.getElementById('bc-vcard-list');
+    if (vcardList) { vcardList.innerHTML = ''; vcardList.style.display = 'none'; }
+    window.__vcardContacts = [];
+    const savedAccordion = document.getElementById('bc-saved-accordion');
+    if (savedAccordion) savedAccordion.classList.add('collapsed');
+    const savedArrow = document.getElementById('bc-saved-accordion-arrow');
+    if (savedArrow) savedArrow.textContent = '▸';
     bProgressEl.classList.add('hidden');
     bOverlay.classList.remove('hidden');
     renderSavedGroups();
@@ -1816,6 +1829,8 @@
   });
   const bcAddFile = document.getElementById('broadcast-add-file');
   async function pickBroadcastFiles() {
+    const zone = document.getElementById('broadcast-dropzone');
+    if (zone) zone.style.display = 'flex';
     try {
       const f = await window.api.file.pick({ multiple: true });
       if (f) {
@@ -1858,7 +1873,12 @@
         const selectedVcards = new Set();
         const renderVcardList = (query = '') => {
           const q = String(query || '').trim().toLowerCase();
-          const visible = list.filter(c => !q || `${c.name} ${c.id}`.toLowerCase().includes(q));
+          const qCompact = q.replace(/[^\p{L}\p{N}]/gu, '');
+          const visible = list.filter(c => {
+            if (!q) return true;
+            const haystack = `${c.name} ${c.id}`.toLowerCase();
+            return haystack.includes(q) || haystack.replace(/[^\p{L}\p{N}]/gu, '').includes(qCompact);
+          });
           vlist.innerHTML = `<div class="bc-vcard-title">${selectedVcards.size ? `已选 ${selectedVcards.size} 个联系人名片：` : '选择要发送名片的联系人：'}</div><input id="bc-vcard-search" class="bc-vcard-search" type="search" placeholder="搜索联系人或号码…" value="${escapeHtml(query)}"><div class="bc-vcard-results">${visible.map(c => `<label class="bc-vcard-item"><input type="checkbox" value="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name)}" ${selectedVcards.has(c.id) ? 'checked' : ''}> <span>${escapeHtml(c.name)}</span></label>`).join('') || '<div class="bc-vcard-empty">没有匹配的联系人</div>'}</div>`;
           vlist.querySelector('#bc-vcard-search').oninput = e => renderVcardList(e.target.value);
           vlist.querySelectorAll('.bc-vcard-item input').forEach(inp => inp.onchange = () => {
