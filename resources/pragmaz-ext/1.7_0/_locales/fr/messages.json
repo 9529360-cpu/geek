@@ -1,0 +1,26 @@
+{
+   "appDesc": {
+      "message": "CRM, Chatbot Flow, Agent I.A. et automatisation intégrés à votre WhatsApp™ Web."
+   },
+   "language_id": {
+      "message": "fr"
+   },
+   "name": {
+      "message": "Pragmaz"
+   },
+   "share_image": {
+      "message": "Partager l'image sur WhatsApp™ Web"
+   },
+   "share_link": {
+      "message": "Partager le lien sur WhatsApp™ Web"
+   },
+   "share_site": {
+      "message": "Partager le site Web sur WhatsApp™ Web"
+   },
+   "share_sticker": {
+      "message": "Partager l'image en tant qu'autocollant sur WhatsApp™ Web"
+   },
+   "share_text": {
+      "message": "Partager du texte sur WhatsApp™ Web"
+   }
+}

@@ -2206,3 +2206,5 @@ select:focus option:checked {
 .bc-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; font-size: 13px; border: none; background: none; color: var(--text-primary); border-radius: 6px; cursor: pointer; text-align: left; }
 .bc-menu-item:hover { background: var(--bg-elevated); }
 .bc-menu-item svg { color: var(--accent); flex-shrink: 0; }
+/* 菜单分隔标签（高级功能工具） */
+.bc-menu-sep { font-size: 11px; color: var(--text-tertiary); padding: 6px 12px 2px; letter-spacing: .5px; }

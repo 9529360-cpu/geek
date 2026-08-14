@@ -116,15 +116,19 @@ const LINE_EXTENSION_PATH = path.join(
   __dirname, '..', 'resources', 'extensions', 'line-3.5.1'
 );
 
-// HelloWorld 剥离的 WhatsApp 扩展（WAPlus——群发面板/完整功能）
+// HelloWorld 剥离的 WhatsApp 扩展（WAPlus——b_test 英文版，功能最全）
 const WAPLUS_EXTENSION_PATH = path.join(
   __dirname, '..', 'resources', 'waplus-ext', '1.7.96_0'
+);
+// HelloWorld 剥离的 WhatsApp 扩展（Pragmaz——a_test 中文版，用户截图的中文群发面板）
+const PRAGMAZ_EXTENSION_PATH = path.join(
+  __dirname, '..', 'resources', 'pragmaz-ext', '1.7_0'
 );
 
 async function loadWaplusExtension(partition) {
   try {
     const ses = session.fromPartition(partition, { cache: true });
-    const ext = await ses.loadExtension(WAPLUS_EXTENSION_PATH);
+    const ext = await ses.loadExtension(PRAGMAZ_EXTENSION_PATH); // 中文面板（a_test）优先
     if (ext) {
       console.log(`[waplus] 扩展已加载到 ${partition}: ${ext.name} ${ext.version}`);
     }
@@ -1330,6 +1334,15 @@ function configureWebviewSecurity(window) {
         if (ok) {
           wppInjected.add(part);
           console.log('[wpp] 注入成功', part);
+          // 扩展面板默认收起（不挡聊天——需要时用户点展开/或群发菜单触发）
+          wc.executeJavaScript(`(async () => {
+            for (let i = 0; i < 10; i++) {
+              const arrow = document.querySelector('.bulk-sender .el-icon-arrow-left');
+              if (arrow) { arrow.click(); return 'COLLAPSED'; }
+              await new Promise(r => setTimeout(r, 800));
+            }
+            return 'NO_ARROW';
+          })()`).catch(() => null);
           return;
         }
         console.log(`[wpp] 第 ${attempt + 1} 次注入后 WPP 未就绪，3 秒后重试…`);
@@ -1520,7 +1533,9 @@ function showMainWindow() {
 try {
   app.commandLine.appendSwitch('enable-features', 'DnsOverHttps');
   app.commandLine.appendSwitch('dns-over-https-templates', 'https://dns.google/dns-query https://cloudflare-dns.com/dns-query');
-} catch (e) { /* ignore */ }
+  // 界面/扩展语言固定中文（WAPlus 扩展按浏览器语言 i18n——不设则英文面板）
+  app.commandLine.appendSwitch('lang', 'zh-CN');
+} catch (e) { /* 忽略 */ }
 
 // WhatsApp 本地托管服务（HelloWorld 同款：固定旧版页面——媒体 API 匹配，图+文秒发）
 async function startWaLocalServer() {

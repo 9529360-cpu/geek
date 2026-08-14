@@ -1,0 +1,80 @@
+{
+  "action": {
+    "default_icon": "img/icon128.png"
+  },
+  "background": {
+    "service_worker": "js/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "css": [
+        "css/pragmaz.min.css"
+      ],
+      "js": [
+        "js/content-bridge.js",
+        "js/public/pragmaz-init.js",
+        "js/content-utils.js"
+      ],
+      "matches": [
+        "*://web.whatsapp.com/*",
+        "http://localhost:1842/*",
+        "http://127.0.0.1:1843/*",
+        "http://localhost:1843/*"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "enabled": true,
+        "id": "pragmaz_rules",
+        "path": "rules.json"
+      }
+    ]
+  },
+  "default_locale": "en",
+  "description": "__MSG_appDesc__",
+  "host_permissions": [
+    "*://*.whatsapp.com/*",
+    "*://pragmaz.ai/*",
+    "*://*.whatsapp.net/*",
+    "http://localhost:1842/*",
+    "http://127.0.0.1:1843/*",
+    "http://localhost:1843/*"
+  ],
+  "icons": {
+    "128": "img/icon128.png",
+    "16": "img/icon16.png",
+    "48": "img/icon48.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoioWREh52T7FblA3xpiPw3Eh8drWcdoC/FAUg//wAmnh3j4MHwn6q9aiUbXN6wWCUK2BBWQNJZFq2WlaDwbIDesu0n1+qXjtThFMmQVyEM/nW3IhK4GhG5xdMm0H2fBL783QzEijEVdxAy3rkZ7Hph0TRPOBxhI18Vhn+rBYAD/h7gRLSQyuvD/NeLETW2O2rkJVvnUFZEkbcEQQZspCXsNkAIqkZQFqTT/CFAS1/WUvffKIv/TCb7q0jRr88KsuNkpjkqYTokp7Mw+N9k+QryvsKrPXuWK4gbQCuBLCSoXIFmWc+gck93HD5/LDaK44pRXc/PsBrNIoDS1MPA0uvwIDAQAB",
+  "manifest_version": 3,
+  "name": "__MSG_name__",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "unlimitedStorage",
+    "declarativeNetRequest",
+    "browsingData",
+    "proxy",
+    "webRequest",
+    "webRequestAuthProvider"
+  ],
+  "short_name": "Pragmaz",
+  "update_url": "https://clients2.google.com/service/update2/crx",
+  "version": "1.7",
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "*://web.whatsapp.com/*",
+        "http://localhost:1842/*"
+      ],
+      "resources": [
+        "js/public/*",
+        "/_locales/*",
+        "img/*"
+      ]
+    }
+  ]
+}

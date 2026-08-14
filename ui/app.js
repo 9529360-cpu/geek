@@ -916,11 +916,27 @@
   };
   document.getElementById('join-close').onclick = () => joinOverlay.classList.add('hidden');
   document.getElementById('join-cancel').onclick = () => joinOverlay.classList.add('hidden');
-  // 加入单个群链接：导航 → 找加入按钮 → 点击 → 回 TG
+  // 加入单个群链接：WA 用 joinGroupViaInvite API 直加（HelloWorld 同款）；TG 导航 → 找加入按钮 → 点击
   async function joinGroupByLink(link) {
+    const account = accounts.find(a => a.id === activeId);
     const wv = wvMap.get(activeId);
     if (!wv) return 'NO_WV';
-    // 标准化链接（没有协议补 https://）
+    // WA 账号：API 直加（不导航——快/稳）
+    if (account && (account.type === 'whatsapp' || account.type === 'whatsapp-pure')) {
+      const path = link.replace(/^https?:\/\/(chat\.)?whatsapp\.com\//, '').replace(/^https?:\/\//, '').trim();
+      if (!path) return 'ERR:无效链接';
+      try {
+        const res = await wv.executeJavaScript(`(async () => {
+          try {
+            const A = window.require('WAWebGroupInviteAction');
+            await A.joinGroupViaInvite(${JSON.stringify(path)});
+            return 'JOINED|' + ${JSON.stringify(link.slice(0, 40))};
+          } catch (e) { return 'ERR:' + e.message; }
+        })()`);
+        return String(res);
+      } catch (e) { return 'ERR:' + e.message; }
+    }
+    // TG 账号：导航到群预览页 → 点加入 → 回 TG
     const url = /^https?:\/\//.test(link) ? link : 'https://' + link;
     try {
       wv.src = url; // webview 导航到群预览页
@@ -1396,15 +1412,47 @@
     document.getElementById('broadcast-menu')?.classList.add('hidden');
     openBroadcast();
   };
-  const bcMenuJoin = document.getElementById('bc-menu-join');
-  if (bcMenuJoin) bcMenuJoin.onclick = () => {
+  function openJoinTools(title) {
     document.getElementById('broadcast-menu')?.classList.add('hidden');
     const joinOv = document.getElementById('join-overlay');
     if (joinOv) {
+      const jt = joinOv.querySelector('.join-title, .settings-header span, h3');
+      if (jt && title) jt.textContent = title;
       joinOv.classList.remove('hidden');
       const jl = document.getElementById('join-links');
       if (jl) jl.value = '';
     }
+  }
+  const bcMenuGrouptools = document.getElementById('bc-menu-grouptools');
+  if (bcMenuGrouptools) bcMenuGrouptools.onclick = () => openJoinTools('群组工具');
+  const bcMenuGrouplinks = document.getElementById('bc-menu-grouplinks');
+  if (bcMenuGrouplinks) bcMenuGrouplinks.onclick = () => openJoinTools('群组链接');
+  const bcMenuExport = document.getElementById('bc-menu-export');
+  if (bcMenuExport) bcMenuExport.onclick = async () => {
+    document.getElementById('broadcast-menu')?.classList.add('hidden');
+    const account = accounts.find(a => a.id === activeId);
+    const wv = wvMap.get(activeId);
+    if (!account || !wv) { alert('请先切换到一个账号'); return; }
+    try {
+      const contacts = await wv.executeJavaScript(`(async () => {
+        try {
+          const W = window.WAPLUS_WPP || window.WPP;
+          const chats = await W.chat.list();
+          return JSON.stringify(chats.filter(c => !c.isGroup && c.name).map(c => ({ id: c.id, name: c.name, number: (c.id || '').replace('@c.us', '').replace('@lid', '') })));
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      const txt = String(contacts || '');
+      if (txt.startsWith('ERR:')) { alert('导出失败: ' + txt); return; }
+      const list = JSON.parse(txt);
+      const csv = '\uFEFF姓名,号码\n' + list.map(c => `"${(c.name || '').replace(/"/g, '""')}","${c.number || ''}"`).join('\n');
+      const p = await window.api.file.save({ defaultName: '联系人导出.csv', content: csv });
+      if (p) alert(`已导出 ${list.length} 个联系人: ${p}`);
+    } catch (e) { alert('导出失败: ' + e.message); }
+  };
+  const bcMenuBackup = document.getElementById('bc-menu-backup');
+  if (bcMenuBackup) bcMenuBackup.onclick = () => {
+    document.getElementById('broadcast-menu')?.classList.add('hidden');
+    alert('备份功能：配置（群组预设/定时任务）将自动保存，导出/导入文件后续版本开放');
   };
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('broadcast-menu');

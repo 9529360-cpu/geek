@@ -79,15 +79,28 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.5l7.8 9M8.1 16.5l7.8-9"/></svg>
             <span>群发</span>
           </button>
-          <!-- 群发菜单（HelloWorld 插件入口风格：群发信息 / 群组管理） -->
+          <!-- 群发菜单（HelloWorld「高级功能工具」风格） -->
           <div id="broadcast-menu" class="bc-menu hidden">
+            <div class="bc-menu-sep">高级功能工具</div>
             <button type="button" id="bc-menu-send" class="bc-menu-item">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <span>群发信息</span>
+              <span>群发消息</span>
             </button>
-            <button type="button" id="bc-menu-join" class="bc-menu-item">
+            <button type="button" id="bc-menu-grouptools" class="bc-menu-item">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <span>群组管理</span>
+              <span>群组工具</span>
+            </button>
+            <button type="button" id="bc-menu-grouplinks" class="bc-menu-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              <span>群组链接</span>
+            </button>
+            <button type="button" id="bc-menu-export" class="bc-menu-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>导出联系人</span>
+            </button>
+            <button type="button" id="bc-menu-backup" class="bc-menu-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              <span>导出/导入备份</span>
             </button>
           </div>
         </div>
