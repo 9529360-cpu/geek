@@ -1547,9 +1547,7 @@
       }
     }
     if (!targets.length) { alert('请先勾选要发送的聊天'); return; }
-    const preview = targets.slice(0, 6).map(t => t.name).join('、') + (targets.length > 6 ? '…' : '');
-    const attachInfo = broadcastFiles.length ? `\n附件：${broadcastFiles.map(f => f.name).join('、')}` : '';
-    if (!confirm(`确认向 ${targets.length} 个聊天群发？\n\n${preview}\n\n消息内容：\n${message || '（无文字）'}${attachInfo}\n\n将逐个发送（每条间隔可调防风控）。`)) return;
+    // 对齐 HelloWorld：点击开始群发后直接进入发送中页面，不增加二次确认弹窗。
 
     broadcastRunning = true;
     broadcastStop = false;
