@@ -1168,7 +1168,25 @@
     const excl = window.__broadcastExcludeSet ? window.__broadcastExcludeSet() : new Set();
     if (excl.size) targets = targets.filter(t => !excl.has(t.id));
     const sendtoVal = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
-    if (sendtoVal === 'paste' || sendtoVal === 'excel') {
+    if (sendtoVal === 'label') {
+      // 标签模式：选标签 → 该标签下所有联系人
+      const labelId = document.getElementById('bc-label-select')?.value;
+      if (!labelId) { alert('请先选择标签'); return; }
+      try {
+        const res = await wv.executeJavaScript(`(async () => {
+          try {
+            const L = window.require('WAWebLabelCollection').LabelCollection;
+            const lb = (L._models || []).find(l => String(l.id) === ${JSON.stringify(labelId)});
+            const chatIds = lb && (lb.__x_chatIds || (lb.getChatIds ? lb.getChatIds() : [])) || [];
+            return JSON.stringify(chatIds.map(c => String(c)));
+          } catch (e) { return 'ERR:' + e.message; }
+        })()`);
+        const txt = String(res || '');
+        if (txt.startsWith('ERR:')) { alert('获取标签联系人失败: ' + txt); return; }
+        const ids = JSON.parse(txt);
+        targets = broadcastChats.filter(c => ids.includes(c.id));
+      } catch (e) { alert('获取标签联系人失败: ' + e.message); return; }
+    } else if (sendtoVal === 'paste' || sendtoVal === 'excel') {
       const numbers = (sendtoVal === 'paste')
         ? (document.getElementById('bc-paste-numbers')?.value || '').split(/\n+/).map(s => s.trim()).filter(Boolean)
         : (window.__excelNumbers || []);
@@ -1457,11 +1475,12 @@
   const bcSendtoRadios = document.querySelectorAll('input[name="bc-sendto"]');
   bcSendtoRadios.forEach(r => r.addEventListener('change', () => {
     const v = document.querySelector('input[name="bc-sendto"]:checked').value;
-    const map = { custom: 'bc-sendto-custom', paste: 'bc-sendto-paste', excel: 'bc-sendto-excel' };
+    const map = { custom: 'bc-sendto-custom', paste: 'bc-sendto-paste', excel: 'bc-sendto-excel', label: 'bc-sendto-label' };
     Object.keys(map).forEach(k => {
       const el = document.getElementById(map[k]);
       if (el) el.classList.toggle('hidden', k !== v);
     });
+    if (v === 'label') loadLabels();
     if (v === 'all-contacts' || v === 'all-groups' || v === 'all') {
       // 一键全选（联系人/群组/全部）
       const q = bSearchEl.value.trim().toLowerCase();
@@ -1469,6 +1488,28 @@
       renderBroadcastList();
     }
   }));
+  // 标签发送：加载 WA 标签列表（LabelCollection）
+  async function loadLabels() {
+    const labelSel = document.getElementById('bc-label-select');
+    if (!labelSel) return;
+    const account = accounts.find(a => a.id === activeId);
+    const wv = wvMap.get(activeId);
+    if (!account || !wv || !(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) { labelSel.innerHTML = '<option value="">（需要 WhatsApp 账号）</option>'; return; }
+    try {
+      const res = await wv.executeJavaScript(`(async () => {
+        try {
+          const L = window.require('WAWebLabelCollection').LabelCollection;
+          const labels = (L._models || []).map(l => ({ id: String(l.id), name: l.__x_name || '' }));
+          return JSON.stringify(labels);
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      const txt = String(res || '');
+      if (txt.startsWith('ERR:')) { labelSel.innerHTML = '<option value="">（标签加载失败）</option>'; return; }
+      const labels = JSON.parse(txt);
+      labelSel.innerHTML = '<option value="">选择标签…</option>' + labels.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+      if (!labels.length) labelSel.innerHTML = '<option value="">（当前账号无标签）</option>';
+    } catch (e) { labelSel.innerHTML = '<option value="">（标签加载失败）</option>'; }
+  }
   const bcPaste = document.getElementById('bc-paste-numbers');
   if (bcPaste) bcPaste.addEventListener('input', () => {
     const total = bcPaste.value.split(/\n+/).map(s => s.trim()).filter(Boolean).length;
@@ -1662,9 +1703,43 @@
     } catch (e) { alert('导出失败: ' + e.message); }
   };
   const bcMenuBackup = document.getElementById('bc-menu-backup');
-  if (bcMenuBackup) bcMenuBackup.onclick = () => {
+  if (bcMenuBackup) bcMenuBackup.onclick = async () => {
     document.getElementById('broadcast-menu')?.classList.add('hidden');
-    alert('备份功能：配置（群组预设/定时任务）将自动保存，导出/导入文件后续版本开放');
+    const action = confirm('导出配置到文件？\n\n确定 = 导出备份文件\n取消 = 导入备份文件');
+    if (action) {
+      // 导出：所有配置 → JSON → 保存
+      const cfg = {
+        savedMessages: JSON.parse(localStorage.getItem('savedMessages') || '[]'),
+        savedLists: JSON.parse(localStorage.getItem('savedLists') || '[]'),
+        broadcastExclude: JSON.parse(localStorage.getItem('broadcastExclude') || '[]'),
+        savedGroups: JSON.parse(localStorage.getItem('savedGroups') || '[]'),
+        scheduleTasks: JSON.parse(localStorage.getItem('scheduleTasks') || '[]'),
+        version: 1
+      };
+      try {
+        const p = await window.api.file.save({ defaultName: '极客配置备份.json', content: JSON.stringify(cfg, null, 2) });
+        if (p) alert('配置已导出: ' + p);
+      } catch (e) { alert('导出失败: ' + e.message); }
+    } else {
+      // 导入：选文件 → 读 → 恢复
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = '.json';
+      inp.onchange = async () => {
+        try {
+          const f = inp.files[0];
+          const text = await f.text();
+          const cfg = JSON.parse(text);
+          if (cfg.savedMessages) localStorage.setItem('savedMessages', JSON.stringify(cfg.savedMessages));
+          if (cfg.savedLists) localStorage.setItem('savedLists', JSON.stringify(cfg.savedLists));
+          if (cfg.broadcastExclude) localStorage.setItem('broadcastExclude', JSON.stringify(cfg.broadcastExclude));
+          if (cfg.savedGroups) localStorage.setItem('savedGroups', JSON.stringify(cfg.savedGroups));
+          if (cfg.scheduleTasks) localStorage.setItem('scheduleTasks', JSON.stringify(cfg.scheduleTasks));
+          alert('配置已导入，重新打开窗口生效');
+        } catch (e) { alert('导入失败（文件格式不对）: ' + e.message); }
+      };
+      inp.click();
+    }
   };
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('broadcast-menu');

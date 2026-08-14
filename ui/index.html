@@ -415,6 +415,10 @@
             <button type="button" id="broadcast-import-csv" class="bc-btn">📄 导入 Excel/CSV</button>
             <div class="bc-meta" id="bc-excel-meta"></div>
           </div>
+          <label class="bc-radio"><input type="radio" name="bc-sendto" value="label"><span>同一标签下的所有联系人</span></label>
+          <div class="bc-sendto-body hidden" id="bc-sendto-label">
+            <select id="bc-label-select" class="bc-input bc-saved-select"><option value="">加载标签…</option></select>
+          </div>
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="all-contacts"><span>所有联系人</span></label>
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="all-groups"><span>所有群组</span></label>
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="all"><span>所有联系人和群组</span></label>
