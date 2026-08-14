@@ -496,12 +496,15 @@
   <div class="settings-dialog" style="width:560px">
     <div class="settings-header"><span>群组工具</span><button id="gt-close" class="settings-close">×</button></div>
     <div class="gt-body" style="padding:14px 18px;max-height:75vh;overflow-y:auto">
-      <!-- 群组选择 -->
+      <!-- 群组选择（多选批量） -->
       <div class="bc-card" style="padding:10px 12px;margin-bottom:10px">
-        <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
           <span style="font-size:13px;color:var(--text-secondary)">选择群组：</span>
-          <select id="gt-groups" class="settings-input" style="flex:1"></select>
+          <span id="gt-sel-count" style="font-size:12px;color:var(--accent)">已选 0 个</span>
+          <button id="gt-select-all" class="bc-btn bc-btn--small" style="margin-left:auto">全选</button>
+          <button id="gt-select-none" class="bc-btn bc-btn--small">清空</button>
         </div>
+        <div id="gt-group-list" style="max-height:140px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 8px"></div>
       </div>
       <!-- 操作按钮 -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">

@@ -1631,31 +1631,60 @@
               if (!String(c.id).includes('@g.us')) continue;
               let name = c.name || c.formattedTitle || '';
               if (!name) { try { const m = window.require('WAWebGroupMetadataCollection').get(c.id); name = m ? (m.__x_subject || '') : ''; } catch(e){} }
-              out.push({ id: c.id, name: name || String(c.id).slice(0, 20) });
+              out.push({ id: String(c.id), name: name || String(c.id).slice(0, 20) });
             }
             return JSON.stringify(out);
           } catch (e) { return 'ERR:' + e.message; }
         })()`);
         const txt = String(res || '');
         if (txt.startsWith('ERR:')) { alert('获取群组失败: ' + txt); return false; }
-        const list = JSON.parse(txt);
-        gtGroups.innerHTML = list.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
-        if (!list.length) gtGroups.innerHTML = '<option value="">（当前账号无群组）</option>';
+        gtGroupList = JSON.parse(txt);
+        renderGtGroups();
         return true;
       } catch (e) { alert('获取群组失败: ' + e.message); return false; }
     }
-    // 菜单"群组工具"→ 打开（加载群组）
+    // 多选渲染
+    let gtGroupList = [];
+    let gtSelected = new Set();
+    function renderGtGroups() {
+      if (!gtGroupListEl) return;
+      if (!gtGroupList.length) { gtGroupListEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">当前账号无群组</div>'; return; }
+      gtGroupListEl.innerHTML = gtGroupList.map(g => `<label style="display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+        <input type="checkbox" data-gid="${g.id}" ${gtSelected.has(g.id) ? 'checked' : ''}>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.name}</span>
+      </label>`).join('');
+      gtGroupListEl.querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => {
+        if (cb.checked) gtSelected.add(cb.dataset.gid); else gtSelected.delete(cb.dataset.gid);
+        updateGtCount();
+      });
+      updateGtCount();
+    }
+    function updateGtCount() {
+      const c = document.getElementById('gt-sel-count');
+      if (c) c.textContent = `已选 ${gtSelected.size} 个`;
+    }
+    function selectedGidList() {
+      return gtGroupList.filter(g => gtSelected.has(g.id)).map(g => ({ id: g.id, name: g.name }));
+    }
+    const gtSelectAll = document.getElementById('gt-select-all');
+    const gtSelectNone = document.getElementById('gt-select-none');
+    const gtGroupListEl = document.getElementById('gt-group-list');
+    if (gtSelectAll) gtSelectAll.onclick = () => { gtGroupList.forEach(g => gtSelected.add(g.id)); renderGtGroups(); };
+    if (gtSelectNone) gtSelectNone.onclick = () => { gtSelected.clear(); renderGtGroups(); };
     bcMenuGrouptools.onclick = async () => {
       document.getElementById('broadcast-menu')?.classList.add('hidden');
       if (await loadGtGroups()) gtOverlay.classList.remove('hidden');
     };
     // 克隆群组（createGroup——名称=原群名+序号）
     gtCloneBtn.onclick = async () => {
-      const gid = gtGroups.value;
-      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      const targets = selectedGidList();
+      if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       const count = parseInt(gtCloneCount.value) || 1;
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在克隆…';
+      const results = [];
+      for (const t of targets) {
+        const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const C = window.require('WAWebCreateGroupAction');
@@ -1672,16 +1701,21 @@
           return 'OK:' + out.join(' / ');
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
-      gtStatus.textContent = String(res).startsWith('OK') ? '克隆成功：' + String(res).slice(3) : '失败：' + String(res);
-      if (String(res).startsWith('OK')) setTimeout(loadGtGroups, 2000);
+      results.push(t.name + ':' + String(res).startsWith('OK') ? '成功' : '失败');
+      }
+      gtStatus.textContent = '克隆完成：' + results.join(' | ');
+      setTimeout(loadGtGroups, 2000);
     };
     // 解散群组（移除全部成员 + 退出）
     gtDestroyBtn.onclick = async () => {
-      const gid = gtGroups.value;
-      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
-      if (!confirm('确定解散该群组？（移除全部成员并退出——不可撤销）')) return;
+      const targets = selectedGidList();
+      if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
+      if (!confirm(`确定解散选中的 ${targets.length} 个群组？（移除全部成员并退出——不可撤销）`)) return;
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在解散…';
+      const results = [];
+      for (const t of targets) {
+        const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const P = window.require('WAWebGroupsParticipantsApi');
@@ -1697,16 +1731,21 @@
           return 'OK';
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
-      gtStatus.textContent = String(res) === 'OK' ? '解散完成（已移除全部成员并退出）' : '失败：' + String(res);
-      if (String(res) === 'OK') setTimeout(loadGtGroups, 2000);
+      results.push(t.name + ':' + (String(res) === 'OK' ? '解散' : '失败'));
+      }
+      gtStatus.textContent = '解散完成：' + results.join(' | ');
+      setTimeout(loadGtGroups, 2000);
     };
     // 退出群组（leaveGroup）
     gtLeaveBtn.onclick = async () => {
-      const gid = gtGroups.value;
-      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
-      if (!confirm('确定退出该群组？')) return;
+      const targets = selectedGidList();
+      if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
+      if (!confirm(`确定退出选中的 ${targets.length} 个群组？`)) return;
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在退出…';
+      const results = [];
+      for (const t of targets) {
+        const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const Exit = window.require('WAWebGroupExitJob');
@@ -1714,8 +1753,10 @@
           return 'OK';
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
-      gtStatus.textContent = String(res) === 'OK' ? '已退出群组' : '失败：' + String(res);
-      if (String(res) === 'OK') setTimeout(loadGtGroups, 2000);
+      results.push(t.name + ':' + (String(res) === 'OK' ? '退出' : '失败'));
+      }
+      gtStatus.textContent = '退出完成：' + results.join(' | ');
+      setTimeout(loadGtGroups, 2000);
     };
     // 统一链接（获取/保存/删除——原版 linkunicoparagrupos）
     let savedGroupLinks = JSON.parse(localStorage.getItem('groupLinks') || '[]');
@@ -1739,10 +1780,13 @@
     }
     renderGroupLinks();
     if (gtGetLinkBtn) gtGetLinkBtn.onclick = async () => {
-      const gid = gtGroups.value;
-      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      const targets = selectedGidList();
+      if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在获取群链接…';
+      const results = [];
+      for (const t of targets) {
+        const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const I = window.require('WAWebGroupInviteAction');
@@ -1756,19 +1800,14 @@
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
       const txt = String(res || '');
-      if (txt.startsWith('OK:')) {
-        const code = txt.slice(3);
-        if (gtLinkBox) gtLinkBox.style.display = '';
-        if (gtLinkVal) gtLinkVal.textContent = 'https://chat.whatsapp.com/' + code;
-        window.__curGroupLink = 'https://chat.whatsapp.com/' + code;
-        gtStatus.textContent = '已获取群链接';
-      } else {
-        gtStatus.textContent = '获取失败：' + txt;
+      results.push(t.name + ':' + (txt.startsWith('OK:') ? 'OK' : '失败'));
+      if (txt.startsWith('OK:')) { window.__curGroupLink = 'https://chat.whatsapp.com/' + txt.slice(3); if (gtLinkVal) gtLinkVal.textContent = window.__curGroupLink; if (gtLinkBox) gtLinkBox.style.display = ''; }
       }
+      gtStatus.textContent = '获取链接：' + results.join(' | ');
     };
     if (gtSaveLinkBtn) gtSaveLinkBtn.onclick = () => {
       if (!window.__curGroupLink) return;
-      const name = gtGroups.options[gtGroups.selectedIndex]?.text || '群组';
+      const name = '群组';
       savedGroupLinks.push({ name, link: window.__curGroupLink });
       localStorage.setItem('groupLinks', JSON.stringify(savedGroupLinks));
       renderGroupLinks();
@@ -1802,8 +1841,8 @@
       inp.click();
     };
     if (gtEditSave) gtEditSave.onclick = async () => {
-      const gid = gtGroups.value;
-      if (!gid) { gtStatus.textContent = '请先选择群组'; return; }
+      const targets = selectedGidList();
+      if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       const subject = gtEditSubject.value.trim();
       const desc = gtEditDesc.value.trim();
       const restrict = gtEditRestrict.checked;
@@ -1814,6 +1853,9 @@
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在保存…';
       const picB64 = gtPicData ? gtPicData.split(',')[1] || '' : '';
+      const results = [];
+      for (const t of targets) {
+        const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const M = window.require('WAWebGroupModifyInfoJob');
@@ -1849,12 +1891,12 @@
           return 'OK:' + (out.join('、') || '无变化');
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
-      gtStatus.textContent = String(res).startsWith('OK') ? '已保存：' + String(res).slice(3) : '失败：' + String(res);
-      if (String(res).startsWith('OK')) {
-        gtEditSubject.value = ''; gtEditDesc.value = ''; gtEditMember.value = ''; gtPicData = null; gtPicName.textContent = '';
-        gtEditRestrict.checked = false; gtEditAdminedit.checked = false; gtEditMemadmin.checked = false;
-        setTimeout(loadGtGroups, 2000);
+      results.push(t.name + ':' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败'));
       }
+      gtStatus.textContent = '保存完成：' + results.join(' | ');
+      gtEditSubject.value = ''; gtEditDesc.value = ''; gtEditMember.value = ''; gtPicData = null; gtPicName.textContent = '';
+      gtEditRestrict.checked = false; gtEditAdminedit.checked = false; gtEditMemadmin.checked = false;
+      setTimeout(loadGtGroups, 2000);
     };
   }
   const bcMenuGrouplinks = document.getElementById('bc-menu-grouplinks');
