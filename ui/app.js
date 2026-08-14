@@ -2605,7 +2605,6 @@
       const res = await wv.executeJavaScript(`(async () => {
         try {
           const M = window.require('WAWebGroupModifyInfoJob');
-          const P = window.require('WAWebGroupsParticipantsApi');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
           const W = window.WAPLUS_WPP || window.WPP;
           const chats = await W.chat.list();
@@ -2629,16 +2628,23 @@
           if (${JSON.stringify(onlyAdminTalk)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'announcement', true); out.push('仅管理员发消息'); }
           if (${JSON.stringify(allTalk)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'announcement', false); out.push('全体成员发消息'); }
           if (${JSON.stringify(members)}.length) {
-            const F = window.require('WAWebWidFactory');
-            const wids = ${JSON.stringify(members)}.map(n => F.createWid(n.includes('@') ? n : n + '@c.us'));
-            await P.addParticipants(wid, wids).catch(()=>{});
-            if (${JSON.stringify(memadmin)}) await P.promoteParticipants(wid, wids).catch(()=>{});
-            out.push('成员');
+            const ids = ${JSON.stringify(members)}.map(n => n.includes('@') ? n : n.replace(/[^0-9]/g, '') + '@c.us').filter(n => n && !n.startsWith('@'));
+            const added = await W.group.addParticipants(${JSON.stringify(gid)}, ids);
+            const direct = [];
+            for (const id of ids) {
+              const row = added?.[id] || Object.values(added || {}).find(x => String(x?.wid) === id);
+              if (row?.code === 200) direct.push(id);
+              else if (row?.invite_code) out.push('需邀请:' + id.split('@')[0]);
+              else if (row?.code === 409) direct.push(id);
+              else out.push('成员失败:' + id.split('@')[0] + '(' + (row?.code ?? '无返回') + ')');
+            }
+            if (${JSON.stringify(memadmin)} && direct.length) { await W.group.promoteParticipants(${JSON.stringify(gid)}, direct); out.push('设管理员' + direct.length + '人'); }
+            else if (direct.length) out.push('添加成员' + direct.length + '人');
           }
           return 'OK:' + (out.join('、') || '无变化');
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
-      results.push(t.name + ':' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败'));
+      results.push(t.name + ':' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败:' + String(res).replace(/^ERR:/, '')));
       }
       gtStatus.textContent = '保存完成：' + results.join(' | ');
       gtEditSubject.value = ''; gtEditDesc.value = ''; gtEditMember.value = ''; gtPicData = null; gtPicName.textContent = '';
