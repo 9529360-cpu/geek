@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain, session, Notification, nativeTheme, webCont
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
+const XLSX = require('xlsx');
 const { initAutoUpdater } = require('./updater.cjs');
 
 // 固定 userData 目录：防止 package name 变化导致登录态数据目录漂移
@@ -799,22 +800,25 @@ function registerIpcHandlers() {
     const { dialog } = require('electron');
     const result = await dialog.showOpenDialog(mainWindow, {
       title: '选择要群发的文件',
-      properties: ['openFile'],
+      properties: ['openFile', 'multiSelections'],
       filters: [
         { name: '图片/文件', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip', 'mp4', 'mp3'] },
         { name: '所有文件', extensions: ['*'] }
       ]
     });
     if (result.canceled || !result.filePaths.length) return null;
-    const filePath = result.filePaths[0];
-    const data = await fs.readFile(filePath);
-    return {
-      name: path.basename(filePath),
-      size: data.length,
-      base64: data.toString('base64'),
-      mime: guessMime(filePath),
-      filePath: filePath // 真实路径（群发真实拖拽用）
-    };
+    const files = [];
+    for (const filePath of result.filePaths) {
+      const data = await fs.readFile(filePath);
+      files.push({
+        name: path.basename(filePath),
+        size: data.length,
+        base64: data.toString('base64'),
+        mime: guessMime(filePath),
+        filePath: filePath // 真实路径（群发真实拖拽用）
+      });
+    }
+    return files.length === 1 ? files[0] : files;
   });
 
   // 群发文件（WA 底层 API——HelloWorld 同款）：CDP 注入 File 对象到页面（不传 base64——大图不卡）
@@ -1134,12 +1138,19 @@ function registerIpcHandlers() {
       title: '选择联系人 CSV 文件',
       properties: ['openFile'],
       filters: [
-        { name: 'CSV 文件', extensions: ['csv', 'txt'] },
+        { name: '联系人表格', extensions: ['csv', 'txt', 'xlsx', 'xls'] },
         { name: '所有文件', extensions: ['*'] }
       ]
     });
     if (result.canceled || !result.filePaths.length) return null;
     const filePath = result.filePaths[0];
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.xlsx' || ext === '.xls') {
+      const workbook = XLSX.read(await fs.readFile(filePath), { type: 'buffer' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+      return { name: path.basename(filePath), rows };
+    }
     const content = await fs.readFile(filePath, 'utf-8');
     return { name: path.basename(filePath), content };
   });

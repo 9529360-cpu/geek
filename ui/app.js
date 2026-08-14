@@ -908,6 +908,7 @@
           const out = arr.map(c => ({
             id: String(c.id),
             name: (c.name || c.formattedTitle || String(c.id)).trim(),
+            realName: (!c.isGroup && c.contact ? (c.contact.pushname || c.contact.name || c.contact.shortName || '') : ''),
             type: c.isGroup ? '群组' : '联系人'
           })).filter(c => c.id.includes('@'));
           return JSON.stringify(out);
@@ -921,7 +922,7 @@
             try {
               const chat = W.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
               if (chat && chat.isGroup && chat.participants) {
-                extra.mentionedJidList = chat.participants.map(p => String(p.id));
+                extra.mentionedList = chat.participants.map(p => p.id);
               }
             } catch (e) { /* 拿不到成员则普通发送 */ }
           }
@@ -1056,7 +1057,7 @@
     bOverlay.classList.remove('hidden');
     renderSavedGroups();
     renderBroadcastList();
-    loadBroadcastChats();
+    loadBroadcastChats().then(() => armScheduleTasks());
   }
   // 附件：选择文件 + 列表（新界面用开关 change 触发——见下方群发绑定；此处移除避免重复弹窗）
   // CSV 导入联系人（每行：聊天名称或 ID，自动匹配勾选）
@@ -1284,8 +1285,30 @@
       } catch (e) { return 'ERR:' + e.message; }
     })()`;
   }
-  // 多消息定时任务（每条：时间 + 消息 + 群组预设）
-  let scheduleTasks = [];
+  // 多消息定时任务（持久化；重启/重开窗口后重新挂定时器）
+  let scheduleTasks = JSON.parse(localStorage.getItem('scheduleTasks') || '[]');
+  const scheduleTaskTimers = new Map();
+  function persistScheduleTasks() {
+    localStorage.setItem('scheduleTasks', JSON.stringify(scheduleTasks));
+  }
+  function armScheduleTasks() {
+    for (const [id, timer] of scheduleTaskTimers) clearTimeout(timer);
+    scheduleTaskTimers.clear();
+    for (const task of scheduleTasks) {
+      if (!task.id) task.id = 'sched-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      const delay = new Date(task.time || '').getTime() - Date.now();
+      if (!task.time || !task.message || delay <= 0) continue;
+      const timer = setTimeout(async () => {
+        scheduleTaskTimers.delete(task.id);
+        try { await fireScheduledTask(task); task.doneAt = Date.now(); }
+        catch (e) { task.lastError = e.message; }
+        persistScheduleTasks();
+        renderScheduleList();
+      }, delay);
+      scheduleTaskTimers.set(task.id, timer);
+    }
+    persistScheduleTasks();
+  }
   function renderScheduleList() {
     const el = document.getElementById('broadcast-schedule-list');
     if (!scheduleTasks.length) { el.innerHTML = ''; return; }
@@ -1299,14 +1322,15 @@
         </select>
         <button class="bc-btn bc-sched-del" data-i="${i}" title="删除">×</button>
       </div>`).join('');
-    el.querySelectorAll('.bc-sched-time').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].time = x.value; });
-    el.querySelectorAll('.bc-sched-msg').forEach(x => x.oninput = () => { scheduleTasks[+x.dataset.i].message = x.value; });
-    el.querySelectorAll('.bc-sched-group').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].groupId = x.value; });
-    el.querySelectorAll('.bc-sched-del').forEach(x => x.onclick = () => { scheduleTasks.splice(+x.dataset.i, 1); renderScheduleList(); });
+    el.querySelectorAll('.bc-sched-time').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].time = x.value; persistScheduleTasks(); armScheduleTasks(); });
+    el.querySelectorAll('.bc-sched-msg').forEach(x => x.oninput = () => { scheduleTasks[+x.dataset.i].message = x.value; persistScheduleTasks(); });
+    el.querySelectorAll('.bc-sched-group').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].groupId = x.value; persistScheduleTasks(); });
+    el.querySelectorAll('.bc-sched-del').forEach(x => x.onclick = () => { const t = scheduleTasks[+x.dataset.i]; if (t && scheduleTaskTimers.has(t.id)) clearTimeout(scheduleTaskTimers.get(t.id)); scheduleTasks.splice(+x.dataset.i, 1); persistScheduleTasks(); renderScheduleList(); });
   }
   const addSchedBtn = document.getElementById('broadcast-add-schedule');
   if (addSchedBtn) addSchedBtn.onclick = () => {
-    scheduleTasks.push({ time: '', message: '', groupId: '' });
+    scheduleTasks.push({ id: 'sched-' + Date.now(), time: '', message: '', groupId: '' });
+    persistScheduleTasks();
     renderScheduleList();
   };
   // 定时任务到点执行：加载群组预设 + 设置消息 + 发送
@@ -1321,6 +1345,17 @@
     bMessageEl.value = t.message;
     renderBroadcastList();
     await doSendBroadcast();
+  }
+  function expandBroadcastVariants(text) {
+    // 原版多版本语法：{版本A|版本B|版本C}，每个目标随机选一条
+    return String(text || '').replace(/\{([^{}|]+(?:\|[^{}|]+)+)\}/g, (_all, body) => {
+      const choices = body.split('|');
+      return choices[Math.floor(Math.random() * choices.length)].trim();
+    });
+  }
+  function broadcastGreeting() {
+    const h = new Date().getHours();
+    return h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好';
   }
   // 发送（入口：支持定时）
   let broadcastTimer = null;
@@ -1377,13 +1412,12 @@
   async function sendBroadcast() {
     window.__bcTrace = (window.__bcTrace || '') + 'sendBroadcast→';
     if (broadcastRunning) { broadcastStop = true; return; }
-    // 多消息定时：有定时任务 → 全部安排，到点自动执行
+    // 多消息定时：持久化任务由 armScheduleTasks 统一挂载，避免重复 setTimeout
     const pendingSched = scheduleTasks.filter(t => t.time && t.message && new Date(t.time).getTime() > Date.now());
     if (pendingSched.length) {
-      setProgress(0, `已安排 ${pendingSched.length} 条定时消息（${pendingSched.map(t => new Date(t.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })).join(' / ')}）自动发送`);
-      pendingSched.forEach(t => {
-        setTimeout(() => { fireScheduledTask(t); }, new Date(t.time).getTime() - Date.now());
-      });
+      persistScheduleTasks();
+      armScheduleTasks();
+      setProgress(0, `已持久化 ${pendingSched.length} 条定时消息（重启后仍会恢复）`);
       return;
     }
     // 单条定时发送：勾选了定时且时间在未来 → 安排到点自动开始
@@ -1417,7 +1451,45 @@
     const excl = window.__broadcastExcludeSet ? window.__broadcastExcludeSet() : new Set();
     if (excl.size) targets = targets.filter(t => !excl.has(t.id));
     const sendtoVal = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
-    if (sendtoVal === 'label') {
+    if (sendtoVal === 'group-members') {
+      const sel = document.getElementById('bc-group-members-select');
+      const groupIds = sel ? [...sel.selectedOptions].map(o => o.value) : [];
+      if (!groupIds.length) { alert('请先选择至少一个群组'); return; }
+      if (!(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) { alert('群成员私聊发送仅支持 WhatsApp'); return; }
+      try {
+        const res = await wv.executeJavaScript(`(async () => {
+          try {
+            const W = window.WAPLUS_WPP || window.WPP;
+            const UP = W.whatsapp.UserPrefs;
+            const mePn = UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : UP.getMeUser();
+            const meLid = UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null;
+            const mine = [mePn, meLid].filter(Boolean).map(x => String(x._serialized || x));
+            const seen = new Set();
+            const out = [];
+            for (const gid of ${JSON.stringify(groupIds)}) {
+              const parts = await W.group.getParticipants(gid);
+              for (const p of parts) {
+                let id = String(p.id && (p.id._serialized || p.id) || p);
+                if (mine.includes(id) || seen.has(id)) continue;
+                // LID 转 PN（若可用），私聊优先真实号码 JID
+                try {
+                  if (id.endsWith('@lid') && W.contact.getPnLidEntry) {
+                    const pair = await W.contact.getPnLidEntry(id);
+                    if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);
+                  }
+                } catch (e) {}
+                seen.add(id);
+                const c = await W.contact.get(id).catch(() => null);
+                out.push({ id, name: c ? (c.name || c.pushname || c.shortName || id) : id, realName: c ? (c.pushname || c.name || '') : '' });
+              }
+            }
+            return JSON.stringify(out);
+          } catch (e) { return 'ERR:' + e.message; }
+        })()`);
+        if (String(res).startsWith('ERR:')) { alert('读取群成员失败: ' + res); return; }
+        targets = JSON.parse(String(res));
+      } catch (e) { alert('读取群成员失败: ' + e.message); return; }
+    } else if (sendtoVal === 'label') {
       // 标签模式：选标签 → 该标签下所有联系人
       const labelId = document.getElementById('bc-label-select')?.value;
       if (!labelId) { alert('请先选择标签'); return; }
@@ -1442,8 +1514,28 @@
       targets = numbers.map(n => {
         const clean = n.replace(/\s+/g, '');
         const hit = broadcastChats.find(c => (c.name || '').includes(clean) || String(c.id).includes(clean));
-        return hit ? hit : { id: n, name: n, isNumber: true };
+        return hit ? hit : { id: clean, name: clean, isNumber: true };
       });
+      // WA 裸号码不能直接当 chatId：交给 WPP queryExists 核验并转换为规范 JID
+      if ((account.type === 'whatsapp' || account.type === 'whatsapp-pure') && targets.length) {
+        try {
+          const checked = await wv.executeJavaScript(`(async () => {
+            try {
+              const W = window.WAPLUS_WPP || window.WPP;
+              const out = [];
+              for (const n of ${JSON.stringify(targets.map(t => t.id))}) {
+                const raw = String(n).replace(/[^0-9@]/g, '');
+                const jid = raw.includes('@') ? raw : raw + '@c.us';
+                const c = await W.contact.queryExists(jid);
+                if (c) out.push({ id: String(c.wid || c.id || jid), name: String(c.pushname || c.name || jid), isNumber: true });
+              }
+              return JSON.stringify(out);
+            } catch (e) { return 'ERR:' + e.message; }
+          })()`);
+          if (String(checked).startsWith('ERR:')) { alert('号码核验失败: ' + checked); return; }
+          targets = JSON.parse(String(checked));
+        } catch (e) { alert('号码核验失败: ' + e.message); return; }
+      }
     }
     if (!targets.length) { alert('请先勾选要发送的聊天'); return; }
     const preview = targets.slice(0, 6).map(t => t.name).join('、') + (targets.length > 6 ? '…' : '');
@@ -1474,11 +1566,14 @@
       }
       if (broadcastStop) { setProgress(100, '已停止'); break; }
       const t = targets[i];
-      // %nc 变量替换为联系人姓名（对齐 HelloWorld）
-      // 多条话术随机发送：消息按行分割，每次随机选一句（对齐原版 Hello-GPT）
+      // 原版兼容：多行=随机选一条；行内 {A|B|C}=随机展开；变量 %nc/%nr/%sa
       const lines = message.split(/\n+/).map(s => s.trim()).filter(Boolean);
       const chosenMsg = lines.length > 1 ? lines[Math.floor(Math.random() * lines.length)] : message;
-      const personalMsg = chosenMsg.replace(/%nc/gi, t.name || '');
+      const expandedMsg = expandBroadcastVariants(chosenMsg);
+      let personalMsg = expandedMsg
+        .replace(/%nc/gi, t.name || '')
+        .replace(/%nr/gi, t.realName || t.name || '')
+        .replace(/%sa/gi, broadcastGreeting());
       broadcastCurrent = i + 1;
       // 消息预览（HelloWorld 风格：名称 + 消息）
       const pn = document.getElementById('bc-preview-name');
@@ -1494,19 +1589,30 @@
           if (adapter.sendDirect) {
             // WPP 直发模式（WA）
             if (broadcastFiles.length) {
-              // 文件+文字一起：主进程 CDP 注入 File 到页面 → prepRawMedia → sendMediaMsgToChat（HelloWorld 同款，大图不卡）
-              const file = broadcastFiles[0];
-              try {
-                const sf = await window.api.broadcast.sendFile({
-                  partition: account.partition,
-                  filePath: file.filePath,
-                  chatId: t.id,
-                  caption: personalMsg,
-                  mime: file.mime,
-                  name: file.name,
-                });
-                sentOk = String(sf || '');
-              } catch (e) { sentOk = 'ERR:' + e.message; }
+              // 多附件逐个发送；最后一个附件带主消息作为 caption（避免重复发同一段文字）
+              let mediaOk = true;
+              const mediaResults = [];
+              for (let fi = 0; fi < broadcastFiles.length; fi++) {
+                const file = broadcastFiles[fi];
+                const caption = fi === broadcastFiles.length - 1 ? personalMsg : '';
+                try {
+                  const sf = await window.api.broadcast.sendFile({
+                    partition: account.partition,
+                    filePath: file.filePath,
+                    chatId: t.id,
+                    caption,
+                    mime: file.mime,
+                    name: file.name,
+                  });
+                  const r = String(sf || '');
+                  mediaResults.push(`${file.name}:${r}`);
+                  if (!(r === 'SENT' || r === 'CLICKED')) mediaOk = false;
+                } catch (e) {
+                  mediaOk = false;
+                  mediaResults.push(`${file.name}:ERR:${e.message}`);
+                }
+              }
+              sentOk = mediaOk ? 'SENT' : 'ERR:' + mediaResults.join(' | ');
             } else {
               // 名片优先（选中的联系人名片发到聊天）
               const vcards = (window.__vcardContacts || []).length ? window.__vcardContacts : null;
@@ -1731,14 +1837,22 @@
   const bcSendtoRadios = document.querySelectorAll('input[name="bc-sendto"]');
   bcSendtoRadios.forEach(r => r.addEventListener('change', () => {
     const v = document.querySelector('input[name="bc-sendto"]:checked').value;
-    const map = { custom: 'bc-sendto-custom', paste: 'bc-sendto-paste', excel: 'bc-sendto-excel', label: 'bc-sendto-label' };
+    const map = { custom: 'bc-sendto-custom', paste: 'bc-sendto-paste', excel: 'bc-sendto-excel', 'group-members': 'bc-sendto-group-members', label: 'bc-sendto-label' };
     Object.keys(map).forEach(k => {
       const el = document.getElementById(map[k]);
       if (el) el.classList.toggle('hidden', k !== v);
     });
     if (v === 'label') loadLabels();
+    if (v === 'group-members') {
+      const sel = document.getElementById('bc-group-members-select');
+      if (sel) {
+        const groups = broadcastChats.filter(c => c.type === '群组');
+        sel.innerHTML = groups.map(g => `<option value="${g.id}">${escapeHtml(g.name || g.id)}</option>`).join('');
+      }
+    }
     if (v === 'all-contacts' || v === 'all-groups' || v === 'all') {
-      // 一键全选（联系人/群组/全部）
+      // 模式切换必须先清空，避免把上一个模式的选择混进来
+      broadcastSelected.clear();
       const q = bSearchEl.value.trim().toLowerCase();
       broadcastChats.filter(c => (v === 'all' || (v === 'all-contacts' && c.type === '联系人') || (v === 'all-groups' && c.type === '群组')) && (!q || (c.name || '').toLowerCase().includes(q))).forEach(c => broadcastSelected.add(c.id));
       renderBroadcastList();
@@ -1772,6 +1886,8 @@
     const el = document.getElementById('bc-paste-total');
     if (el) el.textContent = total;
   });
+  const insertSaBtn = document.getElementById('broadcast-insert-sa');
+  if (insertSaBtn) insertSaBtn.onclick = () => { bMessageEl.value += '%sa'; };
   const insertNrBtn = document.getElementById('broadcast-insert-nr');
   if (insertNrBtn) insertNrBtn.onclick = () => { bMessageEl.value += '%nr'; };
   const multiVerBtn = document.getElementById('bc-multiversion');
@@ -1782,15 +1898,22 @@
     try {
       const f = await window.api.file.pickCsv();
       if (!f) return;
-      const lines = (f.content || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      // 主进程对 XLS/XLSX 已解析为 rows；CSV/TXT 保留原始文本
+      const rows = Array.isArray(f.rows) ? f.rows.map(row => row.map(v => String(v ?? ''))) : null;
+      const lines = rows
+        ? rows.filter(row => row.some(v => v.trim())).map(row => row)
+        : (f.content || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(l => l.split(/[,;\t]/));
       let col = -1;
       if (lines.length) {
-        const header = lines[0].split(/[,;\t]/);
-        col = header.findIndex(h => /号码|电话|phone|number|whatsapp/i.test(h));
+        const header = lines[0];
+        col = header.findIndex(h => /号码|电话|phone|number|whatsapp|mobile/i.test(h));
         if (col === -1) col = 0;
-        lines.shift();
+        // 有表头才跳过；第一行看起来就是号码时保留
+        const firstValue = String(lines[0][col] || '').replace(/[\s+()-]/g, '');
+        if (lines.length > 1 && (col >= 0 && /号码|电话|phone|number|whatsapp|mobile|姓名|name/i.test(header.join(' ')))) lines.shift();
+        else if (lines.length > 1 && !/^\d{6,}$/.test(firstValue)) lines.shift();
       }
-      const numbers = lines.map(l => (l.split(/[,;\t]/)[col] || '').trim()).filter(Boolean);
+      const numbers = lines.map(row => String(row[col] ?? '').trim()).filter(Boolean);
       // 核验：WA 联系人集合存在 = 已注册（原版 verificacontatosaguarde 逻辑）
       window.__excelNumbers = numbers;
       const account = accounts.find(a => a.id === activeId);
