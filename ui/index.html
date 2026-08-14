@@ -556,6 +556,17 @@
               <button id="gt-links-join" class="bc-btn" style="background:var(--accent);color:#fff;border:none;margin-left:auto">🚀 加入</button>
             </div>
             <div id="gt-links-status" style="margin-top:8px;font-size:12.5px;color:var(--text-secondary)"></div>
+            <div style="margin-top:12px;border-top:1px solid var(--border-subtle);padding-top:10px">
+              <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:6px">获取选中群组的邀请链接（保存到统一链接列表）：</div>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+                <button id="gt-getlink" class="bc-btn bc-btn--small" style="background:var(--bg-elevated);border:1px solid var(--border-standard)">🔗 获取链接</button>
+                <button id="gt-save-link" class="bc-btn bc-btn--small" style="background:var(--bg-elevated);border:1px solid var(--border-standard)">💾 保存到统一链接</button>
+              </div>
+              <div id="gt-link-box" style="display:none;background:var(--bg-elevated);border:1px solid var(--border-standard);border-radius:6px;padding:6px 8px;margin-bottom:6px">
+                <div id="gt-link-val" style="font-size:12px;color:var(--accent);word-break:break-all"></div>
+              </div>
+              <div id="gt-links-list" style="max-height:90px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 8px"></div>
+            </div>
           </div>
         </div>
         <!-- 克隆 -->
@@ -567,7 +578,7 @@
               <input id="gt-clone-count" type="number" min="1" max="10" value="1" style="width:64px;padding:4px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-surface);color:var(--text-primary)">
               <button id="gt-clone" class="bc-btn" style="background:var(--accent);color:#fff;border:none">📋 开始克隆</button>
             </div>
-            <div style="margin-top:8px;font-size:11.5px;color:var(--text-tertiary)">注：当前旧版 WhatsApp 页面的建群 API 不兼容（原版走 WAP 协议封装），此功能标记待修。</div>
+            <div style="margin-top:8px;font-size:11.5px;color:var(--text-tertiary)">克隆 = 复制群名称/简介创建新群（成员仅自己）。</div>
           </div>
         </div>
         <!-- 编辑 -->

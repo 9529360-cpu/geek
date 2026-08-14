@@ -6,10 +6,23 @@
   // 指令：/kick /promote /demote /groupinfo /tagall（回复消息+指令，管理员可用）
   // 配置存 webview 域 localStorage（键 __gtAutoCfg），UI 保存时同步写入
   const GT_AGENT_SOURCE = `(() => {
-  if (window.__gtAgentInstalled) return 'ALREADY';
+  var GT_VERSION = 5;
+  if (window.__gtAgentInstalled && window.__gtAgentVersion === GT_VERSION) return 'ALREADY';
   var W = window.WAPLUS_WPP || window.WPP;
   if (!W || typeof W.on !== 'function' || !W.chat || !W.group) { window.__gtAgentInstalled = false; return 'NO_WPP'; }
+  // 新版本脚本：先卸载旧版本监听（开发/升级场景避免残留）
+  if (window.__gtUninstall) { try { window.__gtUninstall(); } catch (e) {} }
   window.__gtAgentInstalled = true;
+  window.__gtAgentVersion = GT_VERSION;
+  window.__gtLog = [];
+  var handlers = [];
+  function on(ev, fn) { try { W.on(ev, fn); handlers.push([ev, fn]); } catch (e) {} }
+  window.__gtUninstall = function () {
+    for (var i = 0; i < handlers.length; i++) { try { W.off(handlers[i][0], handlers[i][1]); } catch (e) {} }
+    handlers = [];
+    window.__gtAgentInstalled = false;
+    window.__gtAgentVersion = 0;
+  };
   var CFG_KEY = '__gtAutoCfg';
   function gtCfg() {
     try { var c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); return c && typeof c === 'object' ? c : {}; } catch (e) { return {}; }
@@ -19,7 +32,8 @@
   };
   function meId() {
     try {
-      var me = W.whatsapp && W.whatsapp.UserPrefs && W.whatsapp.UserPrefs.getMe && W.whatsapp.UserPrefs.getMe();
+      var UP = W.whatsapp && W.whatsapp.UserPrefs;
+      var me = UP && (UP.getMe ? UP.getMe() : (UP.getMeUser ? UP.getMeUser() : (UP.getMaybeMeUser ? UP.getMaybeMeUser() : (UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : (UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null)))));
       if (!me) return null;
       var id = me.id || me;
       return String(id._serialized || id);
@@ -51,7 +65,7 @@
     return W.chat.sendTextMessage(chatId, text).catch(function () {});
   }
   // 1) 自动删群：被移出（remove）/ 退出（leaver）
-  W.on('group.participant_changed', function (ev) {
+  on('group.participant_changed', function (ev) {
     try {
       var cfg = gtCfg();
       if (!cfg.delRemoved && !cfg.delLeft) return;
@@ -63,18 +77,33 @@
       else if (ev.action === 'leaver' && cfg.delLeft) { W.chat.delete(ev.groupId).catch(function () {}); }
     } catch (e) {}
   });
-  // 2) 新消息：自动加群 + 指令
-  W.on('chat.new_message', function (msg) {
+  // 2) 新消息：自动删群(gp2) + 自动加群 + 指令
+  on('chat.new_message', function (msg) {
     (async function () {
       try {
         var cfg = gtCfg();
         var body = String(msg.body || msg.__x_body || '');
-        if (!body) return;
         var chatId = chatOf(msg);
+        window.__gtLog.push('MSG type=' + msg.type + ' chat=' + chatId + ' body=' + body.slice(0, 30) + ' joinLinks=' + !!cfg.joinLinks);
+        // 群成员变更通知（gp2）——被移出(remove)/退出(leave)自动删群
+        // （group.participant_changed 事件在旧版页面不触发，用 gp2 兜底）
+        if (msg.type === 'gp2' && (cfg.delRemoved || cfg.delLeft)) {
+          var me2 = meId();
+          var sub = msg.subtype || msg.__x_subtype || '';
+          var recips = (msg.recipients || msg.__x_recipients || []).map(function (r) { return String(r && (r._serialized || r)); });
+          var involved2 = me2 && recips.some(function (r) { return sameUser(r, me2); });
+          if (involved2) {
+            if (sub === 'remove' && cfg.delRemoved) { W.chat.delete(chatId).catch(function () {}); }
+            else if (sub === 'leave' && cfg.delLeft) { W.chat.delete(chatId).catch(function () {}); }
+          }
+          return;
+        }
+        if (!body) return;
         // 自动加入群组链接（任意聊天出现链接即加入）
         if (cfg.joinLinks) {
           var m = body.match(/chat\\.whatsapp\\.com\\/([A-Za-z0-9_-]{15,})/);
-          if (m) { try { await W.group.join(m[1]); } catch (e) {} }
+          window.__gtLog.push('JOINCHECK matched=' + (m ? m[1] : 'null'));
+          if (m) { try { await W.group.join(m[1]); window.__gtLog.push('JOINED ' + m[1]); } catch (e) { window.__gtLog.push('JOINERR ' + e.message); } }
         }
         // 指令：只处理群聊消息
         if (chatId.indexOf('@g.us') === -1) return;
@@ -130,6 +159,13 @@
   });
   return 'OK';
 })()`;
+  // 运维/调试：暴露脚本源，允许外部强制重注入（页面未重载时代码升级后使用）
+  window.__GT_AGENT_SOURCE = GT_AGENT_SOURCE;
+  window.__gtReinjectAll = function () {
+    document.querySelectorAll('webview').forEach((wv) => {
+      try { if (wv.getURL().includes('1843')) injectGtAgent(wv, accounts.find(a => wvMap.get(a.id) === wv)); } catch (e) {}
+    });
+  };
 
   // ---------- DOM ----------
   const accountsEl = document.getElementById('nav-accounts');
@@ -1762,7 +1798,7 @@
   if (bcMenuGrouptools) bcMenuGrouptools.onclick = () => openJoinTools('群组工具');
   // ---------- 群组工具（克隆/解散/退出——真实 WA API） ----------
   const gtOverlay = document.getElementById('gt-overlay');
-  const gtGroups = document.getElementById('gt-groups');
+  const gtGroups = document.getElementById('gt-group-list');
   const gtStatus = document.getElementById('gt-status');
   const gtCloneBtn = document.getElementById('gt-clone');
   const gtCloneCount = document.getElementById('gt-clone-count');
@@ -1861,8 +1897,9 @@
           const name = src && src.__x_subject ? src.__x_subject : '克隆群组';
           const desc = src && src.__x_desc ? src.__x_desc : '';
           // 成员 = 自己（原版克隆=复制资料建新群，不含原群成员）
-          const me = W.whatsapp && W.whatsapp.UserPrefs && W.whatsapp.UserPrefs.getMe();
-          const meWid = me && me.id ? (me.id._serialized || me.id) : null;
+          const UP = W.whatsapp && W.whatsapp.UserPrefs;
+          const me = UP && (UP.getMe ? UP.getMe() : (UP.getMeUser ? UP.getMeUser() : (UP.getMaybeMeUser ? UP.getMaybeMeUser() : (UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : (UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null)))));
+          const meWid = me ? String(me._serialized || (me.id && (me.id._serialized || me.id)) || me) : null;
           if (!meWid) return 'ERR:no-me';
           const out = [];
           for (let i = 1; i <= ${count}; i++) {
@@ -1895,16 +1932,22 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const P = window.require('WAWebGroupsParticipantsApi');
-          const Exit = window.require('WAWebGroupExitJob');
-          const Meta = window.require('WAWebGroupMetadataCollection');
-          const chat = window.WAPLUS_WPP.whatsapp.ChatStore.get(${JSON.stringify(gid)});
-          const gid = ${JSON.stringify(gid)};
-          if (chat && chat.participants) {
-            const ids = chat.participants.map(p => String(p.id));
-            await P.removeParticipants(gid, ids).catch(() => {});
+          const W = window.WAPLUS_WPP || window.WPP;
+          // 先移除全部成员（Wid 实例数组——WAWebGroupModifyParticipantsJob）
+          const chat = W.whatsapp.ChatStore.get(${JSON.stringify(gid)});
+          if (chat && chat.participants && chat.participants.length) {
+            try {
+              const Mod = window.require('WAWebGroupModifyParticipantsJob');
+              const wids = chat.participants.map(p => p.id).filter(Boolean);
+              await Mod.removeGroupParticipants(chat.id, wids).catch(() => {});
+            } catch (e) {}
           }
-          await Exit.leaveGroup(gid).catch(() => {});
+          // 退出群组：WAP stanza（WAWebGroupExitJob.leaveGroup 在旧版页面假成功）
+          const ws = W.whatsapp.websocket;
+          const N = ws.WapNode;
+          const node = new N('action', { type: 'exit', t: String(Date.now()), add: 'true', id: ws.generateId() }, [ new N('group', { jid: ${JSON.stringify(gid)} }) ]);
+          const p = ws.sendSmaxStanza(node).catch(() => {});
+          await Promise.race([p, new Promise(r => setTimeout(r, 3000))]);
           return 'OK';
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
@@ -1925,8 +1968,13 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const Exit = window.require('WAWebGroupExitJob');
-          await Exit.leaveGroup(${JSON.stringify(gid)});
+          const W = window.WAPLUS_WPP || window.WPP;
+          // WAP stanza 退出（WAWebGroupExitJob.leaveGroup 在旧版页面假成功）
+          const ws = W.whatsapp.websocket;
+          const N = ws.WapNode;
+          const node = new N('action', { type: 'exit', t: String(Date.now()), add: 'true', id: ws.generateId() }, [ new N('group', { jid: ${JSON.stringify(gid)} }) ]);
+          const p = ws.sendSmaxStanza(node).catch(() => {});
+          await Promise.race([p, new Promise(r => setTimeout(r, 3000))]);
           return 'OK';
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
@@ -1975,13 +2023,13 @@
       })()`);
       const txt = String(res || '');
       results.push(t.name + ':' + (txt.startsWith('OK:') ? 'OK' : '失败'));
-      if (txt.startsWith('OK:')) { window.__curGroupLink = 'https://chat.whatsapp.com/' + txt.slice(3); if (gtLinkVal) gtLinkVal.textContent = window.__curGroupLink; if (gtLinkBox) gtLinkBox.style.display = ''; }
+      if (txt.startsWith('OK:')) { window.__curGroupLink = 'https://chat.whatsapp.com/' + txt.slice(3); window.__curGroupName = t.name; if (gtLinkVal) gtLinkVal.textContent = window.__curGroupLink; if (gtLinkBox) gtLinkBox.style.display = ''; }
       }
       gtStatus.textContent = '获取链接：' + results.join(' | ');
     };
     if (gtSaveLinkBtn) gtSaveLinkBtn.onclick = () => {
-      if (!window.__curGroupLink) return;
-      const name = '群组';
+      if (!window.__curGroupLink) { gtStatus.textContent = '请先获取链接'; return; }
+      const name = window.__curGroupName || '群组';
       savedGroupLinks.push({ name, link: window.__curGroupLink });
       localStorage.setItem('groupLinks', JSON.stringify(savedGroupLinks));
       renderGroupLinks();
