@@ -6,7 +6,7 @@
   // 指令：/kick /promote /demote /groupinfo /tagall（回复消息+指令，管理员可用）
   // 配置存 webview 域 localStorage（键 __gtAutoCfg），UI 保存时同步写入
   const GT_AGENT_SOURCE = `(() => {
-  var GT_VERSION = 8;
+  var GT_VERSION = 9;
   if (window.__gtAgentInstalled && window.__gtAgentVersion === GT_VERSION) return 'ALREADY';
   var W = window.WAPLUS_WPP || window.WPP;
   if (!W || typeof W.on !== 'function' || !W.chat || !W.group) { window.__gtAgentInstalled = false; return 'NO_WPP'; }
@@ -14,7 +14,6 @@
   if (window.__gtUninstall) { try { window.__gtUninstall(); } catch (e) {} }
   window.__gtAgentInstalled = true;
   window.__gtAgentVersion = GT_VERSION;
-  window.__gtLog = [];
   var handlers = [];
   function on(ev, fn) { try { W.on(ev, fn); handlers.push([ev, fn]); } catch (e) {} }
   window.__gtUninstall = function () {
@@ -99,7 +98,6 @@
         var cfg = gtCfg();
         var body = String(msg.body || msg.__x_body || '');
         var chatId = chatOf(msg);
-        window.__gtLog.push('MSG type=' + msg.type + ' chat=' + chatId + ' body=' + body.slice(0, 30) + ' joinLinks=' + !!cfg.joinLinks);
         // 群成员变更通知（gp2）——被移出(remove)/退出(leave)自动删群
         // （group.participant_changed 事件在旧版页面不触发，用 gp2 兜底）
         if (msg.type === 'gp2' && (cfg.delRemoved || cfg.delLeft)) {
@@ -117,8 +115,7 @@
         // 自动加入群组链接（任意聊天出现链接即加入）
         if (cfg.joinLinks) {
           var m = body.match(/chat\\.whatsapp\\.com\\/([A-Za-z0-9_-]{15,})/);
-          window.__gtLog.push('JOINCHECK matched=' + (m ? m[1] : 'null'));
-          if (m) { try { await W.group.join(m[1]); window.__gtLog.push('JOINED ' + m[1]); } catch (e) { window.__gtLog.push('JOINERR ' + e.message); } }
+          if (m) { try { await W.group.join(m[1]); } catch (e) {} }
         }
         // 指令：只处理群聊消息（对齐原版：指令名可自定义，默认 ban/adm/deadm/infog/tagall）
         if (chatId.indexOf('@g.us') === -1) return;
@@ -128,7 +125,6 @@
         var cc = cmdCfg();
         function isCmd(name) { return first === name || first === '/' + name; }
         if (!isCmd(cc.cmdban) && !isCmd(cc.cmdadm) && !isCmd(cc.cmddeadm) && !isCmd(cc.cmdinfo) && !isCmd(cc.cmdtagall)) return;
-        window.__gtLog.push('CMD first=' + first + ' cc.info=' + cc.cmdinfo + ' isInfo=' + isCmd(cc.cmdinfo) + ' cc.ban=' + cc.cmdban);
         // 权限：自己发的直接执行；别人发的需 permitiradmins 且为群管理员
         var sender = senderOf(msg);
         var me3 = meId();
@@ -168,19 +164,16 @@
           try {
             var meta = await W.whatsapp.GroupMetadataStore.find(chatId);
             var gmd = meta && meta.groupMetadata ? meta.groupMetadata : null;
-            window.__gtLog.push('INFO gmd=' + (gmd ? 'yes' : 'null-model') + ' stale=' + (meta && meta.__x_stale));
             if (gmd) {
               var info = 'Subject: *' + (gmd.__x_subject || '') + '*\\n\\nDescription: ' + (gmd.__x_desc || '') + '\\n\\nPeople in group: *' + (gmd.__x_size || 0) + '*\\n\\nDate of creation: *' + new Date(1000 * (gmd.__x_creation || 0)).toLocaleString() + '*';
               await sendReply(chatId, info);
-              window.__gtLog.push('INFO sent');
             } else {
               // meta 本身就是 model
               var g2 = meta;
               var info2 = 'Subject: *' + (g2.__x_subject || '') + '*\\n\\nDescription: ' + (g2.__x_desc || '') + '\\n\\nPeople in group: *' + (g2.__x_size || 0) + '*\\n\\nDate of creation: *' + new Date(1000 * (g2.__x_creation || 0)).toLocaleString() + '*';
               await sendReply(chatId, info2);
-              window.__gtLog.push('INFO sent2 subject=' + g2.__x_subject);
             }
-          } catch (e) { window.__gtLog.push('INFO err ' + e.message); await sendReply(chatId, 'infog 失败：' + e.message); }
+          } catch (e) { await sendReply(chatId, 'infog 失败：' + e.message); }
         }
         // tagall：@全体成员（只有自己触发；原版隐藏字符技巧）
         else if (isCmd(cc.cmdtagall) && fromMe) {
@@ -1978,6 +1971,41 @@
       results.push(t.name + ':' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败:' + String(res)));
       }
       gtStatus.textContent = '克隆完成：' + results.join(' | ');
+      setTimeout(loadGtGroups, 2000);
+    };
+    // 链接克隆（原版方式：粘贴群链接 → 查群信息 → 建同名群 → 复制简介）
+    const gtCloneLinkBtn = document.getElementById('gt-clone-link-btn');
+    if (gtCloneLinkBtn) gtCloneLinkBtn.onclick = async () => {
+      const link = (document.getElementById('gt-clone-link') || {}).value || '';
+      const code = link.split('chat.whatsapp.com/')[1] || link.trim();
+      if (!code) { gtStatus.textContent = '请粘贴群组链接'; return; }
+      const count = parseInt(gtCloneCount.value) || 1;
+      const wv = wvMap.get(activeId);
+      gtStatus.textContent = '正在链接克隆…';
+      const res = await wv.executeJavaScript(`(async () => {
+        try {
+          const W = window.WAPLUS_WPP || window.WPP;
+          const info = await W.group.getGroupInfoFromInviteCode(${JSON.stringify(code)});
+          const name = (info && info.subject) ? info.subject : '克隆群组';
+          const desc = (info && info.desc) ? info.desc : '';
+          const UP = W.whatsapp && W.whatsapp.UserPrefs;
+          const me = UP.getMeUser();
+          const meWid = String(me._serialized || me);
+          const M = window.require('WAWebGroupModifyInfoJob');
+          const out = [];
+          for (let i = 1; i <= ${count}; i++) {
+            const n = ${count} > 1 ? name + ' #' + i : name;
+            const r = await W.group.create(n, [meWid], undefined);
+            const gid2 = String(r.gid._serialized || r.gid);
+            if (desc && gid2) {
+              try { await M.setGroupDescription(gid2, desc, String(Date.now()), void 0); } catch (e) {}
+            }
+            out.push(n + '(' + gid2.split('@')[0] + ')');
+          }
+          return 'OK:' + out.join(' / ');
+        } catch (e) { return 'ERR:' + e.message; }
+      })()`);
+      gtStatus.textContent = '链接克隆：' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败:' + String(res));
       setTimeout(loadGtGroups, 2000);
     };
     // 解散群组（移除全部成员 + 退出）
