@@ -1382,7 +1382,36 @@
     } catch (e) { if (excelMeta) excelMeta.textContent = '导入失败: ' + e.message; }
   };
 
-  document.getElementById('btn-broadcast').onclick = openBroadcast;
+  document.getElementById('btn-broadcast').onclick = (e) => {
+    e.stopPropagation();
+    const menu = document.getElementById('broadcast-menu');
+    if (!menu) { openBroadcast(); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    menu.style.top = (rect.bottom + 4) + 'px';
+    menu.style.left = Math.max(4, rect.left) + 'px';
+    menu.classList.toggle('hidden');
+  };
+  const bcMenuSend = document.getElementById('bc-menu-send');
+  if (bcMenuSend) bcMenuSend.onclick = () => {
+    document.getElementById('broadcast-menu')?.classList.add('hidden');
+    openBroadcast();
+  };
+  const bcMenuJoin = document.getElementById('bc-menu-join');
+  if (bcMenuJoin) bcMenuJoin.onclick = () => {
+    document.getElementById('broadcast-menu')?.classList.add('hidden');
+    const joinOv = document.getElementById('join-overlay');
+    if (joinOv) {
+      joinOv.classList.remove('hidden');
+      const jl = document.getElementById('join-links');
+      if (jl) jl.value = '';
+    }
+  };
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('broadcast-menu');
+    if (menu && !menu.classList.contains('hidden') && !menu.contains(e.target) && e.target.id !== 'btn-broadcast') {
+      menu.classList.add('hidden');
+    }
+  });
   document.getElementById('broadcast-close').onclick = closeBroadcast;
   document.getElementById('broadcast-cancel').onclick = closeBroadcast;
   document.getElementById('broadcast-send').onclick = sendBroadcast;

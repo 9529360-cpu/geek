@@ -79,6 +79,17 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.5l7.8 9M8.1 16.5l7.8-9"/></svg>
             <span>群发</span>
           </button>
+          <!-- 群发菜单（HelloWorld 插件入口风格：群发信息 / 群组管理） -->
+          <div id="broadcast-menu" class="bc-menu hidden">
+            <button type="button" id="bc-menu-send" class="bc-menu-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span>群发信息</span>
+            </button>
+            <button type="button" id="bc-menu-join" class="bc-menu-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>群组管理</span>
+            </button>
+          </div>
         </div>
         <div class="win-controls">
           <button class="win-btn" id="btn-win-min" title="最小化">─</button>

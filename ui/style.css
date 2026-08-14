@@ -2201,3 +2201,8 @@ select:focus option:checked {
 .bc-vcard-title { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .bc-vcard-item { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 2px 0; color: var(--text-primary); cursor: pointer; }
 .bc-vcard-item input { accent-color: var(--accent); }
+/* 顶部群发菜单（HelloWorld 插件入口风格） */
+.bc-menu { position: fixed; z-index: 9999; min-width: 150px; background: var(--bg-surface); border: 1px solid var(--border-standard); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.18); padding: 4px; display: flex; flex-direction: column; }
+.bc-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; font-size: 13px; border: none; background: none; color: var(--text-primary); border-radius: 6px; cursor: pointer; text-align: left; }
+.bc-menu-item:hover { background: var(--bg-elevated); }
+.bc-menu-item svg { color: var(--accent); flex-shrink: 0; }
