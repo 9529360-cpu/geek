@@ -6,7 +6,7 @@
   // 指令：/kick /promote /demote /groupinfo /tagall（回复消息+指令，管理员可用）
   // 配置存 webview 域 localStorage（键 __gtAutoCfg），UI 保存时同步写入
   const GT_AGENT_SOURCE = `(() => {
-  var GT_VERSION = 5;
+  var GT_VERSION = 8;
   if (window.__gtAgentInstalled && window.__gtAgentVersion === GT_VERSION) return 'ALREADY';
   var W = window.WAPLUS_WPP || window.WPP;
   if (!W || typeof W.on !== 'function' || !W.chat || !W.group) { window.__gtAgentInstalled = false; return 'NO_WPP'; }
@@ -33,7 +33,8 @@
   function meId() {
     try {
       var UP = W.whatsapp && W.whatsapp.UserPrefs;
-      var me = UP && (UP.getMe ? UP.getMe() : (UP.getMeUser ? UP.getMeUser() : (UP.getMaybeMeUser ? UP.getMaybeMeUser() : (UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : (UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null)))));
+      // 消息 sender 是 lid 格式——优先取 lid（原版用 mEandMeLid 比较）
+      var me = UP && (UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : (UP.getMeLidUserOrThrow ? UP.getMeLidUserOrThrow() : (UP.getMeUser ? UP.getMeUser() : null)));
       if (!me) return null;
       var id = me.id || me;
       return String(id._serialized || id);
@@ -63,6 +64,20 @@
   }
   function sendReply(chatId, text) {
     return W.chat.sendTextMessage(chatId, text).catch(function () {});
+  }
+  // 指令配置（原版 localStorage 键：指令名可自定义，默认 ban/adm/deadm/infog/tagall）
+  function cmdCfg() {
+    var c = {};
+    try {
+      c.cmdban = localStorage.getItem('comandoban') || 'ban';
+      c.cmdadm = localStorage.getItem('comandoadm') || 'adm';
+      c.cmddeadm = localStorage.getItem('comandodeadm') || 'deadm';
+      c.cmdinfo = localStorage.getItem('comandoinfo') || 'infog';
+      c.cmdtagall = localStorage.getItem('comandotagall') || 'tagall';
+      c.permitiradmins = localStorage.getItem('permitiradmins') !== 'false';
+      c.apagarcomando = localStorage.getItem('apagarcomando') === 'true';
+    } catch (e) {}
+    return c;
   }
   // 1) 自动删群：被移出（remove）/ 退出（leaver）
   on('group.participant_changed', function (ev) {
@@ -105,19 +120,24 @@
           window.__gtLog.push('JOINCHECK matched=' + (m ? m[1] : 'null'));
           if (m) { try { await W.group.join(m[1]); window.__gtLog.push('JOINED ' + m[1]); } catch (e) { window.__gtLog.push('JOINERR ' + e.message); } }
         }
-        // 指令：只处理群聊消息
+        // 指令：只处理群聊消息（对齐原版：指令名可自定义，默认 ban/adm/deadm/infog/tagall）
         if (chatId.indexOf('@g.us') === -1) return;
         var t = body.trim();
-        if (t.charAt(0) !== '/') return;
         var sp = t.split(/\\s+/);
-        var cmd = (sp[0] || '').toLowerCase();
-        var arg = sp.slice(1).join(' ');
-        if (['/kick', '/promote', '/demote', '/groupinfo', '/tagall'].indexOf(cmd) === -1) return;
-        // adminonly：触发者必须是群管理员
-        if (cfg.adminOnly !== false) {
-          var admin = await isAdminOf(chatId, senderOf(msg));
-          if (!admin) return;
+        var first = (sp[0] || '').toLowerCase();
+        var cc = cmdCfg();
+        function isCmd(name) { return first === name || first === '/' + name; }
+        if (!isCmd(cc.cmdban) && !isCmd(cc.cmdadm) && !isCmd(cc.cmddeadm) && !isCmd(cc.cmdinfo) && !isCmd(cc.cmdtagall)) return;
+        window.__gtLog.push('CMD first=' + first + ' cc.info=' + cc.cmdinfo + ' isInfo=' + isCmd(cc.cmdinfo) + ' cc.ban=' + cc.cmdban);
+        // 权限：自己发的直接执行；别人发的需 permitiradmins 且为群管理员
+        var sender = senderOf(msg);
+        var me3 = meId();
+        var fromMe = me3 && sameUser(sender, me3);
+        var allowed = !!fromMe;
+        if (!allowed && cc.permitiradmins !== false) {
+          allowed = await isAdminOf(chatId, sender);
         }
+        if (!allowed) return;
         // 被回复的消息 → 操作目标
         var targetWid = null;
         try {
@@ -125,33 +145,63 @@
           if (!q && msg.quotedMsgId) { q = await W.chat.getMessageById(msg.quotedMsgId); }
           if (q) targetWid = senderOf(q);
         } catch (e) {}
-        if (cmd === '/groupinfo') {
+        // ban/adm/deadm：引用消息踢/提升/降级，或 @参数（可多个）
+        if (isCmd(cc.cmdban) || isCmd(cc.cmdadm) || isCmd(cc.cmddeadm)) {
+          var targets = [];
+          if (targetWid) targets.push(targetWid);
+          for (var i = 1; i < sp.length; i++) {
+            var tok = sp[i];
+            if (tok.charAt(0) === '@') targets.push(tok.replace('@', '') + '@c.us');
+          }
+          if (targets.length) {
+            for (var j = 0; j < targets.length; j++) {
+              try {
+                if (isCmd(cc.cmdban)) await W.group.removeParticipants(chatId, targets[j]);
+                else if (isCmd(cc.cmdadm)) await W.group.promoteParticipants(chatId, targets[j]);
+                else if (isCmd(cc.cmddeadm)) await W.group.demoteParticipants(chatId, targets[j]);
+              } catch (e) {}
+            }
+          }
+        }
+        // infog：群信息（只有自己触发）
+        else if (isCmd(cc.cmdinfo) && fromMe) {
           try {
-            var code = await W.group.getInviteCode(chatId);
-            await sendReply(chatId, '群组链接：https://chat.whatsapp.com/' + code);
-          } catch (e) { await sendReply(chatId, '/groupinfo 获取失败：' + e.message); }
-        } else if (cmd === '/tagall') {
+            var meta = await W.whatsapp.GroupMetadataStore.find(chatId);
+            var gmd = meta && meta.groupMetadata ? meta.groupMetadata : null;
+            window.__gtLog.push('INFO gmd=' + (gmd ? 'yes' : 'null-model') + ' stale=' + (meta && meta.__x_stale));
+            if (gmd) {
+              var info = 'Subject: *' + (gmd.__x_subject || '') + '*\\n\\nDescription: ' + (gmd.__x_desc || '') + '\\n\\nPeople in group: *' + (gmd.__x_size || 0) + '*\\n\\nDate of creation: *' + new Date(1000 * (gmd.__x_creation || 0)).toLocaleString() + '*';
+              await sendReply(chatId, info);
+              window.__gtLog.push('INFO sent');
+            } else {
+              // meta 本身就是 model
+              var g2 = meta;
+              var info2 = 'Subject: *' + (g2.__x_subject || '') + '*\\n\\nDescription: ' + (g2.__x_desc || '') + '\\n\\nPeople in group: *' + (g2.__x_size || 0) + '*\\n\\nDate of creation: *' + new Date(1000 * (g2.__x_creation || 0)).toLocaleString() + '*';
+              await sendReply(chatId, info2);
+              window.__gtLog.push('INFO sent2 subject=' + g2.__x_subject);
+            }
+          } catch (e) { window.__gtLog.push('INFO err ' + e.message); await sendReply(chatId, 'infog 失败：' + e.message); }
+        }
+        // tagall：@全体成员（只有自己触发；原版隐藏字符技巧）
+        else if (isCmd(cc.cmdtagall) && fromMe) {
           try {
             var parts = await W.group.getParticipants(chatId);
             var ids = [], names = [];
-            for (var i = 0; i < parts.length; i++) {
-              ids.push(widStr(parts[i].id));
-              names.push(parts[i].shortName || parts[i].name || widStr(parts[i].id).split('@')[0]);
+            for (var k = 0; k < parts.length; k++) {
+              var pid = widStr(parts[k].id);
+              if (!sameUser(pid, me3)) {
+                ids.push(pid);
+                names.push('@' + pid.split('@')[0]);
+              }
             }
-            var text = (arg || '@全体成员') + '\\n' + names.map(function (n) { return '@' + n; }).join(' ');
+            var tagText = sp.slice(1).join(' ');
+            var hide = String.fromCharCode(8206).repeat(4001);
+            var text = (tagText || '@全体成员') + '\\n' + hide + '\\n\\n' + names.join(' ');
             await W.chat.sendTextMessage(chatId, text, { mentionedList: ids });
-          } catch (e) { await sendReply(chatId, '/tagall 失败：' + e.message); }
-        } else {
-          if (!targetWid) { await sendReply(chatId, cmd + ' 请回复目标用户的消息'); return; }
-          try {
-            if (cmd === '/kick') await W.group.removeParticipants(chatId, targetWid);
-            else if (cmd === '/promote') await W.group.promoteParticipants(chatId, targetWid);
-            else if (cmd === '/demote') await W.group.demoteParticipants(chatId, targetWid);
-            await sendReply(chatId, cmd + ' 已执行');
-          } catch (e) { await sendReply(chatId, cmd + ' 执行失败：' + e.message); }
+          } catch (e) { await sendReply(chatId, 'tagall 失败：' + e.message); }
         }
-        // 删除指令消息（管理员可撤回）
-        if (cfg.delMsg) {
+        // 删除指令消息（apagarcomando——管理员可撤回）
+        if (cc.apagarcomando) {
           try { await W.chat.deleteMessage(chatId, msg.id, false, true); } catch (e) {}
         }
       } catch (e) {}
@@ -496,9 +546,19 @@
     const auto = JSON.parse(localStorage.getItem('gtAutoCfg') || '{}');
     const cmd = JSON.parse(localStorage.getItem('gtCmdCfg') || '{}');
     const cfg = Object.assign({}, auto, cmd);
+    const cmdNames = JSON.parse(localStorage.getItem('gtCmdNames') || '{}');
     wv.executeJavaScript(`(() => {
       try {
         window.__gtSetCfg ? window.__gtSetCfg(${JSON.stringify(cfg)}) : localStorage.setItem('__gtAutoCfg', ${JSON.stringify(JSON.stringify(cfg))});
+        // 指令名/权限（原版键：comandoban/comandoadm/comandodeadm/comandoinfo/comandotagall/permitiradmins/apagarcomando）
+        const names = ${JSON.stringify(cmdNames)};
+        if (names.cmdban) localStorage.setItem('comandoban', names.cmdban);
+        if (names.cmdadm) localStorage.setItem('comandoadm', names.cmdadm);
+        if (names.cmddeadm) localStorage.setItem('comandodeadm', names.cmddeadm);
+        if (names.cmdinfo) localStorage.setItem('comandoinfo', names.cmdinfo);
+        if (names.cmdtagall) localStorage.setItem('comandotagall', names.cmdtagall);
+        localStorage.setItem('permitiradmins', String(cfg.adminOnly !== false));
+        localStorage.setItem('apagarcomando', String(!!cfg.delMsg));
         return 'OK';
       } catch (e) { return 'ERR:' + e.message; }
     })()`).catch(() => {});
@@ -2066,8 +2126,23 @@
     const gtCmdCfg = JSON.parse(localStorage.getItem('gtCmdCfg') || '{}');
     if (gtCmdAdminOnly) gtCmdAdminOnly.checked = gtCmdCfg.adminOnly !== false;
     if (gtCmdDelMsg) gtCmdDelMsg.checked = !!gtCmdCfg.delMsg;
+    // 指令名回显（原版默认 ban/adm/deadm/infog/tagall）
+    const gtCmdNamesStored = JSON.parse(localStorage.getItem('gtCmdNames') || '{}');
+    const nameDefaults = { cmdban: 'ban', cmdadm: 'adm', cmddeadm: 'deadm', cmdinfo: 'infog', cmdtagall: 'tagall' };
+    Object.entries(nameDefaults).forEach(([k, def]) => {
+      const el = document.getElementById('gt-cmdname-' + k.replace('cmd', ''));
+      if (el) el.value = gtCmdNamesStored[k] || def;
+    });
     if (gtCmdSave) gtCmdSave.onclick = () => {
       localStorage.setItem('gtCmdCfg', JSON.stringify({ adminOnly: gtCmdAdminOnly.checked, delMsg: gtCmdDelMsg.checked }));
+      const names = {
+        cmdban: (document.getElementById('gt-cmdname-ban') || {}).value || 'ban',
+        cmdadm: (document.getElementById('gt-cmdname-adm') || {}).value || 'adm',
+        cmddeadm: (document.getElementById('gt-cmdname-deadm') || {}).value || 'deadm',
+        cmdinfo: (document.getElementById('gt-cmdname-info') || {}).value || 'infog',
+        cmdtagall: (document.getElementById('gt-cmdname-tagall') || {}).value || 'tagall'
+      };
+      localStorage.setItem('gtCmdNames', JSON.stringify(names));
       syncGtCfgToWebview(wvMap.get(activeId));
       gtStatus.textContent = '指令设置已保存（监听已生效）';
     };

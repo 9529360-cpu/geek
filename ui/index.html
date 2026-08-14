@@ -535,10 +535,18 @@
         <!-- 指令 -->
         <div class="gt-pane hidden" id="pane-gtcmd">
           <div class="bc-card" style="padding:12px">
-            <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:8px">使用回复消息 + 指令，自动执行群组管理操作：</div>
+            <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:8px">使用回复消息 + 指令，自动执行群组管理操作（指令名可自定义）：</div>
             <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 0"><input type="checkbox" id="gt-cmd-adminonly" checked> 仅允许管理员使用指令</label>
             <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 0"><input type="checkbox" id="gt-cmd-delmsg"> 删除附带指令的消息</label>
-            <div style="margin-top:6px;font-size:12px;color:var(--text-tertiary)">指令示例：/kick 踢出用户 · /promote 设为管理员 · /demote 撤销管理员 · /groupinfo 群组链接信息 · /tagall @全体成员</div>
+            <div style="margin-top:8px;font-size:12px;color:var(--text-secondary);margin-bottom:4px">自定义指令名（回复消息或 @成员触发）：</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px">
+              <label style="display:flex;align-items:center;gap:4px"><span style="color:var(--text-tertiary);width:46px">踢出</span><input id="gt-cmdname-ban" class="settings-input" style="width:80px;padding:3px 6px" value="ban"></label>
+              <label style="display:flex;align-items:center;gap:4px"><span style="color:var(--text-tertiary);width:46px">设管理</span><input id="gt-cmdname-adm" class="settings-input" style="width:80px;padding:3px 6px" value="adm"></label>
+              <label style="display:flex;align-items:center;gap:4px"><span style="color:var(--text-tertiary);width:46px">撤管理</span><input id="gt-cmdname-deadm" class="settings-input" style="width:80px;padding:3px 6px" value="deadm"></label>
+              <label style="display:flex;align-items:center;gap:4px"><span style="color:var(--text-tertiary);width:46px">群信息</span><input id="gt-cmdname-info" class="settings-input" style="width:80px;padding:3px 6px" value="infog"></label>
+              <label style="display:flex;align-items:center;gap:4px"><span style="color:var(--text-tertiary);width:46px">@全体</span><input id="gt-cmdname-tagall" class="settings-input" style="width:80px;padding:3px 6px" value="tagall"></label>
+            </div>
+            <div style="margin-top:6px;font-size:11.5px;color:var(--text-tertiary)">用法：回复某人的消息 + 指令 → 踢出/设管理/撤管理；发送「指令名 @号码」→ 操作指定成员；infog=群信息；tagall=@全体成员</div>
             <div style="margin-top:8px;text-align:right"><button id="gt-cmd-save" class="bc-btn" style="background:var(--accent);color:#fff;border:none">💾 保存</button></div>
           </div>
         </div>
