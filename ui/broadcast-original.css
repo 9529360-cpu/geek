@@ -42,6 +42,14 @@
 #broadcast-overlay .bc-original-tag__remove:hover{background:#f56c6c;color:#fff}
 #broadcast-overlay .bc-original-saved-actions{display:flex;gap:6px;margin-top:7px}
 #broadcast-overlay .bc-original-saved-actions .bc-btn{height:26px;padding:2px 9px}
+#broadcast-overlay .bc-original-message-list{display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:25px;flex:1}
+#broadcast-overlay .bc-original-message-chip{display:inline-flex;align-items:stretch;overflow:hidden;border:1px solid var(--border-standard);border-radius:3px;background:var(--bg-elevated)}
+#broadcast-overlay .bc-original-message-chip.active{border-color:var(--accent);background:var(--accent-soft)}
+#broadcast-overlay .bc-original-message-chip__open,#broadcast-overlay .bc-original-message-chip__remove{border:0;background:transparent;cursor:pointer;color:var(--text-secondary)}
+#broadcast-overlay .bc-original-message-chip__open{max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px;font-size:11.5px}
+#broadcast-overlay .bc-original-message-chip__open:hover{color:var(--accent)}
+#broadcast-overlay .bc-original-message-chip__remove{width:22px;border-left:1px solid var(--border-subtle);font-size:14px}
+#broadcast-overlay .bc-original-message-chip__remove:hover{background:#f56c6c;color:#fff}
 #broadcast-overlay .bc-interval-row{min-height:32px}
 #broadcast-overlay .bc-footer{min-height:58px;padding:8px 12px;border-top:1px solid var(--border-standard);background:var(--bg-surface);flex-shrink:0}
 #broadcast-overlay .bc-footer__btns{margin-top:5px;align-items:center;justify-content:flex-end}

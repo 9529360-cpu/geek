@@ -366,9 +366,10 @@
           <button type="button" id="bc-multiversion" class="bc-pill bc-pill--orange" title="多条消息用 {A|B|C} 语法，每次随机发一条">创建多版本消息</button>
         </div>
         <div class="bc-var-row">
-          <select id="bc-saved-messages" class="bc-input bc-saved-select"><option value="">已保存消息…</option></select>
-          <button type="button" id="bc-save-message" class="bc-btn bc-btn--small" title="把当前消息保存为模板">💾 保存消息</button>
-          <button type="button" id="bc-delete-message" class="bc-btn bc-btn--small" title="删除当前选中的已保存消息">🗑 删除</button>
+          <div id="bc-saved-message-list" class="bc-original-message-list"><span class="bc-original-empty">暂无已保存消息</span></div>
+          <select id="bc-saved-messages" class="bc-input bc-saved-select" style="display:none"><option value="">已保存消息…</option></select>
+          <button type="button" id="bc-save-message" class="bc-btn bc-btn--small">💾 保存消息</button>
+          <button type="button" id="bc-delete-message" class="bc-btn bc-btn--small" style="display:none">删除</button>
         </div>
         <div class="bc-media-row">
           <label class="bc-switch-row">

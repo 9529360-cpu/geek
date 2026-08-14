@@ -1758,35 +1758,67 @@
     broadcastRunning = false;
   }
 
-  // ---------- 保存消息 / 保存列表 / 排除（一比一原版） ----------
   const savedMessagesEl = document.getElementById('bc-saved-messages');
+  const savedMessageListEl = document.getElementById('bc-saved-message-list');
   const saveMessageBtn = document.getElementById('bc-save-message');
   const deleteMessageBtn = document.getElementById('bc-delete-message');
   let savedMessages = JSON.parse(localStorage.getItem('savedMessages') || '[]');
+  function applySavedMessage(i) {
+    if (savedMessages[i]) {
+      bMessageEl.value = savedMessages[i].msg;
+      if (savedMessagesEl) savedMessagesEl.value = String(i);
+      renderSavedMessages();
+      bMessageEl.focus();
+    }
+  }
+  function removeSavedMessage(i) {
+    const item = savedMessages[i];
+    if (!item || !confirm(`删除已保存消息「${item.name}」？`)) return;
+    savedMessages.splice(i, 1);
+    localStorage.setItem('savedMessages', JSON.stringify(savedMessages));
+    renderSavedMessages();
+  }
   function renderSavedMessages() {
-    if (!savedMessagesEl) return;
-    savedMessagesEl.innerHTML = '<option value="">已保存消息…</option>' + savedMessages.map((m, i) => `<option value="${i}">${(m.name || '').slice(0, 24)}</option>`).join('');
+    if (!savedMessagesEl || !savedMessageListEl) return;
+    savedMessagesEl.innerHTML = '<option value="">已保存消息…</option>' + savedMessages.map((m, i) => `<option value="${i}">${escapeHtml((m.name || '').slice(0, 24))}</option>`).join('');
+    savedMessageListEl.innerHTML = savedMessages.length ? '' : '<span class="bc-original-empty">暂无已保存消息</span>';
+    savedMessages.forEach((m, i) => {
+      const wrap = document.createElement('span');
+      wrap.className = 'bc-original-message-chip' + (savedMessagesEl.value === String(i) ? ' active' : '');
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'bc-original-message-chip__open';
+      open.textContent = m.name || `消息${i + 1}`;
+      open.title = m.msg || '';
+      open.onclick = () => applySavedMessage(i);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'bc-original-message-chip__remove';
+      remove.textContent = '×';
+      remove.title = '删除已保存消息';
+      remove.onclick = (e) => { e.stopPropagation(); removeSavedMessage(i); };
+      wrap.append(open, remove);
+      savedMessageListEl.appendChild(wrap);
+    });
   }
   if (saveMessageBtn) saveMessageBtn.onclick = () => {
-    const msg = bMessageEl.value.trim();
-    if (!msg) { alert('请先输入消息内容'); return; }
+    const msg = bMessageEl.value;
+    if (!msg.trim()) { alert('请先输入消息内容'); return; }
     const name = prompt('保存为（名称）：', '消息' + (savedMessages.length + 1));
-    if (!name) return;
-    savedMessages.push({ name, msg });
+    if (!name || !name.trim()) return;
+    const old = savedMessages.findIndex(m => m.name === name.trim());
+    const item = { name: name.trim(), msg };
+    if (old >= 0) savedMessages[old] = item; else savedMessages.push(item);
     localStorage.setItem('savedMessages', JSON.stringify(savedMessages));
     renderSavedMessages();
   };
   if (savedMessagesEl) savedMessagesEl.onchange = () => {
     const i = parseInt(savedMessagesEl.value);
-    if (i >= 0 && savedMessages[i]) bMessageEl.value = savedMessages[i].msg;
+    if (i >= 0) applySavedMessage(i);
   };
   if (deleteMessageBtn) deleteMessageBtn.onclick = () => {
     const i = parseInt(savedMessagesEl?.value || '-1');
-    if (i < 0) { alert('请先选择要删除的消息'); return; }
-    if (!confirm('删除该已保存消息？')) return;
-    savedMessages.splice(i, 1);
-    localStorage.setItem('savedMessages', JSON.stringify(savedMessages));
-    renderSavedMessages();
+    if (i >= 0) removeSavedMessage(i); else alert('请先选择要删除的消息');
   };
   // 保存列表（已选聊天 → 预设）
   const savedListsEl = document.getElementById('bc-saved-lists');
