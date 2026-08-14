@@ -2216,8 +2216,8 @@
                 if (avatar && Pic?.sendSetPicture) {
                   try { const blob = await (await fetch(avatar)).blob(); const file = new File([blob], 'group-avatar.jpg', {type: blob.type || 'image/jpeg'}); await Pic.sendSetPicture(gid, file, file); applied.push('头像'); } catch (e) { result.errors.push(newName + ':头像:' + e.message); }
                 }
-                if (restrict) { await M.setGroupProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
-                if (announce) { await M.setGroupProperty(gid, 'announce', true); applied.push('仅管理员发言'); }
+                if (restrict) { await W.group.setProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
+                if (announce) { await W.group.setProperty(gid, 'announcement', true); applied.push('仅管理员发言'); }
                 result.created.push({source: source.name, name: newName, id: gid, applied});
               } catch (e) { result.errors.push(newName + ':' + e.message); }
               window.__gtCloneProgress = { done: result.created.length + result.errors.filter(x => !x.includes(':头像:')).length, total: ${targets.length * count}, label: '已处理：' + newName };
@@ -2308,8 +2308,8 @@
                   await Pic.sendSetPicture(gid, file, file); applied.push('头像');
                 } catch (e) { result.errors.push(newName + ':头像:' + e.message); }
               }
-              if (restrict) { await M.setGroupProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
-              if (announce) { await M.setGroupProperty(gid, 'announce', true); applied.push('仅管理员发言'); }
+              if (restrict) { await W.group.setProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
+              if (announce) { await W.group.setProperty(gid, 'announcement', true); applied.push('仅管理员发言'); }
               result.created.push({ name: newName, id: gid, applied });
             } catch (e) { result.errors.push(newName + ':' + e.message); }
             window.__gtCloneProgress = { done: result.created.length + result.errors.filter(x => !x.includes(':头像:')).length, total: ${count}, label: '已处理：' + newName };
@@ -2552,12 +2552,22 @@
     const gtEditDesc = document.getElementById('gt-edit-desc');
     const gtEditPic = document.getElementById('gt-edit-pic');
     const gtPicName = document.getElementById('gt-pic-name');
-    const gtEditRestrict = document.getElementById('gt-edit-restrict');
-    const gtEditAdminedit = document.getElementById('gt-edit-adminedit');
+    const gtEditRestrict = document.getElementById('gt-edit-restrict'); // announce：仅管理员发言
+    const gtEditAdminedit = document.getElementById('gt-edit-adminedit'); // restrict=true：仅管理员编辑资料
+    const gtEditAllEdit = document.getElementById('gt-edit-alledit'); // restrict=false：全体编辑资料
+    const gtEditAllTalk = document.getElementById('gt-edit-alltalk'); // announcement=false：全体发言
     const gtEditMember = document.getElementById('gt-edit-member');
     const gtEditMemadmin = document.getElementById('gt-edit-memadmin');
     const gtEditSave = document.getElementById('gt-edit-save');
     let gtPicData = null; // 选中的头像（dataURL）
+    if (gtEditRestrict && gtEditAllTalk) {
+      gtEditRestrict.onchange = () => { if (gtEditRestrict.checked) gtEditAllTalk.checked = false; };
+      gtEditAllTalk.onchange = () => { if (gtEditAllTalk.checked) gtEditRestrict.checked = false; };
+    }
+    if (gtEditAdminedit && gtEditAllEdit) {
+      gtEditAdminedit.onchange = () => { if (gtEditAdminedit.checked) gtEditAllEdit.checked = false; };
+      gtEditAllEdit.onchange = () => { if (gtEditAllEdit.checked) gtEditAdminedit.checked = false; };
+    }
     if (gtEditPic) gtEditPic.onclick = () => {
       const inp = document.createElement('input');
       inp.type = 'file';
@@ -2576,11 +2586,13 @@
       if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
       const subject = gtEditSubject.value.trim();
       const desc = gtEditDesc.value.trim();
-      const restrict = gtEditRestrict.checked;
-      const adminedit = gtEditAdminedit.checked;
+      const onlyAdminTalk = gtEditRestrict.checked;
+      const onlyAdminEdit = gtEditAdminedit.checked;
+      const allEdit = !!gtEditAllEdit?.checked;
+      const allTalk = !!gtEditAllTalk?.checked;
       const members = gtEditMember.value.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
       const memadmin = gtEditMemadmin.checked;
-      if (!subject && !desc && !gtPicData && !restrict && !adminedit && !members.length) { gtStatus.textContent = '请至少填写一项修改'; return; }
+      if (!subject && !desc && !gtPicData && !onlyAdminTalk && !onlyAdminEdit && !allEdit && !allTalk && !members.length) { gtStatus.textContent = '请至少填写一项修改'; return; }
       const wv = wvMap.get(activeId);
       gtStatus.textContent = '正在保存…';
       const picB64 = gtPicData ? gtPicData.split(',')[1] || '' : '';
@@ -2610,8 +2622,10 @@
               out.push('头像');
             } catch (e) { out.push('头像失败:' + e.message.slice(0,30)); }
           }
-          if (${JSON.stringify(restrict)}) { await M.setGroupProperty(wid, 'restrict', true).catch(()=>{}); out.push('权限'); }
-          if (${JSON.stringify(adminedit)}) { await M.setGroupProperty(wid, 'announce', true).catch(()=>{}); out.push('资料权限'); }
+          if (${JSON.stringify(onlyAdminEdit)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'restrict', true); out.push('仅管理员编辑资料'); }
+          if (${JSON.stringify(allEdit)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'restrict', false); out.push('全体成员编辑资料'); }
+          if (${JSON.stringify(onlyAdminTalk)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'announcement', true); out.push('仅管理员发消息'); }
+          if (${JSON.stringify(allTalk)}) { await W.group.setProperty(${JSON.stringify(gid)}, 'announcement', false); out.push('全体成员发消息'); }
           if (${JSON.stringify(members)}.length) {
             const F = window.require('WAWebWidFactory');
             const wids = ${JSON.stringify(members)}.map(n => F.createWid(n.includes('@') ? n : n + '@c.us'));
@@ -2626,7 +2640,7 @@
       }
       gtStatus.textContent = '保存完成：' + results.join(' | ');
       gtEditSubject.value = ''; gtEditDesc.value = ''; gtEditMember.value = ''; gtPicData = null; gtPicName.textContent = '';
-      gtEditRestrict.checked = false; gtEditAdminedit.checked = false; gtEditMemadmin.checked = false;
+      gtEditRestrict.checked = false; gtEditAdminedit.checked = false; if (gtEditAllEdit) gtEditAllEdit.checked = false; if (gtEditAllTalk) gtEditAllTalk.checked = false; gtEditMemadmin.checked = false;
       setTimeout(loadGtGroups, 2000);
     };
   }
