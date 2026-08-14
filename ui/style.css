@@ -2123,3 +2123,23 @@ select:focus option:checked {
   padding: 6px 10px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
+
+/* ===== 发送中视图（HelloWorld 风格） ===== */
+.bc-sending { padding: 28px 32px 20px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.bc-sending-logo { color: #409EFF; }
+.bc-progress-lg { width: 100%; height: 30px; border-radius: 15px; background: #EBEEF5; overflow: hidden; position: relative; }
+.bc-progress-lg-fill { height: 100%; border-radius: 15px; background: repeating-linear-gradient(-45deg, #409EFF, #409EFF 12px, #66B1FF 12px, #66B1FF 24px); display: flex; align-items: center; justify-content: center; transition: width 0.4s ease; min-width: 0; }
+.bc-progress-lg-fill span { color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.bc-countdown { background: #ECF5FF; color: #409EFF; border-radius: 12px; padding: 4px 14px; font-size: 13px; font-weight: 600; }
+.bc-sent-status { font-size: 15px; font-weight: 700; color: #303133; }
+.bc-preview { width: 100%; background: #F0F4FF; border-radius: 10px; padding: 12px 16px; }
+.bc-preview-name { font-size: 13px; font-weight: 600; color: #409EFF; margin-bottom: 6px; }
+.bc-preview-msg { font-size: 13px; color: #606266; word-break: break-all; max-height: 64px; overflow: hidden; }
+.bc-sending-btns { display: flex; gap: 12px; margin-top: 4px; }
+.bc-btn-pause, .bc-btn-stop { border: none; border-radius: 8px; padding: 10px 22px; font-size: 14px; font-weight: 600; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.bc-btn-pause { background: #409EFF; }
+.bc-btn-pause:hover { background: #66B1FF; }
+.bc-btn-stop { background: #F56C6C; }
+.bc-btn-stop:hover { background: #F78989; }
+.bc-sending-close { width: 100%; display: flex; justify-content: flex-end; }
+.bc-sending-close .bc-btn { color: #606266; }

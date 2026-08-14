@@ -404,7 +404,7 @@
           <div class="bc-row">
             <input id="broadcast-group-name" class="bc-input bc-input--grow" type="text" placeholder="输入群组名称，如：老客户A组">
             <button type="button" id="broadcast-save-group" class="bc-btn">保存群组</button>
-            <button type="button" id="broadcast-join-groups" class="bc-btn bc-btn--plain">加入群组</button>
+            
           </div>
           <div id="broadcast-saved-groups" class="bc-chips">
             <span class="bc-chip">老客户A组 <button type="button" class="bc-chip__add">加入</button></span>
@@ -518,10 +518,30 @@
         </div>
         <span id="broadcast-progress-text" class="bc-progress-text">0%</span>
       </div>
+      <!-- 发送中视图（HelloWorld 风格：进度/倒计时/预览/暂停停止） -->
+      <div id="broadcast-sending" class="bc-sending hidden">
+        <div class="bc-sending-logo">
+          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#409EFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </div>
+        <div class="bc-progress-lg">
+          <div id="bc-progress-lg-fill" class="bc-progress-lg-fill"><span id="bc-progress-lg-text">0 / 0 (0%)</span></div>
+        </div>
+        <div class="bc-countdown" id="bc-countdown">下一次发送 --s</div>
+        <div class="bc-sent-status">已发送至：（<span id="bc-sent-count">0</span> / <span id="bc-total-count">0</span>）</div>
+        <div class="bc-preview">
+          <div class="bc-preview-name" id="bc-preview-name">—</div>
+          <div class="bc-preview-msg" id="bc-preview-msg">—</div>
+        </div>
+        <div class="bc-sending-btns">
+          <button type="button" id="broadcast-pause" class="bc-btn-pause">⏸ 暂停发送</button>
+          <button type="button" id="broadcast-stop" class="bc-btn-stop">⏹ 停止发送</button>
+        </div>
+        <div class="bc-sending-close"><button type="button" id="broadcast-sending-close" class="bc-btn bc-btn--plain">关闭</button></div>
+      </div>
+
       <div class="bc-footer__btns">
         <span class="bc-footer__tip">发送期间请勿关闭窗口</span>
-        <button type="button" id="broadcast-pause" class="bc-btn" style="display:none">暂停</button>
-        <button type="button" id="broadcast-export" class="bc-btn" style="display:none">导出失败名单</button>
+                <button type="button" id="broadcast-export" class="bc-btn" style="display:none">导出失败名单</button>
         <button type="button" id="broadcast-cancel" class="bc-btn">取消</button>
         <button type="button" id="broadcast-send" class="bc-btn bc-btn--primary bc-btn--large">开始群发</button>
       </div>

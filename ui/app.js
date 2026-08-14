@@ -745,6 +745,10 @@
   const bProgressEl = document.getElementById('broadcast-progress');
 
   function openBroadcast() {
+    // 没激活账号时自动激活第一个（体验改进）
+    if (!accounts.find(a => a.id === activeId) && accounts.length) {
+      switchAccount(accounts[0].id);
+    }
     const account = accounts.find(a => a.id === activeId);
     if (!account) { alert('请先切换到一个账号'); return; }
     broadcastChats = [];
@@ -864,7 +868,8 @@
     document.getElementById('join-progress-fill').style.width = percent + '%';
     document.getElementById('join-progress-text').textContent = text;
   }
-  document.getElementById('broadcast-join-groups').onclick = () => {
+  const joinGroupsBtn = document.getElementById('broadcast-join-groups');
+  if (joinGroupsBtn) joinGroupsBtn.onclick = () => {
     joinLinksEl.value = '';
     joinProgressEl.classList.add('hidden');
     joinOverlay.classList.remove('hidden');
@@ -1014,12 +1019,58 @@
   }
   // 发送（入口：支持定时）
   let broadcastTimer = null;
+  let broadcastTotal = 0, broadcastCurrent = 0, broadcastOkCount = 0; // 发送视图（HelloWorld 风格）
+  let countdownInterval = null;
   function setProgress(percent, text) {
     bProgressEl.classList.remove('hidden');
     document.getElementById('broadcast-progress-bar').style.width = percent + '%';
     document.getElementById('broadcast-progress-text').textContent = text;
+    // 发送中视图（HelloWorld 风格）：进度条计数 + 已发送
+    const lgFill = document.getElementById('bc-progress-lg-fill');
+    if (lgFill) {
+      const pct = Math.min(100, Math.max(0, percent));
+      lgFill.style.width = (pct === 0 ? 1 : pct) + '%';
+      const lgText = document.getElementById('bc-progress-lg-text');
+      if (lgText) lgText.textContent = `${broadcastCurrent} / ${broadcastTotal} (${pct.toFixed(2)}%)`;
+    }
+    const sentEl = document.getElementById('bc-sent-count');
+    if (sentEl) sentEl.textContent = broadcastOkCount;
+    const totalEl = document.getElementById('bc-total-count');
+    if (totalEl) totalEl.textContent = broadcastTotal;
+  }
+  function showSendingView() {
+    const body = document.querySelector('#broadcast-overlay .bc-body');
+    if (body) body.style.display = 'none';
+    const sending = document.getElementById('broadcast-sending');
+    if (sending) sending.classList.remove('hidden');
+    const footerBtns = document.querySelector('#broadcast-overlay .bc-footer__btns');
+    if (footerBtns) footerBtns.style.display = 'none';
+  }
+  function hideSendingView() {
+    const body = document.querySelector('#broadcast-overlay .bc-body');
+    if (body) body.style.display = '';
+    const sending = document.getElementById('broadcast-sending');
+    if (sending) sending.classList.add('hidden');
+    const footerBtns = document.querySelector('#broadcast-overlay .bc-footer__btns');
+    if (footerBtns) footerBtns.style.display = '';
+    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    document.getElementById('bc-countdown').textContent = '下一次发送 --s';
+    document.getElementById('bc-preview-name').textContent = '—';
+    document.getElementById('bc-preview-msg').textContent = '—';
+  }
+  function startCountdown(seconds) {
+    const el = document.getElementById('bc-countdown');
+    if (countdownInterval) clearInterval(countdownInterval);
+    let left = Math.max(0, Math.round(seconds));
+    el.textContent = `下一次发送 00:${String(left).padStart(2, '0')}s`;
+    countdownInterval = setInterval(() => {
+      left--;
+      if (left <= 0) { clearInterval(countdownInterval); countdownInterval = null; el.textContent = '正在发送…'; return; }
+      el.textContent = `下一次发送 00:${String(left).padStart(2, '0')}s`;
+    }, 1000);
   }
   async function sendBroadcast() {
+    window.__bcTrace = (window.__bcTrace || '') + 'sendBroadcast→';
     if (broadcastRunning) { broadcastStop = true; return; }
     // 多消息定时：有定时任务 → 全部安排，到点自动执行
     const pendingSched = scheduleTasks.filter(t => t.time && t.message && new Date(t.time).getTime() > Date.now());
@@ -1048,6 +1099,7 @@
   }
   // 实际群发
   async function doSendBroadcast() {
+    window.__bcTrace = (window.__bcTrace || '') + 'doSend→';
     if (broadcastRunning) { broadcastStop = true; return; }
     const account = accounts.find(a => a.id === activeId);
     const wv = wvMap.get(activeId);
@@ -1064,10 +1116,13 @@
     broadcastStop = false;
     broadcastPaused = false;
     broadcastFailed = [];
+    broadcastTotal = targets.length;
+    broadcastCurrent = 0;
+    broadcastOkCount = 0;
+    showSendingView();
     const key = familyOf(account.type).key;
     const adapter = BROADCAST_ADAPTERS[key] || BROADCAST_ADAPTERS['telegram-z'];
     document.getElementById('broadcast-send').classList.add('hidden');
-    document.getElementById('broadcast-pause').classList.remove('hidden');
     const total = targets.length;
     let ok = 0, fail = 0;
     const failReasons = [];
@@ -1086,6 +1141,12 @@
       const lines = message.split(/\n+/).map(s => s.trim()).filter(Boolean);
       const chosenMsg = lines.length > 1 ? lines[Math.floor(Math.random() * lines.length)] : message;
       const personalMsg = chosenMsg.replace(/%nc/gi, t.name || '');
+      broadcastCurrent = i + 1;
+      // 消息预览（HelloWorld 风格：名称 + 消息）
+      const pn = document.getElementById('bc-preview-name');
+      if (pn) pn.textContent = t.name || '';
+      const pm = document.getElementById('bc-preview-msg');
+      if (pm) pm.textContent = personalMsg;
       setProgress(Math.round(i / total * 100), `发送中 ${i + 1}/${total}：${t.name}`);
       // 单个聊天发送（失败自动重试 1 次，消除间歇性时序问题）
       let sentOk = 'NO_SEND';
@@ -1140,14 +1201,18 @@
       }
       if (sentOk === 'SENT' || sentOk === 'CLICKED') ok++;
       else { fail++; failReasons.push(`${t.name}: send=${sentOk} set=${setOk}`); broadcastFailed.push({ name: t.name, reason: sentOk || setOk }); }
+      broadcastOkCount = ok;
       const intervalMin = parseFloat(document.getElementById('broadcast-interval-min')?.value) || 2;
       const intervalMax = parseFloat(document.getElementById('broadcast-interval-max')?.value) || intervalMin;
       const lo = Math.max(0.5, Math.min(intervalMin, intervalMax));
       const hi = Math.max(lo, intervalMax);
-      await sleep((lo + Math.random() * (hi - lo)) * 1000); // 随机间隔防风控
+      const waitSec = lo + Math.random() * (hi - lo);
+      startCountdown(waitSec); // 倒计时（HelloWorld 风格：下一次发送 MM:SSs）
+      await sleep(waitSec * 1000); // 随机间隔防风控
     }
+    broadcastRunning = false;
+    hideSendingView();
     document.getElementById('broadcast-send').classList.remove('hidden');
-    document.getElementById('broadcast-pause').classList.add('hidden');
     setProgress(100, `完成：成功 ${ok}，失败 ${fail}${broadcastStop ? '（已停止）' : ''}`);
     if (failReasons.length) {
       console.log('群发失败明细:', failReasons.join(' | '));
@@ -1168,8 +1233,12 @@
   document.getElementById('broadcast-send').onclick = sendBroadcast;
   document.getElementById('broadcast-pause').onclick = () => {
     broadcastPaused = !broadcastPaused;
-    document.getElementById('broadcast-pause').textContent = broadcastPaused ? '继续' : '暂停';
+    document.getElementById('broadcast-pause').textContent = broadcastPaused ? '▶ 继续发送' : '⏸ 暂停发送';
   };
+  const stopBtn = document.getElementById('broadcast-stop');
+  if (stopBtn) stopBtn.onclick = () => { broadcastStop = true; }; 
+  const sendingClose = document.getElementById('broadcast-sending-close');
+  if (sendingClose) sendingClose.onclick = closeBroadcast;
   document.getElementById('broadcast-export').onclick = async () => {
     if (!broadcastFailed.length) return;
     const csv = '\uFEFF联系人,失败原因\n' + broadcastFailed.map(f => `"${(f.name || '').replace(/"/g, '""')}","${(f.reason || '').replace(/"/g, '""')}"`).join('\n');
