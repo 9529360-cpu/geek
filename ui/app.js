@@ -2166,46 +2166,64 @@
       document.getElementById('broadcast-menu')?.classList.add('hidden');
       if (await loadGtGroups()) gtOverlay.classList.remove('hidden');
     };
-    // 克隆群组（WPP.group.create——正确参数=成员 Wid 数组；复制名称/简介）
+    // 从当前已选群组克隆：与链接克隆使用同一套资料复制和错误统计
     gtCloneBtn.onclick = async () => {
       const targets = selectedGidList();
       if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
-      const count = parseInt(gtCloneCount.value) || 1;
+      const count = Math.max(1, Math.min(10, parseInt(gtCloneCount.value) || 1));
+      const minDelay = Math.max(0, parseInt(gtCloneDelayMin?.value) || 3);
+      const maxDelay = Math.max(minDelay, parseInt(gtCloneDelayMax?.value) || 8);
       const wv = wvMap.get(activeId);
-      gtStatus.textContent = '正在克隆…';
-      const results = [];
-      for (const t of targets) {
-        const gid = t.id;
+      if (!wv) { gtStatus.textContent = '当前账号页面尚未就绪'; return; }
+      gtStatus.textContent = `正在克隆 ${targets.length} 个源群，每个 ${count} 个…`;
       const res = await wv.executeJavaScript(`(async () => {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const result = { created: [], errors: [] };
         try {
           const W = window.WAPLUS_WPP || window.WPP;
-          const Meta = window.require('WAWebGroupMetadataCollection');
           const M = window.require('WAWebGroupModifyInfoJob');
-          const src = Meta.get(${JSON.stringify(gid)});
-          const name = src && src.__x_subject ? src.__x_subject : '克隆群组';
-          const desc = src && src.__x_desc ? src.__x_desc : '';
-          // 成员 = 自己（原版克隆=复制资料建新群，不含原群成员）
-          const UP = W.whatsapp && W.whatsapp.UserPrefs;
-          const me = UP && (UP.getMe ? UP.getMe() : (UP.getMeUser ? UP.getMeUser() : (UP.getMaybeMeUser ? UP.getMaybeMeUser() : (UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : (UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null)))));
-          const meWid = me ? String(me._serialized || (me.id && (me.id._serialized || me.id)) || me) : null;
-          if (!meWid) return 'ERR:no-me';
-          const out = [];
-          for (let i = 1; i <= ${count}; i++) {
-            const n = ${count} > 1 ? name + ' #' + i : name;
-            const r = await W.group.create(n, [meWid], undefined);
-            const gid2 = String(r && r.gid ? (r.gid._serialized || r.gid) : '');
-            // 复制简介（原版 Uc 流程：createGroup → setGroupDescription）
-            if (desc && gid2) {
-              try { await M.setGroupDescription(gid2, desc, String(Date.now()), void 0); } catch (e) {}
+          const Pic = window.require('WAWebContactProfilePicThumbBridge');
+          const Meta = window.require('WAWebGroupMetadataCollection');
+          const UP = W.whatsapp?.UserPrefs;
+          const me = UP && (UP.getMaybeMeLidUser?.() || UP.getMaybeMePnUser?.() || UP.getMeUser?.());
+          const meWid = String(me?._serialized || me?.id?._serialized || me?.id || '');
+          if (!meWid) throw new Error('无法取得当前账号ID');
+          for (let sourceIndex = 0; sourceIndex < ${JSON.stringify(targets)}.length; sourceIndex++) {
+            const source = ${JSON.stringify(targets)}[sourceIndex];
+            const src = Meta.get(source.id) || await W.whatsapp.GroupMetadataStore.find(source.id).catch(() => null);
+            const name = String(src?.__x_subject || source.name || '克隆群组').trim() || '克隆群组';
+            const desc = String(src?.__x_desc || src?.__x_displayedDesc || '');
+            const restrict = !!src?.__x_restrict, announce = !!src?.__x_announce;
+            let avatar = null;
+            try { avatar = await W.contact?.getProfilePictureUrl?.(source.id, true); } catch (e) {}
+            const suffix = name.match(/^(.*?)(?:\\s+#(\\d+))$/);
+            const base = suffix ? suffix[1].trim() : name;
+            const start = suffix ? Number(suffix[2]) + 1 : 1;
+            for (let i = 0; i < ${count}; i++) {
+              const newName = base + ' #' + (start + i);
+              try {
+                const created = await W.group.create(newName, [meWid], undefined);
+                const gid = String(created?.gid?._serialized || created?.gid || '');
+                if (!gid) throw new Error('创建接口未返回群ID');
+                const applied = [];
+                if (desc) { await M.setGroupDescription(gid, desc, String(Date.now()), void 0); applied.push('简介'); }
+                if (avatar && Pic?.sendSetPicture) {
+                  try { const blob = await (await fetch(avatar)).blob(); const file = new File([blob], 'group-avatar.jpg', {type: blob.type || 'image/jpeg'}); await Pic.sendSetPicture(gid, file, file); applied.push('头像'); } catch (e) { result.errors.push(newName + ':头像:' + e.message); }
+                }
+                if (restrict) { await M.setGroupProperty(gid, 'restrict', true); applied.push('仅管理员编辑'); }
+                if (announce) { await M.setGroupProperty(gid, 'announce', true); applied.push('仅管理员发言'); }
+                result.created.push({source: source.name, name: newName, id: gid, applied});
+              } catch (e) { result.errors.push(newName + ':' + e.message); }
+              if (i < ${count} - 1 || sourceIndex < ${JSON.stringify(targets)}.length - 1) await sleep((Math.random() * (${maxDelay} - ${minDelay}) + ${minDelay}) * 1000);
             }
-            out.push(n + (gid2 ? '(' + gid2.split('@')[0] + ')' : ''));
           }
-          return 'OK:' + out.join(' / ');
-        } catch (e) { return 'ERR:' + e.message; }
+          return JSON.stringify(result);
+        } catch (e) { result.errors.push('初始化:' + e.message); return JSON.stringify(result); }
       })()`);
-      results.push(t.name + ':' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败:' + String(res)));
-      }
-      gtStatus.textContent = '克隆完成：' + results.join(' | ');
+      try {
+        const data = JSON.parse(String(res));
+        gtStatus.textContent = `选中群组克隆完成：成功 ${data.created?.length || 0}，失败 ${data.errors?.length || 0}` + (data.errors?.length ? `；${data.errors.slice(0, 2).join(' | ')}` : '');
+      } catch (e) { gtStatus.textContent = '选中群组克隆失败：返回结果无法解析'; }
       setTimeout(loadGtGroups, 2000);
     };
     // 链接克隆（原版完整语义：资料、简介、头像、权限、编号、间隔）
