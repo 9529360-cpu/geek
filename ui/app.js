@@ -933,37 +933,17 @@
           return r && r.id ? 'SENT' : 'FAIL';
         } catch (e) { return 'ERR:' + e.message; }
       })()`,
-      // 电子名片（HelloWorld svm 链路：vcardFromContactModel + addAndSendMsgToChat）
+      // 电子名片：使用 WPP 4.3 官方 API，避免旧内部 SendAction 返回 Promise 但消息不落地
       sendVcards: (chatId, vcards) => `(async () => {
         try {
-          const W = window.require;
-          const wpp = window.WAPLUS_WPP || window.WPP;
-          const chat = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
-          if (!chat) return 'NO_CHAT';
-          const VcardUtils = W('WAWebFrontendVcardUtils');
-          const SendAction = W('WAWebSendMsgChatAction');
-          const vcards = ${JSON.stringify(vcards)};
-          const list = [];
-          for (const v of vcards) {
-            try {
-              const wid = wpp.whatsapp.WidFactory ? wpp.whatsapp.WidFactory.createWid(v.id) : v.id;
-              const contact = (wpp.whatsapp.ContactStore && wpp.whatsapp.ContactStore.get(wid)) || await wpp.contact.get(v.id).catch(() => null);
-              if (contact) { const vc = await VcardUtils.vcardFromContactModel(contact); if (vc) list.push(vc); }
-            } catch (e) {}
-          }
-          if (!list.length) return 'NO_VCARD';
-          const UP = wpp.whatsapp.UserPrefs;
-          const me = UP && (UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : (UP.getMeUser ? UP.getMeUser() : null));
-          if (!me) return 'NO_ME';
-          const msg = {
-            id: '3EB0' + Math.random().toString(16).slice(2, 34),
-            ack: 0, from: me, local: true, self: 'in',
-            t: parseInt(Date.now() / 1000), to: chat.id,
-            ...(list.length > 1 ? { type: 'multi_vcard', vcardList: list } : { type: 'vcard', body: list[0].vcard }),
-            isNewMsg: true,
-          };
-          await SendAction.addAndSendMsgToChat(chat, msg);
-          return 'SENT';
+          const W = window.WAPLUS_WPP || window.WPP;
+          if (!W.chat || typeof W.chat.sendVCardContactMessage !== 'function') return 'ERR:当前 WPP 不支持电子名片发送';
+          const contacts = ${JSON.stringify(vcards)}.map(v => ({ id: String(v.id), name: String(v.name || v.realName || v.id) }));
+          const result = await Promise.race([
+            W.chat.sendVCardContactMessage(${JSON.stringify(chatId)}, contacts),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('名片发送超时，无回执')), 8000))
+          ]);
+          return result && (result.id || result.messageId) ? 'SENT' : 'FAIL:名片发送无消息回执';
         } catch (e) { return 'ERR:' + e.message; }
       })()`,
       // WA 文件+文字一起（底层 API——HelloWorld 同款：ChatStore.get 模型 + prepRawMedia + sendMediaMsgToChat，秒发）
@@ -1621,9 +1601,7 @@
               const vcards = (window.__vcardContacts || []).length ? window.__vcardContacts : null;
               if (vcards && vcards.length) {
                 const vs = await wv.executeJavaScript(adapter.sendVcards(t.id, vcards));
-                if (!String(vs).startsWith('SENT') && !String(vs).startsWith('NO_VCARD')) {
-                  failReasons.push(`${t.name}: 名片 ${vs}`);
-                }
+                if (String(vs) !== 'SENT') { sentOk = 'ERR:名片:' + String(vs); failReasons.push(`${t.name}: ${sentOk}`); break; }
               }
               const tagall = document.getElementById('broadcast-tagall')?.checked || false;
               sentOk = await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg, tagall));
