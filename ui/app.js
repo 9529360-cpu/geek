@@ -1,6 +1,136 @@
 (() => {
   'use strict';
 
+  // ---------- 群组工具常驻监听器（注入 WA webview） ----------
+  // 聊天设置：被移出/退出自动删群、自动加入群链接
+  // 指令：/kick /promote /demote /groupinfo /tagall（回复消息+指令，管理员可用）
+  // 配置存 webview 域 localStorage（键 __gtAutoCfg），UI 保存时同步写入
+  const GT_AGENT_SOURCE = `(() => {
+  if (window.__gtAgentInstalled) return 'ALREADY';
+  var W = window.WAPLUS_WPP || window.WPP;
+  if (!W || typeof W.on !== 'function' || !W.chat || !W.group) { window.__gtAgentInstalled = false; return 'NO_WPP'; }
+  window.__gtAgentInstalled = true;
+  var CFG_KEY = '__gtAutoCfg';
+  function gtCfg() {
+    try { var c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}'); return c && typeof c === 'object' ? c : {}; } catch (e) { return {}; }
+  }
+  window.__gtSetCfg = function (cfg) {
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg || {})); } catch (e) {}
+  };
+  function meId() {
+    try {
+      var me = W.whatsapp && W.whatsapp.UserPrefs && W.whatsapp.UserPrefs.getMe && W.whatsapp.UserPrefs.getMe();
+      if (!me) return null;
+      var id = me.id || me;
+      return String(id._serialized || id);
+    } catch (e) { return null; }
+  }
+  function sameUser(a, b) {
+    if (!a || !b) return false;
+    return String(a).split('@')[0] === String(b).split('@')[0];
+  }
+  function chatOf(msg) {
+    try { return String((msg.id && msg.id.remote) || msg.chat || msg.to || ''); } catch (e) { return ''; }
+  }
+  function senderOf(msg) {
+    try { return String((msg.senderObj && (msg.senderObj.id || msg.senderObj)) || msg.author || ''); } catch (e) { return ''; }
+  }
+  function widStr(x) {
+    try { return String((x && (x._serialized || (x.id && x.id._serialized) || x.id)) || x); } catch (e) { return String(x); }
+  }
+  async function isAdminOf(groupId, userWid) {
+    try {
+      var parts = await W.group.getParticipants(groupId);
+      for (var i = 0; i < parts.length; i++) {
+        if (sameUser(widStr(parts[i].id), userWid)) return !!(parts[i].isAdmin || parts[i].isSuperAdmin);
+      }
+    } catch (e) {}
+    return false;
+  }
+  function sendReply(chatId, text) {
+    return W.chat.sendTextMessage(chatId, text).catch(function () {});
+  }
+  // 1) 自动删群：被移出（remove）/ 退出（leaver）
+  W.on('group.participant_changed', function (ev) {
+    try {
+      var cfg = gtCfg();
+      if (!cfg.delRemoved && !cfg.delLeft) return;
+      var me = meId();
+      if (!me) return;
+      var involved = (ev.participants || []).some(function (p) { return sameUser(p, me); });
+      if (!involved) return;
+      if (ev.action === 'remove' && cfg.delRemoved) { W.chat.delete(ev.groupId).catch(function () {}); }
+      else if (ev.action === 'leaver' && cfg.delLeft) { W.chat.delete(ev.groupId).catch(function () {}); }
+    } catch (e) {}
+  });
+  // 2) 新消息：自动加群 + 指令
+  W.on('chat.new_message', function (msg) {
+    (async function () {
+      try {
+        var cfg = gtCfg();
+        var body = String(msg.body || msg.__x_body || '');
+        if (!body) return;
+        var chatId = chatOf(msg);
+        // 自动加入群组链接（任意聊天出现链接即加入）
+        if (cfg.joinLinks) {
+          var m = body.match(/chat\\.whatsapp\\.com\\/([A-Za-z0-9_-]{15,})/);
+          if (m) { try { await W.group.join(m[1]); } catch (e) {} }
+        }
+        // 指令：只处理群聊消息
+        if (chatId.indexOf('@g.us') === -1) return;
+        var t = body.trim();
+        if (t.charAt(0) !== '/') return;
+        var sp = t.split(/\\s+/);
+        var cmd = (sp[0] || '').toLowerCase();
+        var arg = sp.slice(1).join(' ');
+        if (['/kick', '/promote', '/demote', '/groupinfo', '/tagall'].indexOf(cmd) === -1) return;
+        // adminonly：触发者必须是群管理员
+        if (cfg.adminOnly !== false) {
+          var admin = await isAdminOf(chatId, senderOf(msg));
+          if (!admin) return;
+        }
+        // 被回复的消息 → 操作目标
+        var targetWid = null;
+        try {
+          var q = msg.quotedMsg;
+          if (!q && msg.quotedMsgId) { q = await W.chat.getMessageById(msg.quotedMsgId); }
+          if (q) targetWid = senderOf(q);
+        } catch (e) {}
+        if (cmd === '/groupinfo') {
+          try {
+            var code = await W.group.getInviteCode(chatId);
+            await sendReply(chatId, '群组链接：https://chat.whatsapp.com/' + code);
+          } catch (e) { await sendReply(chatId, '/groupinfo 获取失败：' + e.message); }
+        } else if (cmd === '/tagall') {
+          try {
+            var parts = await W.group.getParticipants(chatId);
+            var ids = [], names = [];
+            for (var i = 0; i < parts.length; i++) {
+              ids.push(widStr(parts[i].id));
+              names.push(parts[i].shortName || parts[i].name || widStr(parts[i].id).split('@')[0]);
+            }
+            var text = (arg || '@全体成员') + '\\n' + names.map(function (n) { return '@' + n; }).join(' ');
+            await W.chat.sendTextMessage(chatId, text, { mentionedList: ids });
+          } catch (e) { await sendReply(chatId, '/tagall 失败：' + e.message); }
+        } else {
+          if (!targetWid) { await sendReply(chatId, cmd + ' 请回复目标用户的消息'); return; }
+          try {
+            if (cmd === '/kick') await W.group.removeParticipants(chatId, targetWid);
+            else if (cmd === '/promote') await W.group.promoteParticipants(chatId, targetWid);
+            else if (cmd === '/demote') await W.group.demoteParticipants(chatId, targetWid);
+            await sendReply(chatId, cmd + ' 已执行');
+          } catch (e) { await sendReply(chatId, cmd + ' 执行失败：' + e.message); }
+        }
+        // 删除指令消息（管理员可撤回）
+        if (cfg.delMsg) {
+          try { await W.chat.deleteMessage(chatId, msg.id, false, true); } catch (e) {}
+        }
+      } catch (e) {}
+    })();
+  });
+  return 'OK';
+})()`;
+
   // ---------- DOM ----------
   const accountsEl = document.getElementById('nav-accounts');
   const tabsEl = document.getElementById('account-tabs');
@@ -305,7 +435,37 @@
     });
     wvMap.set(account.id, wv);
     resizeWebviews();
+    // 群组工具监听器：WA 页面就绪后注入（幂等；页面重载后自动重新注入）
+    if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') {
+      wv.addEventListener('dom-ready', () => injectGtAgent(wv, account));
+    }
     return wv;
+  }
+
+  // ---------- 群组工具监听器注入 ----------
+  // 把 GT_AGENT_SOURCE 注入 WA webview；WPP 未就绪时重试（最多 ~10 次）
+  function injectGtAgent(wv, account) {
+    if (!wv || wv.isDestroyed?.()) return;
+    wv.executeJavaScript(`(${GT_AGENT_SOURCE})`).then((r) => {
+      const txt = String(r || '');
+      if (txt === 'NO_WPP') {
+        // WPP 还没就绪——等 3 秒重试（监听器安装标记未置位，可重复注入）
+        setTimeout(() => { try { injectGtAgent(wv, account); } catch (e) {} }, 3000);
+      }
+    }).catch(() => {});
+  }
+  // 把群组工具配置同步到 webview 域 localStorage（webview 与外壳 localStorage 不互通）
+  function syncGtCfgToWebview(wv) {
+    if (!wv) return;
+    const auto = JSON.parse(localStorage.getItem('gtAutoCfg') || '{}');
+    const cmd = JSON.parse(localStorage.getItem('gtCmdCfg') || '{}');
+    const cfg = Object.assign({}, auto, cmd);
+    wv.executeJavaScript(`(() => {
+      try {
+        window.__gtSetCfg ? window.__gtSetCfg(${JSON.stringify(cfg)}) : localStorage.setItem('__gtAutoCfg', ${JSON.stringify(JSON.stringify(cfg))});
+        return 'OK';
+      } catch (e) { return 'ERR:' + e.message; }
+    })()`).catch(() => {});
   }
 
   // ---------- 切换账号 ----------
@@ -1642,6 +1802,9 @@
         const txt = String(res || '');
         if (txt.startsWith('ERR:')) { alert('获取群组失败: ' + txt); return false; }
         gtGroupList = JSON.parse(txt);
+        // 确保监听器已注入（幂等；页面重载后自动重新注入）
+        injectGtAgent(wv, account);
+        syncGtCfgToWebview(wv);
         renderGtGroups();
         return true;
       } catch (e) { alert('获取群组失败: ' + e.message); return false; }
@@ -1679,7 +1842,7 @@
       document.getElementById('broadcast-menu')?.classList.add('hidden');
       if (await loadGtGroups()) gtOverlay.classList.remove('hidden');
     };
-    // 克隆群组（createGroup——名称=原群名+序号）
+    // 克隆群组（WPP.group.create——正确参数=成员 Wid 数组；复制名称/简介）
     gtCloneBtn.onclick = async () => {
       const targets = selectedGidList();
       if (!targets.length) { gtStatus.textContent = '请先选择群组'; return; }
@@ -1691,21 +1854,31 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const C = window.require('WAWebCreateGroupAction');
+          const W = window.WAPLUS_WPP || window.WPP;
           const Meta = window.require('WAWebGroupMetadataCollection');
+          const M = window.require('WAWebGroupModifyInfoJob');
           const src = Meta.get(${JSON.stringify(gid)});
-          const name = src ? src.__x_subject : '克隆群组';
-          const me = (window.require('WAWebUserPrefsMeUser').getMe()).id._serialized || (window.require('WAWebUserPrefsMeUser').getMe()).id;
+          const name = src && src.__x_subject ? src.__x_subject : '克隆群组';
+          const desc = src && src.__x_desc ? src.__x_desc : '';
+          // 成员 = 自己（原版克隆=复制资料建新群，不含原群成员）
+          const me = W.whatsapp && W.whatsapp.UserPrefs && W.whatsapp.UserPrefs.getMe();
+          const meWid = me && me.id ? (me.id._serialized || me.id) : null;
+          if (!meWid) return 'ERR:no-me';
           const out = [];
           for (let i = 1; i <= ${count}; i++) {
             const n = ${count} > 1 ? name + ' #' + i : name;
-            await C.createGroup(n, me);
-            out.push(n);
+            const r = await W.group.create(n, [meWid], undefined);
+            const gid2 = String(r && r.gid ? (r.gid._serialized || r.gid) : '');
+            // 复制简介（原版 Uc 流程：createGroup → setGroupDescription）
+            if (desc && gid2) {
+              try { await M.setGroupDescription(gid2, desc, String(Date.now()), void 0); } catch (e) {}
+            }
+            out.push(n + (gid2 ? '(' + gid2.split('@')[0] + ')' : ''));
           }
           return 'OK:' + out.join(' / ');
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
-      results.push(t.name + ':' + String(res).startsWith('OK') ? '成功' : '失败');
+      results.push(t.name + ':' + (String(res).startsWith('OK') ? String(res).slice(3) : '失败:' + String(res)));
       }
       gtStatus.textContent = '克隆完成：' + results.join(' | ');
       setTimeout(loadGtGroups, 2000);
@@ -1793,14 +1966,11 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const I = window.require('WAWebGroupInviteAction');
           const W = window.WAPLUS_WPP || window.WPP;
-          const chats = await W.chat.list();
-          const chat = chats.find(c => String(c.id) === ${JSON.stringify(gid)});
-          const wid = chat ? chat.id : window.require('WAWebWidFactory').createWid(${JSON.stringify(gid)});
-          let code = null;
-          try { code = await I.queryGroupInviteCode(wid); } catch (e) { code = await I.revokeGroupInvite(wid); }
-          return 'OK:' + (code || '');
+          // 走 WPP 封装：ensureGroup + iAmAdmin + queryGroupInviteCode(wid, isAdmin)
+          // （旧版页面直接调 queryGroupInviteCode(wid) 缺第二个参数会崩 "reading iAmAdmin"）
+          const code = await W.group.getInviteCode(${JSON.stringify(gid)});
+          return 'OK:' + String(code || '');
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
       const txt = String(res || '');
@@ -1838,7 +2008,8 @@
     if (gtAutoJoinLinks) gtAutoJoinLinks.checked = !!gtAutoCfg.joinLinks;
     if (gtSettingsSave) gtSettingsSave.onclick = () => {
       localStorage.setItem('gtAutoCfg', JSON.stringify({ delRemoved: gtAutoDelRemoved.checked, delLeft: gtAutoDelLeft.checked, joinLinks: gtAutoJoinLinks.checked }));
-      gtStatus.textContent = '自动管理设置已保存';
+      syncGtCfgToWebview(wvMap.get(activeId));
+      gtStatus.textContent = '自动管理设置已保存（监听已生效）';
     };
     // 指令设置（localStorage）
     const gtCmdAdminOnly = document.getElementById('gt-cmd-adminonly');
@@ -1849,7 +2020,8 @@
     if (gtCmdDelMsg) gtCmdDelMsg.checked = !!gtCmdCfg.delMsg;
     if (gtCmdSave) gtCmdSave.onclick = () => {
       localStorage.setItem('gtCmdCfg', JSON.stringify({ adminOnly: gtCmdAdminOnly.checked, delMsg: gtCmdDelMsg.checked }));
-      gtStatus.textContent = '指令设置已保存';
+      syncGtCfgToWebview(wvMap.get(activeId));
+      gtStatus.textContent = '指令设置已保存（监听已生效）';
     };
     // 输入链接（批量加群——joinGroupViaInvite）
     const gtLinksInput = document.getElementById('gt-links-input');
