@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./broadcast-original.css">
   <link rel="stylesheet" href="./group-tools-original.css">
+  <link rel="stylesheet" href="./quick-pet-panel.css">
 </head>
 <body>
 <main class="app">
@@ -114,6 +115,7 @@
               <div id="translation-gateway-status" class="translation-hint"></div>
             </section>
           </div>
+          <button class="quick-btn" id="btn-quick-pet" title="快捷话术"><span>⚡</span><span>话术</span></button>
           <button class="quick-btn" id="btn-broadcast" title="群发">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.5l7.8 9M8.1 16.5l7.8-9"/></svg>
             <span>群发</span>
@@ -162,6 +164,13 @@
     </div>
   </section>
 </main>
+
+<aside id="quick-pet-panel" class="quick-pet-panel hidden" aria-label="快捷话术">
+  <div class="qpet-head"><button id="qpet-back" style="display:none">◀</button><span class="qpet-title" id="qpet-title">快捷话术</span><button id="qpet-add" title="添加话术">＋</button><button id="qpet-close">收起</button></div>
+  <div id="qpet-cats"></div>
+  <div id="qpet-scripts"></div>
+</aside>
+<div id="qpet-editor" class="overlay hidden"><div class="qpet-editor-card"><h3 id="qpet-editor-title">添加话术</h3><label>标签<input id="qpet-label" maxlength="40"></label><label>中文<textarea id="qpet-zh" rows="4"></textarea></label><label>翻译文<textarea id="qpet-tr" rows="4"></textarea></label><div class="qpet-actions"><button id="qpet-delete" class="btn-plain hidden">删除</button><span></span><button id="qpet-cancel" class="btn-plain">取消</button><button id="qpet-save" class="btn-add">保存</button></div></div></div>
 
 <!-- 账号右键菜单 -->
 <div id="ctx-menu" class="ctx-menu hidden"></div>
@@ -282,6 +291,10 @@
       <label class="row-item">
         <span>消息声音</span>
         <input type="checkbox" id="cfg-messageSound">
+      </label>
+      <label class="row-item">
+        <span>快捷话术条</span>
+        <input type="checkbox" id="cfg-quickPhraseBar">
       </label>
       <div class="section-title">锁屏</div>
       <div class="row-item">
@@ -762,6 +775,7 @@
 <script src="broadcast-safety.js"></script>
 <script src="webview-bridge-security.js"></script>
 <script src="translation-adapters.js"></script>
+<script src="quick-phrase-inject.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

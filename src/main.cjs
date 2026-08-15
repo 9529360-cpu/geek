@@ -55,6 +55,21 @@ try {
 // Keep each checkout's state isolated; never write into another project copy.
 const ACCOUNTS_FILE = path.join(__dirname, '..', 'data', 'accounts.json');
 const CONFIG_FILE = path.join(__dirname, '..', 'data', 'config.json');
+const QUICK_SCRIPTS_FILE = path.join(__dirname, '..', 'data', 'quick-scripts.json');
+let quickScriptsState = [];
+let quickScriptsQueue = Promise.resolve();
+function normalizeQuickScripts(items) {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set();
+  return items.slice(0, 2000).filter(item => item && typeof item === 'object').map((item, index) => {
+    const id = String(item.id || `script-${index}`).trim().slice(0, 80);
+    const row = { id, label: String(item.label || '').trim().slice(0, 40), zh: String(item.zh || '').trim().slice(0, 10000), translation: String(item.translation || '').trim().slice(0, 10000) };
+    if (!row.id || seen.has(row.id) || !row.label || (!row.zh && !row.translation)) return null;
+    seen.add(row.id); return row;
+  }).filter(Boolean);
+}
+async function loadQuickScripts() { try { quickScriptsState = normalizeQuickScripts(JSON.parse(await fs.readFile(QUICK_SCRIPTS_FILE, 'utf8'))); } catch { quickScriptsState = []; } }
+function saveQuickScripts(next) { quickScriptsState = normalizeQuickScripts(next); const snapshot = JSON.stringify(quickScriptsState, null, 2); quickScriptsQueue = quickScriptsQueue.catch(() => {}).then(async () => { const tmp = `${QUICK_SCRIPTS_FILE}.tmp`; await fs.mkdir(path.dirname(QUICK_SCRIPTS_FILE), { recursive: true }); await fs.writeFile(tmp, snapshot, 'utf8'); await fs.rename(tmp, QUICK_SCRIPTS_FILE); }); return quickScriptsQueue.then(() => quickScriptsState); }
 const PARTITION_PREFIX = 'persist:webview-page-';
 // Ordinary Chrome UA so WhatsApp/Telegram Web don't reject the embedded browser.
 // Same UA family the original Hello-GPT ships (verified working with WhatsApp Web).
@@ -968,6 +983,9 @@ function registerIpcHandlers() {
     return { ...configState };
   });
 
+  ipcMain.handle('quick-scripts:list', async (event) => { assertTrustedSender(event); return quickScriptsState; });
+  ipcMain.handle('quick-scripts:save', async (event, items) => { assertTrustedSender(event); return saveQuickScripts(items); });
+
   ipcMain.handle('window:relaunch', async (event) => {
     assertTrustedSender(event);
     app.relaunch();
@@ -1794,6 +1812,7 @@ app.whenReady().then(async () => {
   startWaLocalServer();
   await loadAccounts();
   await loadConfig();
+  await loadQuickScripts();
   applyLoginItemSettings();
   registerIpcHandlers();
   createMainWindow();
@@ -1833,5 +1852,7 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('accounts:move');
   ipcMain.removeHandler('config:get');
   ipcMain.removeHandler('config:set');
+  ipcMain.removeHandler('quick-scripts:list');
+  ipcMain.removeHandler('quick-scripts:save');
   ipcMain.removeHandler('window:relaunch');
 });

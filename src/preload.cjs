@@ -42,6 +42,10 @@ contextBridge.exposeInMainWorld(
       get: () => ipcRenderer.invoke(channels.config.get),
       set: (patch) => ipcRenderer.invoke(channels.config.set, patch),
     }),
+    quickScripts: Object.freeze({
+      list: () => ipcRenderer.invoke('quick-scripts:list'),
+      save: (items) => ipcRenderer.invoke('quick-scripts:save', items),
+    }),
     platforms: Object.freeze({
       list: () => ipcRenderer.invoke('platforms:list'),
     }),
