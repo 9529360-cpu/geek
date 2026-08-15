@@ -83,9 +83,9 @@
           </button>
           <div id="translation-popover" class="translation-popover hidden" role="dialog" aria-label="翻译通道设置">
             <div class="translation-popover-head"><strong>翻译通道</strong><button type="button" id="translation-close" class="translation-close">×</button></div>
-            <div class="translation-tabs"><button type="button" class="translation-tab active" data-translation-tab="global">全局设置</button><button type="button" class="translation-tab" data-translation-tab="channel">当前聊天</button><button type="button" class="translation-tab" data-translation-tab="gateway">接口</button></div>
+            <div class="translation-tabs"><button type="button" class="translation-tab active" data-translation-tab="global">全局设置</button><button type="button" class="translation-tab" data-translation-tab="channel">当前聊天</button><button type="button" class="translation-tab" data-translation-tab="gateway">服务状态</button></div>
             <section id="translation-tab-global" class="translation-tab-panel translation-tab-panel--scroll">
-              <label class="translation-row"><span>翻译平台</span><select id="translation-source"><option value="local">极客本机翻译</option><option value="remote">极客远程翻译</option></select></label>
+              <label class="translation-row"><span>翻译平台</span><select id="translation-source"><option value="auto">极客智能翻译</option></select></label>
               <label class="translation-row"><span>翻译线路</span><select id="translation-server"><option value="default">默认线路</option><option value="primary">主线路</option><option value="backup">备用线路</option></select></label>
               <label class="translation-row"><span>发送翻译</span><select id="translation-send"><option value="true">启用发送翻译</option><option value="false">禁用发送翻译</option></select></label>
               <label class="translation-row"><span>你的语种</span><select id="translation-send-from"></select></label>
@@ -108,7 +108,6 @@
               <div id="translation-chat-hint" class="translation-hint">请先在 WhatsApp 中打开一个聊天</div>
             </section>
             <section id="translation-tab-gateway" class="translation-tab-panel hidden">
-              <div class="translation-hint">翻译服务由极客统一管理。客户端不显示内部地址，也不保存任何供应商 API Key。</div>
               <div class="translation-service-card"><span>翻译服务</span><strong id="translation-service-label">极客翻译服务</strong></div>
               <button type="button" id="translation-gateway-test" class="translation-save translation-save--secondary">检测服务状态</button>
               <div id="translation-gateway-status" class="translation-hint"></div>

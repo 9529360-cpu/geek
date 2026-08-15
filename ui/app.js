@@ -471,6 +471,9 @@
       wv.setAttribute('height', String(height));
     });
   }
+  // 侧栏折叠带宽度动画；监听容器真实尺寸，逐帧同步 WebView，避免旧宽度残留。
+  const webviewResizeObserver = new ResizeObserver(() => requestAnimationFrame(resizeWebviews));
+  webviewResizeObserver.observe(wvContainer);
 
   // ---------- WebView 创建 ----------
   function getWebview(account) {
@@ -582,7 +585,8 @@
     try { store = JSON.parse(localStorage.getItem('geekTranslationChatConfig') || '{}'); globalStore = JSON.parse(localStorage.getItem('geekTranslationGlobalConfig') || '{}'); } catch {}
     const chatConfig = {};
     Object.entries(store).forEach(([key, value]) => { const prefix = `${account.id}:`; if (key.startsWith(prefix)) chatConfig[key.slice(prefix.length)] = value; });
-    const globalConfig = globalStore[account.id] || {};
+    const globalConfig = { ...(globalStore[account.id] || {}) };
+    if (globalConfig.source === 'local' || globalConfig.source === 'remote') globalConfig.source = 'auto';
     wv.executeJavaScript(`(${function (cfg) {
       try {
         window.__geekTranslationConfig = cfg;
@@ -957,7 +961,7 @@
   const translationStoreKey = 'geekTranslationChatConfig';
   localStorage.removeItem('geekTranslationGateway'); // 旧版地址迁移：服务地址不再保存在客户端渲染层。
   const translationGlobalStoreKey = 'geekTranslationGlobalConfig';
-  const translationGlobalDefaults = { source: 'local', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en', includeZh: true, manual: true, message: true, messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea' };
+  const translationGlobalDefaults = { source: 'auto', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en', includeZh: true, manual: true, message: true, messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea' };
   const globalLanguageSelectIds = ['translation-send-from','translation-send-to','translation-message-from','translation-message-to'];
   for (const id of globalLanguageSelectIds) {
     const select = document.getElementById(id);
@@ -968,7 +972,9 @@
   function translationGlobalStore() { try { return JSON.parse(localStorage.getItem(translationGlobalStoreKey) || '{}'); } catch { return {}; } }
   function activeTranslationGlobalConfig() {
     const store = translationGlobalStore();
-    return { ...translationGlobalDefaults, ...(store[activeId] || {}) };
+    const cfg = { ...translationGlobalDefaults, ...(store[activeId] || {}) };
+    if (cfg.source === 'local' || cfg.source === 'remote') cfg.source = 'auto';
+    return cfg;
   }
   function refreshTranslationGlobalPanel() {
     const cfg = activeTranslationGlobalConfig();
@@ -986,7 +992,7 @@
     if (!activeId) return;
     const bool = id => document.getElementById(id)?.value === 'true';
     const cfg = {
-      source: document.getElementById('translation-source')?.value || 'local', server: document.getElementById('translation-server')?.value || 'default',
+      source: document.getElementById('translation-source')?.value || 'auto', server: document.getElementById('translation-server')?.value || 'default',
       send: bool('translation-send'), sendFrom: document.getElementById('translation-send-from')?.value || 'auto', sendTo: document.getElementById('translation-send-to')?.value || 'en', includeZh: bool('translation-include-zh'), manual: bool('translation-manual'),
       message: bool('translation-message'), messageFrom: document.getElementById('translation-message-from')?.value || 'auto', messageTo: document.getElementById('translation-message-to')?.value || 'zh', group: bool('translation-group'),
       fontSize: document.getElementById('translation-font-size')?.value || '13', fontColor: document.getElementById('translation-font-color')?.value || '#667eea'
