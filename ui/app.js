@@ -1189,12 +1189,11 @@
   if (translationTarget) translationTarget.innerHTML = translationLanguages.map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
   function translationStore() { try { return JSON.parse(accountStorageGetItem('translationChats') || '{}'); } catch { return {}; } }
   async function currentTranslationChat() {
+    const account = accounts.find(item => item.id === activeId);
     const wv = wvMap.get(activeId);
-    if (!wv || typeof wv.executeJavaScript !== 'function') return null;
-    try {
-      const id = await wv.executeJavaScript(`(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`);
-      return id ? String(id) : null;
-    } catch { return null; }
+    if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
+    try { return await platformTransportFor(account, wv).getCurrentChat(); }
+    catch { return null; }
   }
   async function refreshTranslationPanel() {
     const chatId = await currentTranslationChat();
@@ -1430,32 +1429,55 @@
     line: {
       getChats: `(() => {
         const out = [];
-        document.querySelectorAll('[class*="mdMN02Item"]').forEach(el => {
-          const t = el.querySelector('[class*="mdMN02Thumb"], [class*="Title"], [class*="title"]');
-          out.push({ id: el.getAttribute('data-id') || '', name: (t ? t.textContent : el.textContent).trim().slice(0, 40) });
+        document.querySelectorAll('[class*="chatlistItem-module__chatlist_item__"][data-mid]').forEach(row => {
+          const name = row.querySelector('[class*="chatlistItem-module__title_box__"] [class*="chatlistItem-module__text__"], [class*="chatlistItem-module__title_box__"] pre, [class*="chatlistItem-module__title_box__"]');
+          out.push({ id: String(row.getAttribute('data-mid') || ''), name: (name?.textContent || '').trim().replace(/\\s*\\(\\d+\\)\\s*$/, ''), type: row.querySelector('[class*="member_count"]') ? '群组' : '联系人' });
         });
-        return JSON.stringify(out);
+        return JSON.stringify(out.filter(item => item.id && item.name));
       })()`,
       switchChat: (id) => `(() => {
-        const el = document.querySelector('[data-id="${id}"]');
-        if (el) { el.click(); return true; }
-        return false;
+        const row = document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid="${id}"]');
+        const button = row?.querySelector('[class*="button_chatlist_item"]');
+        if (!button) return false; button.click(); return true;
       })()`,
       setMessage: (msg) => `(() => {
-        const ed = document.querySelector('[class*="mdCMN09Input"], [contenteditable="true"], textarea');
-        if (!ed) return false;
-        ed.focus();
-        document.execCommand('insertText', false, ${JSON.stringify(msg)});
-        return true;
+        const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+        const textarea = host?.shadowRoot?.querySelector('textarea');
+        if (!host || !textarea || typeof host.insertValue !== 'function') return 'NO_EDITOR';
+        textarea.focus(); document.execCommand('selectAll', false, null); host.insertValue([${JSON.stringify(msg)}]);
+        const text = (Array.isArray(host.value) ? host.value : [host.value]).filter(value => typeof value === 'string').join('').trim();
+        return text === ${JSON.stringify(msg)}.trim() ? 'OK' : 'EMPTY';
       })()`,
-      send: `(() => {
-        const ed = document.querySelector('[class*="mdCMN09Input"], [contenteditable="true"], textarea');
-        if (!ed) return false;
-        ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-        return true;
+      send: `(async () => {
+        const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+        const textarea = host?.shadowRoot?.querySelector('textarea');
+        if (!host || !textarea) return 'NO_EDITOR';
+        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
+        for (let i = 0; i < 40; i++) { await new Promise(resolve => setTimeout(resolve, 250)); const value = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim(); if (!value) return 'SENT'; }
+        return 'MAYBE';
       })()`,
     },
   };
+  function platformTransportFor(account, wv) {
+    if (!account || !wv) throw new Error('平台账号不可用');
+    const family = familyOf(account.type).key;
+    const transport = BROADCAST_ADAPTERS[family] || BROADCAST_ADAPTERS['telegram-z'];
+    const currentChatScripts = {
+      whatsapp: `(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`,
+      telegram: `(() => String(location.hash || '').replace(/^#/, '').split('?')[0] || null)()`,
+      line: `(() => { const hit=String(location.hash || '').match(/\\/chats\\/([^/?]+)/); return hit ? decodeURIComponent(hit[1]) : null; })()`,
+    };
+    const adapter = Object.freeze({
+      family, accountId: account.id, transport,
+      async getCurrentChat() { const id = await wv.executeJavaScript(currentChatScripts[family] || 'null'); return id ? String(id) : null; },
+      async listChats() { const result = await wv.executeJavaScript(transport.getChats); const text = String(result || '[]'); if (text.startsWith('ERR:')) throw new Error(text.slice(4)); return JSON.parse(text); },
+      async openChat(chatId) { return wv.executeJavaScript(transport.switchChat(chatId)); },
+      async setComposerText(text) { const script = typeof transport.setMessage === 'function' ? transport.setMessage(text) : transport.setMessage; return wv.executeJavaScript(script); },
+      async sendText(text = '') { const script = typeof transport.send === 'function' ? transport.send(text) : transport.send; return wv.executeJavaScript(script); },
+    });
+    return window.GeekPlatformAdapterContract.validate(adapter, window.GeekPlatformAdapterContract.hostRequired);
+  }
+  window.GeekPlatformTransports = Object.freeze({ forAccount: platformTransportFor });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let broadcastChats = [];      // 全部聊天
   let broadcastSelected = new Set(); // 勾选 id
@@ -1553,11 +1575,9 @@
     const account = accounts.find(a => a.id === activeId);
     const wv = wvMap.get(activeId);
     if (!account || !wv) { bMetaEl.textContent = '当前账号不可用'; return; }
-    const key = familyOf(account.type).key;
-    const adapter = BROADCAST_ADAPTERS[key] || BROADCAST_ADAPTERS['telegram-z'];
+    const platform = platformTransportFor(account, wv);
     try {
-      const res = await wv.executeJavaScript(adapter.getChats);
-      broadcastChats = JSON.parse(String(res));
+      broadcastChats = await platform.listChats();
       bMetaEl.textContent = `共 ${broadcastChats.length} 个聊天（联系人和群组）`;
       renderBroadcastList();
       const excludeMode = document.querySelector('input[name="bc-sendto"]:checked')?.value;
@@ -2005,8 +2025,8 @@
     broadcastCurrent = 0;
     broadcastOkCount = 0;
     showSendingView();
-    const key = familyOf(account.type).key;
-    const adapter = BROADCAST_ADAPTERS[key] || BROADCAST_ADAPTERS['telegram-z'];
+    const platform = platformTransportFor(account, wv);
+    const adapter = platform.transport;
     document.getElementById('broadcast-send').classList.add('hidden');
     const total = targets.length;
     let ok = 0, fail = 0;
@@ -2081,7 +2101,7 @@
             if (String(sentOk).startsWith('ERR:名片:')) break;
             continue;
           }
-          await wv.executeJavaScript(adapter.switchChat(t.id));
+          await platform.openChat(t.id);
           await sleep(900); // 等聊天打开
           if (broadcastFiles.length) {
             // 附件：真实拖拽（主进程 CDP）→ 等 TG 弹出发送确认
@@ -2095,8 +2115,8 @@
             sentOk = await wv.executeJavaScript(adapter.send(personalMsg)); // 弹窗 caption + Send
           } else {
             // 纯文字
-            setOk = await wv.executeJavaScript(adapter.setMessage(personalMsg));
-            sentOk = await wv.executeJavaScript(adapter.send(''));
+            setOk = await platform.setComposerText(personalMsg);
+            sentOk = await platform.sendText('');
             if (setOk !== 'OK') failReasons.push(`${t.name}: 输入失败 ${setOk}`);
           }
           if (sentOk === 'SENT' || sentOk === 'CLICKED') break; // 成功
