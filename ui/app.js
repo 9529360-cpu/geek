@@ -621,7 +621,9 @@
         }
         return 'OK';
       } catch (error) { return 'ERR:' + error.message; }
-    }.toString()})(${JSON.stringify({ endpoint: String(gateway.url || '').replace(/\/$/, ''), chats: chatConfig })})()`).catch(() => {});
+    }.toString()})(${JSON.stringify({ endpoint: String(gateway.url || '').replace(/\/$/, ''), chats: chatConfig })})()`).then((result) => {
+      if (String(result || '').includes('NO_SEND_MODULE')) setTimeout(() => syncTranslationCfgToWebview(wv, account), 3000);
+    }).catch(() => {});
   }
 
   // ---------- 切换账号 ----------
