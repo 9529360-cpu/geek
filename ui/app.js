@@ -705,7 +705,7 @@
       const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (!payload || payload.bridgeToken !== suppliedToken) throw new Error('翻译请求令牌不匹配');
       const account = accounts.find(item => wvMap.get(item.id) === wv);
-      if (!account || account.type !== 'line') throw new Error('LINE翻译账号沙箱不存在');
+      if (!account || (account.type !== 'line' && account.type !== 'line-business')) throw new Error('LINE翻译账号沙箱不存在');
       const { bridgeToken: _bridgeToken, ...safePayload } = payload;
       const result = await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
@@ -735,11 +735,11 @@
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
     if (!wv || !account) return;
-    if (account.type === 'telegram-z' || account.type === 'telegram' || account.type === 'telegram-pure') {
+    if (account.type === 'telegram-z' || account.type === 'telegram' || account.type === 'telegram-pure' || account.type === 'telegram-k') {
       syncTelegramTranslationCfgToWebview(wv, account);
       return;
     }
-    if (account.type === 'line') {
+    if (account.type === 'line' || account.type === 'line-business') {
       syncLineTranslationCfgToWebview(wv, account);
       return;
     }

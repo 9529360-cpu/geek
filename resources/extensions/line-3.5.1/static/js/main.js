@@ -3835,7 +3835,7 @@ var _global = 'undefined' !== typeof window ? window : 'undefined' !== typeof gl
                                     ;(0, f.default)(
                                       this,
                                       b,
-                                      new EventSource((0, v.createUrl)(t, n || {}), {
+                                      new window.GeekAuthenticatedEventSource((0, v.createUrl)(t, n || {}), {
                                         withCredentials: r
                                       })
                                     ),
@@ -84435,8 +84435,9 @@ var _global = 'undefined' !== typeof window ? window : 'undefined' !== typeof gl
           }
         }
         let ox
-        const sx = () => (ox || (ox = new ix()), ox),
-          lx = {
+        const sx = () => (ox || (ox = new ix()), ox)
+        window.g_plugin_hmac = sx
+        const lx = {
             tokenV3IssueResult: {
               accessToken: '',
               refreshToken: '',
@@ -85688,7 +85689,13 @@ var _global = 'undefined' !== typeof window ? window : 'undefined' !== typeof gl
               }))
           }
           async init() {
-            const e = dx().getTokenV3IssueResult()
+            let e = dx().getTokenV3IssueResult()
+            if (!e.accessToken) {
+              try {
+                const saved = localStorage.getItem('__stardust_line_token')
+                if (saved) e = JSON.parse(saved)
+              } catch (_e) {}
+            }
             if (!e.accessToken) throw new Pp(Ad.ACCESS_TOKEN_NOT_EXISTS)
             var t
             await ((t = async () => Number(await fB())),
@@ -85725,11 +85732,18 @@ var _global = 'undefined' !== typeof window ? window : 'undefined' !== typeof gl
           }
           getAccessToken() {
             var e, t
-            return hS().withoutAccessToken
-              ? ''
-              : null !== (e = null === (t = this.tokenV3IssueResult) || void 0 === t ? void 0 : t.accessToken) && void 0 !== e
-              ? e
-              : (function() { try { var s = localStorage.getItem('__stardust_line_token'); if (s) { var j = JSON.parse(s); this.tokenV3IssueResult = j; return j.accessToken || '' } } catch (_e) {} return '' }).call(this)
+            if (hS().withoutAccessToken) return ''
+            e = null === (t = this.tokenV3IssueResult) || void 0 === t ? void 0 : t.accessToken
+            if (e) return e
+            try {
+              var s = localStorage.getItem('__stardust_line_token')
+              if (s) {
+                var j = JSON.parse(s)
+                this.tokenV3IssueResult = j
+                return j.accessToken || ''
+              }
+            } catch (_e) {}
+            return ''
           }
           async getChannelAccessToken() {
             const e = eT(1)

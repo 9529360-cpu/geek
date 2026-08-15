@@ -94,7 +94,7 @@
       if (!textNode) {
         if (!row.dataset.geekTelegramTranslationRetry) {
           row.dataset.geekTelegramTranslationRetry = '1';
-          setTimeout(() => { delete row.dataset.geekTelegramTranslationRetry; delete row.dataset.geekTelegramTranslationState; process(row); }, 500);
+          setTimeout(() => { delete row.dataset.geekTelegramTranslationRetry; delete row.dataset.geekTelegramTranslationState; process(row, isHistory); }, 500);
         }
         return;
       }

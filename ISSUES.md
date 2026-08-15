@@ -28,3 +28,20 @@
 - ✅ **重启后两个账号全部自动恢复**（直接进聊天页面，不用再扫码）
 - ✅ WhatsApp 重启恢复（基础架构验证）
 - 当前复刻进程：CDP 9344（`proc_fdbaa6d920bf`）
+
+## 跨平台翻译回归（2026-08-16）
+
+### 已修复
+- Telegram 历史消息文本节点延迟出现时，500ms 重试原先调用 `process(row)`，会丢失 `isHistory` 并把旧历史误当实时消息；现改为 `process(row, isHistory)`。
+- Telegram K 虽在账号类型与主进程白名单内，但翻译平台映射和 renderer 注入条件漏了 `telegram-k`；现与 Telegram Z 共用适配器。
+- LINE Business 的扩展页面白名单、WebView 翻译桥登记、renderer 注入和 IPC 账号校验原先只接受 `line`；现普通版与商业版共用完整 LINE 加载与翻译链路。
+- 新增 `test/translation-platform-contract.cjs`，锁定 Telegram K、LINE Business 和历史消息重试契约。
+- LINE 重启后虽然 token 未过期、普通 API 为 200，但实时流 `/api/operation/receive` 返回 401 `REQUEST_NEED_LOGIN`。根因不是 token 失效：原生 `EventSource` 无法携带 `X-Line-Access/X-Hmac`。现增加 `GeekAuthenticatedEventSource`，复用 LINE 官方 token manager 与 HMAC sandbox，通过 Fetch SSE 携带认证头；单测与真实 `OPEN` 验证通过。
+- LINE token manager 初始化现在会在安全存储为空时先恢复 `__stardust_line_token`；getter 也把空字符串视为未恢复状态，不再被 nullish 分支提前截断。
+
+### 本轮非破坏性实测
+- 极客主页面加载完成，5 个账号 WebView 全部恢复；页面源码与 UI 均无快捷话术功能入口。
+- 两路 WhatsApp 页面加载完成，其中一路可见 6 个已有译文框；未执行发消息或群发。
+- Telegram 登录页恢复，翻译配置、请求桥和适配器均已注入；当前没有选中聊天，所以本轮未产生新译文。
+- 两路 LINE 均恢复到 `#/chats` 且本地 token 有效；认证实时流进入 `OPEN`，“网络不稳定”已消失，当前在线状态通过。
+- 本地翻译网关 `/health` 返回 200，实际 POST `Hello` → `你好` 成功。

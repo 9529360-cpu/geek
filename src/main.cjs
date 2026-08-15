@@ -810,7 +810,7 @@ function registerIpcHandlers() {
     const guest = webContents.fromId(Number(guestId));
     const guestUrl = guest?.getURL?.() || '';
     const isTelegram = ['telegram-z', 'telegram', 'telegram-pure', 'telegram-k'].includes(account?.type);
-    const isLine = account?.type === 'line';
+    const isLine = account?.type === 'line' || account?.type === 'line-business';
     const allowedPage = (isTelegram && /^https:\/\/web\.telegram\.org\//.test(guestUrl))
       || (isLine && /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl));
     if (!account || !guest || guest === event.sender || guest.hostWebContents !== event.sender || guest.session !== session.fromPartition(partition) || !allowedPage) throw new Error('WebView登记失败');
@@ -1472,7 +1472,7 @@ function configureWebviewSecurity(window) {
 
     // Line 账号允许加载 LINE 官方扩展页面（chrome-extension://）
     const isLineExtensionPage =
-      account.type === 'line' &&
+      (account.type === 'line' || account.type === 'line-business') &&
       parsedSource.protocol === 'chrome-extension:' &&
       parsedSource.host === LINE_EXTENSION_ID;
 

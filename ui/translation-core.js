@@ -5,7 +5,7 @@
   const CHINESE_RE = /[\u3400-\u9fff]/;
   const PLATFORM_TYPES = Object.freeze({
     whatsapp: new Set(['whatsapp', 'whatsapp-pure']),
-    telegram: new Set(['telegram', 'telegram-z', 'telegram-pure']),
+    telegram: new Set(['telegram', 'telegram-z', 'telegram-pure', 'telegram-k']),
     line: new Set(['line', 'line-business', 'linebusiness'])
   });
   const adapters = new Map();

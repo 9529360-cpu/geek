@@ -2,14 +2,15 @@
 
 Electron 多平台多账号客户端（复刻 Hello-GPT v1.4.39 的架构与行为）。
 
-> 状态：**LINE 全链路已攻破**（扫码登录 / 聊天 / 发消息 / 重启自动恢复）——2026-08-13 用户双账号实测通过。
-> 平台只做 WhatsApp / Telegram / LINE 三平台共 6 类型（对齐原版：WA=普通+纯净版、TG=Z版+K版、LINE=普通+商业版），不做翻译。
+> 当前范围：WhatsApp / Telegram / LINE 三平台共 6 类型（WA=普通+纯净版、TG=Z版+K版、LINE=普通+商业版），支持多账号沙箱、群发和统一翻译桥。
+> 2026-08-16 非破坏性回归：极客主页面和 5 个账号 WebView 正常恢复；两路 WA 与 TG 已登录，TG 翻译适配器已注入；两路 LINE token、聊天页和认证实时事件流均恢复，“网络不稳定”已消失。
+> TG 翻译策略：缓存命中优先；未命中才进入主进程 20 并发队列；旧历史消息默认不自动翻译；历史 DOM 延迟重试仍保留 `isHistory`。
 
 ## 技术架构
 
 ```
 main.cjs (主进程)
- ├── 9 个 webview 常驻（每账号一个独立 partition: persist:webview-page-<id>）
+ ├── 每账号一个常驻 webview（独立 partition: persist:webview-page-<id>）
  ├── session.loadExtension(扩展目录)  → MV3 Chrome 扩展
  ├── webRequest 日志/拦截（[line-api] 全量）
  └── electron-updater（自动更新框架）
@@ -61,6 +62,18 @@ useragent="Mozilla/5.0 ... Chrome/124"        ← 标签属性（webPreferences.
 - 不要 mock chrome.storage（破坏原生 LevelDB 持久化）
 - 主进程对齐原版参数：`--no-sandbox --no-zygote --js-flags=--max-old-space-size=4096 --service-worker-schemes=http,https`
 
+### 6. 跨平台翻译
+- WA / TG / LINE 只通过受保护的 WebView 桥向主进程提交文本和语种；客户端页面不持有翻译服务地址或供应商密钥。
+- 开发环境默认使用 `http://127.0.0.1:18991`，正式打包版必须通过 `GEEK_TRANSLATION_GATEWAY_URL` 配置 HTTPS 服务。
+- 翻译缓存按账号 partition 隔离，缓存键不保存原文明文，译文使用 Electron `safeStorage` 加密持久化。
+- Telegram Z/K 与 LINE 普通/商业版使用同一平台适配器；回归测试锁定 6 类型映射和注入分支。
+- 2026-08-16 网关实测：`/health` 返回 200（3 个模型），`Hello` 英译中返回“你好”。
+
+### 7. LINE 重启后的实时流认证
+- LINE 普通 API 使用 `X-Line-Access` 与 `X-Hmac`，重启后可由持久化 token 恢复；实时收消息走原生 `EventSource`，标准实现不能携带这两个认证头，表现为普通 API 200、`/api/operation/receive` 401、页面显示“网络不稳定”。
+- 当前扩展增加 `GeekAuthenticatedEventSource`：仍调用 LINE 自带 token manager 和 HMAC sandbox，只替换实时流传输层为带认证头的 Fetch SSE，不修改消息业务协议。
+- 真实验证：两路 LINE 页面恢复到 `#/chats`，token 有效；认证事件流进入 `OPEN`，页面不再显示“网络不稳定”。
+
 ## 运行
 
 ```bash
@@ -68,7 +81,23 @@ npm install           # electron@35.5.1
 npx electron . --remote-debugging-port=9344
 ```
 
-调试：CDP `http://127.0.0.1:9344`；杀进程 `MSYS2_ARG_CONV_EXCL='*' taskkill /F /IM electron.exe`
+调试：CDP `http://127.0.0.1:9344`。重启时先用 `netstat -ano` 核对 9344 的 PID，只结束该项目 PID 树，不按进程名误杀其他 Electron 应用。
+
+## 验证
+
+```bash
+node --check src/main.cjs
+node --check src/preload.cjs
+node --check ui/app.js
+node --check ui/translation-core.js
+node --check ui/translation-adapters.js
+node test/broadcast-safety-contract.cjs
+node test/webview-bridge-security.cjs
+node test/webview-ownership.cjs
+node test/translation-platform-contract.cjs
+node test/line-token-fallback-contract.cjs
+node test/line-authenticated-event-source.cjs
+```
 
 ## 目录
 
