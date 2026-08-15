@@ -267,13 +267,12 @@
   }
   function accountStorageGetItemFor(accountId, key) { const data = accountSandboxById.get(accountId); return data && Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; }
   function accountStorageGetItem(key) { return accountStorageGetItemFor(activeId, key); }
-  function accountStorageSetItemFor(accountId, key, value) {
-    if (!accountId) return Promise.resolve(false);
-    const raw = String(value), data = accountSandboxById.get(accountId) || {};
+  function accountStorageSetItem(key, value) {
+    if (!activeId) return Promise.resolve(false);
+    const accountId = activeId, raw = String(value), data = accountSandboxById.get(accountId) || {};
     const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; data[key] = raw; accountSandboxById.set(accountId, data);
     return window.api.accountData.set(accountId, key, raw).catch(error => { if (had) data[key] = previous; else delete data[key]; console.error('账号沙箱保存失败:', key, error.message); return false; });
   }
-  function accountStorageSetItem(key, value) { return accountStorageSetItemFor(activeId, key, value); }
   function accountStorageRemoveItem(key) {
     if (!activeId) return Promise.resolve(false);
     const accountId = activeId, data = accountSandboxById.get(accountId) || {}; const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; delete data[key];
@@ -582,7 +581,7 @@
       const m = title.match(/^[(\[（]\s*(\d+)\s*[)\]\）]/);
       updateUnread(account.id, m ? parseInt(m[1], 10) : 0);
     });
-    wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); handleQuickPhraseConsole(wv, event); });
+    wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
     wv.addEventListener('ipc-message', (event) => handleLineTranslationIpc(wv, event));
     wvContainer.appendChild(wv);
     setTimeout(() => {
@@ -600,9 +599,9 @@
     resizeWebviews();
     // 群组工具监听器：WA 页面就绪后注入（幂等；页面重载后自动重新注入）
     if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') {
-      wv.addEventListener('dom-ready', () => { injectGtAgent(wv, account); syncTranslationCfgToWebview(wv, account); syncQuickPhraseToWebview(wv, account); });
+      wv.addEventListener('dom-ready', () => { injectGtAgent(wv, account); syncTranslationCfgToWebview(wv, account); });
     } else {
-      wv.addEventListener('dom-ready', () => { syncTranslationCfgToWebview(wv, account); syncQuickPhraseToWebview(wv, account); });
+      wv.addEventListener('dom-ready', () => { syncTranslationCfgToWebview(wv, account); });
     }
     return wv;
   }
@@ -716,52 +715,6 @@
       changeWebviewBridgeInflight(wv, -1);
     }
   }
-
-  // ---------- 内置快捷话术插件：webview → 外壳桥（删除持久化到账号沙箱） ----------
-  const QUICK_PHRASE_REQUEST_PREFIX = '__GEEK_QUICKPHRASE_REQUEST__:';
-  async function handleQuickPhraseConsole(wv, event) {
-    const message = String(event?.message || '');
-    if (!message.startsWith(QUICK_PHRASE_REQUEST_PREFIX)) return;
-    const parts = message.slice(QUICK_PHRASE_REQUEST_PREFIX.length).split(':');
-    const requestId = parts.shift();
-    const suppliedToken = parts.shift() || '';
-    const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
-    if (!authorization.ok) return;
-    changeWebviewBridgeInflight(wv, 1);
-    try {
-      const raw = await wv.executeJavaScript(`window.__geekTakeQuickPhraseRequest?.(${JSON.stringify(requestId)}) || null`);
-      const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (!payload || payload.bridgeToken !== suppliedToken) throw new Error('快捷话术请求令牌不匹配');
-      const account = accounts.find(item => wvMap.get(item.id) === wv);
-      if (!account) throw new Error('快捷话术账号沙箱不存在');
-      let result = 'OK';
-      if (payload.action === 'delete') {
-        const name = String(payload.name || '');
-        // 与群发弹窗「删除已保存消息」同一份账号沙箱数据（写请求方账号，不是当前激活账号）
-        let rows = [];
-        try { rows = JSON.parse(accountStorageGetItemFor(account.id, 'savedMessages') || '[]'); } catch (e) {}
-        if (!Array.isArray(rows)) rows = [];
-        rows = rows.filter(m => m.name !== name);
-        await accountStorageSetItemFor(account.id, 'savedMessages', JSON.stringify(rows));
-        if (account.id === activeId) { savedMessages = rows; renderSavedMessages(); }
-        syncQuickPhraseToAll(); // 同步到该账号全部平台 webview
-        result = 'DELETED';
-      }
-      await wv.executeJavaScript(`window.__geekResolveQuickPhrase?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
-    } catch (error) {
-      try { await wv.executeJavaScript(`window.__geekResolveQuickPhrase?.(${JSON.stringify(requestId)}, null, ${JSON.stringify(String(error?.message || error))})`); } catch {}
-    } finally {
-      changeWebviewBridgeInflight(wv, -1);
-    }
-  }
-
-  // 旧版输入框上方快捷按钮已废弃：只负责清理历史注入，绝不再向聊天页面添加按钮。
-  function syncQuickPhraseToWebview(wv) {
-    if (!wv) return;
-    wv.executeJavaScript(`(() => { try { window.__geekQuickPhraseUninstall?.(); document.querySelectorAll('.msgsalvasrapidasdiv,#wupe-qr-tt').forEach(el => el.remove()); return 'REMOVED'; } catch { return 'REMOVE_FAILED'; } })()`).catch(() => {});
-  }
-  function syncQuickPhraseToAll() { accounts.forEach(account => syncQuickPhraseToWebview(wvMap.get(account.id))); }
-  window.__geekQuickPhraseReinjectAll = syncQuickPhraseToAll;
 
   function syncTelegramTranslationCfgToWebview(wv, account) {
     const installer = window.GeekTranslationAdapters?.telegram;
@@ -2357,7 +2310,6 @@
     savedMessages.splice(i, 1);
     accountStorageSetItem('savedMessages', JSON.stringify(savedMessages));
     renderSavedMessages();
-    syncQuickPhraseToAll(); // 快捷话术条同步
   }
   function renderSavedMessages() {
     if (!savedMessagesEl || !savedMessageListEl) return;
@@ -2392,7 +2344,6 @@
     if (old >= 0) savedMessages[old] = item; else savedMessages.push(item);
     accountStorageSetItem('savedMessages', JSON.stringify(savedMessages));
     renderSavedMessages();
-    syncQuickPhraseToAll(); // 快捷话术条同步
   };
   if (savedMessagesEl) savedMessagesEl.onchange = () => {
     const i = parseInt(savedMessagesEl.value);
@@ -3509,7 +3460,6 @@
     document.getElementById('cfg-autoLaunch').checked = !!config.autoLaunch;
     document.getElementById('cfg-isStartupMinimize').checked = !!config.isStartupMinimize;
     document.getElementById('cfg-messageSound').checked = !!config.messageSound;
-
     document.getElementById('cfg-lockPassword').value = config.lockPassword || '';
     document.getElementById('cfg-openProxy').checked = !!config.openProxy;
     document.getElementById('cfg-protocal').value = config.protocal || 'http';
@@ -3527,7 +3477,6 @@
     });
     if (activeId) accSelect.value = activeId;
     loadAccountSettingsForm();
-    syncQuickPhraseToAll(); // 快捷话术条开关以持久化配置为准
   }
 
   function loadAccountSettingsForm() {
@@ -3551,7 +3500,6 @@
         autoLaunch: document.getElementById('cfg-autoLaunch').checked,
         isStartupMinimize: document.getElementById('cfg-isStartupMinimize').checked,
         messageSound: document.getElementById('cfg-messageSound').checked,
-
         lockPassword: document.getElementById('cfg-lockPassword').value,
         openProxy: document.getElementById('cfg-openProxy').checked,
         protocal: document.getElementById('cfg-protocal').value,
@@ -3579,7 +3527,6 @@
 
       await loadAccounts();
       applyTheme(configPatch.theme, configPatch.accent); // 保存后立即换主题
-      syncQuickPhraseToAll(); // 快捷话术条开关即时生效
       closeSettings();
     } catch (e) {
       alert('保存失败: ' + e.message);
@@ -3598,7 +3545,6 @@
     broadcastSavedFilter = null; broadcastSelected.clear();
     armScheduleTasks(); renderScheduleList(); renderSavedMessages(); renderSavedLists(); renderSavedGroups(); refreshGroupLinksUi(); renderBroadcastList();
     renderTypedExclude('contacts'); renderTypedExclude('groups');
-    syncQuickPhraseToAll();
     const auto = parse('gtAutoCfg', {}), cmd = parse('gtCmdCfg', {}), names = parse('gtCmdNames', {});
     const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
     setChecked('gt-auto-del-removed', auto.delRemoved); setChecked('gt-auto-del-left', auto.delLeft); setChecked('gt-auto-join-links', auto.joinLinks);
@@ -3647,56 +3593,6 @@
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
-
-  // ---------- 蓝拓启航桌宠展开面板的快捷话术移植 ----------
-  const quickPetPanel = document.getElementById('quick-pet-panel');
-  const qpetCats = document.getElementById('qpet-cats');
-  const qpetScripts = document.getElementById('qpet-scripts');
-  let qpetMode = 1, qpetLabel = '', qpetEditingId = '';
-  async function qpetLoad() { return window.GeekQuickScripts ? window.GeekQuickScripts.normalize(await window.api.quickScripts.list()) : (await window.api.quickScripts.list()); }
-  function qpetEsc(value) { return escapeHtml(value); }
-  async function qpetRenderCats() {
-    const rows = await qpetLoad();
-    const labels = [...new Set(rows.map(row => row.label))];
-    qpetMode = 1; qpetLabel = '';
-    qpetCats.style.display = 'grid'; qpetScripts.style.display = 'none'; document.getElementById('qpet-back').style.display = 'none'; document.getElementById('qpet-title').textContent = '快捷话术';
-    qpetCats.innerHTML = labels.map(label => `<div class="qpet-cat" data-qpet-label="${qpetEsc(label)}"><span>▸</span><span>${qpetEsc(label)}</span><span class="n">${rows.filter(row => row.label === label).length}</span></div>`).join('') || '<div class="qpet-empty">还没有话术<br>点击右上角＋添加</div>';
-  }
-  async function qpetRenderScripts() {
-    const rows = (await qpetLoad()).filter(row => row.label === qpetLabel);
-    qpetMode = 2; qpetCats.style.display = 'none'; qpetScripts.style.display = 'block'; document.getElementById('qpet-back').style.display = 'inline-block'; document.getElementById('qpet-title').textContent = qpetLabel;
-    qpetScripts.innerHTML = rows.map(row => `<div class="qpet-script" data-qpet-id="${qpetEsc(row.id)}" title="点击填入当前聊天"><span class="zh">${qpetEsc(row.zh || '（无中文）')}</span>${row.translation ? `<span class="tr">${qpetEsc(row.translation)}</span>` : ''}<button class="edit" data-qpet-edit="${qpetEsc(row.id)}">编辑</button></div>`).join('') || '<div class="qpet-empty">这个标签下还没有话术</div>';
-  }
-  async function qpetSave(rows) { await window.api.quickScripts.save(rows); if (qpetMode === 2) await qpetRenderScripts(); else await qpetRenderCats(); }
-  function qpetOpenEditor(item) {
-    qpetEditingId = item?.id || ''; document.getElementById('qpet-editor-title').textContent = item ? '编辑话术' : '添加话术'; document.getElementById('qpet-label').value = item?.label || qpetLabel || ''; document.getElementById('qpet-zh').value = item?.zh || ''; document.getElementById('qpet-tr').value = item?.translation || ''; document.getElementById('qpet-delete').classList.toggle('hidden', !item); document.getElementById('qpet-editor').classList.remove('hidden');
-  }
-  function qpetCloseEditor() { document.getElementById('qpet-editor').classList.add('hidden'); qpetEditingId = ''; }
-  async function qpetFill(item) {
-    const account = accounts.find(row => row.id === activeId); if (!account) return alert('请先选择一个账号');
-    const platform = platformTransportFor(account); const chatId = await platform.getCurrentChat(); if (!chatId) return alert('请先在当前平台打开一个聊天');
-    let text = String(item.translation || '').trim();
-    if (!text) {
-      const global = (() => { try { return JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch { return {}; } })();
-      const result = await window.api.translation.translate({ accountId: account.id, text: item.zh, source: 'auto', target: global.sendTo || 'en', provider: global.source || 'auto', route: global.server || 'default', chatId });
-      text = String(result?.text || '').trim(); if (!text) return alert('翻译服务未返回译文');
-      const rows = await qpetLoad(); await window.api.quickScripts.save(rows.map(row => row.id === item.id ? { ...row, translation: text } : row));
-    }
-    if (!window.GeekBroadcastSafety.sameChat(await platform.getCurrentChat(), chatId)) return alert('当前聊天已经变化，已停止填入');
-    const result = await platform.setComposerText(text); if (result !== 'OK' || !window.GeekBroadcastSafety.sameChat(await platform.getCurrentChat(), chatId)) return alert('没有成功填入，已停止');
-  }
-  window.api.quickScripts.onFillRequest(async id => { const item = (await window.api.quickScripts.list()).find(row => row.id === String(id)); if (item) await qpetFill(item); });
-  window.api.quickScripts.onEditorRequest(async id => { const item = id ? (await window.api.quickScripts.list()).find(row => row.id === String(id)) : null; qpetOpenEditor(item || null); });
-  document.getElementById('btn-quick-pet').onclick = () => window.api.quickPet.toggle();
-  document.getElementById('qpet-close').onclick = () => quickPetPanel.classList.add('hidden');
-  document.getElementById('qpet-back').onclick = qpetRenderCats;
-  document.getElementById('qpet-add').onclick = () => qpetOpenEditor(null);
-  qpetCats.addEventListener('click', async event => { const cat = event.target.closest('[data-qpet-label]'); if (!cat) return; qpetLabel = cat.dataset.qpetLabel; await qpetRenderScripts(); });
-  qpetScripts.addEventListener('click', async event => { const node = event.target.closest('[data-qpet-id]'); if (!node) return; const rows = await qpetLoad(), item = rows.find(row => row.id === node.dataset.qpetId); if (!item) return; if (event.target.closest('[data-qpet-edit]')) qpetOpenEditor(item); else await qpetFill(item); });
-  document.getElementById('qpet-cancel').onclick = qpetCloseEditor;
-  document.getElementById('qpet-editor').addEventListener('click', event => { if (event.target.id === 'qpet-editor') qpetCloseEditor(); });
-  document.getElementById('qpet-save').onclick = async () => { const label = document.getElementById('qpet-label').value.trim(), zh = document.getElementById('qpet-zh').value.trim(), translation = document.getElementById('qpet-tr').value.trim(); if (!label || (!zh && !translation)) return alert('标签必填，中文和翻译文至少填写一项'); const rows = await qpetLoad(), next = { id: qpetEditingId || `script-${Date.now()}`, label, zh, translation }; await qpetSave(qpetEditingId ? rows.map(row => row.id === qpetEditingId ? next : row) : [...rows, next]); qpetLabel = label; qpetCloseEditor(); if (qpetMode === 2) await qpetRenderScripts(); };
-  document.getElementById('qpet-delete').onclick = async () => { if (!qpetEditingId || !confirm('删除这条话术？')) return; await qpetSave((await qpetLoad()).filter(row => row.id !== qpetEditingId)); qpetCloseEditor(); };
 
   // ---------- 主题应用 ----------
   const ACCENTS = ['green', 'blue', 'purple', 'cyan', 'orange', 'pink'];
