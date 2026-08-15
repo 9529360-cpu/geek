@@ -554,7 +554,7 @@
       const m = title.match(/^[(\[（]\s*(\d+)\s*[)\]\）]/);
       updateUnread(account.id, m ? parseInt(m[1], 10) : 0);
     });
-    wv.addEventListener('console-message', (event) => handleTranslationConsole(wv, event));
+    wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
     wvContainer.appendChild(wv);
     wv.addEventListener('dom-ready', () => {
       if (lineReadyPartitions.has(account.partition)) {
@@ -610,6 +610,24 @@
   }
 
   const TRANSLATION_REQUEST_PREFIX = '__GEEK_TRANSLATION_REQUEST__:';
+  const NATIVE_INPUT_REQUEST_PREFIX = '__GEEK_NATIVE_INPUT_REQUEST__:';
+  async function handleNativeInputConsole(wv, event) {
+    const message = String(event?.message || '');
+    if (!message.startsWith(NATIVE_INPUT_REQUEST_PREFIX)) return;
+    const parts = message.slice(NATIVE_INPUT_REQUEST_PREFIX.length).split(':');
+    const requestId = parts.shift();
+    if (!/^[a-z0-9_-]{8,80}$/i.test(requestId)) return;
+    try {
+      const raw = await wv.executeJavaScript(`window.__geekTakeNativeInputRequest?.(${JSON.stringify(requestId)}) || null`);
+      const text = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const account = accounts.find(item => wvMap.get(item.id) === wv);
+      if (!account || account.id !== text?.accountId) throw new Error('输入账号不匹配');
+      await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text.text || ''));
+      await wv.executeJavaScript(`window.__geekResolveNativeInput?.(${JSON.stringify(requestId)}, true, null)`);
+    } catch (error) {
+      try { await wv.executeJavaScript(`window.__geekResolveNativeInput?.(${JSON.stringify(requestId)}, false, ${JSON.stringify(String(error?.message || error))})`); } catch {}
+    }
+  }
   async function handleTranslationConsole(wv, event) {
     const message = String(event?.message || '');
     if (!message.startsWith(TRANSLATION_REQUEST_PREFIX)) return;
@@ -633,7 +651,7 @@
     if (!wv || !account || typeof installer !== 'function') return;
     let chatConfig = {}, globalConfig = {};
     try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
   }
 
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。

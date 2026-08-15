@@ -780,6 +780,16 @@ async function translateViaRemoteGateway(event, payload) {
 
 function registerIpcHandlers() {
   ipcMain.handle('translation:translate', translateViaRemoteGateway);
+  ipcMain.handle('webview:insert-text', async (event, accountId, guestId, text) => {
+    assertTrustedSender(event);
+    const partition = resolveAccountPartition(accountId);
+    const value = String(text ?? '');
+    if (!value || value.length > 10000) throw new Error('输入文本不合法');
+    const guest = webContents.fromId(Number(guestId));
+    if (!guest || guest === event.sender || guest.session !== session.fromPartition(partition) || !/^https:\/\/web\.telegram\.org\//.test(guest.getURL?.() || '') || typeof guest.insertText !== 'function') throw new Error('Telegram输入页面不可用');
+    await guest.insertText(value);
+    return true;
+  });
   ipcMain.handle('translation:health', checkTranslationGateway);
   ipcMain.handle('account-data:get-all', async (event, accountId) => {
     assertTrustedSender(event); const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); return Object.fromEntries(cache);

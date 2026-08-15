@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld(
       translate: (payload) => ipcRenderer.invoke('translation:translate', payload),
       health: () => ipcRenderer.invoke('translation:health'),
     }),
+    webviewInput: Object.freeze({
+      insertText: (accountId, guestId, text) => ipcRenderer.invoke('webview:insert-text', accountId, guestId, text),
+    }),
     accountData: Object.freeze({
       getAll: (accountId) => ipcRenderer.invoke('account-data:get-all', accountId),
       set: (accountId, key, value) => ipcRenderer.invoke('account-data:set', accountId, key, value),
