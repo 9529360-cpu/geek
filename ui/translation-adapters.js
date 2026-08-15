@@ -83,6 +83,16 @@
     const messageText = node => (node?.innerText || node?.textContent || '').replace(/\u200b/g, '').trim();
     const messageId = row => String(row.id || row.dataset.messageId || row.dataset.mid || row.getAttribute('data-mid') || '').trim();
     const outgoing = row => /out|outgoing|is-outgoing/i.test(String(row.className || '')) || !!row.querySelector('.MessageOutgoingStatus, [class*="outgoing"]');
+    let activeTranslations = 0;
+    const translationWaiters = [];
+    const acquireTranslationSlot = () => new Promise(resolve => {
+      if (activeTranslations < 4) { activeTranslations++; resolve(); }
+      else translationWaiters.push(resolve);
+    });
+    const releaseTranslationSlot = () => {
+      const next = translationWaiters.shift();
+      if (next) next(); else activeTranslations = Math.max(0, activeTranslations - 1);
+    };
     const process = async row => {
       if (!(row instanceof Element) || !row.classList.contains('Message')) return;
       if (row.dataset.geekTelegramTranslationState || row.querySelector('.geek-translation-result[data-geek-platform="telegram"]')) return;
@@ -105,7 +115,9 @@
       textNode.insertAdjacentElement('afterend', box);
       const run = async () => {
         const current = window.__geekTelegramTranslationGeneration;
-        row.dataset.geekTelegramTranslationState = 'loading'; box.textContent = '翻译中…';
+        row.dataset.geekTelegramTranslationState = 'queued'; box.textContent = '';
+        await acquireTranslationSlot();
+        row.dataset.geekTelegramTranslationState = 'loading';
         try {
           const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, messageId: id });
           if (current !== window.__geekTelegramTranslationGeneration || !settingFor(cid).displayTranslation) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
@@ -115,7 +127,7 @@
           if (current !== window.__geekTelegramTranslationGeneration) return;
           box.textContent = '翻译失败，点击重试'; box.style.color = '#ff8a8a'; box.style.cursor = 'pointer'; row.dataset.geekTelegramTranslationState = 'error';
           box.onclick = () => { delete row.dataset.geekTelegramTranslationState; box.remove(); process(row); };
-        }
+        } finally { releaseTranslationSlot(); }
       };
       if (setting.translationMode === 'click') { box.textContent = '点击翻译'; box.style.cursor = 'pointer'; row.dataset.geekTelegramTranslationState = 'wait'; box.onclick = run; }
       else await run();
