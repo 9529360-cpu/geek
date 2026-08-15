@@ -297,7 +297,7 @@
   function authorizeWebviewBridge(wv, requestId, suppliedToken) {
     return window.GeekWebviewBridgeSecurity.authorize({
       expectedToken: bridgeTokenFor(wv), suppliedToken, requestId,
-      inflight: webviewBridgeInflight.get(wv) || 0, limit: 8,
+      inflight: webviewBridgeInflight.get(wv) || 0, limit: 20,
     });
   }
   function changeWebviewBridgeInflight(wv, delta) {

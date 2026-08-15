@@ -67,6 +67,7 @@
         displayTranslation: g.displayTranslation !== false,
         translationMode: g.translationMode || (g.message === false ? 'click' : 'auto'),
         messageFrom: g.messageFrom || 'auto', messageTarget: g.messageTo || 'zh',
+        translateHistory: g.translateHistory === true || g.transOldHistory === true,
         fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea', groupAuto: g.group === true
       };
       const local = window.__geekTranslationConfig.chats?.[chatId];
@@ -83,17 +84,7 @@
     const messageText = node => (node?.innerText || node?.textContent || '').replace(/\u200b/g, '').trim();
     const messageId = row => String(row.id || row.dataset.messageId || row.dataset.mid || row.getAttribute('data-mid') || '').trim();
     const outgoing = row => /out|outgoing|is-outgoing/i.test(String(row.className || '')) || !!row.querySelector('.MessageOutgoingStatus, [class*="outgoing"]');
-    let activeTranslations = 0;
-    const translationWaiters = [];
-    const acquireTranslationSlot = () => new Promise(resolve => {
-      if (activeTranslations < 4) { activeTranslations++; resolve(); }
-      else translationWaiters.push(resolve);
-    });
-    const releaseTranslationSlot = () => {
-      const next = translationWaiters.shift();
-      if (next) next(); else activeTranslations = Math.max(0, activeTranslations - 1);
-    };
-    const process = async row => {
+    const process = async (row, isHistory = false) => {
       if (!(row instanceof Element) || !row.classList.contains('Message')) return;
       if (row.dataset.geekTelegramTranslationState || row.querySelector('.geek-translation-result[data-geek-platform="telegram"]')) return;
       const id = messageId(row) || ('dom-' + Array.from(document.querySelectorAll('.Message')).indexOf(row));
@@ -115,19 +106,19 @@
       textNode.insertAdjacentElement('afterend', box);
       const run = async () => {
         const current = window.__geekTelegramTranslationGeneration;
-        row.dataset.geekTelegramTranslationState = 'queued'; box.textContent = '';
-        await acquireTranslationSlot();
+        box.textContent = '';
         row.dataset.geekTelegramTranslationState = 'loading';
         try {
-          const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, messageId: id });
+          const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, messageId: id, isHistory, translateHistory: setting.translateHistory || setting.translationMode === 'click' });
           if (current !== window.__geekTelegramTranslationGeneration || !settingFor(cid).displayTranslation) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
+          if (result?.skipped) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
           if (!result?.text) throw new Error('翻译失败');
           box.textContent = result.text; row.dataset.geekTelegramTranslationState = 'done';
         } catch (e) {
           if (current !== window.__geekTelegramTranslationGeneration) return;
           box.textContent = '翻译失败，点击重试'; box.style.color = '#ff8a8a'; box.style.cursor = 'pointer'; row.dataset.geekTelegramTranslationState = 'error';
-          box.onclick = () => { delete row.dataset.geekTelegramTranslationState; box.remove(); process(row); };
-        } finally { releaseTranslationSlot(); }
+          box.onclick = () => { delete row.dataset.geekTelegramTranslationState; box.remove(); process(row, isHistory); };
+        }
       };
       if (setting.translationMode === 'click') { box.textContent = '点击翻译'; box.style.cursor = 'pointer'; row.dataset.geekTelegramTranslationState = 'wait'; box.onclick = run; }
       else await run();
@@ -178,12 +169,12 @@
     window.__geekTelegramTranslationObserver = new MutationObserver(records => {
       for (const record of records) for (const node of record.addedNodes) {
         if (node.nodeType !== 1) continue;
-        if (node.classList?.contains('Message')) process(node);
-        node.querySelectorAll?.('.Message').forEach(process);
+        if (node.classList?.contains('Message')) process(node, false);
+        node.querySelectorAll?.('.Message').forEach(item => process(item, false));
       }
     });
     window.__geekTelegramTranslationObserver.observe(root, { childList: true, subtree: true });
-    root.querySelectorAll?.('.Message').forEach(process);
+    root.querySelectorAll?.('.Message').forEach(item => process(item, true));
     return 'TELEGRAM_TRANSLATION_READY';
   }
   function installLineTranslation(cfg) {

@@ -732,6 +732,26 @@ async function checkTranslationGateway(event) {
   } finally { clearTimeout(timer); }
 }
 
+const translationRemoteQueue = [];
+let translationRemoteActive = 0;
+const TRANSLATION_REMOTE_LIMIT = 20;
+function enqueueTranslationRemote(task) {
+  return new Promise((resolve, reject) => {
+    translationRemoteQueue.push({ task, resolve, reject });
+    drainTranslationRemoteQueue();
+  });
+}
+function drainTranslationRemoteQueue() {
+  while (translationRemoteActive < TRANSLATION_REMOTE_LIMIT && translationRemoteQueue.length) {
+    const item = translationRemoteQueue.shift();
+    translationRemoteActive++;
+    Promise.resolve().then(item.task).then(item.resolve, item.reject).finally(() => {
+      translationRemoteActive--;
+      drainTranslationRemoteQueue();
+    });
+  }
+}
+
 async function translateViaRemoteGateway(event, payload) {
   assertTrustedSender(event);
   const body = payload && typeof payload === 'object' ? payload : {};
@@ -751,11 +771,12 @@ async function translateViaRemoteGateway(event, payload) {
   if (body.refresh !== true) {
     const cached = cache.get(key);
     if (cached) return { text: cached.text, source: body.source || 'auto', target, cached: true };
+    if (body.isHistory === true && body.translateHistory !== true) return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true };
     if (translationInflight.has(inflightKey)) return translationInflight.get(inflightKey);
   }
   const requestSequence = ++translationRequestSequence;
   translationLatestRequest.set(inflightKey, requestSequence);
-  const request = (async () => {
+  const request = enqueueTranslationRemote(async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
     try {
@@ -775,7 +796,7 @@ async function translateViaRemoteGateway(event, payload) {
       if (error?.name === 'AbortError') throw new Error('翻译网关请求超时');
       throw error;
     } finally { clearTimeout(timer); }
-  })();
+  });
   translationInflight.set(inflightKey, request);
   try { return await request; } finally { if (translationInflight.get(inflightKey) === request) translationInflight.delete(inflightKey); }
 }
