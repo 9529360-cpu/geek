@@ -555,6 +555,7 @@
       updateUnread(account.id, m ? parseInt(m[1], 10) : 0);
     });
     wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
+    wv.addEventListener('ipc-message', (event) => handleLineTranslationIpc(wv, event));
     wvContainer.appendChild(wv);
     wv.addEventListener('dom-ready', () => {
       if (lineReadyPartitions.has(account.partition)) {
@@ -646,6 +647,25 @@
     }
   }
 
+  async function handleLineTranslationIpc(wv, event) {
+    if (event?.channel !== 'send2Host') return;
+    const message = event.args?.[0];
+    if (!message || message.type !== 'geek-translation-request') return;
+    const requestId = String(message.id || '');
+    if (!/^[a-z0-9_-]{8,80}$/i.test(requestId)) return;
+    try {
+      const raw = await wv.executeJavaScript(`window.__geekTakeTranslationRequest?.(${JSON.stringify(requestId)}) || null`);
+      const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!payload) throw new Error('翻译请求已失效');
+      const account = accounts.find(item => wvMap.get(item.id) === wv);
+      if (!account || account.type !== 'line') throw new Error('LINE翻译账号沙箱不存在');
+      const result = await window.api.translation.translate({ ...payload, accountId: account.id });
+      await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
+    } catch (error) {
+      try { await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, null, ${JSON.stringify(String(error?.message || error))})`); } catch {}
+    }
+  }
+
   function syncTelegramTranslationCfgToWebview(wv, account) {
     const installer = window.GeekTranslationAdapters?.telegram;
     if (!wv || !account || typeof installer !== 'function') return;
@@ -654,11 +674,23 @@
     wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
   }
 
+  function syncLineTranslationCfgToWebview(wv, account) {
+    const installer = window.GeekTranslationAdapters?.line;
+    if (!wv || !account || typeof installer !== 'function') return;
+    let chatConfig = {}, globalConfig = {};
+    try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
+  }
+
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
     if (!wv || !account) return;
     if (account.type === 'telegram-z' || account.type === 'telegram' || account.type === 'telegram-pure') {
       syncTelegramTranslationCfgToWebview(wv, account);
+      return;
+    }
+    if (account.type === 'line') {
+      syncLineTranslationCfgToWebview(wv, account);
       return;
     }
     if (!(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;

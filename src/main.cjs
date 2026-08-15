@@ -786,7 +786,9 @@ function registerIpcHandlers() {
     const value = String(text ?? '');
     if (!value || value.length > 10000) throw new Error('输入文本不合法');
     const guest = webContents.fromId(Number(guestId));
-    if (!guest || guest === event.sender || guest.session !== session.fromPartition(partition) || !/^https:\/\/web\.telegram\.org\//.test(guest.getURL?.() || '') || typeof guest.insertText !== 'function') throw new Error('Telegram输入页面不可用');
+    const guestUrl = guest?.getURL?.() || '';
+    const allowedInputPage = /^https:\/\/web\.telegram\.org\//.test(guestUrl) || /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl);
+    if (!guest || guest === event.sender || guest.session !== session.fromPartition(partition) || !allowedInputPage || typeof guest.insertText !== 'function') throw new Error('账号输入页面不可用');
     await guest.insertText(value);
     return true;
   });
