@@ -605,6 +605,22 @@
           } catch (error) { console.error('[geek-translation]', error); throw error; }
           return original.call(this, chat, ...args);
         };
+        const mediaMod = window.require?.('WAWebMediaPrep');
+        if (mediaMod?.sendMediaMsgToChat) {
+          if (mediaMod.__geekOriginalSendMedia) mediaMod.sendMediaMsgToChat = mediaMod.__geekOriginalSendMedia;
+          const originalMedia = mediaMod.sendMediaMsgToChat;
+          mediaMod.__geekOriginalSendMedia = originalMedia;
+          mediaMod.sendMediaMsgToChat = async function (media, chat, options, ...rest) {
+            const setting = chat?.id?._serialized ? window.__geekTranslationConfig.chats[chat.id._serialized] : null;
+            if (setting?.enabled && setting?.autoSend && options?.caption && window.__geekTranslationConfig.endpoint) {
+              const response = await fetch(`${window.__geekTranslationConfig.endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text: options.caption, source: 'auto', target: setting.target, chatId: chat.id._serialized }) });
+              const result = await response.json();
+              if (!response.ok || !result.text) throw new Error(result.error || '配文翻译失败');
+              options = { ...options, caption: result.text };
+            }
+            return originalMedia.call(this, media, chat, options, ...rest);
+          };
+        }
         return 'OK';
       } catch (error) { return 'ERR:' + error.message; }
     }.toString()})(${JSON.stringify({ endpoint: String(gateway.url || '').replace(/\/$/, ''), chats: chatConfig })})()`).catch(() => {});
