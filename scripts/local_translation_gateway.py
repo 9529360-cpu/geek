@@ -33,7 +33,7 @@ def translate(text, target, route='default'):
             'temperature': 0,
             'max_tokens': 2000,
             'messages': [
-                {'role': 'system', 'content': f'Translate the user text faithfully into {language} ({target}). Preserve meaning, names, numbers, dates, URLs, punctuation and line breaks. Do not explain. Output only the {language} translation.'},
+                {'role': 'system', 'content': f'You are a professional translator. Translate the user text faithfully into {language} ({target}). Preserve all original formatting, line breaks, emojis, special characters, names, numbers, dates, URLs, punctuation and professional terminology. Adapt naturally to local expressions and cultural context while matching the original tone and level of formality. Do not explain. Output only the {language} translation.'},
                 {'role': 'user', 'content': text},
             ],
         }
