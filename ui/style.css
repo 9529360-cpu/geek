@@ -894,7 +894,7 @@ select:focus option:checked {
   margin-left: auto;
   position: relative;
 }
-.translation-popover{position:absolute;top:calc(100% + 8px);right:42px;width:286px;padding:0;border:1px solid var(--border-standard);border-radius:10px;background:var(--bg-elevated);box-shadow:0 14px 34px rgba(0,0,0,.28);z-index:1000;overflow:hidden;color:var(--text-primary)}
+.translation-popover{position:absolute;top:calc(100% + 8px);right:42px;width:326px;padding:0;border:1px solid var(--border-standard);border-radius:10px;background:var(--bg-elevated);box-shadow:0 14px 34px rgba(0,0,0,.28);z-index:1000;overflow:hidden;color:var(--text-primary)}
 .translation-popover.hidden{display:none}
 .translation-popover-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border-subtle);font-size:12px}
 .translation-close{width:22px;height:22px;border:0;border-radius:5px;background:transparent;color:var(--text-secondary);font-size:18px;line-height:18px;cursor:pointer}
@@ -902,12 +902,12 @@ select:focus option:checked {
 .translation-tabs{display:flex;padding:5px 8px 0;gap:4px;border-bottom:1px solid var(--border-subtle)}
 .translation-tab{flex:1;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--text-secondary);padding:6px 4px;font-size:11px;cursor:pointer}
 .translation-tab.active{border-bottom-color:var(--accent);color:var(--accent);font-weight:700}
-.translation-tab-panel{padding:8px 12px 11px}.translation-tab-panel.hidden{display:none}
+.translation-tab-panel{padding:8px 12px 11px}.translation-tab-panel.hidden{display:none}.translation-tab-panel--scroll{max-height:340px;overflow-y:auto}
 .translation-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:29px;font-size:11px;color:var(--text-primary)}
 .translation-row select,.translation-field input{min-width:0;height:25px;padding:3px 7px;border:1px solid var(--border-standard);border-radius:5px;background:var(--bg-surface);color:var(--text-primary);font-size:11px}
 .translation-row select{width:116px}.translation-row input[type=checkbox]{accent-color:var(--accent)}
 .translation-field{display:flex;flex-direction:column;gap:4px;margin:7px 0;font-size:10px;color:var(--text-secondary)}.translation-field input{width:100%;box-sizing:border-box}
-.translation-hint{margin-top:7px;color:var(--text-tertiary);font-size:10px;line-height:1.4}.translation-save{width:100%;height:27px;margin-top:5px;border:1px solid var(--accent);border-radius:5px;background:var(--accent);color:#fff;font-size:11px;cursor:pointer}.translation-save:hover{filter:brightness(1.08)}
+.translation-hint{margin-top:7px;color:var(--text-tertiary);font-size:10px;line-height:1.4}.translation-save{width:100%;height:27px;margin-top:5px;border:1px solid var(--accent);border-radius:5px;background:var(--accent);color:#fff;font-size:11px;cursor:pointer}.translation-save:hover{filter:brightness(1.08)}.translation-save--secondary{background:transparent;color:var(--accent)}
 .quick-btn {
   display: flex;
   align-items: center;

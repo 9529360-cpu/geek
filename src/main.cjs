@@ -611,6 +611,20 @@ async function removeAccount(event, accountId) {
   return publicState();
 }
 
+async function checkTranslationGateway(event, endpointInput) {
+  assertTrustedSender(event);
+  const endpoint = String(endpointInput || '').trim().replace(/\/$/, '');
+  if (!endpoint || !/^https:\/\//i.test(endpoint) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(endpoint)) throw new Error('翻译网关必须使用 HTTPS');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${endpoint}/health`, { signal: controller.signal });
+    if (!response.ok) return { ok: false, status: response.status };
+    const data = await response.json().catch(() => ({}));
+    return { ok: data.ok !== false, models: Number(data.models || 0) };
+  } finally { clearTimeout(timer); }
+}
+
 async function translateViaRemoteGateway(event, payload) {
   assertTrustedSender(event);
   const body = payload && typeof payload === 'object' ? payload : {};
@@ -637,6 +651,7 @@ async function translateViaRemoteGateway(event, payload) {
 
 function registerIpcHandlers() {
   ipcMain.handle('translation:translate', translateViaRemoteGateway);
+  ipcMain.handle('translation:health', checkTranslationGateway);
   ipcMain.handle('platforms:list', async (event) => {
     assertTrustedSender(event);
     return Object.entries(APP_TYPES).map(([type, cfg]) => ({

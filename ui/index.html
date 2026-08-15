@@ -83,8 +83,23 @@
           </button>
           <div id="translation-popover" class="translation-popover hidden" role="dialog" aria-label="翻译通道设置">
             <div class="translation-popover-head"><strong>翻译通道</strong><button type="button" id="translation-close" class="translation-close">×</button></div>
-            <div class="translation-tabs"><button type="button" class="translation-tab active" data-translation-tab="channel">当前聊天</button><button type="button" class="translation-tab" data-translation-tab="gateway">接口</button></div>
-            <section id="translation-tab-channel" class="translation-tab-panel">
+            <div class="translation-tabs"><button type="button" class="translation-tab active" data-translation-tab="global">全局设置</button><button type="button" class="translation-tab" data-translation-tab="channel">当前聊天</button><button type="button" class="translation-tab" data-translation-tab="gateway">接口</button></div>
+            <section id="translation-tab-global" class="translation-tab-panel translation-tab-panel--scroll">
+              <label class="translation-row"><span>翻译平台</span><select id="translation-source"><option value="local">极客本机翻译</option><option value="remote">极客远程翻译</option></select></label>
+              <label class="translation-row"><span>翻译线路</span><select id="translation-server"><option value="default">默认线路</option><option value="primary">主线路</option><option value="backup">备用线路</option></select></label>
+              <label class="translation-row"><span>发送翻译</span><select id="translation-send"><option value="true">启用发送翻译</option><option value="false">禁用发送翻译</option></select></label>
+              <label class="translation-row"><span>你的语种</span><select id="translation-send-from"></select></label>
+              <label class="translation-row"><span>翻译语种</span><select id="translation-send-to"></select></label>
+              <label class="translation-row"><span>翻译中文</span><select id="translation-include-zh"><option value="true">翻译包含中文消息</option><option value="false">屏蔽包含中文消息</option></select></label>
+              <label class="translation-row"><span>消息翻译</span><select id="translation-message"><option value="true">启用消息翻译</option><option value="false">禁用消息翻译</option></select></label>
+              <label class="translation-row"><span>消息语种</span><select id="translation-message-from"></select></label>
+              <label class="translation-row"><span>译文语种</span><select id="translation-message-to"></select></label>
+              <label class="translation-row"><span>群组翻译</span><select id="translation-group"><option value="true">自动翻译群组消息</option><option value="false">手动翻译群组消息</option></select></label>
+              <label class="translation-row"><span>字体大小</span><select id="translation-font-size"><option value="11">小</option><option value="13">标准</option><option value="15">大</option></select></label>
+              <label class="translation-row"><span>字体颜色</span><input id="translation-font-color" type="color" value="#667eea"></label>
+              <div id="translation-global-status" class="translation-hint"></div>
+            </section>
+            <section id="translation-tab-channel" class="translation-tab-panel hidden">
               <label class="translation-row"><span>启用当前聊天翻译</span><input id="translation-enabled" type="checkbox"></label>
               <label class="translation-row"><span>目标语言</span><select id="translation-target"></select></label>
               <label class="translation-row"><span>发送时自动翻译</span><input id="translation-auto-send" type="checkbox"></label>
@@ -96,6 +111,7 @@
               <label class="translation-field"><span>网关地址</span><input id="translation-gateway-url" type="url" placeholder="https://translate.example.com"></label>
               <div class="translation-hint">访问授权由极客账号/服务端会话处理，客户端不填写、不保存供应商密钥。</div>
               <button type="button" id="translation-gateway-save" class="translation-save">保存网关设置</button>
+              <button type="button" id="translation-gateway-test" class="translation-save translation-save--secondary">测试连接</button>
               <div id="translation-gateway-status" class="translation-hint"></div>
             </section>
           </div>
