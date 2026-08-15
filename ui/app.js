@@ -576,7 +576,7 @@
           document.addEventListener('contextmenu', function (event) {
             const message = event.target.closest?.('.message-in,[data-id]');
             const cfg = window.__geekTranslationConfig;
-            if (!message || !cfg.endpoint) return;
+            if (!message || !cfg.endpoint || !window.__geekTranslationGateway?.translate) return;
             const active = window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized;
             const setting = active ? cfg.chats[active] : null;
             if (setting && setting.messageAction === false) return;
@@ -596,7 +596,7 @@
             const id = chat?.id?._serialized;
             const setting = id ? window.__geekTranslationConfig.chats[id] : null;
             const text = args[0];
-            if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && window.__geekTranslationConfig.endpoint) {
+            if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && window.__geekTranslationConfig.endpoint && window.__geekTranslationGateway?.translate) {
               const result = await window.__geekTranslationGateway.translate({endpoint:window.__geekTranslationConfig.endpoint,text,source:'auto',target:setting.target,chatId:id});
               if (!result?.text) throw new Error('翻译失败');
               args[0] = result.text;
@@ -611,7 +611,7 @@
           mediaMod.__geekOriginalSendMedia = originalMedia;
           mediaMod.sendMediaMsgToChat = async function (media, chat, options, ...rest) {
             const setting = chat?.id?._serialized ? window.__geekTranslationConfig.chats[chat.id._serialized] : null;
-            if (setting?.enabled && setting?.autoSend && options?.caption && window.__geekTranslationConfig.endpoint) {
+            if (setting?.enabled && setting?.autoSend && options?.caption && window.__geekTranslationConfig.endpoint && window.__geekTranslationGateway?.translate) {
               const result = await window.__geekTranslationGateway.translate({endpoint:window.__geekTranslationConfig.endpoint,text:options.caption,source:'auto',target:setting.target,chatId:chat.id._serialized});
               if (!result?.text) throw new Error('配文翻译失败');
               options = { ...options, caption: result.text };

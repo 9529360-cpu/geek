@@ -611,16 +611,8 @@ async function removeAccount(event, accountId) {
   return publicState();
 }
 
-function assertTranslationSender(event) {
-  if (isTrustedSender(event)) return;
-  let url = '';
-  try { url = event.sender.getURL(); } catch {}
-  if (url.startsWith(WA_LOCAL_URL)) return;
-  throw new Error('拒绝来自未授权页面的翻译请求');
-}
-
 async function translateViaRemoteGateway(event, payload) {
-  assertTranslationSender(event);
+  assertTrustedSender(event);
   const body = payload && typeof payload === 'object' ? payload : {};
   const endpoint = String(body.endpoint || '').trim().replace(/\/$/, '');
   if (!endpoint || !/^https:\/\//i.test(endpoint) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(endpoint)) throw new Error('翻译网关必须使用 HTTPS');
@@ -645,7 +637,6 @@ async function translateViaRemoteGateway(event, payload) {
 
 function registerIpcHandlers() {
   ipcMain.handle('translation:translate', translateViaRemoteGateway);
-  ipcMain.handle('translation:guest', translateViaRemoteGateway);
   ipcMain.handle('platforms:list', async (event) => {
     assertTrustedSender(event);
     return Object.entries(APP_TYPES).map(([type, cfg]) => ({
@@ -1292,8 +1283,8 @@ function configureWebviewSecurity(window) {
       webPreferences.preload = path.join(__dirname, '..', 'resources', 's3loYR.js');
       webPreferences.contextIsolation = false;
     } else {
-      // WhatsApp 页面只注入翻译网关桥接；不暴露供应商 API Key 或其他主进程能力。
-      webPreferences.preload = path.join(__dirname, 'translation-guest-preload.cjs');
+      // WhatsApp 保持原有无 preload 配置，避免旧版 1843 页面白屏。
+      delete webPreferences.preload;
       webPreferences.contextIsolation = false;
     }
 
