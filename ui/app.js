@@ -567,6 +567,8 @@
     // 群组工具监听器：WA 页面就绪后注入（幂等；页面重载后自动重新注入）
     if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') {
       wv.addEventListener('dom-ready', () => { injectGtAgent(wv, account); syncTranslationCfgToWebview(wv, account); });
+    } else {
+      wv.addEventListener('dom-ready', () => { syncTranslationCfgToWebview(wv, account); });
     }
     return wv;
   }
@@ -626,9 +628,22 @@
     }
   }
 
+  function syncTelegramTranslationCfgToWebview(wv, account) {
+    const installer = window.GeekTranslationAdapters?.telegram;
+    if (!wv || !account || typeof installer !== 'function') return;
+    let chatConfig = {}, globalConfig = {};
+    try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
+  }
+
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
-    if (!wv || !account || !(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
+    if (!wv || !account) return;
+    if (account.type === 'telegram-z' || account.type === 'telegram' || account.type === 'telegram-pure') {
+      syncTelegramTranslationCfgToWebview(wv, account);
+      return;
+    }
+    if (!(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
     let chatConfig = {}, globalConfig = {};
     try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
     if (globalConfig.source === 'local' || globalConfig.source === 'remote') globalConfig.source = 'auto';
