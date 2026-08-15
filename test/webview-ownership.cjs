@@ -1,0 +1,13 @@
+const assert = require('node:assert/strict');
+const { createOwnershipRegistry } = require('../src/webview-ownership.cjs');
+const registry = createOwnershipRegistry({ maxAgeMs: 60000 });
+const token = '0123456789abcdef0123456789abcdef';
+registry.register({ guestId: 7, accountId: 'acc-a', partition: 'persist:a', token, senderId: 3, now: 1000 });
+assert.equal(registry.authorize({ guestId: 7, accountId: 'acc-a', partition: 'persist:a', token, senderId: 3, now: 2000 }), true);
+assert.equal(registry.authorize({ guestId: 7, accountId: 'acc-b', partition: 'persist:a', token, senderId: 3, now: 2000 }), false);
+assert.equal(registry.authorize({ guestId: 7, accountId: 'acc-a', partition: 'persist:a', token: 'bad', senderId: 3, now: 2000 }), false);
+assert.equal(registry.authorize({ guestId: 7, accountId: 'acc-a', partition: 'persist:a', token, senderId: 99, now: 2000 }), false);
+assert.equal(registry.authorize({ guestId: 7, accountId: 'acc-a', partition: 'persist:a', token, senderId: 3, now: 62000 }), false);
+registry.remove(7);
+assert.equal(registry.authorize({ guestId: 7, accountId: 'acc-a', partition: 'persist:a', token, senderId: 3, now: 2000 }), false);
+console.log('WEBVIEW_OWNERSHIP_OK');

@@ -55,7 +55,8 @@ contextBridge.exposeInMainWorld(
       health: () => ipcRenderer.invoke('translation:health'),
     }),
     webviewInput: Object.freeze({
-      insertText: (accountId, guestId, text) => ipcRenderer.invoke('webview:insert-text', accountId, guestId, text),
+      register: (accountId, guestId, token) => ipcRenderer.invoke('webview:register', accountId, guestId, token),
+      insertText: (accountId, guestId, text, token) => ipcRenderer.invoke('webview:insert-text', accountId, guestId, text, token),
     }),
     accountData: Object.freeze({
       getAll: (accountId) => ipcRenderer.invoke('account-data:get-all', accountId),

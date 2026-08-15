@@ -2,15 +2,19 @@
 (() => {
   'use strict';
   function installTelegramTranslation(cfg) {
-    const config = cfg || { chats: {}, global: {} };
+    const rawConfig = cfg || { chats: {}, global: {} };
+    const bridgeToken = String(rawConfig.bridgeToken || '');
+    const config = { accountId: rawConfig.accountId, chats: rawConfig.chats || {}, global: rawConfig.global || {} };
     window.__geekTranslationConfig = config;
+    window.__geekTranslationBridgeToken = bridgeToken;
     if (!window.__geekTranslationRequest) {
       window.__geekTranslationPending = new Map();
       window.__geekTranslationRequest = function (payload) {
         return new Promise((resolve, reject) => {
           const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-          window.__geekTranslationPending.set(id, { payload, resolve, reject });
-          console.log('__GEEK_TRANSLATION_REQUEST__:' + id);
+          const securedPayload = { ...(payload || {}), bridgeToken: window.__geekTranslationBridgeToken };
+          window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
+          console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
           setTimeout(() => {
             const pending = window.__geekTranslationPending.get(id);
             if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); }
@@ -32,7 +36,7 @@
     window.__geekNativeInputPending = window.__geekNativeInputPending || new Map();
     window.__geekTakeNativeInputRequest = id => {
       const p = window.__geekNativeInputPending.get(id);
-      return p ? JSON.stringify({ accountId: config.accountId, text: p.text || '' }) : null;
+      return p ? JSON.stringify({ accountId: config.accountId, bridgeToken: window.__geekTranslationBridgeToken, text: p.text || '' }) : null;
     };
     window.__geekResolveNativeInput = (id, ok, error) => {
       const p = window.__geekNativeInputPending.get(id);
@@ -45,7 +49,7 @@
       const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
       return new Promise((resolve, reject) => {
         window.__geekNativeInputPending.set(id, { resolve, reject, text: String(text) });
-        console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id);
+        console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
         setTimeout(() => { const p = window.__geekNativeInputPending.get(id); if (p) { window.__geekNativeInputPending.delete(id); p.reject(new Error('原生输入请求超时')); } }, 10000);
       });
     };
@@ -171,15 +175,19 @@
     return 'TELEGRAM_TRANSLATION_READY';
   }
   function installLineTranslation(cfg) {
-    const config = cfg || { chats: {}, global: {} };
+    const rawConfig = cfg || { chats: {}, global: {} };
+    const bridgeToken = String(rawConfig.bridgeToken || '');
+    const config = { accountId: rawConfig.accountId, chats: rawConfig.chats || {}, global: rawConfig.global || {} };
     window.__geekTranslationConfig = config;
+    window.__geekTranslationBridgeToken = bridgeToken;
     if (!window.__geekTranslationRequest) {
       window.__geekTranslationPending = new Map();
       window.__geekTranslationRequest = payload => new Promise((resolve, reject) => {
         const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-        window.__geekTranslationPending.set(id, { payload, resolve, reject });
-        if (window.$electron?.send2Host) window.$electron.send2Host({ type: 'geek-translation-request', id });
-        else console.log('__GEEK_TRANSLATION_REQUEST__:' + id);
+        const securedPayload = { ...(payload || {}), bridgeToken: window.__geekTranslationBridgeToken };
+        window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
+        if (window.$electron?.send2Host) window.$electron.send2Host({ type: 'geek-translation-request', id, token: window.__geekTranslationBridgeToken });
+        else console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
         setTimeout(() => { const p = window.__geekTranslationPending.get(id); if (p) { window.__geekTranslationPending.delete(id); p.reject(new Error('翻译请求超时')); } }, 35000);
       });
       window.__geekTakeTranslationRequest = id => { const p = window.__geekTranslationPending.get(id); return p ? JSON.stringify(p.payload) : null; };
@@ -189,7 +197,7 @@
     window.__geekLineTranslationObserver?.disconnect();
     document.querySelectorAll('.geek-translation-result[data-geek-platform="line"]').forEach(node => node.remove());
     document.querySelectorAll('[data-geek-line-translation-state]').forEach(node => delete node.dataset.geekLineTranslationState);
-    const chatId = () => decodeURIComponent((String(location.hash || '').match(/\/chats\/([^/?]+)/) || [])[1] || '');
+    const chatId = () => { try { return decodeURIComponent((String(location.hash || '').match(/\/chats\/([^/?]+)/) || [])[1] || ''); } catch { return ''; } };
     const settingFor = id => {
       const g = window.__geekTranslationConfig.global || {};
       const base = { provider: g.source || 'auto', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, sendFrom: g.sendFrom || 'auto', sendTo: g.sendTo || 'en', includeZh: g.includeZh !== false, displayTranslation: g.displayTranslation !== false, translationMode: g.translationMode || (g.message === false ? 'click' : 'auto'), messageFrom: g.messageFrom || 'auto', messageTarget: g.messageTo || 'zh', fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };

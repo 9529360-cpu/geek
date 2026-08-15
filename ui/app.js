@@ -282,6 +282,32 @@
   const unreadPlatforms = new Set(); // 有未读消息的平台（闪烁状态持久，重绘不丢）
   const unreadByAccount = {}; // accountId -> 未读数（红点显示用）
   const wvMap = new Map(); // accountId -> webview element
+  const webviewBridgeTokens = new WeakMap();
+  const webviewBridgeInflight = new WeakMap();
+  function bridgeTokenFor(wv) {
+    let token = webviewBridgeTokens.get(wv);
+    if (!token) {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      token = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+      webviewBridgeTokens.set(wv, token);
+    }
+    return token;
+  }
+  function authorizeWebviewBridge(wv, requestId, suppliedToken) {
+    return window.GeekWebviewBridgeSecurity.authorize({
+      expectedToken: bridgeTokenFor(wv), suppliedToken, requestId,
+      inflight: webviewBridgeInflight.get(wv) || 0, limit: 8,
+    });
+  }
+  function changeWebviewBridgeInflight(wv, delta) {
+    webviewBridgeInflight.set(wv, Math.max(0, (webviewBridgeInflight.get(wv) || 0) + delta));
+  }
+  async function registerWebviewBridge(wv, account) {
+    const family = familyOf(account.type).key;
+    if (!(family === 'telegram' || family === 'line')) return true;
+    return window.api.webviewInput.register(account.id, wv.getWebContentsId(), bridgeTokenFor(wv));
+  }
 
   // 平台家族（顶部一个图标 = 一个家族；左侧列表 = 当前家族全部账号）
   const PLATFORM_FAMILIES = [
@@ -547,6 +573,7 @@
     wv.addEventListener('dom-ready', () => {
       resizeWebviews();
       setTimeout(resizeWebviews, 100);
+      registerWebviewBridge(wv, account).catch(error => console.error('WebView安全登记失败:', error.message));
     });
     // 未读消息检测：页面 title 带未读数（如 "（2）WhatsApp"）→ 红点+闪烁+通知
     wv.addEventListener('page-title-updated', (e) => {
@@ -557,6 +584,11 @@
     wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
     wv.addEventListener('ipc-message', (event) => handleLineTranslationIpc(wv, event));
     wvContainer.appendChild(wv);
+    setTimeout(() => {
+      try {
+        if (wv.isConnected && !wv.isLoading?.() && !wv.getURL?.() && account.url && typeof wv.loadURL === 'function') wv.loadURL(account.url);
+      } catch (error) { console.error('WebView启动导航兜底失败:', error.message); }
+    }, 5000);
     wv.addEventListener('dom-ready', () => {
       if (lineReadyPartitions.has(account.partition)) {
         lineReadyPartitions.delete(account.partition);
@@ -617,33 +649,45 @@
     if (!message.startsWith(NATIVE_INPUT_REQUEST_PREFIX)) return;
     const parts = message.slice(NATIVE_INPUT_REQUEST_PREFIX.length).split(':');
     const requestId = parts.shift();
-    if (!/^[a-z0-9_-]{8,80}$/i.test(requestId)) return;
+    const suppliedToken = parts.shift() || '';
+    const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+    if (!authorization.ok) return;
+    changeWebviewBridgeInflight(wv, 1);
     try {
       const raw = await wv.executeJavaScript(`window.__geekTakeNativeInputRequest?.(${JSON.stringify(requestId)}) || null`);
       const text = typeof raw === 'string' ? JSON.parse(raw) : raw;
       const account = accounts.find(item => wvMap.get(item.id) === wv);
-      if (!account || account.id !== text?.accountId) throw new Error('输入账号不匹配');
-      await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text.text || ''));
+      if (!account || account.id !== text?.accountId || text?.bridgeToken !== suppliedToken) throw new Error('输入账号或令牌不匹配');
+      await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text.text || ''), suppliedToken);
       await wv.executeJavaScript(`window.__geekResolveNativeInput?.(${JSON.stringify(requestId)}, true, null)`);
     } catch (error) {
       try { await wv.executeJavaScript(`window.__geekResolveNativeInput?.(${JSON.stringify(requestId)}, false, ${JSON.stringify(String(error?.message || error))})`); } catch {}
+    } finally {
+      changeWebviewBridgeInflight(wv, -1);
     }
   }
   async function handleTranslationConsole(wv, event) {
     const message = String(event?.message || '');
     if (!message.startsWith(TRANSLATION_REQUEST_PREFIX)) return;
-    const requestId = message.slice(TRANSLATION_REQUEST_PREFIX.length);
-    if (!/^[a-z0-9_-]{8,80}$/i.test(requestId)) return;
+    const parts = message.slice(TRANSLATION_REQUEST_PREFIX.length).split(':');
+    const requestId = parts.shift();
+    const suppliedToken = parts.shift() || '';
+    const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+    if (!authorization.ok) return;
+    changeWebviewBridgeInflight(wv, 1);
     try {
       const raw = await wv.executeJavaScript(`window.__geekTakeTranslationRequest?.(${JSON.stringify(requestId)}) || null`);
       const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (!payload) throw new Error('翻译请求已失效');
+      if (!payload || payload.bridgeToken !== suppliedToken) throw new Error('翻译请求令牌不匹配');
       const account = accounts.find(item => wvMap.get(item.id) === wv);
       if (!account) throw new Error('翻译账号沙箱不存在');
-      const result = await window.api.translation.translate({ ...payload, accountId: account.id });
+      const { bridgeToken: _bridgeToken, ...safePayload } = payload;
+      const result = await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
     } catch (error) {
       try { await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, null, ${JSON.stringify(String(error?.message || error))})`); } catch {}
+    } finally {
+      changeWebviewBridgeInflight(wv, -1);
     }
   }
 
@@ -652,17 +696,23 @@
     const message = event.args?.[0];
     if (!message || message.type !== 'geek-translation-request') return;
     const requestId = String(message.id || '');
-    if (!/^[a-z0-9_-]{8,80}$/i.test(requestId)) return;
+    const suppliedToken = String(message.token || '');
+    const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+    if (!authorization.ok) return;
+    changeWebviewBridgeInflight(wv, 1);
     try {
       const raw = await wv.executeJavaScript(`window.__geekTakeTranslationRequest?.(${JSON.stringify(requestId)}) || null`);
       const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (!payload) throw new Error('翻译请求已失效');
+      if (!payload || payload.bridgeToken !== suppliedToken) throw new Error('翻译请求令牌不匹配');
       const account = accounts.find(item => wvMap.get(item.id) === wv);
       if (!account || account.type !== 'line') throw new Error('LINE翻译账号沙箱不存在');
-      const result = await window.api.translation.translate({ ...payload, accountId: account.id });
+      const { bridgeToken: _bridgeToken, ...safePayload } = payload;
+      const result = await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
     } catch (error) {
       try { await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, null, ${JSON.stringify(String(error?.message || error))})`); } catch {}
+    } finally {
+      changeWebviewBridgeInflight(wv, -1);
     }
   }
 
@@ -671,7 +721,7 @@
     if (!wv || !account || typeof installer !== 'function') return;
     let chatConfig = {}, globalConfig = {};
     try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
   }
 
   function syncLineTranslationCfgToWebview(wv, account) {
@@ -679,7 +729,7 @@
     if (!wv || !account || typeof installer !== 'function') return;
     let chatConfig = {}, globalConfig = {};
     try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
   }
 
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
@@ -699,14 +749,17 @@
     if (globalConfig.source === 'local' || globalConfig.source === 'remote') globalConfig.source = 'auto';
     wv.executeJavaScript(`(${function (cfg) {
       try {
-        window.__geekTranslationConfig = cfg;
+        const bridgeToken = String(cfg.bridgeToken || '');
+        window.__geekTranslationBridgeToken = bridgeToken;
+        window.__geekTranslationConfig = { accountId: cfg.accountId, chats: cfg.chats || {}, global: cfg.global || {} };
         if (!window.__geekTranslationRequest) {
           window.__geekTranslationPending = new Map();
           window.__geekTranslationRequest = function (payload) {
             return new Promise(function (resolve, reject) {
               const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-              window.__geekTranslationPending.set(id, { payload, resolve, reject });
-              console.log('__GEEK_TRANSLATION_REQUEST__:' + id);
+              const securedPayload = Object.assign({}, payload || {}, { bridgeToken: window.__geekTranslationBridgeToken });
+              window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
+              console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
               setTimeout(function () { const pending = window.__geekTranslationPending.get(id); if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); } }, 35000);
             });
           };
@@ -885,7 +938,7 @@
         }
         return 'OK';
       } catch (error) { return 'ERR:' + error.message; }
-    }.toString()})(${JSON.stringify({ chats: chatConfig, global: globalConfig })})()`).then((result) => {
+    }.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).then((result) => {
       if (String(result || '').includes('NO_SEND_MODULE')) setTimeout(() => syncTranslationCfgToWebview(wv, account), 3000);
     }).catch(() => {});
   }
@@ -1436,7 +1489,8 @@
         return JSON.stringify(out.filter(item => item.id && item.name));
       })()`,
       switchChat: (id) => `(() => {
-        const row = document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid="${id}"]');
+        const targetId = ${JSON.stringify(id)};
+        const row = [...document.querySelectorAll('[class*="chatlistItem-module__chatlist_item__"][data-mid]')].find(item => String(item.getAttribute('data-mid') || '') === targetId);
         const button = row?.querySelector('[class*="button_chatlist_item"]');
         if (!button) return false; button.click(); return true;
       })()`,
@@ -1464,29 +1518,51 @@
   function platformTransportFor(account, wv) {
     if (!account || !wv) throw new Error('平台账号不可用');
     const family = familyOf(account.type).key;
-    const transport = BROADCAST_ADAPTERS[family] || BROADCAST_ADAPTERS['telegram-z'];
+    const transport = family === 'telegram' ? BROADCAST_ADAPTERS['telegram-z'] : BROADCAST_ADAPTERS[family];
+    if (!transport) throw new Error(`平台不支持群发：${family}`);
     const currentChatScripts = {
       whatsapp: `(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`,
       telegram: `(() => String(location.hash || '').replace(/^#/, '').split('?')[0] || null)()`,
-      line: `(() => { const hit=String(location.hash || '').match(/\\/chats\\/([^/?]+)/); return hit ? decodeURIComponent(hit[1]) : null; })()`,
+      line: `(() => { try { const hit=String(location.hash || '').match(/\\/chats\\/([^/?]+)/); return hit ? decodeURIComponent(hit[1]) : null; } catch { return null; } })()`,
     };
     const adapter = Object.freeze({
       family, accountId: account.id, transport,
       async getCurrentChat() { const id = await wv.executeJavaScript(currentChatScripts[family] || 'null'); return id ? String(id) : null; },
       async listChats() { const result = await wv.executeJavaScript(transport.getChats); const text = String(result || '[]'); if (text.startsWith('ERR:')) throw new Error(text.slice(4)); return JSON.parse(text); },
-      async openChat(chatId) { return wv.executeJavaScript(transport.switchChat(chatId)); },
+      async openChat(chatId) {
+        const clicked = await wv.executeJavaScript(transport.switchChat(chatId));
+        if (clicked !== true) return false;
+        for (let attempt = 0; attempt < 40; attempt++) {
+          const current = await wv.executeJavaScript(currentChatScripts[family] || 'null');
+          if (window.GeekBroadcastSafety.sameChat(current, chatId)) return true;
+          await sleep(250);
+        }
+        return false;
+      },
+      async getComposerText() {
+        if (family === 'telegram') return wv.executeJavaScript(`document.querySelector('#editable-message-text')?.innerText || ''`);
+        if (family === 'line') return wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value || ''`);
+        return '';
+      },
+      async clearComposerText() {
+        if (family === 'telegram') return wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text'); if(!editor)return false; editor.focus(); document.execCommand('selectAll',false,null); document.execCommand('delete',false,null); return !(editor.innerText||'').trim(); })()`);
+        if (family === 'line') return wv.executeJavaScript(`(() => { const host=document.querySelector('textarea-ex'); const textarea=host?.shadowRoot?.querySelector('textarea'); if(!host||!textarea||typeof host.insertValue!=='function')return false; textarea.focus(); textarea.select(); host.insertValue([]); return !(textarea.value||'').trim(); })()`);
+        return true;
+      },
       async setComposerText(text) {
         if (family === 'telegram') {
           const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror'); if(!editor)return false; editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
           if (!focused) return 'NO_EDITOR';
-          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text));
+          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv));
+          await sleep(50);
           const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text')?.innerText?.trim() || ''`);
           return actual === String(text).trim() ? 'OK' : 'EMPTY';
         }
         if (family === 'line') {
           const focused = await wv.executeJavaScript(`(() => { const textarea=document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea'); if(!textarea)return false; textarea.focus(); textarea.select(); return true; })()`);
           if (!focused) return 'NO_EDITOR';
-          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text));
+          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv));
+          await sleep(50);
           const actual = await wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value?.trim() || ''`);
           return actual === String(text).trim() ? 'OK' : 'EMPTY';
         }
@@ -2125,8 +2201,21 @@
             if (String(sentOk).startsWith('ERR:名片:')) break;
             continue;
           }
-          await platform.openChat(t.id);
+          const opened = await platform.openChat(t.id);
           await sleep(900); // 等聊天打开
+          const currentChatId = await platform.getCurrentChat();
+          const openGuard = window.GeekBroadcastSafety.authorizeSend({
+            opened,
+            currentChatId,
+            targetChatId: t.id,
+            composerResult: 'NO_SET',
+            needsComposer: false,
+          });
+          if (!openGuard.ok) {
+            sentOk = `ERR:${openGuard.reason}`;
+            failReasons.push(`${t.name}: 已阻止发送 ${openGuard.reason} current=${currentChatId || 'EMPTY'}`);
+            continue;
+          }
           if (broadcastFiles.length) {
             // 附件：真实拖拽（主进程 CDP）→ 等 TG 弹出发送确认
             for (const file of broadcastFiles) {
@@ -2138,10 +2227,26 @@
             // 文字消息：由 send 输入到弹窗 caption（弹窗会遮挡主输入框）
             sentOk = await wv.executeJavaScript(adapter.send(personalMsg)); // 弹窗 caption + Send
           } else {
-            // 纯文字
+            // 纯文字：输入失败时禁止继续发送，防止旧草稿误发。
             setOk = await platform.setComposerText(personalMsg);
+            const finalCurrentChatId = await platform.getCurrentChat();
+            const actualComposerText = await platform.getComposerText();
+            const composerGuard = window.GeekBroadcastSafety.authorizeSend({
+              opened,
+              currentChatId: finalCurrentChatId,
+              targetChatId: t.id,
+              composerResult: setOk,
+              needsComposer: true,
+              expectedComposerText: personalMsg,
+              actualComposerText,
+            });
+            if (!composerGuard.ok) {
+              await platform.clearComposerText().catch(() => false);
+              sentOk = `ERR:${composerGuard.reason}`;
+              failReasons.push(`${t.name}: 已阻止发送 ${composerGuard.reason}`);
+              continue;
+            }
             sentOk = await platform.sendText('');
-            if (setOk !== 'OK') failReasons.push(`${t.name}: 输入失败 ${setOk}`);
           }
           if (sentOk === 'SENT' || sentOk === 'CLICKED') break; // 成功
         } catch (e) {
