@@ -2153,9 +2153,9 @@
       else { fail++; failReasons.push(`${t.name}: send=${sentOk} set=${setOk}`); broadcastFailed.push({ name: t.name, reason: sentOk || setOk }); }
       broadcastOkCount = ok;
       if (i < targets.length - 1 && !broadcastStop) {
-        const intervalMin = parseFloat(document.getElementById('broadcast-interval-min')?.value) || 2;
-        const intervalMax = parseFloat(document.getElementById('broadcast-interval-max')?.value) || intervalMin;
-        const lo = Math.max(0.5, Math.min(intervalMin, intervalMax));
+        const intervalMin = parseFloat(document.getElementById('broadcast-interval-min')?.value) || 5;
+        const intervalMax = parseFloat(document.getElementById('broadcast-interval-max')?.value) || Math.max(10, intervalMin);
+        const lo = Math.max(5, Math.min(intervalMin, intervalMax));
         const hi = Math.max(lo, intervalMax);
         const waitSec = lo + Math.random() * (hi - lo);
         startCountdown(waitSec); // 倒计时（HelloWorld 风格：下一次发送 MM:SSs）
@@ -3267,7 +3267,7 @@
   const rangeValue = document.getElementById('bc-range-value');
   function syncBroadcastRange() {
     if (!rangeMin || !rangeMax) return;
-    let lo = Math.min(+rangeMin.value, +rangeMax.value), hi = Math.max(+rangeMin.value, +rangeMax.value);
+    let lo = Math.max(5, Math.min(+rangeMin.value, +rangeMax.value)), hi = Math.max(lo, +rangeMin.value, +rangeMax.value);
     rangeMin.value = lo; rangeMax.value = hi;
     document.getElementById('broadcast-interval-min').value = lo;
     document.getElementById('broadcast-interval-max').value = hi;
