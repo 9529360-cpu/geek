@@ -54,6 +54,11 @@ contextBridge.exposeInMainWorld(
       translate: (payload) => ipcRenderer.invoke('translation:translate', payload),
       health: () => ipcRenderer.invoke('translation:health'),
     }),
+    accountData: Object.freeze({
+      getAll: (accountId) => ipcRenderer.invoke('account-data:get-all', accountId),
+      set: (accountId, key, value) => ipcRenderer.invoke('account-data:set', accountId, key, value),
+      remove: (accountId, key) => ipcRenderer.invoke('account-data:remove', accountId, key),
+    }),
     window: Object.freeze({
       relaunch: () => ipcRenderer.invoke('window:relaunch'),
       minimize: () => ipcRenderer.invoke('window:minimize'),

@@ -551,6 +551,9 @@ async function removeAccount(event, accountId) {
   translationCaches.delete(removedAccount.partition);
   translationCacheLoaded.delete(removedAccount.partition);
   translationCacheWrites.delete(removedAccount.partition);
+  accountDataCaches.delete(removedAccount.partition);
+  accountDataLoaded.delete(removedAccount.partition);
+  accountDataWrites.delete(removedAccount.partition);
   for (const key of translationLatestRequest.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationLatestRequest.delete(key);
   for (const key of translationInflight.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationInflight.delete(key);
 
@@ -663,6 +666,49 @@ async function appendTranslationCache(partition, key, item) {
   try { await write; } catch {} finally { if (translationCacheWrites.get(partition) === write) translationCacheWrites.delete(partition); }
 }
 
+const accountDataCaches = new Map();
+const accountDataLoaded = new Set();
+const accountDataWrites = new Map();
+function accountDataFile(partition) {
+  const dirName = String(partition || '').replace(/^persist:/, '');
+  if (!/^[a-zA-Z0-9_-]+$/.test(dirName)) throw new Error('账号沙箱不合法');
+  return path.join(app.getPath('userData'), 'Partitions', dirName, 'geek-account-data.jsonl');
+}
+async function loadAccountData(partition) {
+  if (!accountDataCaches.has(partition)) accountDataCaches.set(partition, new Map());
+  const cache = accountDataCaches.get(partition);
+  if (accountDataLoaded.has(partition)) return cache;
+  accountDataLoaded.add(partition);
+  if (!safeStorage.isEncryptionAvailable()) return cache;
+  try {
+    for (const line of (await fs.readFile(accountDataFile(partition), 'utf-8')).split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const item = JSON.parse(line); if (!item.key || !item.value) continue;
+        const value = safeStorage.decryptString(Buffer.from(item.value, 'base64'));
+        item.deleted ? cache.delete(item.key) : cache.set(item.key, value);
+      } catch {}
+    }
+  } catch (error) { if (error?.code !== 'ENOENT') { accountDataLoaded.delete(partition); throw error; } }
+  return cache;
+}
+async function appendAccountData(partition, key, value, deleted = false) {
+  if (deletedTranslationPartitions.has(partition)) return;
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，账号数据未保存');
+  const file = accountDataFile(partition);
+  const record = { key, deleted, at: Date.now(), value: safeStorage.encryptString(String(value ?? '')).toString('base64') };
+  const previous = accountDataWrites.get(partition) || Promise.resolve();
+  const write = previous.catch(() => {}).then(async () => { if (deletedTranslationPartitions.has(partition)) return; await fs.mkdir(path.dirname(file), { recursive: true }); await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8'); });
+  accountDataWrites.set(partition, write);
+  try { await write; } finally { if (accountDataWrites.get(partition) === write) accountDataWrites.delete(partition); }
+}
+function resolveAccountPartition(accountId) {
+  assertValidAccountId(accountId);
+  const account = accountsState.accounts.find(item => item.id === accountId);
+  if (!account?.partition) throw new Error('账号沙箱不存在');
+  return account.partition;
+}
+
 function translationGatewayEndpoint() {
   const configured = String(process.env.GEEK_TRANSLATION_GATEWAY_URL || '').trim().replace(/\/$/, '');
   const endpoint = configured || (app.isPackaged ? '' : 'http://127.0.0.1:18991');
@@ -735,6 +781,18 @@ async function translateViaRemoteGateway(event, payload) {
 function registerIpcHandlers() {
   ipcMain.handle('translation:translate', translateViaRemoteGateway);
   ipcMain.handle('translation:health', checkTranslationGateway);
+  ipcMain.handle('account-data:get-all', async (event, accountId) => {
+    assertTrustedSender(event); const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); return Object.fromEntries(cache);
+  });
+  ipcMain.handle('account-data:set', async (event, accountId, key, value) => {
+    assertTrustedSender(event); if (!/^[a-zA-Z0-9_-]{1,64}$/.test(String(key || ''))) throw new Error('账号数据键不合法');
+    const raw = String(value ?? ''); if (Buffer.byteLength(raw, 'utf8') > 2 * 1024 * 1024) throw new Error('账号数据过大');
+    const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); cache.set(key, raw); await appendAccountData(partition, key, raw); return true;
+  });
+  ipcMain.handle('account-data:remove', async (event, accountId, key) => {
+    assertTrustedSender(event); if (!/^[a-zA-Z0-9_-]{1,64}$/.test(String(key || ''))) throw new Error('账号数据键不合法');
+    const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); cache.delete(key); await appendAccountData(partition, key, '', true); return true;
+  });
   ipcMain.handle('platforms:list', async (event) => {
     assertTrustedSender(event);
     return Object.entries(APP_TYPES).map(([type, cfg]) => ({

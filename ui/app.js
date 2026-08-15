@@ -228,10 +228,56 @@
 
   let accounts = [];
   let activeId = null;
+  let accountSwitchSequence = 0;
   let activePlatform = null; // 当前平台家族 key（whatsapp/telegram/line）
   let config = null;
   let platforms = [];
   let addSelectedType = null;
+  let savedGroupLinks = [];
+  let refreshGroupLinksUi = () => {};
+  const ACCOUNT_SANDBOX_KEYS = ['scheduleTasks','sendHistory','savedMessages','savedLists','broadcastExclude','broadcastExcludeContacts','broadcastExcludeGroups','broadcastGroups','savedGroups','groupLinks','gtAutoCfg','gtCmdCfg','gtCmdNames','translationGlobal','translationChats'];
+  const accountSandboxById = new Map();
+  async function loadAccountSandbox(accountId) {
+    let data = await window.api.accountData.getAll(accountId);
+    if (!data.__schema) {
+      const ownerKey = 'geekSandboxMigrationOwner';
+      let owner = localStorage.getItem(ownerKey);
+      if (!owner) { owner = accountId; localStorage.setItem(ownerKey, owner); }
+      if (owner === accountId) {
+        for (const key of ACCOUNT_SANDBOX_KEYS.filter(key => !key.startsWith('translation') && key !== 'broadcastGroups')) {
+          const old = localStorage.getItem(key); if (old !== null && data[key] === undefined) { data[key] = old; await window.api.accountData.set(accountId, key, old); localStorage.removeItem(key); }
+        }
+      }
+      try {
+        const groups = Array.isArray(config?.broadcastGroups) ? config.broadcastGroups : [];
+        const ownGroups = groups.filter(group => group.accountId === accountId || (!group.accountId && owner === accountId));
+        if (ownGroups.length && data.broadcastGroups === undefined) { data.broadcastGroups = JSON.stringify(ownGroups.map(({ accountId: _accountId, ...group }) => group)); await window.api.accountData.set(accountId, 'broadcastGroups', data.broadcastGroups); }
+        if (ownGroups.length) { config.broadcastGroups = groups.filter(group => !ownGroups.includes(group)); await window.api.config.set({ broadcastGroups: config.broadcastGroups }); }
+      } catch {}
+      try {
+        const globals = JSON.parse(localStorage.getItem('geekTranslationGlobalConfig') || '{}');
+        if (globals[accountId] && data.translationGlobal === undefined) { data.translationGlobal = JSON.stringify(globals[accountId]); await window.api.accountData.set(accountId, 'translationGlobal', data.translationGlobal); delete globals[accountId]; localStorage.setItem('geekTranslationGlobalConfig', JSON.stringify(globals)); }
+        const chats = JSON.parse(localStorage.getItem('geekTranslationChatConfig') || '{}'); const own = {};
+        for (const key of Object.keys(chats)) if (key.startsWith(`${accountId}:`)) { own[key.slice(accountId.length + 1)] = chats[key]; delete chats[key]; }
+        if (Object.keys(own).length && data.translationChats === undefined) { data.translationChats = JSON.stringify(own); await window.api.accountData.set(accountId, 'translationChats', data.translationChats); localStorage.setItem('geekTranslationChatConfig', JSON.stringify(chats)); }
+      } catch {}
+      data.__schema = '1'; await window.api.accountData.set(accountId, '__schema', '1');
+    }
+    accountSandboxById.set(accountId, data); return data;
+  }
+  function accountStorageGetItemFor(accountId, key) { const data = accountSandboxById.get(accountId); return data && Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; }
+  function accountStorageGetItem(key) { return accountStorageGetItemFor(activeId, key); }
+  function accountStorageSetItem(key, value) {
+    if (!activeId) return Promise.resolve(false);
+    const accountId = activeId, raw = String(value), data = accountSandboxById.get(accountId) || {};
+    const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; data[key] = raw; accountSandboxById.set(accountId, data);
+    return window.api.accountData.set(accountId, key, raw).catch(error => { if (had) data[key] = previous; else delete data[key]; console.error('账号沙箱保存失败:', key, error.message); return false; });
+  }
+  function accountStorageRemoveItem(key) {
+    if (!activeId) return Promise.resolve(false);
+    const accountId = activeId, data = accountSandboxById.get(accountId) || {}; const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; delete data[key];
+    return window.api.accountData.remove(accountId, key).catch(error => { if (had) data[key] = previous; console.error('账号沙箱删除失败:', key, error.message); return false; });
+  }
   const lastAccountByPlatform = {}; // 记住每个平台最后激活的账号
   const unreadPlatforms = new Set(); // 有未读消息的平台（闪烁状态持久，重绘不丢）
   const unreadByAccount = {}; // accountId -> 未读数（红点显示用）
@@ -538,12 +584,12 @@
     }).catch(() => {});
   }
   // 把群组工具配置同步到 webview 域 localStorage（webview 与外壳 localStorage 不互通）
-  function syncGtCfgToWebview(wv) {
-    if (!wv) return;
-    const auto = JSON.parse(localStorage.getItem('gtAutoCfg') || '{}');
-    const cmd = JSON.parse(localStorage.getItem('gtCmdCfg') || '{}');
+  function syncGtCfgToWebview(wv, accountId = activeId) {
+    if (!wv || !accountId) return;
+    const auto = JSON.parse(accountStorageGetItemFor(accountId, 'gtAutoCfg') || '{}');
+    const cmd = JSON.parse(accountStorageGetItemFor(accountId, 'gtCmdCfg') || '{}');
     const cfg = Object.assign({}, auto, cmd);
-    const cmdNames = JSON.parse(localStorage.getItem('gtCmdNames') || '{}');
+    const cmdNames = JSON.parse(accountStorageGetItemFor(accountId, 'gtCmdNames') || '{}');
     wv.executeJavaScript(`(() => {
       try {
         window.__gtSetCfg ? window.__gtSetCfg(${JSON.stringify(cfg)}) : localStorage.setItem('__gtAutoCfg', ${JSON.stringify(JSON.stringify(cfg))});
@@ -583,11 +629,8 @@
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
     if (!wv || !account || !(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
-    let store = {}, globalStore = {};
-    try { store = JSON.parse(localStorage.getItem('geekTranslationChatConfig') || '{}'); globalStore = JSON.parse(localStorage.getItem('geekTranslationGlobalConfig') || '{}'); } catch {}
-    const chatConfig = {};
-    Object.entries(store).forEach(([key, value]) => { const prefix = `${account.id}:`; if (key.startsWith(prefix)) chatConfig[key.slice(prefix.length)] = value; });
-    const globalConfig = { ...(globalStore[account.id] || {}) };
+    let chatConfig = {}, globalConfig = {};
+    try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
     if (globalConfig.source === 'local' || globalConfig.source === 'remote') globalConfig.source = 'auto';
     wv.executeJavaScript(`(${function (cfg) {
       try {
@@ -786,7 +829,12 @@
   async function switchAccount(id) {
     const account = accounts.find(a => a.id === id);
     if (!account) return;
+    const switchSequence = ++accountSwitchSequence;
+    try { await loadAccountSandbox(id); }
+    catch (error) { if (switchSequence === accountSwitchSequence) console.error('账号沙箱加载失败:', id, error.message); return; }
+    if (switchSequence !== accountSwitchSequence) return;
     activeId = id;
+    reloadAccountScopedUiState();
     activePlatform = familyOf(account.type).key;
     lastAccountByPlatform[activePlatform] = id;
     clearUnread(id); // 查看该账号 → 清未读（红点/闪烁/通知）
@@ -1041,10 +1089,9 @@
     const allowAuto = id.endsWith('-from');
     select.innerHTML = `${allowAuto ? '<option value="auto">自动检测</option>' : ''}${translationLanguages.map(([code, name]) => `<option value="${code}">${name}</option>`).join('')}`;
   }
-  function translationGlobalStore() { try { return JSON.parse(localStorage.getItem(translationGlobalStoreKey) || '{}'); } catch { return {}; } }
+  function translationGlobalStore() { try { return JSON.parse(accountStorageGetItem('translationGlobal') || '{}'); } catch { return {}; } }
   function activeTranslationGlobalConfig() {
-    const store = translationGlobalStore();
-    const cfg = { ...translationGlobalDefaults, ...(store[activeId] || {}) };
+    const cfg = { ...translationGlobalDefaults, ...translationGlobalStore() };
     if (cfg.source === 'local' || cfg.source === 'remote') cfg.source = 'auto';
     return cfg;
   }
@@ -1069,13 +1116,13 @@
       translationMode: document.getElementById('translation-message')?.value || 'auto', messageFrom: document.getElementById('translation-message-from')?.value || 'auto', messageTo: document.getElementById('translation-message-to')?.value || 'zh', group: bool('translation-group'),
       fontSize: document.getElementById('translation-font-size')?.value || '13', fontColor: document.getElementById('translation-font-color')?.value || '#667eea'
     };
-    const store = translationGlobalStore(); store[activeId] = cfg; localStorage.setItem(translationGlobalStoreKey, JSON.stringify(store));
+    accountStorageSetItem('translationGlobal', JSON.stringify(cfg)).catch(() => {});
     refreshTranslationGlobalPanel();
     const account = accounts.find(a => a.id === activeId); if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
     const status = document.getElementById('translation-global-status'); if (status) status.textContent = '全局翻译设置已保存';
   }
   if (translationTarget) translationTarget.innerHTML = translationLanguages.map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
-  function translationStore() { try { return JSON.parse(localStorage.getItem(translationStoreKey) || '{}'); } catch { return {}; } }
+  function translationStore() { try { return JSON.parse(accountStorageGetItem('translationChats') || '{}'); } catch { return {}; } }
   async function currentTranslationChat() {
     const wv = wvMap.get(activeId);
     if (!wv || typeof wv.executeJavaScript !== 'function') return null;
@@ -1087,7 +1134,7 @@
   async function refreshTranslationPanel() {
     const chatId = await currentTranslationChat();
     const store = translationStore();
-    const cfg = chatId ? (store[`${activeId}:${chatId}`] || {}) : {};
+    const cfg = chatId ? (store[chatId] || {}) : {};
     const enabled = document.getElementById('translation-enabled');
     const auto = document.getElementById('translation-auto-send');
     const action = document.getElementById('translation-message-action');
@@ -1101,8 +1148,8 @@
     const chatId = await currentTranslationChat();
     if (!chatId) { if (translationHint) translationHint.textContent = '请先在 WhatsApp 中打开一个聊天'; return; }
     const store = translationStore();
-    store[`${activeId}:${chatId}`] = { enabled: !!document.getElementById('translation-enabled')?.checked, target: translationTarget?.value || 'en', autoSend: !!document.getElementById('translation-auto-send')?.checked, messageAction: !!document.getElementById('translation-message-action')?.checked };
-    localStorage.setItem(translationStoreKey, JSON.stringify(store));
+    store[chatId] = { enabled: !!document.getElementById('translation-enabled')?.checked, target: translationTarget?.value || 'en', autoSend: !!document.getElementById('translation-auto-send')?.checked, messageAction: !!document.getElementById('translation-message-action')?.checked };
+    accountStorageSetItem('translationChats', JSON.stringify(store)).catch(() => {});
     const account = accounts.find(a => a.id === activeId);
     if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
     if (translationHint) translationHint.textContent = '当前聊天翻译设置已保存';
@@ -1523,9 +1570,7 @@
   // 群组标签：原版语义=保存一组群，点击后恢复并筛选这组群
   let broadcastSavedFilter = null;
   function currentBroadcastGroupTags() {
-    const all = (config || {}).broadcastGroups || [];
-    // 兼容旧版本无 accountId 的标签；新保存的标签严格按账号隔离
-    return all.filter(g => !g.accountId || g.accountId === activeId);
+    try { return JSON.parse(accountStorageGetItem('broadcastGroups') || '[]'); } catch { return []; }
   }
   function renderSavedGroups() {
     const sel = document.getElementById('broadcast-saved-groups');
@@ -1560,12 +1605,11 @@
     if (!selectedGroups.length) { alert('请先勾选要保存的群组'); return; }
     const name = prompt('给这组群起个标签名：', `群组标签 ${(currentBroadcastGroupTags()).length + 1}`);
     if (!name) return;
-    const groups = config.broadcastGroups || [];
-    const old = groups.find(g => g.accountId === activeId && g.name === name.trim());
-    const tag = { id: old ? old.id : 'bg' + Date.now(), accountId: activeId, name: name.trim(), chatIds: selectedGroups.map(c => c.id), createdAt: old?.createdAt || Date.now(), updatedAt: Date.now() };
+    const groups = currentBroadcastGroupTags();
+    const old = groups.find(g => g.name === name.trim());
+    const tag = { id: old ? old.id : 'bg' + Date.now(), name: name.trim(), chatIds: selectedGroups.map(c => c.id), createdAt: old?.createdAt || Date.now(), updatedAt: Date.now() };
     const next = old ? groups.map(g => g.id === old.id ? tag : g) : [...groups, tag];
-    config.broadcastGroups = next;
-    await window.api.config.set({ broadcastGroups: next });
+    accountStorageSetItem('broadcastGroups', JSON.stringify(next));
     broadcastSavedFilter = new Set(tag.chatIds);
     document.getElementById('broadcast-saved-groups').value = tag.id;
     renderSavedGroups();
@@ -1596,9 +1640,8 @@
   async function deleteBroadcastGroupTag(g) {
     if (!g) return;
     if (!confirm(`删除群组标签「${g.name}」？不会删除真实群组。`)) return;
-    const next = (config.broadcastGroups || []).filter(x => x.id !== g.id);
-    config.broadcastGroups = next;
-    await window.api.config.set({ broadcastGroups: next });
+    const next = currentBroadcastGroupTags().filter(x => x.id !== g.id);
+    accountStorageSetItem('broadcastGroups', JSON.stringify(next));
     clearBroadcastGroupTagFilter();
   }
   document.getElementById('broadcast-saved-groups').onchange = (e) => {
@@ -1635,10 +1678,10 @@
     })()`;
   }
   // 多消息定时任务（持久化；重启/重开窗口后重新挂定时器）
-  let scheduleTasks = JSON.parse(localStorage.getItem('scheduleTasks') || '[]');
+  let scheduleTasks = JSON.parse(accountStorageGetItem('scheduleTasks') || '[]');
   const scheduleTaskTimers = new Map();
   function persistScheduleTasks() {
-    localStorage.setItem('scheduleTasks', JSON.stringify(scheduleTasks));
+    accountStorageSetItem('scheduleTasks', JSON.stringify(scheduleTasks));
   }
   function armScheduleTasks() {
     for (const [id, timer] of scheduleTaskTimers) clearTimeout(timer);
@@ -1667,7 +1710,7 @@
         <input type="text" class="bc-sched-msg" placeholder="消息内容…（支持 %nc）" value="${escapeHtml(t.message || '')}" data-i="${i}">
         <select class="bc-sched-group" data-i="${i}" title="发送到哪个群组预设（留空=当前勾选）">
           <option value="">当前勾选</option>
-          ${(config.broadcastGroups || []).map(g => `<option value="${g.id}" ${t.groupId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
+          ${currentBroadcastGroupTags().map(g => `<option value="${g.id}" ${t.groupId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
         </select>
         <button class="bc-btn bc-sched-del" data-i="${i}" title="删除">×</button>
       </div>`).join('');
@@ -1685,7 +1728,7 @@
   // 定时任务到点执行：加载群组预设 + 设置消息 + 发送
   async function fireScheduledTask(t) {
     if (t.groupId) {
-      const g = (config.broadcastGroups || []).find(x => x.id === t.groupId);
+      const g = currentBroadcastGroupTags().find(x => x.id === t.groupId);
       if (g) {
         broadcastSelected.clear();
         g.chatIds.forEach(id => { if (broadcastChats.some(c => c.id === id)) broadcastSelected.add(id); });
@@ -2016,10 +2059,10 @@
     setProgress(100, `完成：成功 ${ok}，失败 ${fail}${broadcastStop ? '（已停止）' : ''}`);
     // 记录发送历史（数据报表用）
     try {
-      const hist = JSON.parse(localStorage.getItem('sendHistory') || '[]');
+      const hist = JSON.parse(accountStorageGetItem('sendHistory') || '[]');
       hist.push({ t: Date.now(), total, ok, fail, files: broadcastFiles.length, msgLen: message.length });
       if (hist.length > 500) hist.splice(0, hist.length - 500);
-      localStorage.setItem('sendHistory', JSON.stringify(hist));
+      accountStorageSetItem('sendHistory', JSON.stringify(hist));
     } catch (e) {}
     if (failReasons.length) {
       console.log('群发失败明细:', failReasons.join(' | '));
@@ -2038,7 +2081,7 @@
   const savedMessageListEl = document.getElementById('bc-saved-message-list');
   const saveMessageBtn = document.getElementById('bc-save-message');
   const deleteMessageBtn = document.getElementById('bc-delete-message');
-  let savedMessages = JSON.parse(localStorage.getItem('savedMessages') || '[]');
+  let savedMessages = JSON.parse(accountStorageGetItem('savedMessages') || '[]');
   function applySavedMessage(i) {
     if (savedMessages[i]) {
       bMessageEl.value = savedMessages[i].msg;
@@ -2051,7 +2094,7 @@
     const item = savedMessages[i];
     if (!item || !confirm(`删除已保存消息「${item.name}」？`)) return;
     savedMessages.splice(i, 1);
-    localStorage.setItem('savedMessages', JSON.stringify(savedMessages));
+    accountStorageSetItem('savedMessages', JSON.stringify(savedMessages));
     renderSavedMessages();
   }
   function renderSavedMessages() {
@@ -2085,7 +2128,7 @@
     const old = savedMessages.findIndex(m => m.name === name.trim());
     const item = { name: name.trim(), msg };
     if (old >= 0) savedMessages[old] = item; else savedMessages.push(item);
-    localStorage.setItem('savedMessages', JSON.stringify(savedMessages));
+    accountStorageSetItem('savedMessages', JSON.stringify(savedMessages));
     renderSavedMessages();
   };
   if (savedMessagesEl) savedMessagesEl.onchange = () => {
@@ -2100,7 +2143,7 @@
   const savedListsEl = document.getElementById('bc-saved-lists');
   const saveListBtn = document.getElementById('bc-save-list');
   const deleteListBtn = document.getElementById('bc-delete-list');
-  let savedLists = JSON.parse(localStorage.getItem('savedLists') || '[]');
+  let savedLists = JSON.parse(accountStorageGetItem('savedLists') || '[]');
   function renderSavedLists() {
     if (!savedListsEl) return;
     savedListsEl.innerHTML = '<option value="">已保存列表…</option>' + savedLists.map((l, i) => `<option value="${i}">${(l.name || '').slice(0, 24)}（${(l.ids || []).length}）</option>`).join('');
@@ -2110,7 +2153,7 @@
     const name = prompt('保存为（列表名称）：', '列表' + (savedLists.length + 1));
     if (!name) return;
     savedLists.push({ name, ids: [...broadcastSelected] });
-    localStorage.setItem('savedLists', JSON.stringify(savedLists));
+    accountStorageSetItem('savedLists', JSON.stringify(savedLists));
     renderSavedLists();
   };
   if (savedListsEl) savedListsEl.onchange = () => {
@@ -2125,11 +2168,11 @@
     if (i < 0) { alert('请先选择要删除的列表'); return; }
     if (!confirm('删除该列表？')) return;
     savedLists.splice(i, 1);
-    localStorage.setItem('savedLists', JSON.stringify(savedLists));
+    accountStorageSetItem('savedLists', JSON.stringify(savedLists));
     renderSavedLists();
   };
   // 排除列表（勾选不需要发送的聊天）
-  let broadcastExclude = new Set(JSON.parse(localStorage.getItem('broadcastExclude') || '[]'));
+  let broadcastExclude = new Set(JSON.parse(accountStorageGetItem('broadcastExclude') || '[]'));
   const excludeToggleBtn = document.getElementById('bc-exclude-toggle');
   const excludePanel = document.getElementById('bc-exclude-panel');
   const excludeListEl = document.getElementById('bc-exclude-list');
@@ -2149,7 +2192,7 @@
       cb.checked = broadcastExclude.has(c.id);
       cb.addEventListener('change', () => {
         if (cb.checked) broadcastExclude.add(c.id); else broadcastExclude.delete(c.id);
-        localStorage.setItem('broadcastExclude', JSON.stringify([...broadcastExclude]));
+        accountStorageSetItem('broadcastExclude', JSON.stringify([...broadcastExclude]));
       });
       const span = document.createElement('span');
       span.textContent = c.name || c.id;
@@ -2161,8 +2204,8 @@
     });
   }
   // 发送时排除（doSendBroadcast 的 targets 过滤）
-  let broadcastExcludeContacts = new Set(JSON.parse(localStorage.getItem('broadcastExcludeContacts') || '[]'));
-  let broadcastExcludeGroups = new Set(JSON.parse(localStorage.getItem('broadcastExcludeGroups') || '[]'));
+  let broadcastExcludeContacts = new Set(JSON.parse(accountStorageGetItem('broadcastExcludeContacts') || '[]'));
+  let broadcastExcludeGroups = new Set(JSON.parse(accountStorageGetItem('broadcastExcludeGroups') || '[]'));
   function renderTypedExclude(kind) {
     const sel = document.getElementById(kind === 'contacts' ? 'bc-exclude-contacts-select' : 'bc-exclude-groups-select');
     if (!sel) return;
@@ -2172,7 +2215,7 @@
     sel.onchange = () => {
       set.clear();
       [...sel.selectedOptions].forEach(o => set.add(o.value));
-      localStorage.setItem(kind === 'contacts' ? 'broadcastExcludeContacts' : 'broadcastExcludeGroups', JSON.stringify([...set]));
+      accountStorageSetItem(kind === 'contacts' ? 'broadcastExcludeContacts' : 'broadcastExcludeGroups', JSON.stringify([...set]));
     };
   }
   window.__broadcastExcludeSet = () => new Set([...broadcastExclude, ...broadcastExcludeContacts, ...broadcastExcludeGroups]);
@@ -2432,7 +2475,7 @@
         gtGroupList = JSON.parse(txt);
         // 确保监听器已注入（幂等；页面重载后自动重新注入）
         injectGtAgent(wv, account);
-        syncGtCfgToWebview(wv);
+        syncGtCfgToWebview(wv, activeId);
         renderGtGroups();
         return true;
       } catch (e) { alert('获取群组失败: ' + e.message); return false; }
@@ -2709,7 +2752,7 @@
       setTimeout(loadGtGroups, 2000);
     };
     // 统一链接（获取/保存/删除——原版 linkunicoparagrupos）
-    let savedGroupLinks = JSON.parse(localStorage.getItem('groupLinks') || '[]');
+    savedGroupLinks = JSON.parse(accountStorageGetItem('groupLinks') || '[]');
     const gtGetLinkBtn = document.getElementById('gt-getlink');
     const gtLinkBox = document.getElementById('gt-link-box');
     const gtLinkVal = document.getElementById('gt-link-val');
@@ -2724,10 +2767,11 @@
       </div>`).join('');
       gtLinksList.querySelectorAll('.gt-link-del').forEach(b => b.onclick = () => {
         savedGroupLinks.splice(parseInt(b.dataset.i), 1);
-        localStorage.setItem('groupLinks', JSON.stringify(savedGroupLinks));
+        accountStorageSetItem('groupLinks', JSON.stringify(savedGroupLinks));
         renderGroupLinks();
       });
     }
+    refreshGroupLinksUi = renderGroupLinks;
     renderGroupLinks();
     if (gtGetLinkBtn) gtGetLinkBtn.onclick = async () => {
       const targets = selectedGidList();
@@ -2764,7 +2808,7 @@
       if (!window.__curGroupLink) { gtStatus.textContent = '请先获取链接'; return; }
       const name = window.__curGroupName || '群组';
       savedGroupLinks.push({ name, link: window.__curGroupLink });
-      localStorage.setItem('groupLinks', JSON.stringify(savedGroupLinks));
+      accountStorageSetItem('groupLinks', JSON.stringify(savedGroupLinks));
       renderGroupLinks();
       if (gtLinkBox) gtLinkBox.style.display = 'none';
       gtStatus.textContent = '已保存到统一链接';
@@ -2800,31 +2844,31 @@
     const gtAutoDelLeft = document.getElementById('gt-auto-del-left');
     const gtAutoJoinLinks = document.getElementById('gt-auto-join-links');
     const gtSettingsSave = document.getElementById('gt-settings-save');
-    const gtAutoCfg = JSON.parse(localStorage.getItem('gtAutoCfg') || '{}');
+    const gtAutoCfg = JSON.parse(accountStorageGetItem('gtAutoCfg') || '{}');
     if (gtAutoDelRemoved) gtAutoDelRemoved.checked = !!gtAutoCfg.delRemoved;
     if (gtAutoDelLeft) gtAutoDelLeft.checked = !!gtAutoCfg.delLeft;
     if (gtAutoJoinLinks) gtAutoJoinLinks.checked = !!gtAutoCfg.joinLinks;
     if (gtSettingsSave) gtSettingsSave.onclick = () => {
-      localStorage.setItem('gtAutoCfg', JSON.stringify({ delRemoved: gtAutoDelRemoved.checked, delLeft: gtAutoDelLeft.checked, joinLinks: gtAutoJoinLinks.checked }));
-      syncGtCfgToWebview(wvMap.get(activeId));
+      accountStorageSetItem('gtAutoCfg', JSON.stringify({ delRemoved: gtAutoDelRemoved.checked, delLeft: gtAutoDelLeft.checked, joinLinks: gtAutoJoinLinks.checked }));
+      syncGtCfgToWebview(wvMap.get(activeId), activeId);
       gtStatus.textContent = '自动管理设置已保存（监听已生效）';
     };
     // 指令设置（localStorage）
     const gtCmdAdminOnly = document.getElementById('gt-cmd-adminonly');
     const gtCmdDelMsg = document.getElementById('gt-cmd-delmsg');
     const gtCmdSave = document.getElementById('gt-cmd-save');
-    const gtCmdCfg = JSON.parse(localStorage.getItem('gtCmdCfg') || '{}');
+    const gtCmdCfg = JSON.parse(accountStorageGetItem('gtCmdCfg') || '{}');
     if (gtCmdAdminOnly) gtCmdAdminOnly.checked = gtCmdCfg.adminOnly !== false;
     if (gtCmdDelMsg) gtCmdDelMsg.checked = !!gtCmdCfg.delMsg;
     // 指令名回显（原版默认 ban/adm/deadm/infog/tagall）
-    const gtCmdNamesStored = JSON.parse(localStorage.getItem('gtCmdNames') || '{}');
+    const gtCmdNamesStored = JSON.parse(accountStorageGetItem('gtCmdNames') || '{}');
     const nameDefaults = { cmdban: 'ban', cmdadm: 'adm', cmddeadm: 'deadm', cmdinfo: 'infog', cmdtagall: 'tagall' };
     Object.entries(nameDefaults).forEach(([k, def]) => {
       const el = document.getElementById('gt-cmdname-' + k.replace('cmd', ''));
       if (el) el.value = gtCmdNamesStored[k] || def;
     });
     if (gtCmdSave) gtCmdSave.onclick = () => {
-      localStorage.setItem('gtCmdCfg', JSON.stringify({ adminOnly: gtCmdAdminOnly.checked, delMsg: gtCmdDelMsg.checked }));
+      accountStorageSetItem('gtCmdCfg', JSON.stringify({ adminOnly: gtCmdAdminOnly.checked, delMsg: gtCmdDelMsg.checked }));
       const names = {
         cmdban: (document.getElementById('gt-cmdname-ban') || {}).value || 'ban',
         cmdadm: (document.getElementById('gt-cmdname-adm') || {}).value || 'adm',
@@ -2832,8 +2876,8 @@
         cmdinfo: (document.getElementById('gt-cmdname-info') || {}).value || 'infog',
         cmdtagall: (document.getElementById('gt-cmdname-tagall') || {}).value || 'tagall'
       };
-      localStorage.setItem('gtCmdNames', JSON.stringify(names));
-      syncGtCfgToWebview(wvMap.get(activeId));
+      accountStorageSetItem('gtCmdNames', JSON.stringify(names));
+      syncGtCfgToWebview(wvMap.get(activeId), activeId);
       gtStatus.textContent = '指令设置已保存（监听已生效）';
     };
     // 输入链接（批量加群——joinGroupViaInvite）
@@ -3016,7 +3060,7 @@
   const bcMenuReport = document.getElementById('bc-menu-report');
   if (bcMenuReport) bcMenuReport.onclick = () => {
     document.getElementById('broadcast-menu')?.classList.add('hidden');
-    const hist = JSON.parse(localStorage.getItem('sendHistory') || '[]');
+    const hist = JSON.parse(accountStorageGetItem('sendHistory') || '[]');
     const total = hist.reduce((s, h) => s + h.total, 0);
     const ok = hist.reduce((s, h) => s + h.ok, 0);
     const fail = hist.reduce((s, h) => s + h.fail, 0);
@@ -3039,11 +3083,11 @@
     if (action) {
       // 导出：所有配置 → JSON → 保存
       const cfg = {
-        savedMessages: JSON.parse(localStorage.getItem('savedMessages') || '[]'),
-        savedLists: JSON.parse(localStorage.getItem('savedLists') || '[]'),
-        broadcastExclude: JSON.parse(localStorage.getItem('broadcastExclude') || '[]'),
-        savedGroups: JSON.parse(localStorage.getItem('savedGroups') || '[]'),
-        scheduleTasks: JSON.parse(localStorage.getItem('scheduleTasks') || '[]'),
+        savedMessages: JSON.parse(accountStorageGetItem('savedMessages') || '[]'),
+        savedLists: JSON.parse(accountStorageGetItem('savedLists') || '[]'),
+        broadcastExclude: JSON.parse(accountStorageGetItem('broadcastExclude') || '[]'),
+        savedGroups: JSON.parse(accountStorageGetItem('savedGroups') || '[]'),
+        scheduleTasks: JSON.parse(accountStorageGetItem('scheduleTasks') || '[]'),
         version: 1
       };
       try {
@@ -3060,11 +3104,11 @@
           const f = inp.files[0];
           const text = await f.text();
           const cfg = JSON.parse(text);
-          if (cfg.savedMessages) localStorage.setItem('savedMessages', JSON.stringify(cfg.savedMessages));
-          if (cfg.savedLists) localStorage.setItem('savedLists', JSON.stringify(cfg.savedLists));
-          if (cfg.broadcastExclude) localStorage.setItem('broadcastExclude', JSON.stringify(cfg.broadcastExclude));
-          if (cfg.savedGroups) localStorage.setItem('savedGroups', JSON.stringify(cfg.savedGroups));
-          if (cfg.scheduleTasks) localStorage.setItem('scheduleTasks', JSON.stringify(cfg.scheduleTasks));
+          if (cfg.savedMessages) accountStorageSetItem('savedMessages', JSON.stringify(cfg.savedMessages));
+          if (cfg.savedLists) accountStorageSetItem('savedLists', JSON.stringify(cfg.savedLists));
+          if (cfg.broadcastExclude) accountStorageSetItem('broadcastExclude', JSON.stringify(cfg.broadcastExclude));
+          if (cfg.savedGroups) accountStorageSetItem('savedGroups', JSON.stringify(cfg.savedGroups));
+          if (cfg.scheduleTasks) accountStorageSetItem('scheduleTasks', JSON.stringify(cfg.scheduleTasks));
           alert('配置已导入，重新打开窗口生效');
         } catch (e) { alert('导入失败（文件格式不对）: ' + e.message); }
       };
@@ -3275,6 +3319,27 @@
     }
   };
 
+  function reloadAccountScopedUiState() {
+    const parse = (key, fallback) => { try { return JSON.parse(accountStorageGetItem(key) || JSON.stringify(fallback)); } catch { return fallback; } };
+    scheduleTasks = parse('scheduleTasks', []);
+    savedMessages = parse('savedMessages', []);
+    savedLists = parse('savedLists', []);
+    broadcastExclude = new Set(parse('broadcastExclude', []));
+    broadcastExcludeContacts = new Set(parse('broadcastExcludeContacts', []));
+    broadcastExcludeGroups = new Set(parse('broadcastExcludeGroups', []));
+    savedGroupLinks = parse('groupLinks', []);
+    broadcastSavedFilter = null; broadcastSelected.clear();
+    armScheduleTasks(); renderScheduleList(); renderSavedMessages(); renderSavedLists(); renderSavedGroups(); refreshGroupLinksUi(); renderBroadcastList();
+    renderTypedExclude('contacts'); renderTypedExclude('groups');
+    const auto = parse('gtAutoCfg', {}), cmd = parse('gtCmdCfg', {}), names = parse('gtCmdNames', {});
+    const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
+    setChecked('gt-auto-del-removed', auto.delRemoved); setChecked('gt-auto-del-left', auto.delLeft); setChecked('gt-auto-join-links', auto.joinLinks);
+    setChecked('gt-cmd-adminonly', cmd.adminOnly !== false); setChecked('gt-cmd-delmsg', cmd.delMsg);
+    const nameDefaults = { ban:'ban', adm:'adm', deadm:'deadm', info:'infog', tagall:'tagall' };
+    for (const [suffix, fallback] of Object.entries(nameDefaults)) { const el = document.getElementById('gt-cmdname-' + suffix); if (el) el.value = names['cmd' + suffix] || fallback; }
+    refreshTranslationGlobalPanel();
+  }
+
   // ---------- 加载账号 ----------
   async function loadAccounts() {
     const r = await window.api.accounts.list();
@@ -3294,6 +3359,8 @@
     renderSidebar();
     renderTabs();
     if (accounts.length) {
+      const ordered = [...accounts].sort((a, b) => (a.id === activeId ? -1 : b.id === activeId ? 1 : 0));
+      for (const account of ordered) await loadAccountSandbox(account.id);
       // 原版多开模型：所有账号的 webview 全部常驻（同时在线收消息），
       // 切换只是显隐。逐个创建（不等待加载完成），避免启动阻塞。
       for (const a of accounts) {
