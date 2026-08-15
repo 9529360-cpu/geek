@@ -237,7 +237,7 @@
       if (!original || /^[-+]?\d+(?:[.,]\d+)?$/.test(original)) return;
       event.preventDefault(); event.stopImmediatePropagation(); window.__geekLineSendLock = true;
       try {
-        const result = await window.__geekTranslationRequest({ text: original, source: setting.sendFrom || 'auto', target: setting.sendTo || 'en', provider: setting.provider, route: setting.route, chatId: cid });
+        const result = await window.__geekTranslationRequest({ text: original, source: setting.sendFrom || 'auto', target: setting.target || setting.sendTo || 'en', provider: setting.provider, route: setting.route, chatId: cid });
         if (!result?.text) throw new Error('翻译失败');
         const textarea = host.shadowRoot?.querySelector('textarea'); if (!textarea || typeof host.insertValue !== 'function') throw new Error('LINE输入组件不可用');
         textarea.focus(); document.execCommand('selectAll', false, null); host.insertValue([result.text]);

@@ -1206,11 +1206,11 @@
     if (auto) auto.checked = !!cfg.autoSend;
     if (action) action.checked = cfg.messageAction !== false;
     if (translationTarget) translationTarget.value = cfg.target || 'en';
-    if (translationHint) translationHint.textContent = chatId ? `当前聊天已加载 · ${cfg.enabled ? `目标：${translationLanguages.find(x => x[0] === (cfg.target || 'en'))?.[1] || cfg.target}` : '未启用翻译'}` : '请先在 WhatsApp 中打开一个聊天';
+    if (translationHint) translationHint.textContent = chatId ? `当前聊天已加载 · ${cfg.enabled ? `目标：${translationLanguages.find(x => x[0] === (cfg.target || 'en'))?.[1] || cfg.target}` : '未启用翻译'}` : '请先在当前平台打开一个聊天';
   }
   async function saveTranslationChatConfig() {
     const chatId = await currentTranslationChat();
-    if (!chatId) { if (translationHint) translationHint.textContent = '请先在 WhatsApp 中打开一个聊天'; return; }
+    if (!chatId) { if (translationHint) translationHint.textContent = '请先在当前平台打开一个聊天'; return; }
     const store = translationStore();
     store[chatId] = { enabled: !!document.getElementById('translation-enabled')?.checked, target: translationTarget?.value || 'en', autoSend: !!document.getElementById('translation-auto-send')?.checked, messageAction: !!document.getElementById('translation-message-action')?.checked };
     accountStorageSetItem('translationChats', JSON.stringify(store)).catch(() => {});
