@@ -611,10 +611,17 @@ async function removeAccount(event, accountId) {
   return publicState();
 }
 
-async function checkTranslationGateway(event, endpointInput) {
+function translationGatewayEndpoint() {
+  const configured = String(process.env.GEEK_TRANSLATION_GATEWAY_URL || '').trim().replace(/\/$/, '');
+  const endpoint = configured || (app.isPackaged ? '' : 'http://127.0.0.1:18991');
+  if (!endpoint) throw new Error('远程翻译服务尚未配置');
+  if (!/^https:\/\//i.test(endpoint) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(endpoint)) throw new Error('翻译服务配置不安全');
+  return endpoint;
+}
+
+async function checkTranslationGateway(event) {
   assertTrustedSender(event);
-  const endpoint = String(endpointInput || '').trim().replace(/\/$/, '');
-  if (!endpoint || !/^https:\/\//i.test(endpoint) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(endpoint)) throw new Error('翻译网关必须使用 HTTPS');
+  const endpoint = translationGatewayEndpoint();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
@@ -628,8 +635,7 @@ async function checkTranslationGateway(event, endpointInput) {
 async function translateViaRemoteGateway(event, payload) {
   assertTrustedSender(event);
   const body = payload && typeof payload === 'object' ? payload : {};
-  const endpoint = String(body.endpoint || '').trim().replace(/\/$/, '');
-  if (!endpoint || !/^https:\/\//i.test(endpoint) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(endpoint)) throw new Error('翻译网关必须使用 HTTPS');
+  const endpoint = translationGatewayEndpoint();
   const text = String(body.text || '');
   const target = String(body.target || '').toLowerCase();
   if (!text.trim()) throw new Error('翻译内容不能为空');
@@ -637,7 +643,7 @@ async function translateViaRemoteGateway(event, payload) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text, source: body.source || 'auto', target, chatId: body.chatId || undefined }), signal: controller.signal });
+    const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text, source: body.source || 'auto', target, provider: body.provider || 'auto', route: body.route || 'default', chatId: body.chatId || undefined }), signal: controller.signal });
     const raw = await response.text();
     let result; try { result = JSON.parse(raw); } catch { result = {}; }
     if (!response.ok) throw new Error(String(result.error || `翻译网关错误 ${response.status}`).slice(0, 300));

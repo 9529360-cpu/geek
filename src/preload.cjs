@@ -52,7 +52,7 @@ contextBridge.exposeInMainWorld(
     }),
     translation: Object.freeze({
       translate: (payload) => ipcRenderer.invoke('translation:translate', payload),
-      health: (endpoint) => ipcRenderer.invoke('translation:health', endpoint),
+      health: () => ipcRenderer.invoke('translation:health'),
     }),
     window: Object.freeze({
       relaunch: () => ipcRenderer.invoke('window:relaunch'),

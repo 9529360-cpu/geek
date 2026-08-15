@@ -575,11 +575,11 @@
     }
   }
 
-  // 翻译通道注入：只把聊天配置和远程网关地址同步进当前 WhatsApp WebView，不注入供应商密钥。
+  // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
     if (!wv || !account || !(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
-    let gateway = {}, store = {}, globalStore = {};
-    try { gateway = JSON.parse(localStorage.getItem('geekTranslationGateway') || '{}'); store = JSON.parse(localStorage.getItem('geekTranslationChatConfig') || '{}'); globalStore = JSON.parse(localStorage.getItem('geekTranslationGlobalConfig') || '{}'); } catch {}
+    let store = {}, globalStore = {};
+    try { store = JSON.parse(localStorage.getItem('geekTranslationChatConfig') || '{}'); globalStore = JSON.parse(localStorage.getItem('geekTranslationGlobalConfig') || '{}'); } catch {}
     const chatConfig = {};
     Object.entries(store).forEach(([key, value]) => { const prefix = `${account.id}:`; if (key.startsWith(prefix)) chatConfig[key.slice(prefix.length)] = value; });
     const globalConfig = globalStore[account.id] || {};
@@ -599,6 +599,7 @@
           window.__geekTakeTranslationRequest = function (id) { const pending = window.__geekTranslationPending.get(id); return pending ? JSON.stringify(pending.payload) : null; };
           window.__geekResolveTranslation = function (id, result, error) { const pending = window.__geekTranslationPending.get(id); if (!pending) return false; window.__geekTranslationPending.delete(id); if (error) pending.reject(new Error(error)); else pending.resolve(result); return true; };
         }
+        window.__geekOutgoingOriginals = window.__geekOutgoingOriginals || new Map();
         window.__geekGetTranslationSetting = function (chatId) {
           const g = window.__geekTranslationConfig.global || {};
           const base = { provider: g.source || 'local', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, source: g.sendFrom || 'auto', target: g.sendTo || 'en', messageAction: g.manual !== false, messageEnabled: g.message === true, messageTarget: g.messageTo || 'zh', messageFrom: g.messageFrom || 'auto', groupAuto: g.group === true, includeZh: g.includeZh !== false, fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };
@@ -614,7 +615,7 @@
           document.addEventListener('contextmenu', function (event) {
             const message = event.target.closest?.('.message-in,[data-id]');
             const cfg = window.__geekTranslationConfig;
-            if (!message || !cfg.endpoint || !window.__geekTranslationRequest) return;
+            if (!message || !window.__geekTranslationRequest) return;
             const active = window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized;
             const setting = active ? window.__geekGetTranslationSetting(active) : window.__geekGetTranslationSetting('');
             if (setting && setting.messageAction === false) return;
@@ -625,34 +626,44 @@
             document.getElementById('geek-translation-menu')?.remove();
             const menu = document.createElement('div'); menu.id = 'geek-translation-menu'; menu.className = 'geek-translation-menu'; menu.style.cssText = 'position:fixed;left:' + event.clientX + 'px;top:' + event.clientY + 'px;z-index:999999;background:#202c33;border:1px solid #3b4a54;border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.35);color:#e9edef;font:12px Arial;';
             const title = document.createElement('div'); title.textContent = '翻译到'; title.style.cssText = 'padding:5px 8px;color:#8696a0;font-size:10px;'; menu.appendChild(title);
-            [['zh','中文'],['en','English'],['it','Italiano'],['es','Español'],['fr','Français'],['de','Deutsch'],['pt','Português'],['ja','日本語'],['ko','한국어'],['ar','العربية'],['ru','Русский'],['hi','हिन्दी'],['tr','Türkçe'],['vi','Tiếng Việt'],['nl','Nederlands'],['pl','Polski'],['th','ไทย'],['id','Bahasa Indonesia'],['ms','Bahasa Melayu'],['uk','Українська'],['el','Ελληνικά'],['cs','Čeština'],['sv','Svenska'],['da','Dansk'],['fi','Suomi'],['he','עברית']].forEach(function (item) { const button = document.createElement('button'); button.type='button'; button.textContent=item[1]; button.style.cssText='display:block;width:130px;border:0;border-radius:5px;background:transparent;color:#e9edef;text-align:left;padding:7px 8px;cursor:pointer;'; button.onmouseenter=function(){button.style.background='#2a3942';}; button.onmouseleave=function(){button.style.background='transparent';}; button.onclick=async function(){ menu.remove(); if(message.querySelector('.geek-translation-result')) { const notice=document.createElement('div'); notice.textContent='这条消息已经翻译过了'; notice.style.cssText='margin-top:5px;padding:6px 8px;border-radius:4px;background:#3b2d16;color:#ffd18a;font-size:10px;'; message.appendChild(notice); setTimeout(function(){notice.remove();},2500); return; } const old=document.getElementById('geek-translation-loading'); if(old)old.remove(); const loading=document.createElement('div'); loading.id='geek-translation-loading'; loading.textContent='翻译中…'; loading.style.cssText='margin:4px 0;padding:6px 8px;border-radius:5px;background:#1f3b4d;color:#8bd5ff;font-size:10px;'; message.appendChild(loading); try { const result = await window.__geekTranslationRequest({endpoint:cfg.endpoint,text:text,source:'auto',target:item[0],chatId:active||null}); if (!result?.text) throw new Error('翻译失败'); loading.remove(); const resultBox=document.createElement('div'); resultBox.className='geek-translation-result'; resultBox.dataset.msgId=message.getAttribute('data-id')||''; resultBox.textContent=result.text; resultBox.style.cssText='margin-top:5px;padding:6px 8px;border-left:3px solid #667eea;border-radius:4px;background:rgba(102,126,234,.12);color:#d7ddff;font-size:11px;white-space:pre-wrap;'; message.appendChild(resultBox); } catch(error){ loading.textContent='翻译失败：' + error.message; loading.style.color='#ff9b9b'; } }; menu.appendChild(button); }); document.body.appendChild(menu); const close=function(e){if(!menu.contains(e.target)){menu.remove();document.removeEventListener('mousedown',close);}}; setTimeout(function(){document.addEventListener('mousedown',close);},0);
+            [['zh','中文'],['en','English'],['it','Italiano'],['es','Español'],['fr','Français'],['de','Deutsch'],['pt','Português'],['ja','日本語'],['ko','한국어'],['ar','العربية'],['ru','Русский'],['hi','हिन्दी'],['tr','Türkçe'],['vi','Tiếng Việt'],['nl','Nederlands'],['pl','Polski'],['th','ไทย'],['id','Bahasa Indonesia'],['ms','Bahasa Melayu'],['uk','Українська'],['el','Ελληνικά'],['cs','Čeština'],['sv','Svenska'],['da','Dansk'],['fi','Suomi'],['he','עברית']].forEach(function (item) { const button = document.createElement('button'); button.type='button'; button.textContent=item[1]; button.style.cssText='display:block;width:130px;border:0;border-radius:5px;background:transparent;color:#e9edef;text-align:left;padding:7px 8px;cursor:pointer;'; button.onmouseenter=function(){button.style.background='#2a3942';}; button.onmouseleave=function(){button.style.background='transparent';}; button.onclick=async function(){ menu.remove(); if(message.querySelector('.geek-translation-result')) { const notice=document.createElement('div'); notice.textContent='这条消息已经翻译过了'; notice.style.cssText='margin-top:5px;padding:6px 8px;border-radius:4px;background:#3b2d16;color:#ffd18a;font-size:10px;'; message.appendChild(notice); setTimeout(function(){notice.remove();},2500); return; } const old=document.getElementById('geek-translation-loading'); if(old)old.remove(); const loading=document.createElement('div'); loading.id='geek-translation-loading'; loading.textContent='翻译中…'; loading.style.cssText='margin:4px 0;padding:6px 8px;border-radius:5px;background:#1f3b4d;color:#8bd5ff;font-size:10px;'; message.appendChild(loading); try { const result = await window.__geekTranslationRequest({text:text,source:'auto',target:item[0],chatId:active||null}); if (!result?.text) throw new Error('翻译失败'); loading.remove(); const resultBox=document.createElement('div'); resultBox.className='geek-translation-result'; resultBox.dataset.msgId=message.getAttribute('data-id')||''; resultBox.textContent='译文：' + result.text; resultBox.style.cssText='margin-top:5px;padding:6px 8px;border-left:3px solid #667eea;border-radius:4px;background:rgba(102,126,234,.12);color:#d7ddff;font-size:11px;white-space:pre-wrap;'; message.appendChild(resultBox); } catch(error){ loading.textContent='翻译失败：' + error.message; loading.style.color='#ff9b9b'; } }; menu.appendChild(button); }); document.body.appendChild(menu); const close=function(e){if(!menu.contains(e.target)){menu.remove();document.removeEventListener('mousedown',close);}}; setTimeout(function(){document.addEventListener('mousedown',close);},0);
           }, true);
         }
         if (!window.__geekTranslationIncomingBound) {
           window.__geekTranslationIncomingBound = true;
-          window.__geekTranslateIncomingMessage = async function (message) {
+          window.__geekTranslateVisibleMessage = async function (message) {
             if (!message || message.dataset.geekTranslationState || message.querySelector?.('.geek-translation-result')) return;
+            const outgoing = message.matches?.('.message-out');
             const activeChat = window.WPP?.chat?.getActiveChat?.() || window.W?.chat?.getActive?.();
             const chatId = activeChat?.id?._serialized;
             const setting = chatId ? window.__geekGetTranslationSetting(chatId) : null;
-            if (!setting?.messageEnabled || (activeChat?.isGroup && !setting.groupAuto) || !window.__geekTranslationConfig.endpoint || !window.__geekTranslationRequest) return;
+            if (!setting?.messageEnabled || (!outgoing && activeChat?.isGroup && !setting.groupAuto) || !window.__geekTranslationRequest) return;
             const textNode = message.querySelector?.('[dir="ltr"],.selectable-text,[data-testid="msg-text"]');
             const text = (textNode?.innerText || message.innerText || '').trim();
             if (!text) return;
+            const original = outgoing ? window.__geekOutgoingOriginals.get(text) : '';
+            if (original) window.__geekOutgoingOriginals.delete(text);
             message.dataset.geekTranslationState = 'loading';
-            const box = document.createElement('div'); box.className = 'geek-translation-result'; box.textContent = '翻译中…'; box.style.cssText = `margin-top:5px;padding:6px 8px;border-radius:5px;background:rgba(31,59,77,.92);color:${setting.fontColor};font-size:${setting.fontSize}px;line-height:1.45;`;
+            const box = document.createElement('div'); box.className = 'geek-translation-result'; box.textContent = '译文：翻译中…'; box.style.cssText = `margin-top:5px;padding:6px 8px;border-radius:5px;background:rgba(31,59,77,.92);color:${setting.fontColor};font-size:${setting.fontSize}px;line-height:1.45;`;
             message.appendChild(box);
             try {
-              const result = await window.__geekTranslationRequest({ endpoint: window.__geekTranslationConfig.endpoint, text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId });
-              if (!result?.text) throw new Error('翻译失败');
-              box.textContent = result.text; message.dataset.geekTranslationState = 'done';
-            } catch (error) { box.textContent = '翻译失败：' + error.message; box.style.color = '#ff8a8a'; message.dataset.geekTranslationState = 'error'; }
+              let translated = original;
+              if (!translated) {
+                if ((setting.messageTarget || 'zh') === 'zh' && /[\u3400-\u9fff]/.test(text)) translated = text;
+                else {
+                  const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId });
+                  if (!result?.text) throw new Error('翻译失败');
+                  translated = result.text;
+                }
+              }
+              box.textContent = '译文：' + translated; message.dataset.geekTranslationState = 'done';
+            } catch (error) { box.textContent = '译文失败：' + error.message; box.style.color = '#ff8a8a'; message.dataset.geekTranslationState = 'error'; }
           };
           window.__geekTranslationIncomingObserver = new MutationObserver(function (records) {
             for (const record of records) for (const node of record.addedNodes) {
               if (node.nodeType !== 1) continue;
-              if (node.matches?.('.message-in')) window.__geekTranslateIncomingMessage(node);
-              node.querySelectorAll?.('.message-in').forEach(window.__geekTranslateIncomingMessage);
+              if (node.matches?.('.message-in,.message-out')) window.__geekTranslateVisibleMessage(node);
+              node.querySelectorAll?.('.message-in,.message-out').forEach(window.__geekTranslateVisibleMessage);
             }
           });
           window.__geekTranslationIncomingObserver.observe(document.body, { childList: true, subtree: true });
@@ -663,9 +674,11 @@
             const id = chat?.id?._serialized;
             const setting = id ? window.__geekGetTranslationSetting(id) : null;
             const text = args[0];
-            if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && (setting.includeZh || !/[\u3400-\u9fff]/.test(text)) && window.__geekTranslationConfig.endpoint && window.__geekTranslationRequest) {
-              const result = await window.__geekTranslationRequest({endpoint:window.__geekTranslationConfig.endpoint,text,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:id});
+            if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && (setting.includeZh || !/[\u3400-\u9fff]/.test(text)) && window.__geekTranslationRequest) {
+              const result = await window.__geekTranslationRequest({text,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:id});
               if (!result?.text) throw new Error('翻译失败');
+              window.__geekOutgoingOriginals.set(result.text, text);
+              setTimeout(() => window.__geekOutgoingOriginals.delete(result.text), 120000);
               args[0] = result.text;
             }
           } catch (error) { console.error('[geek-translation]', error); throw error; }
@@ -681,9 +694,11 @@
             const chat = objectShape ? args[0].chat : args[1];
             let options = objectShape ? args[0].options : args[2];
             const setting = chat?.id?._serialized ? window.__geekGetTranslationSetting(chat.id._serialized) : null;
-            if (setting?.enabled && setting?.autoSend && options?.caption && (setting.includeZh || !/[\u3400-\u9fff]/.test(options.caption)) && window.__geekTranslationConfig.endpoint && window.__geekTranslationRequest) {
-              const result = await window.__geekTranslationRequest({endpoint:window.__geekTranslationConfig.endpoint,text:options.caption,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:chat.id._serialized});
+            if (setting?.enabled && setting?.autoSend && options?.caption && (setting.includeZh || !/[\u3400-\u9fff]/.test(options.caption)) && window.__geekTranslationRequest) {
+              const result = await window.__geekTranslationRequest({text:options.caption,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:chat.id._serialized});
               if (!result?.text) throw new Error('配文翻译失败');
+              window.__geekOutgoingOriginals.set(result.text, options.caption);
+              setTimeout(() => window.__geekOutgoingOriginals.delete(result.text), 120000);
               options = { ...options, caption: result.text };
               if (objectShape) args[0] = { ...args[0], options }; else args[2] = options;
             }
@@ -692,7 +707,7 @@
         }
         return 'OK';
       } catch (error) { return 'ERR:' + error.message; }
-    }.toString()})(${JSON.stringify({ endpoint: String(gateway.url || '').replace(/\/$/, ''), chats: chatConfig, global: globalConfig })})()`).then((result) => {
+    }.toString()})(${JSON.stringify({ chats: chatConfig, global: globalConfig })})()`).then((result) => {
       if (String(result || '').includes('NO_SEND_MODULE')) setTimeout(() => syncTranslationCfgToWebview(wv, account), 3000);
     }).catch(() => {});
   }
@@ -940,8 +955,9 @@
   const translationTarget = document.getElementById('translation-target');
   const translationHint = document.getElementById('translation-chat-hint');
   const translationStoreKey = 'geekTranslationChatConfig';
+  localStorage.removeItem('geekTranslationGateway'); // 旧版地址迁移：服务地址不再保存在客户端渲染层。
   const translationGlobalStoreKey = 'geekTranslationGlobalConfig';
-  const translationGlobalDefaults = { source: 'local', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en', includeZh: true, manual: true, message: false, messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea' };
+  const translationGlobalDefaults = { source: 'local', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en', includeZh: true, manual: true, message: true, messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea' };
   const globalLanguageSelectIds = ['translation-send-from','translation-send-to','translation-message-from','translation-message-to'];
   for (const id of globalLanguageSelectIds) {
     const select = document.getElementById(id);
@@ -1026,24 +1042,14 @@
   }));
   ['translation-enabled','translation-target','translation-auto-send','translation-message-action'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationChatConfig));
   ['translation-source','translation-server','translation-send','translation-send-from','translation-send-to','translation-include-zh','translation-manual','translation-message','translation-message-from','translation-message-to','translation-group','translation-font-size','translation-font-color'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationGlobalConfig));
-  document.getElementById('translation-gateway-save')?.addEventListener('click', () => {
-    const url = String(document.getElementById('translation-gateway-url')?.value || '').trim().replace(/\/$/, '');
-    if (url && !/^https:\/\//i.test(url) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(url)) { document.getElementById('translation-gateway-status').textContent = '网关必须使用 HTTPS（本机测试可用 127.0.0.1）'; return; }
-    localStorage.setItem('geekTranslationGateway', JSON.stringify({ url }));
-    const account = accounts.find(a => a.id === activeId);
-    if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
-    document.getElementById('translation-gateway-status').textContent = '网关地址已保存；供应商 API Key 不在客户端保存';
-  });
   document.getElementById('translation-gateway-test')?.addEventListener('click', async () => {
     const status = document.getElementById('translation-gateway-status');
-    const url = String(document.getElementById('translation-gateway-url')?.value || '').trim().replace(/\/$/, '');
-    if (status) status.textContent = '正在测试连接…';
+    if (status) status.textContent = '正在检测服务…';
     try {
-      const result = await window.api.translation.health(url);
-      if (status) status.textContent = result?.ok ? `服务器在线 · ${result.models || 0} 条翻译线路可用` : `服务器异常${result?.status ? ` · HTTP ${result.status}` : ''}`;
-    } catch (error) { if (status) status.textContent = `服务器未连接 · ${error.message}`; }
+      const result = await window.api.translation.health();
+      if (status) status.textContent = result?.ok ? `翻译服务正常 · ${result.models || 0} 条线路可用` : '翻译服务暂不可用';
+    } catch (error) { if (status) status.textContent = `翻译服务暂不可用 · ${error.message}`; }
   });
-  try { const gateway = JSON.parse(localStorage.getItem('geekTranslationGateway') || '{}'); document.getElementById('translation-gateway-url').value = gateway.url || ''; } catch {}
   // 托盘菜单"锁屏" → 触发渲染层锁屏
   try {
     window.api.tray.onLock(() => lockScreen());

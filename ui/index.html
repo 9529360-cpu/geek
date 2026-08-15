@@ -108,11 +108,9 @@
               <div id="translation-chat-hint" class="translation-hint">请先在 WhatsApp 中打开一个聊天</div>
             </section>
             <section id="translation-tab-gateway" class="translation-tab-panel hidden">
-              <div class="translation-hint">客户端不保存供应商 API Key。这里仅配置远程翻译网关地址。</div>
-              <label class="translation-field"><span>网关地址</span><input id="translation-gateway-url" type="url" placeholder="https://translate.example.com"></label>
-              <div class="translation-hint">访问授权由极客账号/服务端会话处理，客户端不填写、不保存供应商密钥。</div>
-              <button type="button" id="translation-gateway-save" class="translation-save">保存网关设置</button>
-              <button type="button" id="translation-gateway-test" class="translation-save translation-save--secondary">测试连接</button>
+              <div class="translation-hint">翻译服务由极客统一管理。客户端不显示内部地址，也不保存任何供应商 API Key。</div>
+              <div class="translation-service-card"><span>翻译服务</span><strong id="translation-service-label">极客翻译服务</strong></div>
+              <button type="button" id="translation-gateway-test" class="translation-save translation-save--secondary">检测服务状态</button>
               <div id="translation-gateway-status" class="translation-hint"></div>
             </section>
           </div>

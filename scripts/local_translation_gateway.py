@@ -23,10 +23,11 @@ def reply(handler, status, payload):
     handler.wfile.write(raw)
 
 
-def translate(text, target):
+def translate(text, target, route='default'):
     last_error = 'no model available'
     language = LANG_NAMES.get(target, target)
-    for model in MODELS:
+    models = MODELS[:1] if route == 'primary' else MODELS[1:] if route == 'backup' else MODELS
+    for model in models:
         body = {
             'model': model,
             'temperature': 0,
@@ -72,12 +73,18 @@ class Handler(BaseHTTPRequestHandler):
             text = str(body.get('text', ''))
             source = str(body.get('source', 'auto'))
             target = str(body.get('target', '')).lower()
+            provider = str(body.get('provider', 'local')).lower()
+            route = str(body.get('route', 'default')).lower()
+            if provider not in ('auto', 'local'):
+                return reply(self, 400, {'error': 'unsupported_provider'})
+            if route not in ('default', 'primary', 'backup'):
+                return reply(self, 400, {'error': 'invalid_route'})
             if not text.strip():
                 return reply(self, 400, {'error': 'empty_text'})
             if not target or target == 'auto':
                 return reply(self, 400, {'error': 'invalid_target'})
-            result, model = translate(text, target)
-            return reply(self, 200, {'text': result, 'source': source, 'target': target, 'engine': model})
+            result, model = translate(text, target, route)
+            return reply(self, 200, {'text': result, 'source': source, 'target': target, 'engine': model, 'route': route})
         except json.JSONDecodeError:
             return reply(self, 400, {'error': 'invalid_json'})
         except Exception as error:
