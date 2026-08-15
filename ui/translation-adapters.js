@@ -54,17 +54,27 @@
       const link = active?.querySelector('a[href]');
       return link ? String(link.getAttribute('href') || '').replace(/^#/, '') : '';
     };
-    const messageTextNode = row => row.querySelector('.text-content, .message-content, .MessageText, [class*="text-content"], [class*="message-content"]') || row;
+    const messageTextNode = row => row.querySelector('.text-content, .message-text');
     const messageText = node => (node?.innerText || node?.textContent || '').replace(/\u200b/g, '').trim();
     const messageId = row => String(row.id || row.dataset.messageId || row.dataset.mid || row.getAttribute('data-mid') || '').trim();
     const outgoing = row => /out|outgoing|is-outgoing/i.test(String(row.className || '')) || !!row.querySelector('.MessageOutgoingStatus, [class*="outgoing"]');
     const process = async row => {
-      if (!(row instanceof Element) || !row.matches('.Message, [class*="Message"]')) return;
+      if (!(row instanceof Element) || !row.classList.contains('Message')) return;
       if (row.dataset.geekTelegramTranslationState || row.querySelector('.geek-translation-result[data-geek-platform="telegram"]')) return;
       const id = messageId(row) || ('dom-' + Array.from(document.querySelectorAll('.Message')).indexOf(row));
       const cid = chatId(); if (!cid) return;
       const setting = settingFor(cid); if (!setting.displayTranslation) return;
-      const textNode = messageTextNode(row); const text = messageText(textNode); if (!text) return;
+      const textNode = messageTextNode(row);
+      if (!textNode) {
+        if (!row.dataset.geekTelegramTranslationRetry) {
+          row.dataset.geekTelegramTranslationRetry = '1';
+          setTimeout(() => { delete row.dataset.geekTelegramTranslationRetry; delete row.dataset.geekTelegramTranslationState; process(row); }, 500);
+        }
+        return;
+      }
+      const text = messageText(textNode); if (!text) return;
+      window.__geekTelegramLastSource = { className: String(textNode.className || ''), text: text.slice(0, 300) };
+      row.dataset.geekTelegramTranslationState = 'queued';
       const box = document.createElement('div');
       box.className = 'geek-translation-result'; box.dataset.geekPlatform = 'telegram'; box.dataset.messageId = id;
       box.style.cssText = `padding-top:3px;color:${setting.fontColor};font-size:${setting.fontSize}px;line-height:1.35;white-space:pre-wrap;`;
@@ -90,12 +100,12 @@
     window.__geekTelegramTranslationObserver = new MutationObserver(records => {
       for (const record of records) for (const node of record.addedNodes) {
         if (node.nodeType !== 1) continue;
-        if (node.matches?.('.Message, [class*="Message"]')) process(node);
-        node.querySelectorAll?.('.Message, [class*="Message"]').forEach(process);
+        if (node.classList?.contains('Message')) process(node);
+        node.querySelectorAll?.('.Message').forEach(process);
       }
     });
     window.__geekTelegramTranslationObserver.observe(root, { childList: true, subtree: true });
-    root.querySelectorAll?.('.Message, [class*="Message"]').forEach(process);
+    root.querySelectorAll?.('.Message').forEach(process);
     return 'TELEGRAM_TRANSLATION_READY';
   }
   window.GeekTranslationAdapters = window.GeekTranslationAdapters || {};
