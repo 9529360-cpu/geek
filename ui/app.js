@@ -267,12 +267,13 @@
   }
   function accountStorageGetItemFor(accountId, key) { const data = accountSandboxById.get(accountId); return data && Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; }
   function accountStorageGetItem(key) { return accountStorageGetItemFor(activeId, key); }
-  function accountStorageSetItem(key, value) {
-    if (!activeId) return Promise.resolve(false);
-    const accountId = activeId, raw = String(value), data = accountSandboxById.get(accountId) || {};
+  function accountStorageSetItemFor(accountId, key, value) {
+    if (!accountId) return Promise.resolve(false);
+    const raw = String(value), data = accountSandboxById.get(accountId) || {};
     const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; data[key] = raw; accountSandboxById.set(accountId, data);
     return window.api.accountData.set(accountId, key, raw).catch(error => { if (had) data[key] = previous; else delete data[key]; console.error('账号沙箱保存失败:', key, error.message); return false; });
   }
+  function accountStorageSetItem(key, value) { return accountStorageSetItemFor(activeId, key, value); }
   function accountStorageRemoveItem(key) {
     if (!activeId) return Promise.resolve(false);
     const accountId = activeId, data = accountSandboxById.get(accountId) || {}; const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; delete data[key];
@@ -736,10 +737,13 @@
       let result = 'OK';
       if (payload.action === 'delete') {
         const name = String(payload.name || '');
-        // 与群发弹窗「删除已保存消息」同一份账号沙箱数据
-        savedMessages = savedMessages.filter(m => m.name !== name);
-        accountStorageSetItem('savedMessages', JSON.stringify(savedMessages));
-        renderSavedMessages();
+        // 与群发弹窗「删除已保存消息」同一份账号沙箱数据（写请求方账号，不是当前激活账号）
+        let rows = [];
+        try { rows = JSON.parse(accountStorageGetItemFor(account.id, 'savedMessages') || '[]'); } catch (e) {}
+        if (!Array.isArray(rows)) rows = [];
+        rows = rows.filter(m => m.name !== name);
+        await accountStorageSetItemFor(account.id, 'savedMessages', JSON.stringify(rows));
+        if (account.id === activeId) { savedMessages = rows; renderSavedMessages(); }
         syncQuickPhraseToAll(); // 同步到该账号全部平台 webview
         result = 'DELETED';
       }
@@ -751,29 +755,12 @@
     }
   }
 
-  // ---------- 内置快捷话术插件：同步话术数据到 webview（账号沙箱 savedMessages → 原版 msgautosalvas 文本子集） ----------
-  function syncQuickPhraseToWebview(wv, account) {
-    const installer = window.GeekQuickPhraseAdapters?.install;
-    if (!wv || !account || typeof installer !== 'function') return;
-    let items = [];
-    try { items = JSON.parse(accountStorageGetItemFor(account.id, 'savedMessages') || '[]'); } catch (e) {}
-    if (!Array.isArray(items)) items = [];
-    const payload = {
-      platform: familyOf(account.type).key,
-      accountId: account.id,
-      bridgeToken: bridgeTokenFor(wv),
-      enabled: !config || config.quickPhraseBar !== false,
-      items: items.map(m => ({ name: String(m.name || '消息'), msg: String(m.msg || '') })).filter(m => m.msg.trim()),
-    };
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify(payload)})()`).catch(error => console.error('快捷话术插件注入失败:', error.message));
+  // 旧版输入框上方快捷按钮已废弃：只负责清理历史注入，绝不再向聊天页面添加按钮。
+  function syncQuickPhraseToWebview(wv) {
+    if (!wv) return;
+    wv.executeJavaScript(`(() => { try { window.__geekQuickPhraseUninstall?.(); document.querySelectorAll('.msgsalvasrapidasdiv,#wupe-qr-tt').forEach(el => el.remove()); return 'REMOVED'; } catch { return 'REMOVE_FAILED'; } })()`).catch(() => {});
   }
-  function syncQuickPhraseToAll() {
-    accounts.forEach(a => {
-      const wv = wvMap.get(a.id);
-      if (wv && !wv.isDestroyed?.()) syncQuickPhraseToWebview(wv, a);
-    });
-  }
-  // 运维/调试：允许外部强制重同步（代码升级/数据变更后使用）
+  function syncQuickPhraseToAll() { accounts.forEach(account => syncQuickPhraseToWebview(wvMap.get(account.id))); }
   window.__geekQuickPhraseReinjectAll = syncQuickPhraseToAll;
 
   function syncTelegramTranslationCfgToWebview(wv, account) {
@@ -3522,7 +3509,7 @@
     document.getElementById('cfg-autoLaunch').checked = !!config.autoLaunch;
     document.getElementById('cfg-isStartupMinimize').checked = !!config.isStartupMinimize;
     document.getElementById('cfg-messageSound').checked = !!config.messageSound;
-    document.getElementById('cfg-quickPhraseBar').checked = config.quickPhraseBar !== false;
+
     document.getElementById('cfg-lockPassword').value = config.lockPassword || '';
     document.getElementById('cfg-openProxy').checked = !!config.openProxy;
     document.getElementById('cfg-protocal').value = config.protocal || 'http';
@@ -3564,7 +3551,7 @@
         autoLaunch: document.getElementById('cfg-autoLaunch').checked,
         isStartupMinimize: document.getElementById('cfg-isStartupMinimize').checked,
         messageSound: document.getElementById('cfg-messageSound').checked,
-        quickPhraseBar: document.getElementById('cfg-quickPhraseBar').checked,
+
         lockPassword: document.getElementById('cfg-lockPassword').value,
         openProxy: document.getElementById('cfg-openProxy').checked,
         protocal: document.getElementById('cfg-protocal').value,
@@ -3698,7 +3685,9 @@
     if (!window.GeekBroadcastSafety.sameChat(await platform.getCurrentChat(), chatId)) return alert('当前聊天已经变化，已停止填入');
     const result = await platform.setComposerText(text); if (result !== 'OK' || !window.GeekBroadcastSafety.sameChat(await platform.getCurrentChat(), chatId)) return alert('没有成功填入，已停止');
   }
-  document.getElementById('btn-quick-pet').onclick = async () => { quickPetPanel.classList.remove('hidden'); await qpetRenderCats(); };
+  window.api.quickScripts.onFillRequest(async id => { const item = (await window.api.quickScripts.list()).find(row => row.id === String(id)); if (item) await qpetFill(item); });
+  window.api.quickScripts.onEditorRequest(async id => { const item = id ? (await window.api.quickScripts.list()).find(row => row.id === String(id)) : null; qpetOpenEditor(item || null); });
+  document.getElementById('btn-quick-pet').onclick = () => window.api.quickPet.toggle();
   document.getElementById('qpet-close').onclick = () => quickPetPanel.classList.add('hidden');
   document.getElementById('qpet-back').onclick = qpetRenderCats;
   document.getElementById('qpet-add').onclick = () => qpetOpenEditor(null);

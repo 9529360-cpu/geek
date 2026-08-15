@@ -983,8 +983,33 @@ function registerIpcHandlers() {
     return { ...configState };
   });
 
-  ipcMain.handle('quick-scripts:list', async (event) => { assertTrustedSender(event); return quickScriptsState; });
-  ipcMain.handle('quick-scripts:save', async (event, items) => { assertTrustedSender(event); return saveQuickScripts(items); });
+  ipcMain.handle('quick-scripts:list', async (event) => { if (!isTrustedSender(event) && !isQuickPetSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求'); return quickScriptsState; });
+  ipcMain.handle('quick-scripts:save', async (event, items) => { if (!isTrustedSender(event) && !isQuickPetSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求'); const saved = await saveQuickScripts(items); quickPetWindow?.webContents.send('quick-scripts:changed'); return saved; });
+  ipcMain.handle('quick-scripts:import', async (event) => {
+    if (!isQuickPetSender(event)) throw new Error('拒绝来自未授权外挂的导入请求');
+    const { dialog } = require('electron');
+    const picked = await dialog.showOpenDialog(quickPetWindow || mainWindow, { title: '导入快捷话术', properties: ['openFile'], filters: [{ name: '话术表格', extensions: ['xlsx', 'xls', 'csv'] }] });
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
+    const book = XLSX.readFile(picked.filePaths[0]), sheet = book.Sheets[book.SheetNames[0]], rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const start = rows[0] && String(rows[0][0]).includes('标签') ? 1 : 0, existing = new Set(quickScriptsState.map(row => `${row.label}\u0000${row.zh}\u0000${row.translation}`)), next = [...quickScriptsState]; let added = 0, skipped = 0;
+    for (const cells of rows.slice(start)) { const label = String(cells[0] || '').trim(), zh = String(cells[1] || '').trim(), translation = String(cells[2] || '').trim(), key = `${label}\u0000${zh}\u0000${translation}`; if (!label || (!zh && !translation) || existing.has(key)) { skipped++; continue; } existing.add(key); next.push({ id: `script-${Date.now()}-${added}`, label, zh, translation }); added++; }
+    await saveQuickScripts(next); quickPetWindow?.webContents.send('quick-scripts:changed'); return { canceled: false, added, skipped };
+  });
+  ipcMain.handle('quick-scripts:export', async (event) => {
+    if (!isQuickPetSender(event)) throw new Error('拒绝来自未授权外挂的导出请求');
+    const { dialog } = require('electron');
+    const saved = await dialog.showSaveDialog(quickPetWindow || mainWindow, { title: '导出快捷话术', defaultPath: '极客快捷话术.xlsx', filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
+    if (saved.canceled || !saved.filePath) return { canceled: true };
+    const sheet = XLSX.utils.aoa_to_sheet([['标签', '中文', '翻译文'], ...quickScriptsState.map(row => [row.label, row.zh, row.translation])]), book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, '快捷话术'); XLSX.writeFile(book, saved.filePath); return { canceled: false, file: saved.filePath, count: quickScriptsState.length };
+  });
+  ipcMain.handle('quick-scripts:edit', async (event, id) => { if (!isQuickPetSender(event)) throw new Error('拒绝来自未授权桌宠的 IPC 请求'); if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); mainWindow.webContents.send('quick-scripts:edit-request', String(id || '')); } return { ok: true }; });
+  ipcMain.handle('quick-scripts:fill', async (event, id) => { if (!isQuickPetSender(event)) throw new Error('拒绝来自未授权桌宠的 IPC 请求'); const item = quickScriptsState.find(row => row.id === String(id)); if (!item || !mainWindow || mainWindow.isDestroyed()) return { ok: false, error: '话术或主窗口不存在' }; mainWindow.show(); mainWindow.focus(); mainWindow.webContents.send('quick-scripts:fill-request', item.id); return { ok: true }; });
+  ipcMain.handle('quick-pet:toggle', (event) => { assertTrustedSender(event); if (quickPetWindow && !quickPetWindow.isDestroyed()) { quickPetWindow.close(); quickPetWindow = null; return { open: false }; } createQuickPetWindow(); return { open: true }; });
+  ipcMain.handle('quick-pet:shape', (event, shape) => { if (!isQuickPetSender(event)) throw new Error('拒绝来自未授权桌宠的 IPC 请求'); positionQuickPetWindow(); return { ok: true, shape }; });
+  ipcMain.handle('quick-pet:drag-start', (event, mouse) => { if (!isQuickPetSender(event)) throw new Error('拒绝来自未授权桌面的 IPC 请求'); quickPetDrag = { start: quickPetWindow.getBounds(), mouse: { x: Number(mouse?.x) || 0, y: Number(mouse?.y) || 0 } }; });
+  ipcMain.handle('quick-pet:drag-move', (event, mouse) => { if (!isQuickPetSender(event) || !quickPetDrag) return; const x = Number(mouse?.x) || 0, y = Number(mouse?.y) || 0; quickPetWindow.setPosition(quickPetDrag.start.x + x - quickPetDrag.mouse.x, quickPetDrag.start.y + y - quickPetDrag.mouse.y); });
+  ipcMain.handle('quick-pet:drag-end', (event) => { if (isQuickPetSender(event)) quickPetDrag = null; });
+
 
   ipcMain.handle('window:relaunch', async (event) => {
     assertTrustedSender(event);
@@ -1669,6 +1694,24 @@ function configureWebviewSecurity(window) {
   });
 }
 
+let quickPetWindow = null;
+let quickPetDrag = null;
+function positionQuickPetWindow() {
+  if (!quickPetWindow || quickPetWindow.isDestroyed() || !mainWindow || mainWindow.isDestroyed()) return;
+  const b = mainWindow.getBounds();
+  quickPetWindow.setBounds({ x: b.x + b.width, y: b.y, width: 330, height: b.height });
+}
+function createQuickPetWindow() {
+  if (quickPetWindow && !quickPetWindow.isDestroyed()) { positionQuickPetWindow(); quickPetWindow.show(); quickPetWindow.focus(); return quickPetWindow; }
+  const b = mainWindow.getBounds();
+  quickPetWindow = new BrowserWindow({ width: 330, height: b.height, x: b.x + b.width, y: b.y, frame: false, transparent: false, resizable: false, alwaysOnTop: false, skipTaskbar: true, hasShadow: false, title: '快捷话术', show: false, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false } });
+  quickPetWindow.on('closed', () => { quickPetWindow = null; });
+  quickPetWindow.webContents.on('did-finish-load', () => { quickPetWindow?.show(); quickPetWindow?.webContents.executeJavaScript('renderCats();show(1);'); });
+  quickPetWindow.loadFile(path.join(__dirname, '../ui/quick-pet.html'));
+  return quickPetWindow;
+}
+function isQuickPetSender(event) { return !!(quickPetWindow && !quickPetWindow.isDestroyed() && event.sender.id === quickPetWindow.webContents.id); }
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -1723,6 +1766,8 @@ function createMainWindow() {
     }
   });
 
+  mainWindow.on('move', positionQuickPetWindow);
+  mainWindow.on('resize', positionQuickPetWindow);
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -1843,6 +1888,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (quickPetWindow && !quickPetWindow.isDestroyed()) quickPetWindow.close();
   isQuitting = true; // 允许窗口真正关闭（托盘"退出"路径）
   ipcMain.removeHandler('accounts:list');
   ipcMain.removeHandler('accounts:add');
@@ -1854,5 +1900,14 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('config:set');
   ipcMain.removeHandler('quick-scripts:list');
   ipcMain.removeHandler('quick-scripts:save');
+  ipcMain.removeHandler('quick-scripts:import');
+  ipcMain.removeHandler('quick-scripts:export');
+  ipcMain.removeHandler('quick-scripts:fill');
+  ipcMain.removeHandler('quick-scripts:edit');
+  ipcMain.removeHandler('quick-pet:toggle');
+  ipcMain.removeHandler('quick-pet:shape');
+  ipcMain.removeHandler('quick-pet:drag-start');
+  ipcMain.removeHandler('quick-pet:drag-move');
+  ipcMain.removeHandler('quick-pet:drag-end');
   ipcMain.removeHandler('window:relaunch');
 });
