@@ -94,7 +94,6 @@
         return;
       }
       const text = messageText(textNode); if (!text) return;
-      window.__geekTelegramLastSource = { className: String(textNode.className || ''), text: text.slice(0, 300) };
       row.dataset.geekTelegramTranslationState = 'queued';
       const box = document.createElement('div');
       box.className = 'geek-translation-result'; box.dataset.geekPlatform = 'telegram'; box.dataset.messageId = id;
@@ -123,34 +122,27 @@
     window.__geekTelegramSendAbort = new AbortController();
     window.__geekTelegramSendBound = true;
     window.__geekTelegramSendLock = false;
-    window.__geekTelegramSendDebug = { seen: 0, branch: 'bound' };
     const sendButton = () => document.querySelector('#MiddleColumn button.Button.send.main-button, #Main button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"]');
     const translateAndSend = async (event, editor, button) => {
-      const debug = window.__geekTelegramSendDebug = { seen: (window.__geekTelegramSendDebug?.seen || 0) + 1, key: event?.key || event?.type, target: event?.target?.id || '', branch: 'seen' };
       const cid = chatId(); const setting = settingFor(cid);
-      debug.cid = cid; debug.enabled = setting?.enabled; debug.autoSend = setting?.autoSend;
-      if (!cid || !setting?.enabled || setting.autoSend === false || !window.__geekTranslationRequest || window.__geekTelegramSendLock) { debug.branch = 'disabled-or-locked'; return; }
+      if (!cid || !setting?.enabled || setting.autoSend === false || !window.__geekTranslationRequest || window.__geekTelegramSendLock) return;
       const original = messageText(editor).replace(/\n$/, '').trim();
-      if (!original || (setting.includeZh === false && window.GeekTranslationCore?.isChinese(original))) { debug.branch = 'empty-or-blocked'; return; }
-      event?.preventDefault?.(); event?.stopImmediatePropagation?.(); debug.branch = 'translating';
+      if (!original || (setting.includeZh === false && window.GeekTranslationCore?.isChinese(original))) return;
+      event?.preventDefault?.(); event?.stopImmediatePropagation?.();
       window.__geekTelegramSendLock = true;
       editor.setAttribute('contenteditable', 'false');
       try {
         const result = await window.__geekTranslationRequest({ text: original, source: setting.source || 'auto', target: setting.target || 'en', provider: setting.provider, route: setting.route, chatId: cid });
         if (!result?.text) throw new Error('翻译失败');
-        window.__geekTelegramLastSend = { original, translated: result.text, target: setting.target || 'en' };
-        debug.translated = result.text;
         editor.setAttribute('contenteditable', 'true'); editor.focus();
         const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(editor); sel.removeAllRanges(); sel.addRange(range);
         await nativeInsertText(result.text);
         await new Promise(resolve => setTimeout(resolve, 30));
-        debug.editorAfterFill = messageText(editor);
+        const editorAfterFill = messageText(editor);
         const normalizeEditorText = value => String(value || '').replace(/\n[\t ]*\n+/g, '\n').trim();
-        if (normalizeEditorText(debug.editorAfterFill) !== normalizeEditorText(result.text)) throw new Error('Telegram编辑器回填校验失败');
-        debug.branch = 'button-click';
+        if (normalizeEditorText(editorAfterFill) !== normalizeEditorText(result.text)) throw new Error('Telegram编辑器回填校验失败');
         (button || sendButton())?.click();
       } catch (error) {
-        debug.branch = 'error'; debug.error = String(error?.message || error);
         console.error('[geek-telegram-translation-send]', error);
         editor.setAttribute('contenteditable', 'true'); editor.focus();
       } finally { window.__geekTelegramSendLock = false; }

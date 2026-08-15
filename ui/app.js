@@ -1452,8 +1452,11 @@
         const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
         const textarea = host?.shadowRoot?.querySelector('textarea');
         if (!host || !textarea) return 'NO_EDITOR';
+        const before = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim();
+        if (!before) return 'EMPTY';
+        const count = document.querySelectorAll('[class*="message-module__message__"][data-mid]').length;
         textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
-        for (let i = 0; i < 40; i++) { await new Promise(resolve => setTimeout(resolve, 250)); const value = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim(); if (!value) return 'SENT'; }
+        for (let i = 0; i < 40; i++) { await new Promise(resolve => setTimeout(resolve, 250)); const value = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim(); if (document.querySelectorAll('[class*="message-module__message__"][data-mid]').length > count && !value) return 'SENT'; }
         return 'MAYBE';
       })()`,
     },
@@ -1472,8 +1475,29 @@
       async getCurrentChat() { const id = await wv.executeJavaScript(currentChatScripts[family] || 'null'); return id ? String(id) : null; },
       async listChats() { const result = await wv.executeJavaScript(transport.getChats); const text = String(result || '[]'); if (text.startsWith('ERR:')) throw new Error(text.slice(4)); return JSON.parse(text); },
       async openChat(chatId) { return wv.executeJavaScript(transport.switchChat(chatId)); },
-      async setComposerText(text) { const script = typeof transport.setMessage === 'function' ? transport.setMessage(text) : transport.setMessage; return wv.executeJavaScript(script); },
-      async sendText(text = '') { const script = typeof transport.send === 'function' ? transport.send(text) : transport.send; return wv.executeJavaScript(script); },
+      async setComposerText(text) {
+        if (family === 'telegram') {
+          const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror'); if(!editor)return false; editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
+          if (!focused) return 'NO_EDITOR';
+          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text));
+          const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text')?.innerText?.trim() || ''`);
+          return actual === String(text).trim() ? 'OK' : 'EMPTY';
+        }
+        if (family === 'line') {
+          const focused = await wv.executeJavaScript(`(() => { const textarea=document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea'); if(!textarea)return false; textarea.focus(); textarea.select(); return true; })()`);
+          if (!focused) return 'NO_EDITOR';
+          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text));
+          const actual = await wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value?.trim() || ''`);
+          return actual === String(text).trim() ? 'OK' : 'EMPTY';
+        }
+        const script = typeof transport.setMessage === 'function' ? transport.setMessage(text) : transport.setMessage;
+        return wv.executeJavaScript(script);
+      },
+      async sendText(text = '') {
+        if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const editor=document.querySelector('#editable-message-text'); const before=(editor?.innerText||'').trim(); if(!before)return 'EMPTY'; const count=document.querySelectorAll('.Message').length; const button=document.querySelector('button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"]'); if(!button)return 'NO_SEND_BUTTON'; button.click(); for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,250)); if(document.querySelectorAll('.Message').length>count && !(editor?.innerText||'').trim())return 'SENT';} return 'MAYBE';})()`);
+        const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;
+        return wv.executeJavaScript(script);
+      },
     });
     return window.GeekPlatformAdapterContract.validate(adapter, window.GeekPlatformAdapterContract.hostRequired);
   }
