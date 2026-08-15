@@ -611,7 +611,32 @@ async function removeAccount(event, accountId) {
   return publicState();
 }
 
+async function translateViaRemoteGateway(event, payload) {
+  assertTrustedSender(event);
+  const body = payload && typeof payload === 'object' ? payload : {};
+  const endpoint = String(body.endpoint || '').trim().replace(/\/$/, '');
+  if (!endpoint || !/^https:\/\//i.test(endpoint) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(endpoint)) throw new Error('翻译网关必须使用 HTTPS');
+  const text = String(body.text || '');
+  const target = String(body.target || '').toLowerCase();
+  if (!text.trim()) throw new Error('翻译内容不能为空');
+  if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/.test(target) || target === 'auto') throw new Error('目标语言不合法');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text, source: body.source || 'auto', target, chatId: body.chatId || undefined }), signal: controller.signal });
+    const raw = await response.text();
+    let result; try { result = JSON.parse(raw); } catch { result = {}; }
+    if (!response.ok) throw new Error(String(result.error || `翻译网关错误 ${response.status}`).slice(0, 300));
+    if (!result.text || typeof result.text !== 'string') throw new Error('翻译网关返回格式错误');
+    return { text: result.text, source: result.source || body.source || 'auto', target: result.target || target };
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('翻译网关请求超时');
+    throw error;
+  } finally { clearTimeout(timer); }
+}
+
 function registerIpcHandlers() {
+  ipcMain.handle('translation:translate', translateViaRemoteGateway);
   ipcMain.handle('platforms:list', async (event) => {
     assertTrustedSender(event);
     return Object.entries(APP_TYPES).map(([type, cfg]) => ({

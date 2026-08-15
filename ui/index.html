@@ -77,6 +77,28 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span>设置</span>
           </button>
+          <button class="quick-btn" id="btn-translation" title="翻译通道" aria-expanded="false">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 4.2 6.2 4.2 9S15 17.8 12 21M12 3c-3 3.2-4.2 6.2-4.2 9S9 17.8 12 21"/></svg>
+            <span>翻译</span>
+          </button>
+          <div id="translation-popover" class="translation-popover hidden" role="dialog" aria-label="翻译通道设置">
+            <div class="translation-popover-head"><strong>翻译通道</strong><button type="button" id="translation-close" class="translation-close">×</button></div>
+            <div class="translation-tabs"><button type="button" class="translation-tab active" data-translation-tab="channel">当前聊天</button><button type="button" class="translation-tab" data-translation-tab="gateway">接口</button></div>
+            <section id="translation-tab-channel" class="translation-tab-panel">
+              <label class="translation-row"><span>启用当前聊天翻译</span><input id="translation-enabled" type="checkbox"></label>
+              <label class="translation-row"><span>目标语言</span><select id="translation-target"></select></label>
+              <label class="translation-row"><span>发送时自动翻译</span><input id="translation-auto-send" type="checkbox"></label>
+              <label class="translation-row"><span>消息菜单显示“翻译”</span><input id="translation-message-action" type="checkbox" checked></label>
+              <div id="translation-chat-hint" class="translation-hint">请先在 WhatsApp 中打开一个聊天</div>
+            </section>
+            <section id="translation-tab-gateway" class="translation-tab-panel hidden">
+              <div class="translation-hint">客户端不保存供应商 API Key。这里仅配置远程翻译网关地址。</div>
+              <label class="translation-field"><span>网关地址</span><input id="translation-gateway-url" type="url" placeholder="https://translate.example.com"></label>
+              <div class="translation-hint">访问授权由极客账号/服务端会话处理，客户端不填写、不保存供应商密钥。</div>
+              <button type="button" id="translation-gateway-save" class="translation-save">保存网关设置</button>
+              <div id="translation-gateway-status" class="translation-hint"></div>
+            </section>
+          </div>
           <button class="quick-btn" id="btn-broadcast" title="群发">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.5l7.8 9M8.1 16.5l7.8-9"/></svg>
             <span>群发</span>

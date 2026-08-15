@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld(
         ipcRenderer.on('line:extension-ready', (_event, partition) => callback(partition));
       },
     }),
+    translation: Object.freeze({
+      translate: (payload) => ipcRenderer.invoke('translation:translate', payload),
+    }),
     window: Object.freeze({
       relaunch: () => ipcRenderer.invoke('window:relaunch'),
       minimize: () => ipcRenderer.invoke('window:minimize'),

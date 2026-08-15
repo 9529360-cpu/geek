@@ -516,7 +516,7 @@
     resizeWebviews();
     // 群组工具监听器：WA 页面就绪后注入（幂等；页面重载后自动重新注入）
     if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') {
-      wv.addEventListener('dom-ready', () => injectGtAgent(wv, account));
+      wv.addEventListener('dom-ready', () => { injectGtAgent(wv, account); syncTranslationCfgToWebview(wv, account); });
     }
     return wv;
   }
@@ -555,6 +555,59 @@
         return 'OK';
       } catch (e) { return 'ERR:' + e.message; }
     })()`).catch(() => {});
+  }
+
+  // 翻译通道注入：只把聊天配置和远程网关地址同步进当前 WhatsApp WebView，不注入供应商密钥。
+  function syncTranslationCfgToWebview(wv, account) {
+    if (!wv || !account || !(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
+    let gateway = {}, store = {};
+    try { gateway = JSON.parse(localStorage.getItem('geekTranslationGateway') || '{}'); store = JSON.parse(localStorage.getItem('geekTranslationChatConfig') || '{}'); } catch {}
+    const chatConfig = {};
+    Object.entries(store).forEach(([key, value]) => { const prefix = `${account.id}:`; if (key.startsWith(prefix)) chatConfig[key.slice(prefix.length)] = value; });
+    wv.executeJavaScript(`(${function (cfg) {
+      try {
+        window.__geekTranslationConfig = cfg;
+        const mod = window.require?.('WAWebSendTextMsgChatAction');
+        if (!mod?.sendTextMsgToChat) return 'NO_SEND_MODULE';
+        if (mod.__geekOriginalSendText) mod.sendTextMsgToChat = mod.__geekOriginalSendText;
+        const original = mod.sendTextMsgToChat;
+        if (!window.__geekTranslationContextBound) {
+          window.__geekTranslationContextBound = true;
+          document.addEventListener('contextmenu', function (event) {
+            const message = event.target.closest?.('.message-in,[data-id]');
+            const cfg = window.__geekTranslationConfig;
+            if (!message || !cfg.endpoint) return;
+            const active = window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized;
+            const setting = active ? cfg.chats[active] : null;
+            if (setting && setting.messageAction === false) return;
+            const textNode = message.querySelector?.('[dir="ltr"],.selectable-text,[data-testid="conversation-info-header-chat-title"]');
+            const text = (textNode?.innerText || message.innerText || '').trim();
+            if (!text) return;
+            event.preventDefault(); event.stopPropagation();
+            document.getElementById('geek-translation-menu')?.remove();
+            const menu = document.createElement('div'); menu.id = 'geek-translation-menu'; menu.className = 'geek-translation-menu'; menu.style.cssText = 'position:fixed;left:' + event.clientX + 'px;top:' + event.clientY + 'px;z-index:999999;background:#202c33;border:1px solid #3b4a54;border-radius:8px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.35);color:#e9edef;font:12px Arial;';
+            const title = document.createElement('div'); title.textContent = '翻译到'; title.style.cssText = 'padding:5px 8px;color:#8696a0;font-size:10px;'; menu.appendChild(title);
+            [['zh','中文'],['en','English'],['it','Italiano'],['es','Español'],['fr','Français'],['de','Deutsch']].forEach(function (item) { const button = document.createElement('button'); button.type='button'; button.textContent=item[1]; button.style.cssText='display:block;width:130px;border:0;border-radius:5px;background:transparent;color:#e9edef;text-align:left;padding:7px 8px;cursor:pointer;'; button.onmouseenter=function(){button.style.background='#2a3942';}; button.onmouseleave=function(){button.style.background='transparent';}; button.onclick=async function(){ menu.remove(); const old=document.getElementById('geek-translation-loading'); if(old)old.remove(); const loading=document.createElement('div'); loading.id='geek-translation-loading'; loading.textContent='翻译中…'; loading.style.cssText='margin:4px 0;padding:6px 8px;border-radius:5px;background:#1f3b4d;color:#8bd5ff;font-size:10px;'; message.appendChild(loading); try { const response=await fetch(cfg.endpoint + '/v1/translate',{method:'POST',headers:{'Content-Type':'application/json','X-Geek-Client':'1'},body:JSON.stringify({text:text,source:'auto',target:item[0],chatId:active||null})}); const result=await response.json(); if(!response.ok||!result.text)throw new Error(result.error||'翻译失败'); loading.remove(); const resultBox=document.createElement('div'); resultBox.className='geek-translation-result'; resultBox.dataset.msgId=message.getAttribute('data-id')||''; resultBox.textContent=result.text; resultBox.style.cssText='margin-top:5px;padding:6px 8px;border-left:3px solid #667eea;border-radius:4px;background:rgba(102,126,234,.12);color:#d7ddff;font-size:11px;white-space:pre-wrap;'; message.appendChild(resultBox); } catch(error){ loading.textContent='翻译失败：' + error.message; loading.style.color='#ff9b9b'; } }; menu.appendChild(button); }); document.body.appendChild(menu); const close=function(e){if(!menu.contains(e.target)){menu.remove();document.removeEventListener('mousedown',close);}}; setTimeout(function(){document.addEventListener('mousedown',close);},0);
+          }, true);
+        }
+        mod.__geekOriginalSendText = original;
+        mod.sendTextMsgToChat = async function (chat, ...args) {
+          try {
+            const id = chat?.id?._serialized;
+            const setting = id ? window.__geekTranslationConfig.chats[id] : null;
+            const text = args[0];
+            if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && window.__geekTranslationConfig.endpoint) {
+              const response = await fetch(`${window.__geekTranslationConfig.endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text, source: 'auto', target: setting.target, chatId: id }) });
+              const result = await response.json();
+              if (!response.ok || !result.text) throw new Error(result.error || '翻译失败');
+              args[0] = result.text;
+            }
+          } catch (error) { console.error('[geek-translation]', error); throw error; }
+          return original.call(this, chat, ...args);
+        };
+        return 'OK';
+      } catch (error) { return 'ERR:' + error.message; }
+    }.toString()})(${JSON.stringify({ endpoint: String(gateway.url || '').replace(/\/$/, ''), chats: chatConfig })})()`).catch(() => {});
   }
 
   // ---------- 切换账号 ----------
@@ -792,6 +845,68 @@
   };
   document.getElementById('btn-lock').onclick = lockScreen;
   document.getElementById('btn-settings').onclick = openSettings;
+  // ---------- 翻译通道（极客自有入口；原版行为，后端网关可插拔） ----------
+  const translationLanguages = [
+    ['en','英语'],['es','西班牙语'],['fr','法语'],['de','德语'],['it','意大利语'],['pt','葡萄牙语'],['zh','中文'],['ja','日语'],['ko','韩语'],['hi','印地语'],['ar','阿拉伯语'],['ru','俄语'],['id','印尼语'],['pl','波兰语'],['tr','土耳其语'],['vi','越南语'],['nl','荷兰语'],['sv','瑞典语'],['el','希腊语'],['th','泰语']
+  ];
+  const translationPopover = document.getElementById('translation-popover');
+  const translationTarget = document.getElementById('translation-target');
+  const translationHint = document.getElementById('translation-chat-hint');
+  const translationStoreKey = 'geekTranslationChatConfig';
+  if (translationTarget) translationTarget.innerHTML = translationLanguages.map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
+  function translationStore() { try { return JSON.parse(localStorage.getItem(translationStoreKey) || '{}'); } catch { return {}; } }
+  async function currentTranslationChat() {
+    const wv = wvMap.get(activeId);
+    if (!wv || typeof wv.executeJavaScript !== 'function') return null;
+    try {
+      const id = await wv.executeJavaScript(`(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`);
+      return id ? String(id) : null;
+    } catch { return null; }
+  }
+  async function refreshTranslationPanel() {
+    const chatId = await currentTranslationChat();
+    const store = translationStore();
+    const cfg = chatId ? (store[`${activeId}:${chatId}`] || {}) : {};
+    const enabled = document.getElementById('translation-enabled');
+    const auto = document.getElementById('translation-auto-send');
+    const action = document.getElementById('translation-message-action');
+    if (enabled) enabled.checked = !!cfg.enabled;
+    if (auto) auto.checked = !!cfg.autoSend;
+    if (action) action.checked = cfg.messageAction !== false;
+    if (translationTarget) translationTarget.value = cfg.target || 'en';
+    if (translationHint) translationHint.textContent = chatId ? `当前聊天已加载 · ${cfg.enabled ? `目标：${translationLanguages.find(x => x[0] === (cfg.target || 'en'))?.[1] || cfg.target}` : '未启用翻译'}` : '请先在 WhatsApp 中打开一个聊天';
+  }
+  async function saveTranslationChatConfig() {
+    const chatId = await currentTranslationChat();
+    if (!chatId) { if (translationHint) translationHint.textContent = '请先在 WhatsApp 中打开一个聊天'; return; }
+    const store = translationStore();
+    store[`${activeId}:${chatId}`] = { enabled: !!document.getElementById('translation-enabled')?.checked, target: translationTarget?.value || 'en', autoSend: !!document.getElementById('translation-auto-send')?.checked, messageAction: !!document.getElementById('translation-message-action')?.checked };
+    localStorage.setItem(translationStoreKey, JSON.stringify(store));
+    const account = accounts.find(a => a.id === activeId);
+    if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
+    if (translationHint) translationHint.textContent = '当前聊天翻译设置已保存';
+  }
+  const translationButton = document.getElementById('btn-translation');
+  if (translationButton) translationButton.onclick = async () => {
+    const open = translationPopover?.classList.toggle('hidden') === false;
+    translationButton.setAttribute('aria-expanded', String(open));
+    if (open) await refreshTranslationPanel();
+  };
+  document.getElementById('translation-close')?.addEventListener('click', () => { translationPopover?.classList.add('hidden'); translationButton?.setAttribute('aria-expanded', 'false'); });
+  document.querySelectorAll('[data-translation-tab]').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('[data-translation-tab]').forEach(x => x.classList.toggle('active', x === tab));
+    document.querySelectorAll('.translation-tab-panel').forEach(x => x.classList.toggle('hidden', x.id !== `translation-tab-${tab.dataset.translationTab}`));
+  }));
+  ['translation-enabled','translation-target','translation-auto-send','translation-message-action'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationChatConfig));
+  document.getElementById('translation-gateway-save')?.addEventListener('click', () => {
+    const url = String(document.getElementById('translation-gateway-url')?.value || '').trim().replace(/\/$/, '');
+    if (url && !/^https:\/\//i.test(url) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(url)) { document.getElementById('translation-gateway-status').textContent = '网关必须使用 HTTPS（本机测试可用 127.0.0.1）'; return; }
+    localStorage.setItem('geekTranslationGateway', JSON.stringify({ url }));
+    const account = accounts.find(a => a.id === activeId);
+    if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
+    document.getElementById('translation-gateway-status').textContent = '网关地址已保存；供应商 API Key 不在客户端保存';
+  });
+  try { const gateway = JSON.parse(localStorage.getItem('geekTranslationGateway') || '{}'); document.getElementById('translation-gateway-url').value = gateway.url || ''; } catch {}
   // 托盘菜单"锁屏" → 触发渲染层锁屏
   try {
     window.api.tray.onLock(() => lockScreen());
