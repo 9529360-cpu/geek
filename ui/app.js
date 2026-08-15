@@ -604,6 +604,17 @@
           window.__geekResolveTranslation = function (id, result, error) { const pending = window.__geekTranslationPending.get(id); if (!pending) return false; window.__geekTranslationPending.delete(id); if (error) pending.reject(new Error(error)); else pending.resolve(result); return true; };
         }
         window.__geekOutgoingOriginals = window.__geekOutgoingOriginals || new Map();
+        window.__geekRememberOutgoing = function (translated, original) {
+          const queue = window.__geekOutgoingOriginals.get(translated) || [];
+          queue.push({ original, expiresAt: Date.now() + 120000 });
+          window.__geekOutgoingOriginals.set(translated, queue);
+        };
+        window.__geekTakeOutgoing = function (translated) {
+          const queue = (window.__geekOutgoingOriginals.get(translated) || []).filter(item => item.expiresAt > Date.now());
+          const item = queue.shift();
+          if (queue.length) window.__geekOutgoingOriginals.set(translated, queue); else window.__geekOutgoingOriginals.delete(translated);
+          return item?.original || '';
+        };
         window.__geekGetTranslationSetting = function (chatId) {
           const g = window.__geekTranslationConfig.global || {};
           const base = { provider: g.source || 'local', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, source: g.sendFrom || 'auto', target: g.sendTo || 'en', messageAction: g.manual !== false, messageEnabled: g.message === true, messageTarget: g.messageTo || 'zh', messageFrom: g.messageFrom || 'auto', groupAuto: g.group === true, includeZh: g.includeZh !== false, fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };
@@ -645,8 +656,7 @@
             const textNode = message.querySelector?.('[dir="ltr"],.selectable-text,[data-testid="msg-text"]');
             const text = (textNode?.innerText || message.innerText || '').trim();
             if (!text) return;
-            const original = outgoing ? window.__geekOutgoingOriginals.get(text) : '';
-            if (original) window.__geekOutgoingOriginals.delete(text);
+            const original = outgoing ? window.__geekTakeOutgoing(text) : '';
             message.dataset.geekTranslationState = 'loading';
             const box = document.createElement('div'); box.className = 'geek-translation-result'; box.textContent = '译文：翻译中…'; box.style.cssText = `margin-top:5px;padding:6px 8px;border-radius:5px;background:rgba(31,59,77,.92);color:${setting.fontColor};font-size:${setting.fontSize}px;line-height:1.45;`;
             message.appendChild(box);
@@ -666,8 +676,11 @@
           window.__geekTranslationIncomingObserver = new MutationObserver(function (records) {
             for (const record of records) for (const node of record.addedNodes) {
               if (node.nodeType !== 1) continue;
-              if (node.matches?.('.message-in,.message-out')) window.__geekTranslateVisibleMessage(node);
-              node.querySelectorAll?.('.message-in,.message-out').forEach(window.__geekTranslateVisibleMessage);
+              const messages = new Set();
+              const owner = node.closest?.('.message-in,.message-out');
+              if (owner) messages.add(owner);
+              node.querySelectorAll?.('.message-in,.message-out').forEach(message => messages.add(message));
+              messages.forEach(window.__geekTranslateVisibleMessage);
             }
           });
           window.__geekTranslationIncomingObserver.observe(document.body, { childList: true, subtree: true });
@@ -681,8 +694,7 @@
             if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && (setting.includeZh || !/[\u3400-\u9fff]/.test(text)) && window.__geekTranslationRequest) {
               const result = await window.__geekTranslationRequest({text,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:id});
               if (!result?.text) throw new Error('翻译失败');
-              window.__geekOutgoingOriginals.set(result.text, text);
-              setTimeout(() => window.__geekOutgoingOriginals.delete(result.text), 120000);
+              window.__geekRememberOutgoing(result.text, text);
               args[0] = result.text;
             }
           } catch (error) { console.error('[geek-translation]', error); throw error; }
@@ -701,8 +713,7 @@
             if (setting?.enabled && setting?.autoSend && options?.caption && (setting.includeZh || !/[\u3400-\u9fff]/.test(options.caption)) && window.__geekTranslationRequest) {
               const result = await window.__geekTranslationRequest({text:options.caption,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:chat.id._serialized});
               if (!result?.text) throw new Error('配文翻译失败');
-              window.__geekOutgoingOriginals.set(result.text, options.caption);
-              setTimeout(() => window.__geekOutgoingOriginals.delete(result.text), 120000);
+              window.__geekRememberOutgoing(result.text, options.caption);
               options = { ...options, caption: result.text };
               if (objectShape) args[0] = { ...args[0], options }; else args[2] = options;
             }
