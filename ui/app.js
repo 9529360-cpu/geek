@@ -601,7 +601,7 @@
         }
         window.__geekGetTranslationSetting = function (chatId) {
           const g = window.__geekTranslationConfig.global || {};
-          const base = { provider: g.source || 'local', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, source: g.sendFrom || 'auto', target: g.sendTo || 'en', messageAction: g.message !== false, messageEnabled: g.message === true, messageTarget: g.messageTo || 'zh', messageFrom: g.messageFrom || 'auto', groupAuto: g.group === true, includeZh: g.includeZh !== false, fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };
+          const base = { provider: g.source || 'local', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, source: g.sendFrom || 'auto', target: g.sendTo || 'en', messageAction: g.manual !== false, messageEnabled: g.message === true, messageTarget: g.messageTo || 'zh', messageFrom: g.messageFrom || 'auto', groupAuto: g.group === true, includeZh: g.includeZh !== false, fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };
           const local = window.__geekTranslationConfig.chats?.[chatId];
           return local ? { ...base, ...local, source: local.source || base.source, messageTarget: local.messageTarget || base.messageTarget } : base;
         };
@@ -941,7 +941,7 @@
   const translationHint = document.getElementById('translation-chat-hint');
   const translationStoreKey = 'geekTranslationChatConfig';
   const translationGlobalStoreKey = 'geekTranslationGlobalConfig';
-  const translationGlobalDefaults = { source: 'local', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en', includeZh: true, message: false, messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea' };
+  const translationGlobalDefaults = { source: 'local', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en', includeZh: true, manual: true, message: false, messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea' };
   const globalLanguageSelectIds = ['translation-send-from','translation-send-to','translation-message-from','translation-message-to'];
   for (const id of globalLanguageSelectIds) {
     const select = document.getElementById(id);
@@ -956,7 +956,7 @@
   }
   function refreshTranslationGlobalPanel() {
     const cfg = activeTranslationGlobalConfig();
-    const mapping = { 'translation-source':'source','translation-server':'server','translation-send':'send','translation-send-from':'sendFrom','translation-send-to':'sendTo','translation-include-zh':'includeZh','translation-message':'message','translation-message-from':'messageFrom','translation-message-to':'messageTo','translation-group':'group','translation-font-size':'fontSize','translation-font-color':'fontColor' };
+    const mapping = { 'translation-source':'source','translation-server':'server','translation-send':'send','translation-send-from':'sendFrom','translation-send-to':'sendTo','translation-include-zh':'includeZh','translation-manual':'manual','translation-message':'message','translation-message-from':'messageFrom','translation-message-to':'messageTo','translation-group':'group','translation-font-size':'fontSize','translation-font-color':'fontColor' };
     for (const [id, key] of Object.entries(mapping)) {
       const el = document.getElementById(id);
       if (el) el.value = typeof cfg[key] === 'boolean' ? String(cfg[key]) : cfg[key];
@@ -971,7 +971,7 @@
     const bool = id => document.getElementById(id)?.value === 'true';
     const cfg = {
       source: document.getElementById('translation-source')?.value || 'local', server: document.getElementById('translation-server')?.value || 'default',
-      send: bool('translation-send'), sendFrom: document.getElementById('translation-send-from')?.value || 'auto', sendTo: document.getElementById('translation-send-to')?.value || 'en', includeZh: bool('translation-include-zh'),
+      send: bool('translation-send'), sendFrom: document.getElementById('translation-send-from')?.value || 'auto', sendTo: document.getElementById('translation-send-to')?.value || 'en', includeZh: bool('translation-include-zh'), manual: bool('translation-manual'),
       message: bool('translation-message'), messageFrom: document.getElementById('translation-message-from')?.value || 'auto', messageTo: document.getElementById('translation-message-to')?.value || 'zh', group: bool('translation-group'),
       fontSize: document.getElementById('translation-font-size')?.value || '13', fontColor: document.getElementById('translation-font-color')?.value || '#667eea'
     };
@@ -1025,7 +1025,7 @@
     document.querySelectorAll('.translation-tab-panel').forEach(x => x.classList.toggle('hidden', x.id !== `translation-tab-${tab.dataset.translationTab}`));
   }));
   ['translation-enabled','translation-target','translation-auto-send','translation-message-action'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationChatConfig));
-  ['translation-source','translation-server','translation-send','translation-send-from','translation-send-to','translation-include-zh','translation-message','translation-message-from','translation-message-to','translation-group','translation-font-size','translation-font-color'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationGlobalConfig));
+  ['translation-source','translation-server','translation-send','translation-send-from','translation-send-to','translation-include-zh','translation-manual','translation-message','translation-message-from','translation-message-to','translation-group','translation-font-size','translation-font-color'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationGlobalConfig));
   document.getElementById('translation-gateway-save')?.addEventListener('click', () => {
     const url = String(document.getElementById('translation-gateway-url')?.value || '').trim().replace(/\/$/, '');
     if (url && !/^https:\/\//i.test(url) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(url)) { document.getElementById('translation-gateway-status').textContent = '网关必须使用 HTTPS（本机测试可用 127.0.0.1）'; return; }

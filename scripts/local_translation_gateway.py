@@ -6,7 +6,7 @@ PORT = int(os.getenv('GEEK_TRANSLATION_PORT', '18991'))
 POOL = os.getenv('GEEK_POOL_URL', 'http://127.0.0.1:8899').rstrip('/')
 MODELS = [m.strip() for m in os.getenv('GEEK_TRANSLATION_MODELS', 'mistral-small-latest,llama-3.3-70b-versatile,gemini-flash-latest').split(',') if m.strip()]
 LANG_NAMES = {
-    'zh': 'Chinese', 'en': 'English', 'it': 'Italian', 'es': 'Spanish',
+    'zh': 'Simplified Chinese', 'en': 'English', 'it': 'Italian', 'es': 'Spanish',
     'fr': 'French', 'de': 'German', 'pt': 'Portuguese', 'ja': 'Japanese',
     'ko': 'Korean', 'hi': 'Hindi', 'ar': 'Arabic', 'ru': 'Russian',
     'id': 'Indonesian', 'pl': 'Polish', 'tr': 'Turkish', 'vi': 'Vietnamese',
@@ -53,7 +53,14 @@ def translate(text, target):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/health':
-            return reply(self, 200, {'ok': True, 'models': len(MODELS)})
+            try:
+                with urllib.request.urlopen(POOL + '/v1/models', timeout=3) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                available = {str(item.get('id')) for item in data.get('data', [])}
+                usable = [model for model in MODELS if model in available]
+                return reply(self, 200, {'ok': bool(usable), 'pool': True, 'models': len(usable)})
+            except Exception:
+                return reply(self, 503, {'ok': False, 'pool': False, 'models': 0})
         return reply(self, 404, {'error': 'not_found'})
 
     def do_POST(self):
