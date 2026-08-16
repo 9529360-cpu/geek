@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const XLSX = require('xlsx');
 const { initAutoUpdater } = require('./updater.cjs');
+const { quitAndInstallForUpdate, isUpdateInstalling } = require('./updater.cjs');
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
 const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
@@ -1100,6 +1101,11 @@ function registerIpcHandlers() {
     app.exit(0);
   });
 
+  ipcMain.handle('updater:install', async (event) => {
+    assertTrustedSender(event);
+    return quitAndInstallForUpdate();
+  });
+
   ipcMain.handle('window:minimize', async (event) => {
     assertTrustedSender(event);
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1796,9 +1802,13 @@ function createMainWindow() {
     action: 'deny'
   }));
 
-  // 主窗口渲染进程崩溃 → 限频 relaunch（避免崩溃循环）
+  // 主窗口渲染进程崩溃 → 限频 relaunch（避免崩溃循环；更新安装期间跳过，防竞态）
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     diagnostics.log('main-window-crash', { reason: details?.reason, exitCode: details?.exitCode });
+    if (isUpdateInstalling()) {
+      console.error('[crash] 更新安装中，跳过自动重启（避免与 quitAndInstall 竞态）');
+      return;
+    }
     if (relaunchLimiter.allow()) {
       console.error('[crash] 主窗口渲染进程崩溃，5分钟内限频2次内自动重启');
       // 等待账号/配置持久化队列落盘后再重启，避免丢失最后一次变更

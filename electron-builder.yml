@@ -20,12 +20,11 @@ asarUnpack:
   - resources/pragmaz-ext/**/*
 icon: build/icon.ico
 
-# TODO: 接入 GitHub Releases 私有仓库自动更新时打开并填写
-# publish:
-#   provider: github
-#   owner: <你的 GitHub 用户名>
-#   repo: <仓库名>
-#   private: true
+publish:
+  provider: github
+  owner: 9529360-cpu
+  repo: geek
+  private: true
 
 win:
   target:

@@ -3610,6 +3610,26 @@
   }
 
   // ---------- 加载账号 ----------
+  // 更新下载完成提示条：顶栏右侧固定条，点击“重启安装”
+  function showUpdateToast(version) {
+    try {
+      let bar = document.getElementById('geek-update-bar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'geek-update-bar';
+        bar.style.cssText = 'position:fixed;top:6px;right:120px;z-index:9999;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;background:#1e232e;border:1px solid #3a4356;color:#e8ecf3;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.35);';
+        bar.innerHTML = '<span>新版本 <b id="geek-update-ver"></b> 已下载</span><button id="geek-update-install" style="padding:3px 10px;border-radius:6px;border:none;background:#2f6fed;color:#fff;cursor:pointer;font-size:12px;">重启安装</button><button id="geek-update-close" style="padding:2px 8px;border-radius:6px;border:none;background:transparent;color:#8a93a6;cursor:pointer;font-size:14px;">×</button>';
+        bar.querySelector('#geek-update-install').addEventListener('click', () => {
+          try { window.api.updater.install(); } catch (e) { console.error('安装更新失败:', e.message); }
+        });
+        bar.querySelector('#geek-update-close').addEventListener('click', () => bar.remove());
+        document.body.appendChild(bar);
+      }
+      bar.querySelector('#geek-update-ver').textContent = version || '';
+      bar.style.display = 'flex';
+    } catch (e) { console.error('更新提示条失败:', e.message); }
+  }
+
   async function loadAccounts() {
     const r = await window.api.accounts.list();
     accounts = r?.accounts || r || [];
@@ -3729,6 +3749,18 @@
     } catch (e) { /* 主题应用失败不影响 */ }
     try { await loadPlatforms(); } catch (e) { console.error('加载平台列表失败', e); }
     try { bridgePreloadPath = await window.api.bridge.preloadPath(); } catch (e) { console.error('获取桥preload路径失败', e); }
+    // 更新状态提示：available/downloading 系统通知；downloaded 顶栏提示条（点击重启安装）
+    try {
+      window.api.updater.onStatus((status) => {
+        if (!status || !status.phase) return;
+        if (status.phase === 'available') {
+          window.api.notify.show({ title: '极客更新', body: `发现新版本 ${status.version}，正在后台下载` });
+        } else if (status.phase === 'downloaded') {
+          window.api.notify.show({ title: '极客更新', body: `新版本 ${status.version} 已下载，点击“重启安装”生效` });
+          showUpdateToast(status.version);
+        }
+      });
+    } catch (e) { /* 更新提示不可用不影响 */ }
     await loadAccounts();
   })();
 })();
