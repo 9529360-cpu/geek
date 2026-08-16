@@ -75,6 +75,12 @@ contextBridge.exposeInMainWorld(
     notify: Object.freeze({
       show: (payload) => ipcRenderer.invoke('notify:show', payload),
     }),
+    updater: Object.freeze({
+      install: () => ipcRenderer.invoke('updater:install'),
+      onStatus: (callback) => {
+        ipcRenderer.on('updater:status', (_event, status) => callback(status));
+      },
+    }),
     theme: Object.freeze({
       getSystem: () => ipcRenderer.invoke('theme:get-system'),
       onSystemChanged: (callback) => {
