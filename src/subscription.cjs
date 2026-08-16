@@ -92,7 +92,10 @@ function createSubscriptionStore({ userDataDir }) {
   }
 
   async function login(email, password) {
+    // 先请求登录（避免登录失败时误清旧账号状态）
     const data = await request('/api/login', { method: 'POST', body: { email, password } });
+    // 登录成功：清空旧账号本地状态（token/quota_cache 等），防止换账号数据串号
+    await clear();
     await save({ token: data.token, email: data.user.email, checked_at: new Date().toISOString() });
     // 拉取字符余额
     const status = await request('/api/status').catch(() => ({}));
