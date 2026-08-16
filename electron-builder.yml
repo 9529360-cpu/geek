@@ -30,6 +30,7 @@ publish:
 win:
   target:
     - nsis
+  artifactName: geek-setup-${version}.exe
 nsis:
   oneClick: true
   perMachine: false
