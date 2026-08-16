@@ -8,11 +8,16 @@ const XLSX = require('xlsx');
 const { initAutoUpdater } = require('./updater.cjs');
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
 const webviewOwnership = createOwnershipRegistry();
+const runtimePaths = require('./runtime-paths.cjs');
+const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
+  appDataDir: app.getPath('appData'),
+  overrideDir: process.env.GEEK_USER_DATA_DIR
+});
 
 // 固定 userData 目录：防止 package name 变化导致登录态数据目录漂移
 // （原 whatsapp-multi 目录已有全部账号登录数据，保持指向它）
 try {
-  app.setPath('userData', path.join(app.getPath('appData'), 'whatsapp-multi'));
+  app.setPath('userData', USER_DATA_DIR);
 } catch (e) { /* 设置失败不影响 */ }
 
 // LINE 登录 token 宿主文件备份（对齐原版 line.json 机制：登出清 localStorage 也不丢）
@@ -52,9 +57,10 @@ try {
   ]);
 } catch (e) { /* scheme 设置失败不影响 */ }
 
-// Keep each checkout's state isolated; never write into another project copy.
-const ACCOUNTS_FILE = path.join(__dirname, '..', 'data', 'accounts.json');
-const CONFIG_FILE = path.join(__dirname, '..', 'data', 'config.json');
+// 运行期 accounts/config 固定写入 Electron userData，不再写入项目 data/。
+// 首次运行时会从旧 data/ 安全迁移（目标已存在则以目标为准）。
+const ACCOUNTS_FILE = runtimePaths.accountsFile(USER_DATA_DIR);
+const CONFIG_FILE = runtimePaths.configFile(USER_DATA_DIR);
 const PARTITION_PREFIX = 'persist:webview-page-';
 // Ordinary Chrome UA so WhatsApp/Telegram Web don't reject the embedded browser.
 // Same UA family the original Hello-GPT ships (verified working with WhatsApp Web).
@@ -115,17 +121,24 @@ function appTypeConfig(type) {
 
 // LINE 官方浏览器扩展（复刻项目自带副本，供 line / line-business 账号登录使用）
 // 用 MV3 原始扩展（与 Hello-GPT 原版完全一致）；Electron 35.5.1 下 SW 注册行为待验证
+// 打包后扩展目录会被 asarUnpack 到真实磁盘（session.loadExtension 需要真实文件），
+// 因此资源目录在打包模式下解析到 app.asar.unpacked；开发模式仍指向项目 resources/。
+const RESOURCES_DIR = runtimePaths.resourcesDirFor({
+  packaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  appDir: __dirname
+});
 const LINE_EXTENSION_PATH = path.join(
-  __dirname, '..', 'resources', 'extensions', 'line-3.5.1'
+  RESOURCES_DIR, 'extensions', 'line-3.5.1'
 );
 
 // HelloWorld 剥离的 WhatsApp 扩展（WAPlus——b_test 英文版，功能最全）
 const WAPLUS_EXTENSION_PATH = path.join(
-  __dirname, '..', 'resources', 'waplus-ext', '1.7.96_0'
+  RESOURCES_DIR, 'waplus-ext', '1.7.96_0'
 );
 // HelloWorld 剥离的 WhatsApp 扩展（Pragmaz——a_test 中文版，用户截图的中文群发面板）
 const PRAGMAZ_EXTENSION_PATH = path.join(
-  __dirname, '..', 'resources', 'pragmaz-ext', '1.7_0'
+  RESOURCES_DIR, 'pragmaz-ext', '1.7_0'
 );
 
 async function loadWaplusExtension(partition) {
@@ -1813,6 +1826,14 @@ async function startWaLocalServer() {
 
 app.whenReady().then(async () => {
   startWaLocalServer();
+  try {
+    await runtimePaths.migrateRuntimeFiles({
+      userDataDir: USER_DATA_DIR,
+      projectRoot: path.join(__dirname, '..')
+    });
+  } catch (e) {
+    console.error('迁移历史运行数据失败（不影响启动）:', e.message);
+  }
   await loadAccounts();
   await loadConfig();
   applyLoginItemSettings();

@@ -6,10 +6,18 @@ appId: com.stardust.geek
 productName: 极客
 directories:
   output: dist-release
+electronDist: node_modules/electron/dist
 files:
   - src/**/*
   - ui/**/*
+  - resources/**/*
+  - build/icon.ico
   - package.json
+  - '!data/**/*'
+asarUnpack:
+  - resources/extensions/**/*
+  - resources/waplus-ext/**/*
+  - resources/pragmaz-ext/**/*
 icon: build/icon.ico
 
 # TODO: 接入 GitHub Releases 私有仓库自动更新时打开并填写
