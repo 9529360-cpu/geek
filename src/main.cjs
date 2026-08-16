@@ -187,6 +187,20 @@ const APP_TYPES = {
     hostnames: ['manager.line.biz', 'access.line.me', 'line.me'],
     allowSuffix: '.line.me',
     needsExtension: true
+  },
+  facebook: {
+    name: 'Facebook',
+    short: 'FB',
+    url: 'https://www.facebook.com/messages',
+    hostnames: ['www.facebook.com', 'm.facebook.com', 'facebook.com'],
+    allowSuffix: '.facebook.com'
+  },
+  'facebook-business': {
+    name: 'Facebook 商业版',
+    short: 'FBB',
+    url: 'https://business.facebook.com/latest/inbox/all',
+    hostnames: ['business.facebook.com', 'www.facebook.com', 'facebook.com'],
+    allowSuffix: '.facebook.com'
   }
 };
 
