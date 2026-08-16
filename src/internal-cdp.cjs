@@ -52,7 +52,23 @@ function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebug
         });
       };
 
-      return await callback(send);
+      const listeners = new Set();
+      const onEvent = (handler) => {
+        listeners.add(handler);
+        return () => listeners.delete(handler);
+      };
+      const onMessage = (_event, method, params) => {
+        for (const handler of listeners) {
+          try { handler(method, params); } catch { /* 事件处理器异常不影响命令流 */ }
+        }
+      };
+      guest.debugger.addListener('message', onMessage);
+      try {
+        return await callback({ send, onEvent });
+      } finally {
+        guest.debugger.removeListener('message', onMessage);
+        listeners.clear();
+      }
     } finally {
       if (!wasAttached) {
         await guest.debugger.detach();

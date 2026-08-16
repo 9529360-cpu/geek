@@ -4,6 +4,7 @@ const { createInternalCdp } = require('../src/internal-cdp.cjs');
 
 function guest({ id, partitionLeaf, url, attached = false, delay = 0 }) {
   const calls = [];
+  const eventListeners = new Map();
   const debuggerApi = {
     isAttached: () => attached,
     attach: async (version) => { calls.push(['attach', version]); attached = true; },
@@ -12,7 +13,10 @@ function guest({ id, partitionLeaf, url, attached = false, delay = 0 }) {
       calls.push(['send', method, params]);
       if (delay) await new Promise(r => setTimeout(r, delay));
       return { method };
-    }
+    },
+    addListener: (event, handler) => { if (!eventListeners.has(event)) eventListeners.set(event, new Set()); eventListeners.get(event).add(handler); },
+    removeListener: (event, handler) => { eventListeners.get(event)?.delete(handler); },
+    emit: (event, ...args) => { for (const h of eventListeners.get(event) || []) h(...args); }
   };
   return {
     id, calls, debugger: debuggerApi,
@@ -32,17 +36,25 @@ function guest({ id, partitionLeaf, url, attached = false, delay = 0 }) {
   assert.equal(manager.findGuest('persist:webview-page-c', 'telegram-z').id, 3, '必须按partition和平台选中TG');
   assert.equal(manager.findGuest('persist:webview-page-a', 'telegram-z'), null, '平台不符不能选错账号');
 
-  const result = await manager.run('persist:webview-page-b', 'whatsapp', send => send('Runtime.evaluate', { expression: '1+1' }));
+  const result = await manager.run('persist:webview-page-b', 'whatsapp', async ({ send }) => send('Runtime.evaluate', { expression: '1+1' }));
   assert.equal(result.method, 'Runtime.evaluate');
   assert.deepEqual(wa2.calls.map(c => c[0]), ['attach', 'send', 'detach'], '自己attach必须finally detach');
   assert.equal(wa1.calls.length, 0, '不得操作其他账号');
+
+  const eventSeen = [];
+  await manager.run('persist:webview-page-b', 'whatsapp', async ({ send, onEvent }) => {
+    onEvent((method) => { eventSeen.push(method); });
+    wa2.debugger.emit('message', null, 'Page.fileChooserOpened', { backendNodeId: 7 });
+    return send('Runtime.evaluate');
+  });
+  assert.deepEqual(eventSeen, ['Page.fileChooserOpened'], 'onEvent必须收到debugger事件');
 
   const blocked = createInternalCdp({ getAllWebContents: () => [wa1], timeoutMs: 100, externalDebugging: true });
   await assert.rejects(() => blocked.run('persist:webview-page-a', 'whatsapp', () => true), /外部调试端口/, '9344模式必须明确拒绝内部CDP');
 
   const slow = guest({ id: 4, partitionLeaf: 'webview-page-d', url: 'https://web.telegram.org/a/', delay: 100 });
   const timed = createInternalCdp({ getAllWebContents: () => [slow], timeoutMs: 10 });
-  await assert.rejects(() => timed.run('persist:webview-page-d', 'telegram-z', send => send('Runtime.evaluate')), /超时/, '命令必须有超时');
+  await assert.rejects(() => timed.run('persist:webview-page-d', 'telegram-z', ({ send }) => send('Runtime.evaluate')), /超时/, '命令必须有超时');
   assert.equal(slow.calls.at(-1)[0], 'detach', '超时也必须detach');
 
   console.log('INTERNAL_CDP_CONTRACT_OK');
