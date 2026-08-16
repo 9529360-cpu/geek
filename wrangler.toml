@@ -1,0 +1,7 @@
+name = "geek-release"
+main = "scripts/geek-release-worker.js"
+compatibility_date = "2026-08-16"
+
+[[r2_buckets]]
+binding = "RELEASE_BUCKET"
+bucket_name = "geek-release"

@@ -20,11 +20,12 @@ asarUnpack:
   - resources/pragmaz-ext/**/*
 icon: build/icon.ico
 
+# 自动更新渠道：Cloudflare R2（公开读，源码仍私有）
+# 发布后需将 dist-release/{latest.yml, 极客 Setup X.exe, *.blockmap} 上传到 R2 桶 geek-release
+# （S3 凭证在 scripts/.r2-creds.json；上传命令见 geek-release-workflow 技能）
 publish:
-  provider: github
-  owner: 9529360-cpu
-  repo: geek
-  private: true
+  provider: generic
+  url: https://geek-release.9529360.workers.dev
 
 win:
   target:
