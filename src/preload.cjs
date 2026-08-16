@@ -102,5 +102,17 @@ contextBridge.exposeInMainWorld(
         ipcRenderer.on('tray:lock', () => callback());
       },
     }),
+    subscription: Object.freeze({
+      getState: () => ipcRenderer.invoke('subscription:get-state'),
+      refresh: () => ipcRenderer.invoke('subscription:refresh'),
+      login: (email, password) => ipcRenderer.invoke('subscription:login', email, password),
+      register: (email, password) => ipcRenderer.invoke('subscription:register', email, password),
+      createOrder: (plan) => ipcRenderer.invoke('subscription:create-order', plan),
+      getQuota: (force) => ipcRenderer.invoke('subscription:get-quota', force === true),
+      reportUsage: (chars) => ipcRenderer.invoke('subscription:report-usage', chars),
+      logout: () => ipcRenderer.invoke('subscription:logout'),
+      enterApp: () => ipcRenderer.invoke('subscription:enter-app'),
+      closeWindow: () => ipcRenderer.invoke('subscription:close-window'),
+    }),
   }),
 );

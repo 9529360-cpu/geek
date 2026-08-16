@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>极客 · 登录</title>
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --panel: #15181d;
+      --panel-2: #1a1e25;
+      --border: #232833;
+      --border-soft: rgba(255,255,255,0.06);
+      --text: #e8eaed;
+      --text-dim: #8a919c;
+      --accent: #00d4ff;
+      --accent-2: #16a34a;
+      --danger: #f87171;
+      --radius: 14px;
+      --shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(1200px 700px at 20% -10%, #182230 0%, var(--bg) 55%);
+      color: var(--text);
+      overflow: hidden;
+      user-select: none;
+    }
+    .win-drag { -webkit-app-region: drag; }
+    .no-drag { -webkit-app-region: no-drag; }
+
+    .wrap { display: flex; height: 100vh; }
+
+    /* 左侧品牌区 */
+    .brand {
+      width: 260px; padding: 36px 28px;
+      display: flex; flex-direction: column; justify-content: space-between;
+      border-right: 1px solid var(--border-soft);
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+    }
+    .brand-logo { display: flex; align-items: center; gap: 12px; }
+    .brand-logo svg { width: 42px; height: 42px; }
+    .brand-title { font-size: 20px; font-weight: 600; letter-spacing: 0.5px; }
+    .brand-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+    .brand-tagline { font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+    .brand-feats { list-style: none; margin-top: 18px; }
+    .brand-feats li { font-size: 12.5px; color: var(--text-dim); padding: 6px 0; display: flex; align-items: center; gap: 8px; }
+    .brand-feats li::before { content: '✓'; color: var(--accent); font-weight: 600; }
+
+    /* 右侧主区 */
+    .main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 48px; position: relative; }
+    .win-close {
+      position: absolute; top: 14px; right: 16px; width: 34px; height: 34px; border-radius: 50%;
+      border: none; background: transparent; color: var(--text-dim); font-size: 16px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; transition: all .15s;
+    }
+    .win-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+    .card { width: 100%; max-width: 420px; }
+
+    .view { display: none; }
+    .view.on { display: block; animation: fadeUp .3s ease; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+    h2 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+    .hint { font-size: 13px; color: var(--text-dim); margin-bottom: 26px; line-height: 1.6; }
+
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+    .field input {
+      width: 100%; padding: 11px 14px; font-size: 14px; color: var(--text);
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px; outline: none;
+      transition: border .15s, box-shadow .15s;
+    }
+    .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,0.12); }
+
+    .btn-primary {
+      width: 100%; padding: 12px; font-size: 15px; font-weight: 600; color: #06121a;
+      background: linear-gradient(135deg, #00d4ff, #00a3cc); border: none; border-radius: 10px; cursor: pointer;
+      transition: transform .1s, box-shadow .15s, opacity .15s;
+      box-shadow: 0 8px 24px rgba(0,212,255,0.25);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px rgba(0,212,255,0.35); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-ghost { width: 100%; padding: 11px; font-size: 14px; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all .15s; }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+    .switch-row { display: flex; justify-content: center; margin-top: 18px; font-size: 13px; color: var(--text-dim); }
+    .switch-row a { color: var(--accent); cursor: pointer; text-decoration: none; margin-left: 5px; }
+    .switch-row a:hover { text-decoration: underline; }
+
+    .err { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 18px; }
+    .ok { color: var(--accent-2); font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+    /* 套餐选择 */
+    .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 18px; }
+    .plan {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 10px; text-align: center;
+      cursor: pointer; transition: all .15s; position: relative;
+    }
+    .plan:hover { border-color: rgba(0,212,255,0.5); transform: translateY(-2px); }
+    .plan.sel { border-color: var(--accent); background: rgba(0,212,255,0.07); box-shadow: 0 0 0 1px var(--accent); }
+    .plan .p-name { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+    .plan .p-price { font-size: 20px; font-weight: 700; }
+    .plan .p-price span { font-size: 12px; font-weight: 400; color: var(--text-dim); }
+    .plan .p-per { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .plan .p-tag { position: absolute; top: -8px; right: 8px; font-size: 10px; padding: 2px 8px; border-radius: 20px; background: var(--accent); color: #06121a; font-weight: 600; }
+
+    /* 订单结果 */
+    .order-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin: 6px 0 14px; }
+    .order-box .o-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+    .order-box .o-line { font-size: 13px; color: var(--text-dim); line-height: 1.8; }
+    .order-box .o-amount { font-size: 26px; font-weight: 700; margin: 8px 0; }
+    .order-box .o-amount span { font-size: 14px; color: var(--text-dim); font-weight: 400; }
+
+    /* 已登录/过期状态 */
+    .status-card { text-align: center; padding: 20px 0; }
+    .status-icon { font-size: 40px; margin-bottom: 10px; }
+    .status-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+    .status-sub { font-size: 13px; color: var(--text-dim); line-height: 1.7; margin-bottom: 20px; }
+    .status-pill { display: inline-block; padding: 5px 14px; border-radius: 20px; font-size: 12.5px; background: rgba(22,163,74,0.12); color: var(--accent-2); border: 1px solid rgba(22,163,74,0.3); margin-bottom: 16px; }
+    .status-pill.expired { background: rgba(248,113,113,0.1); color: var(--danger); border-color: rgba(248,113,113,0.3); }
+
+    .footer-note { position: absolute; bottom: 20px; font-size: 11px; color: rgba(138,145,156,0.7); text-align: center; width: calc(100% - 96px); }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="brand win-drag">
+    <div>
+      <div class="brand-logo">
+        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="gx-tile" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#23252a"/><stop offset="1" stop-color="#101114"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#gx-tile)" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
+          <rect x="31" y="12" width="21" height="14" rx="3.5" fill="none" stroke="#00d4ff" stroke-width="1.7" opacity="0.95"/>
+          <circle cx="34.5" cy="15.5" r="1.4" fill="#00d4ff"/>
+          <rect x="35" y="39" width="23" height="17" rx="3.5" fill="none" stroke="#00d4ff" stroke-width="1.7" opacity="0.95"/>
+          <circle cx="38.5" cy="42.5" r="1.4" fill="#00d4ff"/>
+          <path d="M18 38 A14.5 14.5 0 1 1 44 29" fill="none" stroke="#b9c0c9" stroke-width="9.5" stroke-linecap="round"/>
+          <path d="M45.5 23 l-2.5 9 l8.5 -4.2 z" fill="#b9c0c9"/>
+        </svg>
+        <div>
+          <div class="brand-title">极客</div>
+          <div class="brand-sub">多平台多账号聊天客户端</div>
+        </div>
+      </div>
+      <ul class="brand-feats">
+        <li>WhatsApp / Telegram / LINE 多账号</li>
+        <li>消息实时翻译 · 群发 · 群组工具</li>
+        <li>沙箱隔离 · 数据独立</li>
+        <li>跨设备 · 轻量 · 秒开</li>
+      </ul>
+    </div>
+    <div class="brand-tagline win-drag">专业工具，值得拥有。</div>
+  </aside>
+
+  <main class="main">
+    <button class="win-close no-drag" id="btn-close" title="关闭">✕</button>
+
+    <!-- 登录视图 -->
+    <div class="card view on" id="view-login">
+      <h2>欢迎回来</h2>
+      <div class="hint">登录后继续使用极客全部功能</div>
+      <div class="field">
+        <label>邮箱</label>
+        <input type="email" id="in-email" placeholder="you@example.com" autocomplete="email" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input type="password" id="in-pass" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn-primary no-drag" id="btn-login">登 录</button>
+      <div class="err" id="login-err"></div>
+      <div class="switch-row">还没有账号？<a id="go-register">注册</a></div>
+    </div>
+
+    <!-- 注册视图 -->
+    <div class="card view" id="view-register">
+      <h2>创建账号</h2>
+      <div class="hint">注册后可购买订阅套餐</div>
+      <div class="field">
+        <label>邮箱</label>
+        <input type="email" id="reg-email" placeholder="you@example.com" autocomplete="email" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>密码（至少 6 位）</label>
+        <input type="password" id="reg-pass" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label>确认密码</label>
+        <input type="password" id="reg-pass2" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <button class="btn-primary no-drag" id="btn-register">注册并登录</button>
+      <div class="err" id="reg-err"></div>
+      <div class="switch-row">已有账号？<a id="go-login">登录</a></div>
+    </div>
+
+    <!-- 套餐视图 -->
+    <div class="card view" id="view-plans">
+      <h2>选择订阅套餐</h2>
+      <div class="hint">付款后由客服手动开通，通常几分钟内生效</div>
+      <div class="plans" id="plans">
+        <div class="plan sel" data-plan="monthly">
+          <div class="p-name">月付</div>
+          <div class="p-price">€9<span>/月</span></div>
+          <div class="p-per">灵活试水</div>
+        </div>
+        <div class="plan" data-plan="quarterly">
+          <div class="p-name">季付</div>
+          <div class="p-price">€24<span>/季</span></div>
+          <div class="p-per">省 €3 · 推荐</div>
+          <div class="p-tag">推荐</div>
+        </div>
+        <div class="plan" data-plan="yearly">
+          <div class="p-name">年付</div>
+          <div class="p-price">€79<span>/年</span></div>
+          <div class="p-per">省 €29</div>
+        </div>
+      </div>
+      <button class="btn-primary no-drag" id="btn-buy">生成订单</button>
+      <div class="err" id="plans-err"></div>
+      <div class="switch-row" style="margin-top:12px"><a id="back-login">退出登录</a></div>
+    </div>
+
+    <!-- 订单结果视图 -->
+    <div class="card view" id="view-order">
+      <h2>订单已生成</h2>
+      <div class="hint">请按以下方式完成付款</div>
+      <div class="order-box">
+        <div class="o-title" id="order-plan-name"></div>
+        <div class="o-amount"><span>应付</span> €<span id="order-amount"></span></div>
+        <div class="o-line">1. 添加客服联系方式，转账对应金额<br>2. 转账时备注你的订单号 <b id="order-id"></b><br>3. 客服确认收款后自动开通，<br>&nbsp;&nbsp;&nbsp;&nbsp;客户端刷新状态即可使用</div>
+      </div>
+      <button class="btn-ghost no-drag" id="btn-refresh-status">我已完成付款，刷新状态</button>
+      <div class="ok" id="order-ok"></div>
+      <div class="err" id="order-err"></div>
+    </div>
+
+    <!-- 已登录个人中心视图（Freemium：额度/订阅状态，随时可进应用） -->
+    <div class="card view" id="view-home">
+      <div class="status-card">
+        <div class="status-icon" id="home-icon">✅</div>
+        <div class="status-title" id="home-title">已登录</div>
+        <div class="status-sub" id="home-email"></div>
+        <div class="status-pill" id="home-quota"></div>
+        <div class="status-sub" id="home-sub"></div>
+        <button class="btn-primary no-drag" id="btn-enter">进入极客</button>
+        <button class="btn-ghost no-drag" style="margin-top:10px" id="btn-open-plans">购买套餐 / 续费</button>
+      </div>
+      <div class="switch-row"><a id="home-logout">退出登录</a></div>
+    </div>
+
+    <div class="footer-note win-drag">极客 · Geek · 专业多平台聊天工具</div>
+  </main>
+</div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  let currentPlan = 'monthly';
+
+  function show(id) {
+    document.querySelectorAll('.view').forEach((v) => v.classList.remove('on'));
+    document.getElementById(id).classList.add('on');
+  }
+
+  function err(el, msg) { document.getElementById(el).textContent = msg || ''; }
+
+  // 视图切换
+  $('#go-register').onclick = () => { err('reg-err', ''); show('view-register'); };
+  $('#go-login').onclick = () => { err('login-err', ''); show('view-login'); };
+  $('#back-login').onclick = async () => { await window.api.subscription.logout(); location.reload(); };
+  $('#home-logout').onclick = async () => { await window.api.subscription.logout(); location.reload(); };
+
+  // 登录/注册
+  $('#btn-login').onclick = async () => {
+    const email = $('#in-email').value.trim();
+    const pass = $('#in-pass').value;
+    if (!email || !pass) return err('login-err', '请输入邮箱和密码');
+    const btn = $('#btn-login');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>登录中…';
+    err('login-err', '');
+    try {
+      await window.api.subscription.login(email, pass);
+      location.reload();
+    } catch (e) {
+      err('login-err', e.message === 'invalid_credentials' ? '邮箱或密码错误' : (e.message === 'account_disabled' ? '账号已被封禁，请联系客服' : '登录失败，请稍后重试'));
+    } finally { btn.disabled = false; btn.textContent = '登 录'; }
+  };
+  $('#in-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-login').click(); });
+  $('#in-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-login').click(); });
+
+  $('#btn-register').onclick = async () => {
+    const email = $('#reg-email').value.trim();
+    const pass = $('#reg-pass').value;
+    const pass2 = $('#reg-pass2').value;
+    if (!email || !pass) return err('reg-err', '请输入邮箱和密码');
+    if (pass.length < 6) return err('reg-err', '密码至少 6 位');
+    if (pass !== pass2) return err('reg-err', '两次密码不一致');
+    const btn = $('#btn-register');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>注册中…';
+    err('reg-err', '');
+    try {
+      await window.api.subscription.register(email, pass);
+      location.reload();
+    } catch (e) {
+      err('reg-err', e.message === 'email_exists' ? '该邮箱已注册，请直接登录' : '注册失败，请稍后重试');
+    } finally { btn.disabled = false; btn.textContent = '注册并登录'; }
+  };
+
+  // 套餐选择
+  document.querySelectorAll('.plan').forEach((p) => {
+    p.onclick = () => {
+      document.querySelectorAll('.plan').forEach((x) => x.classList.remove('sel'));
+      p.classList.add('sel');
+      currentPlan = p.dataset.plan;
+      err('plans-err', '');
+    };
+  });
+
+  // 生成订单
+  $('#btn-buy').onclick = async () => {
+    const btn = $('#btn-buy');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>生成中…';
+    err('plans-err', '');
+    try {
+      const data = await window.api.subscription.createOrder(currentPlan);
+      const names = { monthly: '月付套餐', quarterly: '季付套餐', yearly: '年付套餐' };
+      $('#order-plan-name').textContent = names[data.order.plan] || data.order.plan;
+      $('#order-amount').textContent = data.order.amount;
+      $('#order-id').textContent = '#' + data.order.id;
+      show('view-order');
+    } catch (e) {
+      err('plans-err', '下单失败，请稍后重试');
+    } finally { btn.disabled = false; btn.textContent = '生成订单'; }
+  };
+
+  // 刷新订阅状态
+  $('#btn-refresh-status').onclick = async () => {
+    const btn = $('#btn-refresh-status');
+    btn.disabled = true;
+    err('order-err', ''); err('order-ok', '');
+    try {
+      const state = await window.api.subscription.refresh();
+      btn.textContent = '刷新中…';
+      if (state.loggedIn && state.valid) {
+        err('order-ok', '✅ 已开通！');
+        setTimeout(() => { location.reload(); }, 900);
+      } else if (state.loggedIn && state.days_left === 0) {
+        err('order-err', '订单尚未确认，请稍后再试或联系客服');
+      } else {
+        err('order-err', '尚未生效，请稍后再试');
+      }
+    } catch (e) {
+      err('order-err', '网络错误，请稍后再试');
+    } finally { btn.disabled = false; btn.textContent = '我已完成付款，刷新状态'; }
+  };
+
+  // 进入主应用 / 打开套餐
+  $('#btn-enter').onclick = () => window.api.subscription.enterApp();
+  $('#btn-open-plans').onclick = () => show('view-plans');
+
+  // 关闭
+  $('#btn-close').onclick = () => window.api.subscription.closeWindow();
+
+  // 初始化：读取登录状态 + 额度，决定视图
+  (async () => {
+    try {
+      const state = await window.api.subscription.getState();
+      if (!state.loggedIn) { show('view-login'); return; }
+      // 已登录 → 个人中心：显示额度/订阅，随时可进
+      $('#home-email').textContent = state.email || '';
+      try {
+        const quota = await window.api.subscription.getQuota(true);
+        if (quota.unlimited) {
+          const names = { monthly: '月付', quarterly: '季付', yearly: '年付' };
+          $('#home-icon').textContent = '⭐';
+          $('#home-title').textContent = '订阅生效中';
+          $('#home-quota').textContent = names[quota.plan] || quota.plan || '订阅';
+          $('#home-sub').textContent = '翻译不限量 · 到期 ' + (quota.expires_at || '').slice(0, 10);
+        } else {
+          $('#home-icon').textContent = '🎁';
+          $('#home-title').textContent = '免费用户';
+          $('#home-quota').textContent = '剩余 ' + (quota.remaining_chars ?? 0).toLocaleString() + ' 字符';
+          $('#home-sub').textContent = (quota.remaining_chars > 0)
+            ? '注册赠送额度，用完可开通套餐不限量翻译'
+            : '额度已用完，开通套餐即可不限量翻译';
+        }
+      } catch (e) {
+        $('#home-quota').textContent = '—';
+        $('#home-sub').textContent = '';
+      }
+      show('view-home');
+    } catch (e) {
+      show('view-login');
+    }
+  })();
+</script>
+</body>
+</html>

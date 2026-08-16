@@ -15,6 +15,7 @@ const { createInternalCdp } = require('./internal-cdp.cjs');
 const { createRateLimiter } = require('./crash-recovery.cjs');
 const { createGatewayPool } = require('./gateway-failover.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
+const { createSubscriptionStore } = require('./subscription.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -859,6 +860,16 @@ async function translateViaRemoteGateway(event, payload) {
     if (body.isHistory === true && body.translateHistory !== true) return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true };
     if (translationInflight.has(inflightKey)) return translationInflight.get(inflightKey);
   }
+  // Freemium 额度检查：未登录/无 token 不允许翻译；额度用完抛错（UI 静默处理）
+  if (body.skipQuota !== true) {
+    const sub = initSubscriptionStore();
+    const quota = await sub.getQuota().catch(() => ({ unlimited: true }));
+    if (!quota.unlimited && (quota.remaining_chars == null || quota.remaining_chars <= 0)) {
+      const error = new Error('翻译额度已用完，请前往个人中心开通');
+      error.code = 'QUOTA_EXHAUSTED';
+      throw error;
+    }
+  }
   const requestSequence = ++translationRequestSequence;
   translationLatestRequest.set(inflightKey, requestSequence);
   const request = enqueueTranslationRemote(async () => {
@@ -887,6 +898,11 @@ async function translateViaRemoteGateway(event, payload) {
         const item = { text: translated, at: Date.now() };
         cache.set(key, item);
         await appendTranslationCache(partition, key, item);
+        // Freemium 用量上报（fire-and-forget，不阻塞翻译返回；缓存命中不重复计费）
+        if (body.skipQuota !== true) {
+          const consumed = Math.max(1, Math.ceil((text.length + translated.length) / 2));
+          initSubscriptionStore().reportUsage(consumed).catch(() => {});
+        }
         return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, route: picked.route };
       } catch (error) {
         pool.reportFailure(endpoint);
@@ -1772,6 +1788,133 @@ function configureWebviewSecurity(window) {
   });
 }
 
+// ---------- 付费订阅（登录/锁定窗口） ----------
+let subscriptionWindow = null;
+let subscriptionStore = null;
+let subscriptionCheckDone = false; // 启动检查是否完成（避免重复弹窗）
+
+function initSubscriptionStore() {
+  if (!subscriptionStore) {
+    subscriptionStore = createSubscriptionStore({ userDataDir: USER_DATA_DIR });
+  }
+  return subscriptionStore;
+}
+
+function isSubscriptionSender(event) {
+  return subscriptionWindow && !subscriptionWindow.isDestroyed() && event.sender.id === subscriptionWindow.webContents.id;
+}
+
+function isTrustedSubscriptionSender(event) {
+  return isTrustedSender(event) || isSubscriptionSender(event);
+}
+
+function createSubscriptionWindow() {
+  if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
+    subscriptionWindow.show();
+    subscriptionWindow.focus();
+    return subscriptionWindow;
+  }
+  subscriptionWindow = new BrowserWindow({
+    width: 900,
+    height: 600,
+    minWidth: 780,
+    minHeight: 540,
+    show: false,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
+    backgroundColor: '#0d0f12',
+    title: '极客 · 登录',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false
+    }
+  });
+  subscriptionWindow.once('ready-to-show', () => subscriptionWindow.show());
+  subscriptionWindow.on('closed', () => { subscriptionWindow = null; });
+  subscriptionWindow.loadFile(path.join(__dirname, '../ui/subscription.html'));
+  return subscriptionWindow;
+}
+
+function registerSubscriptionIpcHandlers() {
+  ipcMain.handle('subscription:get-state', async (event) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().getState();
+  });
+  ipcMain.handle('subscription:refresh', async (event) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().refresh();
+  });
+  ipcMain.handle('subscription:login', async (event, email, password) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().login(String(email || ''), String(password || ''));
+  });
+  ipcMain.handle('subscription:register', async (event, email, password) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().register(String(email || ''), String(password || ''));
+  });
+  ipcMain.handle('subscription:create-order', async (event, plan) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().createOrder(String(plan || ''));
+  });
+  ipcMain.handle('subscription:get-quota', async (event, force) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().getQuota(force === true);
+  });
+  ipcMain.handle('subscription:report-usage', async (event, chars) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().reportUsage(Number(chars) || 0);
+  });
+  ipcMain.handle('subscription:logout', async (event) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    return initSubscriptionStore().logout();
+  });
+  // 订阅窗口点"进入极客"→ 关闭订阅窗，打开主窗口
+  ipcMain.handle('subscription:enter-app', async (event) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
+    if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
+    else mainWindow.show();
+    return { ok: true };
+  });
+  ipcMain.handle('subscription:close-window', async (event) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
+    // 若主窗口也没开（启动锁定页直接关）→ 退出应用
+    if (!mainWindow || mainWindow.isDestroyed()) { isQuitting = true; app.quit(); }
+    return { ok: true };
+  });
+}
+
+// 启动时登录门禁（Freemium）：已登录 → 直接进主窗口（翻译额度用完不锁客户端）；
+// 未登录 → 弹登录/注册窗口。有本地 token 但本地状态不明确时先进主窗口并后台刷新。
+async function enforceSubscriptionGate() {
+  if (subscriptionCheckDone) return;
+  subscriptionCheckDone = true;
+  try {
+    const store = initSubscriptionStore();
+    const local = await store.getState();
+    if (local.loggedIn) {
+      // 已登录 → 进主窗口（无论是否有订阅；翻译额度用完不锁客户端）
+      createMainWindow();
+      store.refresh().catch(() => {});
+      return;
+    }
+    // 未登录 → 弹登录/注册窗口
+    createSubscriptionWindow();
+  } catch (e) {
+    console.error('[subscription] 启动门禁检查失败（放行）:', e.message);
+    createMainWindow();
+  }
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -1977,7 +2120,9 @@ app.whenReady().then(async () => {
   await loadConfig();
   applyLoginItemSettings();
   registerIpcHandlers();
-  createMainWindow();
+  registerSubscriptionIpcHandlers();
+  // 订阅门禁：有有效订阅→主窗口；未登录/过期→订阅窗口
+  await enforceSubscriptionGate();
   createTray();
   initAutoUpdater();
   watchSystemTheme();
@@ -1986,7 +2131,7 @@ app.whenReady().then(async () => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      enforceSubscriptionGate();
     }
   });
 
@@ -2027,4 +2172,12 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('config:get');
   ipcMain.removeHandler('config:set');
   ipcMain.removeHandler('window:relaunch');
+  ipcMain.removeHandler('subscription:get-state');
+  ipcMain.removeHandler('subscription:refresh');
+  ipcMain.removeHandler('subscription:login');
+  ipcMain.removeHandler('subscription:register');
+  ipcMain.removeHandler('subscription:create-order');
+  ipcMain.removeHandler('subscription:logout');
+  ipcMain.removeHandler('subscription:enter-app');
+  ipcMain.removeHandler('subscription:close-window');
 });

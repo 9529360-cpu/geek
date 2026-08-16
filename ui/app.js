@@ -873,7 +873,7 @@
                 if (!result?.text) throw new Error('翻译失败');
                 if (generation !== window.__geekTranslationGeneration || !window.__geekGetTranslationSetting(chatId)?.displayTranslation) { box.remove(); delete messageRoot.dataset.geekTranslationState; return; }
                 box.textContent = result.text; messageRoot.dataset.geekTranslationState = 'done';
-              } catch (error) { if (generation !== window.__geekTranslationGeneration) return; box.textContent = '翻译失败，请右键重试'; box.style.color = '#ff8a8a'; messageRoot.dataset.geekTranslationState = 'error'; }
+              } catch (error) { if (generation !== window.__geekTranslationGeneration) return; if (/额度已用完|QUOTA_EXHAUSTED/.test(String(error?.message || error))) { box.remove(); delete messageRoot.dataset.geekTranslationState; return; } box.textContent = '翻译失败，请右键重试'; box.style.color = '#ff8a8a'; messageRoot.dataset.geekTranslationState = 'error'; }
             };
             menu.appendChild(button); document.body.appendChild(menu);
             const close = e => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', close); } };
@@ -925,7 +925,7 @@
                 }
                 if (generation !== window.__geekTranslationGeneration || !window.__geekGetTranslationSetting(chatId)?.displayTranslation) { box.remove(); delete messageRoot.dataset.geekTranslationState; return; }
                 box.textContent = translated; messageRoot.dataset.geekTranslationState = 'done';
-              } catch (error) { if (generation !== window.__geekTranslationGeneration) { box.remove(); delete messageRoot.dataset.geekTranslationState; return; } box.textContent = '翻译失败，点击重试'; box.style.cursor = 'pointer'; box.style.color = '#ff8a8a'; messageRoot.dataset.geekTranslationState = 'error'; }
+              } catch (error) { if (generation !== window.__geekTranslationGeneration) { box.remove(); delete messageRoot.dataset.geekTranslationState; return; } if (/额度已用完|QUOTA_EXHAUSTED/.test(String(error?.message || error))) { box.remove(); delete messageRoot.dataset.geekTranslationState; return; } box.textContent = '翻译失败，点击重试'; box.style.cursor = 'pointer'; box.style.color = '#ff8a8a'; messageRoot.dataset.geekTranslationState = 'error'; }
             };
             const clickMode = setting.translationMode === 'click' || (!outgoing && activeChat?.isGroup && !setting.groupAuto);
             if (clickMode && !original) { box.textContent = '点击翻译'; box.style.cursor = 'pointer'; box.onclick = run; messageRoot.dataset.geekTranslationState = 'wait'; }
