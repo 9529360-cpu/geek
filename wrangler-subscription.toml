@@ -3,6 +3,11 @@ name = "geek-subscription"
 main = "scripts/geek-subscription-worker.js"
 compatibility_date = "2026-08-16"
 
+# 管理后台子域名（顶层字段必须在 [[数组]] 之前）
+routes = [
+  { pattern = "admin.bbnba.com", custom_domain = true }
+]
+
 [[d1_databases]]
 binding = "geek_subscriptions"
 database_name = "geek-subscriptions"

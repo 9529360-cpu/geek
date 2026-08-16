@@ -316,13 +316,41 @@ async function handleAdminSetUserStatus(db, url, enabled) {
   return json({ ok: true, status });
 }
 
+// 管理：手动加/减字符（客户直接转账未走订单，或赠送/扣回额度）
+async function handleAdminAdjustChars(request, db, url) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  const id = parts[parts.length - 2];
+  const body = await request.json().catch(() => ({}));
+  const delta = Number(body.delta);
+  const reason = String(body.reason || '').slice(0, 200);
+  if (!Number.isFinite(delta) || delta === 0) return json({ error: 'invalid_delta' }, 400);
+  const user = await getUserById(db, id);
+  if (!user) return json({ error: 'user_not_found' }, 404);
+  if (delta > 0) {
+    await db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(Math.floor(delta), id).run();
+  } else {
+    await db.prepare('UPDATE users SET quota_chars = MAX(0, quota_chars - ?) WHERE id = ?').bind(Math.floor(-delta), id).run();
+  }
+  const row = await db.prepare('SELECT quota_chars FROM users WHERE id = ?').bind(id).first();
+  return json({ ok: true, userId: id, delta: Math.floor(delta), remaining_chars: row.quota_chars });
+}
+
+// 管理：取消订单（客户没付款/退款）
+async function handleAdminCancelOrder(db, url) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  const id = parts[parts.length - 2];
+  const { meta } = await db.prepare(`UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending'`).bind(id).run();
+  if (meta.changes === 0) return json({ error: 'order_not_found_or_processed' }, 400);
+  return json({ ok: true, cancelled: true });
+}
+
 // ========== 管理后台 UI ==========
 const ADMIN_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>极客 · 订阅管理后台</title>
+<title>极客 · 运营后台</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #0b0d10; color: #e8eaed; min-height: 100vh; }
@@ -343,6 +371,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
   .b-disabled { background: #331414; color: #f87171; }
   .b-pending { background: #2d2408; color: #fbbf24; }
   .b-paid { background: #0f2e1c; color: #4ade80; }
+  .b-cancelled { background: #23272f; color: #8a919c; }
   button { background: #23272f; color: #e8eaed; border: 1px solid #2f3540; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
   button:hover { background: #2c313b; }
   button.primary { background: #16a34a; border-color: #16a34a; color: #fff; }
@@ -379,8 +408,8 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <div class="wrap" id="panelView" style="display:none">
   <div class="row" style="justify-content:space-between">
     <div>
-      <h1>极客订阅管理</h1>
-      <div class="sub">付费订阅体系 · Cloudflare D1</div>
+      <h1>极客运营后台</h1>
+      <div class="sub">付费体系 · 用户 · 订单 · 字符管理</div>
     </div>
     <button onclick="logout()" class="logout">退出</button>
   </div>
@@ -483,6 +512,7 @@ async function loadUsers() {
         '<td>' + (u.quota_chars != null ? u.quota_chars.toLocaleString() + ' 字符' : '—') + '</td>' +
         '<td class="muted">' + esc((u.created_at || '').slice(0, 10)) + '</td>' +
         '<td class="row">' +
+          '<button onclick="adjustChars(' + u.id + ', \'' + esc(u.email) + '\')">加字符</button>' +
           (u.status === 'disabled'
             ? '<button onclick="setUser(' + u.id + ', true)">解封</button>'
             : '<button class="danger" onclick="setUser(' + u.id + ', false)">封禁</button>') +
@@ -500,6 +530,20 @@ async function setUser(id, enabled) {
   } catch (e) { alert('操作失败：' + e.message); }
 }
 
+// 手动加/减字符（客户直接转账或赠送/扣回）
+async function adjustChars(id, email) {
+  const delta = prompt('用户：' + email + '\n输入字符数（加用正数，扣回用负数）\n例如：1000000 或 -500000');
+  if (delta === null || delta === '') return;
+  const n = Number(delta);
+  if (!Number.isFinite(n) || n === 0) { alert('请输入有效数字'); return; }
+  const reason = prompt('备注原因（可选）', n > 0 ? '客户转账' : '扣回');
+  try {
+    const data = await api('/api/admin/users/' + id + '/adjust', { method: 'POST', body: JSON.stringify({ delta: n, reason: reason || '' }) });
+    alert('已调整 ' + (n > 0 ? '+' : '') + n.toLocaleString() + ' 字符，当前剩余 ' + (data.remaining_chars || 0).toLocaleString());
+    loadUsers(); loadStats();
+  } catch (e) { alert('操作失败：' + e.message); }
+}
+
 async function loadOrders() {
   try {
     const data = await api('/api/admin/orders');
@@ -510,9 +554,9 @@ async function loadOrders() {
         '<td>' + esc(o.email || ('用户#' + o.user_id)) + '</td>' +
         '<td>' + p + '</td>' +
         '<td>$' + o.amount + '</td>' +
-        '<td><span class="badge ' + (o.status === 'paid' ? 'b-paid' : 'b-pending') + '">' + (o.status === 'paid' ? '已收款' : '待确认') + '</span></td>' +
+        '<td><span class="badge ' + (o.status === 'paid' ? 'b-paid' : o.status === 'cancelled' ? 'b-cancelled' : 'b-pending') + '">' + (o.status === 'paid' ? '已收款' : o.status === 'cancelled' ? '已取消' : '待确认') + '</span></td>' +
         '<td class="muted">' + esc((o.created_at || '').slice(0, 16)) + '</td>' +
-        '<td>' + (o.status === 'pending' ? '<button class="primary" onclick="confirmOrder(' + o.id + ')">确认收款·加字符</button>' : '<span class="muted">' + esc((o.paid_at || '').slice(0, 16)) + '</span>') + '</td>' +
+        '<td>' + (o.status === 'pending' ? '<button class="primary" onclick="confirmOrder(' + o.id + ')">确认收款·加字符</button> <button onclick="cancelOrder(' + o.id + ')">取消</button>' : '<span class="muted">' + esc(o.status === 'paid' ? '已收款 ' + (o.paid_at || '').slice(0, 16) : '已取消') + '</span>') + '</td>' +
         '</tr>';
     }).join('') || '<tr><td colspan="7" class="muted">暂无订单</td></tr>';
   } catch (e) { console.error(e); }
@@ -524,6 +568,14 @@ async function confirmOrder(id) {
     const data = await api('/api/admin/orders/' + id + '/confirm', { method: 'POST' });
     alert('已加字符：' + (data.charsAdded || 0).toLocaleString() + '，当前剩余 ' + (data.remaining_chars || 0).toLocaleString());
     loadOrders(); loadStats(); loadUsers();
+  } catch (e) { alert('操作失败：' + e.message); }
+}
+
+async function cancelOrder(id) {
+  if (!confirm('确认取消该订单？')) return;
+  try {
+    await api('/api/admin/orders/' + id + '/cancel', { method: 'POST' });
+    loadOrders();
   } catch (e) { alert('操作失败：' + e.message); }
 }
 
@@ -604,6 +656,8 @@ export default {
       if (request.method === 'GET' && path === '/api/admin/orders') return handleAdminOrders(db);
       if (request.method === 'GET' && path === '/api/admin/stats') return handleAdminStats(db);
       if (request.method === 'POST' && /^\/api\/admin\/orders\/\d+\/confirm$/.test(path)) return handleAdminConfirmOrder(request, db, url);
+      if (request.method === 'POST' && /^\/api\/admin\/orders\/\d+\/cancel$/.test(path)) return handleAdminCancelOrder(db, url);
+      if (request.method === 'POST' && /^\/api\/admin\/users\/\d+\/adjust$/.test(path)) return handleAdminAdjustChars(request, db, url);
       if (request.method === 'POST' && /^\/api\/admin\/users\/\d+\/disable$/.test(path)) return handleAdminSetUserStatus(db, url, false);
       if (request.method === 'POST' && /^\/api\/admin\/users\/\d+\/enable$/.test(path)) return handleAdminSetUserStatus(db, url, true);
       return json({ error: 'not_found' }, 404);
