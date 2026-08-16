@@ -12,6 +12,7 @@ const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
 const { createInternalCdp } = require('./internal-cdp.cjs');
 const { createRateLimiter } = require('./crash-recovery.cjs');
+const { createGatewayPool } = require('./gateway-failover.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -771,25 +772,51 @@ function resolveAccountPartition(accountId) {
   return account.partition;
 }
 
-function translationGatewayEndpoint() {
-  const configured = String(process.env.GEEK_TRANSLATION_GATEWAY_URL || '').trim().replace(/\/$/, '');
-  const endpoint = configured || (app.isPackaged ? '' : 'http://127.0.0.1:18991');
-  if (!endpoint) throw new Error('远程翻译服务尚未配置');
-  if (!/^https:\/\//i.test(endpoint) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(endpoint)) throw new Error('翻译服务配置不安全');
-  return endpoint;
+function translationGatewayEndpoints() {
+  const configured = String(process.env.GEEK_TRANSLATION_GATEWAY_URL || '').trim();
+  const list = configured
+    ? configured.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean)
+    : [];
+  const endpoints = list.length ? list : (app.isPackaged ? [] : ['http://127.0.0.1:18991']);
+  if (!endpoints.length) throw new Error('远程翻译服务尚未配置');
+  for (const endpoint of endpoints) {
+    let parsed;
+    try { parsed = new URL(endpoint); } catch { throw new Error('翻译服务配置不安全'); }
+    const allowedLocal = parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1';
+    const allowedHttps = parsed.protocol === 'https:';
+    if (!allowedLocal && !allowedHttps) throw new Error('翻译服务配置不安全');
+    if (parsed.port && (Number(parsed.port) < 1 || Number(parsed.port) > 65535)) throw new Error('翻译服务配置不安全');
+  }
+  return endpoints;
+}
+
+let translationGatewayPool = null;
+function getTranslationGatewayPool() {
+  if (!translationGatewayPool) {
+    translationGatewayPool = createGatewayPool({
+      endpoints: translationGatewayEndpoints(),
+      healthFetch: async (url) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          if (!response.ok) return { ok: false };
+          const data = await response.json().catch(() => ({}));
+          return { ok: data.ok !== false };
+        } finally { clearTimeout(timer); }
+      }
+    });
+  }
+  return translationGatewayPool;
 }
 
 async function checkTranslationGateway(event) {
   assertTrustedSender(event);
-  const endpoint = translationGatewayEndpoint();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch(`${endpoint}/health`, { signal: controller.signal });
-    if (!response.ok) return { ok: false, status: response.status };
-    const data = await response.json().catch(() => ({}));
-    return { ok: data.ok !== false, models: Number(data.models || 0) };
-  } finally { clearTimeout(timer); }
+  const pool = getTranslationGatewayPool();
+  const health = await pool.healthCheckAll();
+  const okCount = Object.values(health).filter(Boolean).length;
+  // 不暴露端点 URL 列表（内部网络信息），只返回数量与状态
+  return { ok: okCount > 0, models: okCount, endpointCount: Object.keys(health).length };
 }
 
 const translationRemoteQueue = [];
@@ -815,7 +842,7 @@ function drainTranslationRemoteQueue() {
 async function translateViaRemoteGateway(event, payload) {
   assertTrustedSender(event);
   const body = payload && typeof payload === 'object' ? payload : {};
-  const endpoint = translationGatewayEndpoint();
+  const pool = getTranslationGatewayPool();
   const text = String(body.text || '');
   const target = String(body.target || '').toLowerCase();
   if (!text.trim()) throw new Error('翻译内容不能为空');
@@ -837,25 +864,40 @@ async function translateViaRemoteGateway(event, payload) {
   const requestSequence = ++translationRequestSequence;
   translationLatestRequest.set(inflightKey, requestSequence);
   const request = enqueueTranslationRemote(async () => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
-    try {
-      const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text, source: body.source || 'auto', target, provider: body.provider || 'auto', route: body.route || 'default' }), signal: controller.signal });
-      const raw = await response.text();
-      let result; try { result = JSON.parse(raw); } catch { result = {}; }
-      if (!response.ok) throw new Error(String(result.error || `翻译网关错误 ${response.status}`).slice(0, 300));
-      if (!result.text || typeof result.text !== 'string') throw new Error('翻译网关返回格式错误');
-      const translated = result.text;
-      if (deletedTranslationPartitions.has(partition)) throw new Error('翻译账号已删除');
-      if (translationLatestRequest.get(inflightKey) !== requestSequence) return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, superseded: true };
-      const item = { text: translated, at: Date.now() };
-      cache.set(key, item);
-      await appendTranslationCache(partition, key, item);
-      return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false };
-    } catch (error) {
-      if (error?.name === 'AbortError') throw new Error('翻译网关请求超时');
-      throw error;
-    } finally { clearTimeout(timer); }
+    // 多端点故障切换：优先健康端点（primary），失败切换 backup；全部失败抛最后错误。
+    // 整个请求有 30s 总预算，避免端点×超时放大。
+    let lastError = null;
+    const attempts = Math.max(1, pool.endpoints.length);
+    const deadline = Date.now() + 30000;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { lastError = lastError || new Error('翻译网关请求超时'); break; }
+      const picked = pool.pick();
+      const endpoint = picked.endpoint;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), remaining);
+      try {
+        const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text, source: body.source || 'auto', target, provider: body.provider || 'auto', route: body.route || picked.route }), signal: controller.signal });
+        const raw = await response.text();
+        let result; try { result = JSON.parse(raw); } catch { result = {}; }
+        if (!response.ok) { pool.reportFailure(endpoint); lastError = new Error(String(result.error || `翻译网关错误 ${response.status}`).slice(0, 300)); continue; }
+        if (!result.text || typeof result.text !== 'string') { pool.reportFailure(endpoint); lastError = new Error('翻译网关返回格式错误'); continue; }
+        pool.reportSuccess(endpoint);
+        const translated = result.text;
+        if (deletedTranslationPartitions.has(partition)) throw new Error('翻译账号已删除');
+        if (translationLatestRequest.get(inflightKey) !== requestSequence) return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, superseded: true, route: picked.route };
+        const item = { text: translated, at: Date.now() };
+        cache.set(key, item);
+        await appendTranslationCache(partition, key, item);
+        return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, route: picked.route };
+      } catch (error) {
+        pool.reportFailure(endpoint);
+        if (error?.name === 'AbortError') lastError = new Error('翻译网关请求超时');
+        else if (error?.message === '翻译账号已删除') { lastError = error; break; }
+        else lastError = error;
+      } finally { clearTimeout(timer); }
+    }
+    throw lastError || new Error('翻译网关不可用');
   });
   translationInflight.set(inflightKey, request);
   try { return await request; } finally { if (translationInflight.get(inflightKey) === request) translationInflight.delete(inflightKey); }
