@@ -422,6 +422,21 @@ function safeEncrypt(text) {
   try { return 'enc:' + safeStorage.encryptString(String(text)).toString('base64'); } catch { return text; }
 }
 
+// 数据目录权限收紧：只允许当前 Windows 用户读取（阻止其他用户/低权限服务进程扫盘）
+// 使用 icacls 继承移除 + 当前用户只读权限；失败不影响启动（尽力而为）
+function hardenUserDataDir() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  try {
+    const { execFile } = require('node:child_process');
+    const dir = app.getPath('userData');
+    // 1. 移除继承权限（阻止 Everyone/Users 组继承读）
+    execFile('icacls', [dir, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:F`], { timeout: 10000 }, (err) => {
+      if (err) console.error('[security] ACL 收紧失败（不影响运行）:', err.message);
+      else console.log('[security] 数据目录 ACL 已收紧，仅当前用户可访问');
+    });
+  } catch (e) { /* 尽力而为 */ }
+}
+
 function persistConfig() {
   // 代理密码、锁屏密码等敏感字段加密后再落盘（内存里保留明文用于鉴权/解锁，磁盘不落明文）
   const snapshot = JSON.stringify({
@@ -2154,6 +2169,7 @@ app.whenReady().then(async () => {
   await probeExternalDebugging();
   diagnostics.log('cdp-mode', { externalDebugging: externalDebuggingActive });
   startWaLocalServer();
+  hardenUserDataDir(); // 数据目录 ACL 收紧（仅当前用户可访问）
   try {
     await runtimePaths.migrateRuntimeFiles({
       userDataDir: USER_DATA_DIR,
