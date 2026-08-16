@@ -54,3 +54,17 @@ CREATE TABLE IF NOT EXISTS admin_logs (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_admin_logs_created ON admin_logs(created_at);
+
+-- 接口速率限制（防刷：注册/登录）
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket TEXT PRIMARY KEY,           -- "reg:1.2.3.4" / "login:1.2.3.4"
+  count INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 管理后台登录失败记录（防爆破）
+CREATE TABLE IF NOT EXISTS admin_login_attempts (
+  ip TEXT PRIMARY KEY,
+  fails INTEGER NOT NULL DEFAULT 0,
+  locked_until TEXT
+);

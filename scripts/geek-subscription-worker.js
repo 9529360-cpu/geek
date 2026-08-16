@@ -1017,6 +1017,52 @@ async function requireUser(request, db, env) {
   return { user };
 }
 
+// ========== 安全防护 ==========
+
+// 获取客户端 IP（Cloudflare 会设置 CF-Connecting-IP）
+function clientIp(request) {
+  return request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+}
+
+// 速率限制：limit 次 / windowSec 秒，超限返回 true
+async function rateLimited(db, bucket, limit, windowSec) {
+  const now = Date.now();
+  const cutoff = new Date(now - windowSec * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  // 清理旧记录
+  await db.prepare("DELETE FROM rate_limits WHERE updated_at < ?").bind(cutoff).run();
+  const row = await db.prepare("SELECT count FROM rate_limits WHERE bucket = ?").bind(bucket).first();
+  if (!row) {
+    await db.prepare("INSERT INTO rate_limits (bucket, count, updated_at) VALUES (?, 1, ?)").bind(bucket, new Date(now).toISOString().slice(0, 19).replace('T', ' ')).run();
+    return false;
+  }
+  if (row.count >= limit) return true;
+  await db.prepare("UPDATE rate_limits SET count = count + 1, updated_at = ? WHERE bucket = ?").bind(new Date(now).toISOString().slice(0, 19).replace('T', ' '), bucket).run();
+  return false;
+}
+
+// 管理后台登录防爆破：失败 5 次锁 15 分钟
+async function adminLoginBlocked(db, ip) {
+  const row = await db.prepare("SELECT fails, locked_until FROM admin_login_attempts WHERE ip = ?").bind(ip).first();
+  if (row?.locked_until && row.locked_until > new Date().toISOString().slice(0, 19).replace('T', ' ')) return true;
+  if (row?.fails >= 5) {
+    await db.prepare("UPDATE admin_login_attempts SET locked_until = ?, fails = 0 WHERE ip = ?")
+      .bind(new Date(Date.now() + 15 * 60000).toISOString().slice(0, 19).replace('T', ' '), ip).run();
+    return true;
+  }
+  return false;
+}
+
+async function adminLoginFail(db, ip) {
+  await db.prepare(
+    "INSERT INTO admin_login_attempts (ip, fails, locked_until) VALUES (?, 1, NULL) " +
+    "ON CONFLICT(ip) DO UPDATE SET fails = fails + 1"
+  ).bind(ip).run();
+}
+
+async function adminLoginOk(db, ip) {
+  await db.prepare("DELETE FROM admin_login_attempts WHERE ip = ?").bind(ip).run();
+}
+
 // ========== 入口 ==========
 export default {
   async scheduled(event, env, ctx) {
@@ -1047,13 +1093,28 @@ export default {
       return new Response(ADMIN_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
     }
 
-    // ---- 公开接口 ----
-    if (request.method === 'POST' && path === '/api/register') return handleRegister(request, db);
-    if (request.method === 'POST' && path === '/api/login') return handleLogin(request, db, env);
+    // ---- 公开接口（带速率限制防刷）----
+    if (request.method === 'POST' && path === '/api/register') {
+      const ip = clientIp(request);
+      if (await rateLimited(db, 'reg:' + ip, 5, 60)) return json({ error: 'rate_limited' }, 429);
+      return handleRegister(request, db);
+    }
+    if (request.method === 'POST' && path === '/api/login') {
+      const ip = clientIp(request);
+      if (await rateLimited(db, 'login:' + ip, 10, 60)) return json({ error: 'rate_limited' }, 429);
+      return handleLogin(request, db, env);
+    }
 
     // ---- 管理接口 ----
     if (path.startsWith('/api/admin')) {
-      if (request.method === 'POST' && path === '/api/admin/login') return handleAdminLogin(request, env);
+      if (request.method === 'POST' && path === '/api/admin/login') {
+        const ip = clientIp(request);
+        if (await adminLoginBlocked(db, ip)) return json({ error: 'too_many_attempts' }, 429);
+        const result = await handleAdminLogin(request, env);
+        if (result && result.status === 200) await adminLoginOk(db, ip);
+        else await adminLoginFail(db, ip);
+        return result;
+      }
       const admin = await requireAdmin(request, env);
       if (!admin) return json({ error: 'unauthorized' }, 401);
       if (request.method === 'GET' && path === '/api/admin/users') return handleAdminUsers(db, request);
