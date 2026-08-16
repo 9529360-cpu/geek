@@ -926,6 +926,11 @@ function registerIpcHandlers() {
     }));
   });
 
+  ipcMain.handle('bridge:get-preload-path', async (event) => {
+    assertTrustedSender(event);
+    return path.join(RESOURCES_DIR, 'bridge-preload.cjs');
+  });
+
   ipcMain.handle('accounts:list', async (event) => {
     assertTrustedSender(event);
     return publicState();

@@ -548,11 +548,16 @@
   webviewResizeObserver.observe(wvContainer);
 
   // ---------- WebView 创建 ----------
+  let bridgePreloadPath = '';
   function getWebview(account) {
     if (wvMap.has(account.id)) return wvMap.get(account.id);
     const wv = document.createElement('webview');
     wv.src = account.url || 'https://web.whatsapp.com/';
     wv.partition = account.partition;
+    // WA/TG 页面翻译/原生输入桥：guest preload（sendToHost）；LINE 用自己的扩展 preload，不叠加
+    if (bridgePreloadPath && account.type !== 'line' && account.type !== 'line-business') {
+      wv.setAttribute('preload', bridgePreloadPath);
+    }
     if (account.userAgent) {
       wv.setAttribute('useragent', account.userAgent);
     }
@@ -582,7 +587,7 @@
       updateUnread(account.id, m ? parseInt(m[1], 10) : 0);
     });
     wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
-    wv.addEventListener('ipc-message', (event) => handleLineTranslationIpc(wv, event));
+    wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); });
     wvContainer.appendChild(wv);
     setTimeout(() => {
       try {
@@ -644,12 +649,9 @@
 
   const TRANSLATION_REQUEST_PREFIX = '__GEEK_TRANSLATION_REQUEST__:';
   const NATIVE_INPUT_REQUEST_PREFIX = '__GEEK_NATIVE_INPUT_REQUEST__:';
-  async function handleNativeInputConsole(wv, event) {
-    const message = String(event?.message || '');
-    if (!message.startsWith(NATIVE_INPUT_REQUEST_PREFIX)) return;
-    const parts = message.slice(NATIVE_INPUT_REQUEST_PREFIX.length).split(':');
-    const requestId = parts.shift();
-    const suppliedToken = parts.shift() || '';
+  const BRIDGE_CHANNEL = 'geek-bridge';
+
+  async function processNativeInputRequest(wv, requestId, suppliedToken) {
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
     if (!authorization.ok) return;
     changeWebviewBridgeInflight(wv, 1);
@@ -666,12 +668,8 @@
       changeWebviewBridgeInflight(wv, -1);
     }
   }
-  async function handleTranslationConsole(wv, event) {
-    const message = String(event?.message || '');
-    if (!message.startsWith(TRANSLATION_REQUEST_PREFIX)) return;
-    const parts = message.slice(TRANSLATION_REQUEST_PREFIX.length).split(':');
-    const requestId = parts.shift();
-    const suppliedToken = parts.shift() || '';
+
+  async function processTranslationRequest(wv, requestId, suppliedToken) {
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
     if (!authorization.ok) return;
     changeWebviewBridgeInflight(wv, 1);
@@ -689,6 +687,37 @@
     } finally {
       changeWebviewBridgeInflight(wv, -1);
     }
+  }
+
+  // 新传输：guest preload 经 sendToHost('geek-bridge') 上报结构化消息
+  async function handleGeekBridgeIpc(wv, event) {
+    if (event?.channel !== BRIDGE_CHANNEL) return;
+    const message = event.args?.[0];
+    if (!message || typeof message !== 'object') return;
+    const requestId = String(message.id || '');
+    const suppliedToken = String(message.token || '');
+    if (message.type === 'translation-request') {
+      await processTranslationRequest(wv, requestId, suppliedToken);
+    } else if (message.type === 'native-input-request') {
+      await processNativeInputRequest(wv, requestId, suppliedToken);
+    }
+  }
+
+  async function handleNativeInputConsole(wv, event) {
+    const message = String(event?.message || '');
+    if (!message.startsWith(NATIVE_INPUT_REQUEST_PREFIX)) return;
+    const parts = message.slice(NATIVE_INPUT_REQUEST_PREFIX.length).split(':');
+    const requestId = parts.shift();
+    const suppliedToken = parts.shift() || '';
+    await processNativeInputRequest(wv, requestId, suppliedToken);
+  }
+  async function handleTranslationConsole(wv, event) {
+    const message = String(event?.message || '');
+    if (!message.startsWith(TRANSLATION_REQUEST_PREFIX)) return;
+    const parts = message.slice(TRANSLATION_REQUEST_PREFIX.length).split(':');
+    const requestId = parts.shift();
+    const suppliedToken = parts.shift() || '';
+    await processTranslationRequest(wv, requestId, suppliedToken);
   }
 
   async function handleLineTranslationIpc(wv, event) {
@@ -759,7 +788,11 @@
               const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
               const securedPayload = Object.assign({}, payload || {}, { bridgeToken: window.__geekTranslationBridgeToken });
               window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
-              console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+              if (document.documentElement.getAttribute('data-geek-bridge') === '1') {
+                window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id: id, token: window.__geekTranslationBridgeToken } }, '*');
+              } else {
+                console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+              }
               setTimeout(function () { const pending = window.__geekTranslationPending.get(id); if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); } }, 35000);
             });
           };
@@ -3673,6 +3706,7 @@
       } catch (e) { /* 监听失败不影响 */ }
     } catch (e) { /* 主题应用失败不影响 */ }
     try { await loadPlatforms(); } catch (e) { console.error('加载平台列表失败', e); }
+    try { bridgePreloadPath = await window.api.bridge.preloadPath(); } catch (e) { console.error('获取桥preload路径失败', e); }
     await loadAccounts();
   })();
 })();

@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld(
       register: (accountId, guestId, token) => ipcRenderer.invoke('webview:register', accountId, guestId, token),
       insertText: (accountId, guestId, text, token) => ipcRenderer.invoke('webview:insert-text', accountId, guestId, text, token),
     }),
+    bridge: Object.freeze({
+      preloadPath: () => ipcRenderer.invoke('bridge:get-preload-path'),
+    }),
     accountData: Object.freeze({
       getAll: (accountId) => ipcRenderer.invoke('account-data:get-all', accountId),
       set: (accountId, key, value) => ipcRenderer.invoke('account-data:set', accountId, key, value),
