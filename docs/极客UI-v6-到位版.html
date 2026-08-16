@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>极客 UI v4 · Mac 原生质感</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ===== macOS 原生质感令牌 ===== */
+:root {
+  --accent: #0a84ff;
+  --accent-hover: #3395ff;
+  --green: #30d158;
+  --orange: #ff9f0a;
+  --red: #ff453a;
+  --bg-grad-a: #262b3a;
+  --bg-grad-b: #191b26;
+  --glass: rgba(30, 31, 40, .58);
+  --glass-strong: rgba(34, 35, 45, .72);
+  --glass-hover: rgba(255,255,255,.09);
+  --glass-active: rgba(255,255,255,.13);
+  --border: rgba(255,255,255,.1);
+  --border-strong: rgba(255,255,255,.16);
+  --text-1: #f5f5f7;
+  --text-2: #aeaeb8;
+  --text-3: #6e6e78;
+  --radius-s: 9px;
+  --radius-m: 12px;
+  --radius-l: 18px;
+  --font: -apple-system, 'SF Pro Display', 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --shadow-soft: 0 8px 30px rgba(0,0,0,.35);
+  --shadow-float: 0 20px 60px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.3);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--font); font-size:13px; -webkit-font-smoothing:antialiased; color:var(--text-1); overflow:hidden;
+  background: var(--bg-grad-b); }
+button { font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
+input, select { font-family:inherit; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.2); }
+
+.app { position:relative; z-index:1; display:flex; height:100vh; }
+
+/* ===== 侧栏（贴边 + 毛玻璃） ===== */
+.sidebar { width:200px; min-width:200px; background:var(--glass); backdrop-filter:blur(32px) saturate(180%); -webkit-backdrop-filter:blur(32px) saturate(180%);
+  border-right:1px solid var(--border); display:flex; flex-direction:column; }
+.sidebar-head { height:34px; display:flex; align-items:center; gap:8px; padding:0 12px; }
+.sidebar-logo { width:26px; height:26px; border-radius:8px; background:linear-gradient(135deg, #5ac8fa, #0a84ff); display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; font-weight:600;
+  box-shadow:0 2px 8px rgba(10,132,255,.4); }
+.sidebar-title { font-size:14px; font-weight:600; letter-spacing:-.01em; flex:1; }
+.sidebar-ver { font-size:10.5px; color:var(--text-3); }
+
+.side-label { padding:20px 16px 7px; font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); display:flex; justify-content:space-between; align-items:center; }
+.side-label button { color:var(--text-3); font-size:15px; line-height:1; padding:0 5px; border-radius:6px; }
+.side-label button:hover { color:var(--text-1); background:var(--glass-hover); }
+
+.accounts { flex:1; overflow-y:auto; padding:4px 10px 10px; display:flex; flex-direction:column; gap:3px; }
+.account { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:var(--radius-m); cursor:pointer; position:relative; transition:background .12s ease; }
+.account:hover { background:var(--glass-hover); }
+.account.active { background:var(--glass-active); }
+.account.active::before { content:""; position:absolute; left:0; top:10px; bottom:10px; width:3px; border-radius:3px; background:var(--accent); }
+.acc-ic { width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; border:1px solid var(--border); }
+.acc-ic.tg { background:rgba(52,170,220,.18); color:#64d2ff; }
+.acc-ic.wa { background:rgba(48,209,88,.14); color:#4ef088; }
+.acc-ic.li { background:rgba(48,209,88,.14); color:#4ef088; }
+.acc-name { flex:1; min-width:0; }
+.acc-name .t { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.acc-name .s { font-size:10.5px; color:var(--text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.acc-dot { width:7px; height:7px; border-radius:50%; background:var(--text-3); flex-shrink:0; }
+.acc-dot.on { background:var(--green); box-shadow:0 0 0 3px rgba(48,209,88,.18); }
+.acc-dot.busy { background:var(--orange); box-shadow:0 0 0 3px rgba(255,159,10,.18); }
+.acc-badge { background:var(--accent); color:#fff; font-size:10px; font-weight:600; min-width:17px; height:17px; padding:0 5px; border-radius:9px; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(10,132,255,.35); }
+
+.side-foot { padding:10px; display:flex; gap:8px; }
+.side-foot button { flex:1; padding:8px 0; border-radius:var(--radius-s); font-size:12px; font-weight:500; color:var(--text-2); background:var(--glass-hover); border:1px solid var(--border); transition:all .12s ease; }
+.side-foot button:hover { background:var(--glass-active); color:var(--text-1); }
+.side-foot button.primary { background:var(--accent); border-color:transparent; color:#fff; box-shadow:0 2px 10px rgba(10,132,255,.35); }
+.side-foot button.primary:hover { background:var(--accent-hover); }
+
+/* ===== 主区 ===== */
+.main { flex:1; display:flex; flex-direction:column; min-width:0; background:var(--bg-0); }
+
+/* 顶栏 34px */
+.topbar { height:34px; display:flex; align-items:center; gap:3px; padding:0 8px 0 12px; border-bottom:1px solid var(--border); }
+.tabs { display:flex; align-items:center; gap:3px; flex:1; min-width:0; overflow:hidden; }
+.tab { display:flex; align-items:center; gap:7px; padding:6px 12px; border-radius:999px; color:var(--text-2); font-size:12px; font-weight:500; white-space:nowrap; transition:all .12s ease; }
+.tab:hover { background:var(--glass-hover); color:var(--text-1); }
+.tab.active { background:var(--glass-active); color:var(--text-1); }
+.tab .td { width:8px; height:8px; border-radius:50%; }
+.tab .badge { background:var(--accent); color:#fff; font-size:9.5px; font-weight:600; min-width:15px; height:15px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 4px; }
+
+/* 顶栏按钮：毛玻璃圆角方块，柔和高亮 */
+.top-quick { display:flex; align-items:center; gap:3px; padding-left:5px; border-left:1px solid var(--border); margin-left:5px; }
+.quick { width:25px; height:25px; border-radius:7px; display:flex; align-items:center; justify-content:center; color:var(--text-2);
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.06); transition:all .12s ease; }
+.quick:hover { background:var(--glass-hover); color:var(--text-1); transform:translateY(-1px); box-shadow:0 2px 8px rgba(0,0,0,.25); }
+.quick:active { transform:translateY(0); background:var(--glass-active); }
+.quick svg { width:13px; height:13px; stroke-width:1.8; }
+.quick.active { color:var(--accent); background:rgba(10,132,255,.14); border-color:rgba(10,132,255,.25); }
+
+/* 红绿灯 */
+.traffic { display:flex; align-items:center; gap:7px; margin-right:10px; }
+.traffic i { width:12px; height:12px; border-radius:50%; display:block; }
+.traffic .r { background:#ff5f57; } .traffic .y { background:#febc2e; } .traffic .g { background:#28c840; }
+
+/* 内容区 */
+.content { flex:1; display:flex; align-items:center; justify-content:center; }
+.mock { text-align:center; }
+.mock .l1 { font-size:13px; color:var(--text-3); margin-bottom:16px; }
+.mock-chip { display:inline-flex; align-items:center; gap:8px; background:var(--glass-hover); border:1px solid var(--border); padding:9px 16px; border-radius:999px; color:var(--text-2); font-size:12px; transition:all .12s ease; }
+.mock-chip:hover { background:var(--glass-active); color:var(--text-1); box-shadow:var(--shadow-soft); }
+.mock-chip .dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(48,209,88,.18); }
+
+/* ===== 弹窗（毛玻璃） ===== */
+.overlay { position:fixed; inset:0; background:rgba(10,10,14,.45); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); display:none; align-items:center; justify-content:center; z-index:50; }
+.overlay.open { display:flex; }
+.panel { background:var(--glass-strong); backdrop-filter:blur(40px) saturate(180%); -webkit-backdrop-filter:blur(40px) saturate(180%);
+  border:1px solid var(--border-strong); border-radius:22px; box-shadow:var(--shadow-float); width:660px; max-height:84vh; display:flex; flex-direction:column; overflow:hidden; }
+.panel-head { display:flex; align-items:center; gap:8px; padding:18px 22px 14px; }
+.panel-head h2 { font-size:15px; font-weight:600; flex:1; letter-spacing:-.01em; }
+.panel-x { width:26px; height:26px; border-radius:8px; color:var(--text-3); font-size:15px; display:flex; align-items:center; justify-content:center; }
+.panel-x:hover { background:var(--glass-hover); color:var(--text-1); }
+
+/* 设置 */
+.settings { width:720px; height:580px; }
+.settings-body { flex:1; display:flex; min-height:0; }
+.settings-nav { width:180px; border-right:1px solid var(--border); padding:8px; overflow-y:auto; }
+.nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:var(--radius-m); color:var(--text-2); font-size:12.5px; font-weight:500; cursor:pointer; margin-bottom:2px; transition:all .12s ease; }
+.nav-item:hover { background:var(--glass-hover); color:var(--text-1); }
+.nav-item.active { background:var(--glass-active); color:var(--text-1); }
+.nav-item.active::before { content:""; width:3px; height:14px; border-radius:3px; background:var(--accent); margin-left:-12px; margin-right:9px; }
+.nav-item svg { width:14px; height:14px; }
+.settings-content { flex:1; overflow-y:auto; padding:20px 26px; }
+.sec-title { font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--text-3); margin:18px 0 8px; }
+.sec-title:first-child { margin-top:0; }
+.row { display:flex; align-items:center; gap:12px; padding:10px 2px; }
+.row + .row { border-top:1px solid rgba(255,255,255,.06); }
+.row .label { flex:1; font-size:12.5px; color:var(--text-2); }
+.row .label small { display:block; color:var(--text-3); font-size:10.5px; margin-top:2px; }
+.row .ctrl select { background:rgba(255,255,255,.08); border:1px solid var(--border); color:var(--text-1); border-radius:var(--radius-s); padding:5px 10px; font-size:12px; outline:none; min-width:132px; }
+.row .ctrl select:focus { border-color:var(--accent); }
+.row .ctrl input[type=text], .row .ctrl input[type=password], .row .ctrl input[type=number] { background:rgba(255,255,255,.08); border:1px solid var(--border); color:var(--text-1); border-radius:var(--radius-s); padding:5px 10px; font-size:12px; width:150px; outline:none; }
+.row .ctrl input:focus { border-color:var(--accent); }
+.row .ctrl input[type=color] { width:30px; height:22px; background:transparent; border:none; padding:0; cursor:pointer; }
+
+/* macOS 开关 */
+.sw { position:relative; width:38px; height:22px; background:rgba(255,255,255,.14); border-radius:11px; transition:.18s ease; flex-shrink:0; }
+.sw::after { content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:0 2px 5px rgba(0,0,0,.3); transition:.18s ease; }
+.switch-btn { display:flex; align-items:center; gap:10px; cursor:pointer; }
+.switch-btn input { display:none; }
+.switch-btn input:checked + .sw { background:var(--accent); }
+.switch-btn input:checked + .sw::after { left:18px; }
+
+.swatches { display:flex; gap:8px; }
+.swatch { width:19px; height:19px; border-radius:50%; cursor:pointer; transition:all .12s ease; }
+.swatch:hover { transform:scale(1.15); }
+.swatch.on { box-shadow:0 0 0 2px var(--bg-grad-b), 0 0 0 4px var(--text-1); }
+.sw1{background:#0a84ff}.sw2{background:#30d158}.sw3{background:#bf5af2}.sw4{background:#ff9f0a}.sw5{background:#ff375f}.sw6{background:#64d2ff}
+
+.panel-foot { display:flex; justify-content:flex-end; gap:10px; padding:14px 22px; border-top:1px solid var(--border); }
+.btn { padding:8px 18px; border-radius:var(--radius-s); font-size:12.5px; font-weight:500; transition:all .12s ease; }
+.btn-plain { color:var(--text-2); background:transparent; }
+.btn-plain:hover { background:var(--glass-hover); color:var(--text-1); }
+.btn-primary { background:var(--accent); color:#fff; box-shadow:0 2px 10px rgba(10,132,255,.35); }
+.btn-primary:hover { background:var(--accent-hover); }
+.btn-ghost { background:rgba(255,255,255,.08); border:1px solid var(--border); color:var(--text-2); padding:6px 14px; font-size:12px; border-radius:var(--radius-s); }
+.btn-ghost:hover { background:var(--glass-hover); color:var(--text-1); }
+
+.ver-card { display:flex; align-items:center; gap:13px; background:rgba(255,255,255,.06); border:1px solid var(--border); border-radius:var(--radius-m); padding:13px 16px; }
+.ver-ic { width:34px; height:34px; border-radius:10px; background:rgba(10,132,255,.15); display:flex; align-items:center; justify-content:center; color:var(--accent); font-size:15px; }
+.ver-info { flex:1; }
+.ver-info .t { font-size:12.5px; font-weight:600; }
+.ver-info .s { font-size:10.5px; color:var(--text-3); margin-top:2px; }
+
+.danger { background:rgba(255,69,58,.07); border:1px solid rgba(255,69,58,.22); border-radius:var(--radius-m); padding:13px 16px; }
+.danger .t { color:var(--red); font-size:12.5px; font-weight:600; margin-bottom:4px; }
+.danger .s { color:var(--text-3); font-size:11px; margin-bottom:10px; }
+.danger button { background:transparent; border:1px solid rgba(255,69,58,.4); color:var(--red); padding:6px 14px; border-radius:var(--radius-s); font-size:12px; }
+.danger button:hover { background:var(--red); color:#fff; }
+
+/* 右键菜单 */
+.ctx { position:fixed; background:var(--glass-strong); backdrop-filter:blur(40px) saturate(180%); -webkit-backdrop-filter:blur(40px) saturate(180%);
+  border:1px solid var(--border-strong); border-radius:14px; box-shadow:var(--shadow-float); padding:5px; min-width:176px; z-index:60; display:none; }
+.ctx.open { display:block; }
+.ctx-item { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:8px; font-size:12px; color:var(--text-2); cursor:pointer; }
+.ctx-item:hover { background:var(--glass-hover); color:var(--text-1); }
+.ctx-item svg { width:13px; height:13px; }
+.ctx-item.danger { color:var(--red); }
+.ctx-item.danger:hover { background:rgba(255,69,58,.12); }
+.ctx-sep { height:1px; background:var(--border); margin:5px; }
+
+.toast { position:fixed; bottom:22px; right:22px; background:var(--glass-strong); backdrop-filter:blur(40px) saturate(180%); -webkit-backdrop-filter:blur(40px) saturate(180%);
+  border:1px solid var(--border-strong); border-radius:14px; box-shadow:var(--shadow-float); padding:12px 18px; font-size:12px; display:none; align-items:center; gap:9px; z-index:80; }
+.toast.open { display:flex; }
+.toast .dot { width:7px; height:7px; border-radius:50%; background:var(--green); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- 侧栏 -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="sidebar-logo">极</div>
+      <div class="sidebar-title">极客</div>
+      <div class="sidebar-ver">v1.0.0</div>
+    </div>
+    <div class="side-label">账号 <button onclick="openOv('ov-add')">＋</button></div>
+    <div class="accounts">
+      <div class="account active" onclick="sel(this)"><span class="acc-ic tg">✈</span><div class="acc-name"><div class="t">TG 业务</div><div class="s">@business_tg</div></div><span class="acc-dot on"></span><span class="acc-badge">3</span></div>
+      <div class="account" onclick="sel(this)"><span class="acc-ic wa">✆</span><div class="acc-name"><div class="t">WA 客户</div><div class="s">+39 ··· 0221</div></div><span class="acc-dot on"></span></div>
+      <div class="account" onclick="sel(this)"><span class="acc-ic li">L</span><div class="acc-name"><div class="t">LINE 日本</div><div class="s">line_jp_01</div></div><span class="acc-dot busy"></span></div>
+      <div class="account" onclick="sel(this)"><span class="acc-ic wa">✆</span><div class="acc-name"><div class="t">WA 备用</div><div class="s">+39 ··· 8847</div></div><span class="acc-dot"></span></div>
+      <div class="account" onclick="sel(this)"><span class="acc-ic li">L</span><div class="acc-name"><div class="t">LINE 测试</div><div class="s">未登录</div></div><span class="acc-dot"></span></div>
+    </div>
+    <div class="side-foot">
+      <button onclick="openOv('ov-add')">＋ 添加</button>
+      <button onclick="toast('群发面板（演示）')">⇪ 群发</button>
+      <button onclick="openOv('ov-settings')">⚙ 设置</button>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <main class="main">
+    <header class="topbar">
+      <div class="tabs">
+        <div class="tab active"><span class="td" style="background:#64d2ff"></span>TG 业务<span class="badge">3</span></div>
+        <div class="tab"><span class="td" style="background:#4ef088"></span>WA 客户</div>
+        <div class="tab"><span class="td" style="background:#4ef088"></span>LINE 日本</div>
+        <div class="tab" onclick="toast('添加标签（演示）')">＋</div>
+      </div>
+      <div class="top-quick">
+        <button class="quick" title="应用中心" onclick="toast('应用中心（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+        <button class="quick" title="重启" onclick="toast('重启（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg></button>
+        <button class="quick" title="锁屏" onclick="toast('锁屏（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>
+        <button class="quick active" title="设置" onclick="openOv('ov-settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+        <button class="quick" title="翻译" onclick="toast('翻译通道（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 4.2 6.2 4.2 9S15 17.8 12 21M12 3c-3 3.2-4.2 6.2-4.2 9S9 17.8 12 21"/></svg></button>
+        <button class="quick" title="群发" onclick="toast('群发面板（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.5l7.8 9M8.1 16.5l7.8-9"/></svg></button>
+      </div>
+      <div class="win">
+        <button title="最小化">─</button>
+        <button title="最大化">□</button>
+        <button class="close" title="关闭">✕</button>
+      </div>
+    </header>
+    <div class="content">
+      <div class="mock">
+        <div class="l1">内嵌页面区域 · 实际运行是 Telegram / WhatsApp / LINE 真实 webview</div>
+        <button class="mock-chip"><span class="dot"></span>TG 业务已连接 · 模拟内嵌页</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- 设置 -->
+<div class="overlay" id="ov-settings">
+  <div class="panel settings">
+    <div class="panel-head"><h2>设置</h2><button class="panel-x" onclick="closeOv('ov-settings')">✕</button></div>
+    <div class="settings-body">
+      <nav class="settings-nav">
+        <div class="nav-item active" data-p="appearance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>外观</div>
+        <div class="nav-item" data-p="general"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg>通用</div>
+        <div class="nav-item" data-p="translate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 4.2 6.2 4.2 9S15 17.8 12 21M12 3c-3 3.2-4.2 6.2-4.2 9S9 17.8 12 21"/></svg>翻译</div>
+        <div class="nav-item" data-p="network"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>网络代理</div>
+        <div class="nav-item" data-p="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>账号</div>
+        <div class="nav-item" data-p="update"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>更新</div>
+        <div class="nav-item" data-p="data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>数据</div>
+        <div class="nav-item" data-p="security"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>安全</div>
+      </nav>
+      <div class="settings-content">
+        <section data-s="appearance">
+          <div class="sec-title">主题</div>
+          <div class="row"><span class="label">外观模式</span><div class="ctrl"><select><option>跟随系统</option><option>深色</option><option>浅色</option></select></div></div>
+          <div class="row"><span class="label">强调色<small>按钮 / 选中态 / 徽标</small></span><div class="ctrl"><div class="swatches">
+            <div class="swatch sw1 on" onclick="sw(this,'#0a84ff')"></div>
+            <div class="swatch sw2" onclick="sw(this,'#30d158')"></div>
+            <div class="swatch sw3" onclick="sw(this,'#bf5af2')"></div>
+            <div class="swatch sw4" onclick="sw(this,'#ff9f0a')"></div>
+            <div class="swatch sw5" onclick="sw(this,'#ff375f')"></div>
+            <div class="swatch sw6" onclick="sw(this,'#64d2ff')"></div>
+          </div></div></div>
+          <div class="row"><span class="label">界面密度<small>列表与顶栏紧凑度</small></span><div class="ctrl"><select><option>紧凑</option><option>标准</option><option>舒适</option></select></div></div>
+          <div class="sec-title">聊天显示</div>
+          <div class="row"><span class="label">消息字体大小</span><div class="ctrl"><select><option>11</option><option selected>13</option><option>15</option></select></div></div>
+          <div class="row"><span class="label">译文颜色</span><div class="ctrl"><input type="color" value="#0a84ff"></div></div>
+        </section>
+        <section data-s="general" style="display:none">
+          <div class="sec-title">启动</div>
+          <label class="row switch-btn"><span class="label">开机自启</span><input type="checkbox" checked><span class="sw"></span></label>
+          <label class="row switch-btn"><span class="label">启动时最小化<small>静默启动到托盘</small></span><input type="checkbox"><span class="sw"></span></label>
+          <label class="row switch-btn"><span class="label">消息声音</span><input type="checkbox" checked><span class="sw"></span></label>
+          <div class="sec-title">行为</div>
+          <label class="row switch-btn"><span class="label">关闭时最小化到托盘</span><input type="checkbox" checked><span class="sw"></span></label>
+          <label class="row switch-btn"><span class="label">任务栏未读角标</span><input type="checkbox" checked><span class="sw"></span></label>
+          <div class="row"><span class="label">默认启动账号</span><div class="ctrl"><select><option>上次使用的账号</option><option>全部恢复</option><option>不自动登录</option></select></div></div>
+        </section>
+        <section data-s="translate" style="display:none">
+          <div class="sec-title">翻译服务</div>
+          <div class="row"><span class="label">翻译平台</span><div class="ctrl"><select><option>极客智能翻译</option></select></div></div>
+          <div class="row"><span class="label">翻译线路<small>主线路故障自动切换</small></span><div class="ctrl"><select><option>默认线路</option><option>主线路</option><option>备用线路</option></select></div></div>
+          <div class="row"><span class="label">服务状态</span><div class="ctrl"><span style="color:var(--green);font-size:12px">● 在线 · Cloudflare 网关</span></div></div>
+          <div class="sec-title">收发</div>
+          <label class="row switch-btn"><span class="label">发送时自动翻译</span><input type="checkbox" checked><span class="sw"></span></label>
+          <label class="row switch-btn"><span class="label">接收自动翻译<small>外语消息显示中文译文</small></span><input type="checkbox" checked><span class="sw"></span></label>
+          <div class="row"><span class="label">你的语种</span><div class="ctrl"><select><option>中文</option><option>意大利语</option><option>英语</option></select></div></div>
+          <div class="row"><span class="label">翻译语种</span><div class="ctrl"><select><option>意大利语</option><option>英语</option><option>中文</option></select></div></div>
+          <label class="row switch-btn"><span class="label">群组消息翻译</span><input type="checkbox"><span class="sw"></span></label>
+        </section>
+        <section data-s="network" style="display:none">
+          <div class="sec-title">全局代理</div>
+          <label class="row switch-btn"><span class="label">启用全局代理<small>所有账号共用</small></span><input type="checkbox"><span class="sw"></span></label>
+          <div class="row"><span class="label">协议</span><div class="ctrl"><select><option>HTTP</option><option>HTTPS</option><option>SOCKS5</option><option>SOCKS4</option></select></div></div>
+          <div class="row"><span class="label">主机</span><div class="ctrl"><input type="text" placeholder="127.0.0.1"></div></div>
+          <div class="row"><span class="label">端口</span><div class="ctrl"><input type="text" placeholder="7890"></div></div>
+          <div class="row"><span class="label">用户名</span><div class="ctrl"><input type="text" placeholder="可选"></div></div>
+          <div class="row"><span class="label">密码</span><div class="ctrl"><input type="password" placeholder="可选"></div></div>
+          <div class="row"><span class="label">代理测速</span><div class="ctrl"><button class="btn-ghost" onclick="toast('测速：168ms · 可用（演示）')">测试连接</button></div></div>
+        </section>
+        <section data-s="account" style="display:none">
+          <div class="sec-title">默认</div>
+          <div class="row"><span class="label">新账号默认代理</span><div class="ctrl"><select><option>继承全局</option><option>无代理</option></select></div></div>
+          <div class="row"><span class="label">侧栏排序</span><div class="ctrl"><select><option>手动拖拽</option><option>按平台</option><option>最近使用</option></select></div></div>
+          <div class="sec-title">当前账号 · WA 客户</div>
+          <div class="row"><span class="label">显示名</span><div class="ctrl"><input type="text" value="WA 客户"></div></div>
+          <label class="row switch-btn"><span class="label">独立代理<small>优先于全局</small></span><input type="checkbox"><span class="sw"></span></label>
+        </section>
+        <section data-s="update" style="display:none">
+          <div class="sec-title">软件更新</div>
+          <div class="ver-card">
+            <div class="ver-ic">↻</div>
+            <div class="ver-info"><div class="t">极客 v1.0.0</div><div class="s">Cloudflare R2 · 自动检查已开启</div></div>
+            <button class="btn-ghost" onclick="toast('检查完成：已是最新版本')">检查更新</button>
+          </div>
+          <label class="row switch-btn" style="margin-top:12px"><span class="label">自动检查更新</span><input type="checkbox" checked><span class="sw"></span></label>
+          <div class="row"><span class="label">更新策略</span><div class="ctrl"><select><option>下载后询问安装</option><option>自动下载并提示</option><option>仅手动检查</option></select></div></div>
+        </section>
+        <section data-s="data" style="display:none">
+          <div class="sec-title">数据管理</div>
+          <div class="row"><span class="label">导出联系人</span><div class="ctrl"><button class="btn-ghost" onclick="toast('导出联系人（演示）')">导出</button></div></div>
+          <div class="row"><span class="label">备份全部数据<small>账号配置 / 代理 / 翻译设置</small></span><div class="ctrl"><button class="btn-ghost" onclick="toast('导出备份（演示）')">导出备份</button></div></div>
+          <div class="row"><span class="label">恢复备份</span><div class="ctrl"><button class="btn-ghost" onclick="toast('导入（演示）')">导入</button></div></div>
+          <div class="row"><span class="label">数据报表<small>发送 / 群发统计</small></span><div class="ctrl"><button class="btn-ghost" onclick="toast('报表（演示）')">查看</button></div></div>
+          <div class="sec-title">存储</div>
+          <div class="row"><span class="label">缓存占用</span><div class="ctrl"><span style="color:var(--text-3);font-size:12px">128 MB</span></div></div>
+          <div class="row"><span class="label">清理缓存</span><div class="ctrl"><button class="btn-ghost" onclick="toast('已清理 128 MB（演示）')">清理</button></div></div>
+        </section>
+        <section data-s="security" style="display:none">
+          <div class="sec-title">锁屏</div>
+          <div class="row"><span class="label">锁屏密码</span><div class="ctrl"><input type="password" placeholder="设置 / 修改"></div></div>
+          <div class="row"><span class="label">自动锁屏<small>无操作后自动锁定</small></span><div class="ctrl"><select><option>永不</option><option>5 分钟</option><option>15 分钟</option><option>30 分钟</option></select></div></div>
+          <div class="sec-title">危险区</div>
+          <div class="danger">
+            <div class="t">重置极客</div>
+            <div class="s">重置全部账号与设置，删除本地所有登录数据。不可撤销。</div>
+            <button onclick="toast('重置（演示）')">重置极客</button>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div class="panel-foot">
+      <button class="btn btn-plain" onclick="closeOv('ov-settings')">取消</button>
+      <button class="btn btn-primary" onclick="closeOv('ov-settings');toast('设置已保存（演示）')">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 添加账号 -->
+<div class="overlay" id="ov-add">
+  <div class="panel" style="width:400px">
+    <div class="panel-head"><h2>添加账号</h2><button class="panel-x" onclick="closeOv('ov-add')">✕</button></div>
+    <div style="padding:14px 20px 18px">
+      <div style="display:flex;gap:9px;margin-bottom:16px">
+        <div style="flex:1;background:rgba(255,255,255,.07);border:1.5px solid var(--accent);border-radius:14px;padding:14px;text-align:center;color:var(--accent);font-weight:600;font-size:12px">Telegram</div>
+        <div style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:14px;padding:14px;text-align:center;color:var(--text-2);font-size:12px">WhatsApp</div>
+        <div style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:14px;padding:14px;text-align:center;color:var(--text-2);font-size:12px">LINE</div>
+      </div>
+      <div class="row"><span class="label">名称</span><div class="ctrl"><input type="text" placeholder="默认：平台 + 序号"></div></div>
+      <div class="row"><span class="label">数量</span><div class="ctrl"><input type="number" value="1" style="width:70px"></div></div>
+      <div class="row"><span class="label">独立代理</span><div class="ctrl"><select style="width:140px"><option>继承全局代理</option><option>无代理</option></select></div></div>
+    </div>
+    <div class="panel-foot"><button class="btn btn-plain" onclick="closeOv('ov-add')">取消</button><button class="btn btn-primary" onclick="closeOv('ov-add');toast('已添加 1 个账号（演示）')">添加</button></div>
+  </div>
+</div>
+
+<!-- 右键菜单 -->
+<div class="ctx" id="ctx">
+  <div class="ctx-item" onclick="toast('扫码登录（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>扫码登录</div>
+  <div class="ctx-item" onclick="toast('打开聊天（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>打开聊天</div>
+  <div class="ctx-item" onclick="toast('群发设置（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.5l7.8 9M8.1 16.5l7.8-9"/></svg>群发设置</div>
+  <div class="ctx-item" onclick="toast('独立代理（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>独立代理</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="toast('重命名（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>重命名</div>
+  <div class="ctx-item danger" onclick="toast('删除账号（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>删除账号</div>
+</div>
+
+<div class="toast" id="toast"><span class="dot"></span><span id="toast-t"></span></div>
+
+<script>
+const navs = document.querySelectorAll('.settings-nav .nav-item');
+const secs = document.querySelectorAll('.settings-content section');
+navs.forEach(n => n.addEventListener('click', () => {
+  navs.forEach(x => x.classList.remove('active'));
+  n.classList.add('active');
+  secs.forEach(s => s.style.display = s.dataset.s === n.dataset.p ? '' : 'none');
+}));
+function sel(el){ document.querySelectorAll('.account').forEach(a => a.classList.remove('active')); el.classList.add('active'); }
+function sw(el, c){ document.querySelectorAll('.swatch').forEach(s => s.classList.remove('on')); el.classList.add('on'); document.documentElement.style.setProperty('--accent', c); document.documentElement.style.setProperty('--accent-hover', c); }
+function openOv(id){ document.getElementById(id).classList.add('open'); }
+function closeOv(id){ document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.account').forEach(a => a.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const m = document.getElementById('ctx');
+  m.style.left = Math.min(e.clientX, innerWidth - 190) + 'px';
+  m.style.top = Math.min(e.clientY, innerHeight - 220) + 'px';
+  m.classList.add('open');
+}));
+document.addEventListener('click', () => document.getElementById('ctx').classList.remove('open'));
+let tt;
+function toast(msg){ const t = document.getElementById('toast'); document.getElementById('toast-t').textContent = msg; t.classList.add('open'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('open'), 2000); }
+</script>
+</body>
+</html>
