@@ -13,6 +13,7 @@ const { createDiagnostics } = require('./diagnostics.cjs');
 const { createInternalCdp } = require('./internal-cdp.cjs');
 const { createRateLimiter } = require('./crash-recovery.cjs');
 const { createGatewayPool } = require('./gateway-failover.cjs');
+const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -1924,6 +1925,35 @@ async function startWaLocalServer() {
   } catch (e) { console.log('[wa-local] 启动失败:', e.message); }
 }
 
+// 启动时清理已删除账号遗留的孤儿分区目录（不误删当前账号 partition）
+async function cleanupOrphanPartitions() {
+  try {
+    // 安全闸：账号列表为空（读取失败/首次启动）时绝不清理——避免误删全部真实分区
+    if (!accountsState.accounts || !accountsState.accounts.length) return;
+    const partitionRoot = path.join(USER_DATA_DIR, 'Partitions');
+    let entries;
+    try { entries = await fs.readdir(partitionRoot); } catch { return; }
+    const activePartitions = accountsState.accounts.map((account) => account.partition);
+    const orphans = collectOrphanPartitions({ entries, activePartitions });
+    if (!orphans.length) return;
+    for (const name of orphans) {
+      const dir = path.join(partitionRoot, name);
+      // 已在待删列表（removeAccount 失败兜底）→ 跳过，避免重复尝试
+      if (pendingPartitionDeletions.has(dir)) continue;
+      try {
+        await fs.rm(dir, { recursive: true, force: true });
+        diagnostics.log('orphan-partition-removed', { partition: name });
+      } catch (e) {
+        // 文件锁等原因删除失败 → 退出时兜底
+        pendingPartitionDeletions.add(dir);
+        console.error('[cleanup] 孤儿分区删除失败（退出时兜底）:', name, e.message);
+      }
+    }
+  } catch (e) {
+    console.error('[cleanup] 孤儿分区清理失败（不影响启动）:', e.message);
+  }
+}
+
 app.whenReady().then(async () => {
   diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });
   await probeExternalDebugging();
@@ -1945,6 +1975,8 @@ app.whenReady().then(async () => {
   createTray();
   initAutoUpdater();
   watchSystemTheme();
+  // 窗口/会话建立后再清理孤儿分区（避免竞态）；账号为空时清理函数内部自保护
+  setTimeout(() => { cleanupOrphanPartitions().catch(() => {}); }, 3000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
