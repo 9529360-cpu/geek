@@ -219,6 +219,7 @@ async function handleUsage(user, db, request) {
 async function handleCreateOrder(user, db, request) {
   const body = await request.json().catch(() => ({}));
   const plan = String(body.plan || '');
+  const payMethod = body.pay_method === 'usdt' ? 'usdt' : 'manual';
   if (!PLANS[plan]) return json({ error: 'invalid_plan' }, 400);
   const p = PLANS[plan];
   // 已有该套餐的 pending 订单则复用，避免重复下单
@@ -226,16 +227,41 @@ async function handleCreateOrder(user, db, request) {
     .prepare(`SELECT * FROM orders WHERE user_id = ? AND plan = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`)
     .bind(user.id, plan)
     .all();
-  if (results[0]) return json({ ok: true, order: results[0], reuse: true });
+  if (results[0]) return json({ ok: true, order: results[0], reuse: true, pay: await payInfo(db, results[0]) });
+  // USDT 订单生成唯一金额（原价 - 随机 0.01~1.00 优惠，链上识别订单用；参考成熟方案 UsdtPay）
+  let amountCents = null;
+  if (payMethod === 'usdt') {
+    amountCents = p.priceUsd * 100 - (1 + Math.floor(Math.random() * 100)); // 减 1~100 分
+    // 冲突检测：与所有待支付订单金额去重
+    const { results: pendings } = await db
+      .prepare("SELECT amount_cents FROM orders WHERE status = 'pending' AND pay_method = 'usdt' AND amount_cents IS NOT NULL")
+      .all();
+    const used = new Set(pendings.map(o => o.amount_cents));
+    while (used.has(amountCents) && amountCents > 0) amountCents -= 1;
+  }
   const { meta } = await db
-    .prepare('INSERT INTO orders (user_id, plan, amount, currency) VALUES (?, ?, ?, ?)')
-    .bind(user.id, plan, p.priceUsd, 'USD')
+    .prepare('INSERT INTO orders (user_id, plan, amount, currency, pay_method, amount_cents) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(user.id, plan, p.priceUsd, 'USD', payMethod, amountCents)
     .run();
   const { results: created } = await db
     .prepare('SELECT * FROM orders WHERE id = ?')
     .bind(meta.last_row_id)
     .all();
-  return json({ ok: true, order: created[0], reuse: false });
+  return json({ ok: true, order: created[0], reuse: false, pay: await payInfo(db, created[0]) });
+}
+
+// USDT 支付信息：收款地址（从 settings 读，可运营后台配置）
+async function payInfo(db, order) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'usdt_address'").first();
+  const address = row?.value || '';
+  const amountCents = order.amount_cents || order.amount * 100;
+  return {
+    method: order.pay_method || 'manual',
+    usdt_address: address,
+    usdt_network: 'TRC20',
+    usdt_amount_cents: amountCents,
+    usdt_amount_display: (amountCents / 100).toFixed(2),
+  };
 }
 
 async function handleMyOrders(user, db) {
@@ -244,6 +270,67 @@ async function handleMyOrders(user, db) {
     .bind(user.id)
     .all();
   return json({ ok: true, orders: results });
+}
+
+// ========== USDT 自动确认（链上监控） ==========
+// 收款地址（TRC20），需在运营后台设置 usdt_address
+const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'; // USDT-TRC20 合约
+
+async function fetchTronUsdtTransfers(address, minTimestampMs) {
+  // TronGrid 官方 API（免费，无需 key）；only_to 只查入账，min_timestamp 从最早待支付订单开始
+  let url = 'https://api.trongrid.io/v1/accounts/' + address +
+    '/transactions/trc20?limit=200&contract_address=' + USDT_CONTRACT +
+    '&only_to=true&only_confirmed=true';
+  if (minTimestampMs) url += '&min_timestamp=' + minTimestampMs;
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error('tron api ' + res.status);
+  const data = await res.json();
+  return data.data || [];
+}
+
+// 定时任务：扫描待确认的 USDT 订单，按唯一金额匹配链上到账 → 自动确认加字符
+async function runUsdtSweeper(db) {
+  const cfg = await db.prepare("SELECT value FROM settings WHERE key = 'usdt_address'").first();
+  const address = cfg?.value?.trim();
+  if (!address) return { ok: false, reason: 'no_usdt_address' };
+
+  // 1. 过期处理：超过 15 分钟未支付的 USDT 订单标记过期
+  const expired = await db.prepare(
+    "UPDATE orders SET status = 'expired' WHERE status = 'pending' AND pay_method = 'usdt' AND created_at < datetime('now', '-15 minutes')"
+  ).run();
+
+  // 2. 待确认的 usdt 订单
+  const { results: pendingOrders } = await db
+    .prepare("SELECT * FROM orders WHERE status = 'pending' AND pay_method = 'usdt' ORDER BY id ASC")
+    .all();
+  if (!pendingOrders.length) return { ok: true, scanned: 0, expired: expired.meta.changes };
+
+  // 3. 从最早待支付订单时间开始查链上入账
+  const oldest = pendingOrders[0];
+  const minTs = Date.parse(oldest.created_at.replace(' ', 'T') + 'Z') - 60000; // 提前 1 分钟兜底
+  let transfers = [];
+  try { transfers = await fetchTronUsdtTransfers(address, minTs); }
+  catch (e) { return { ok: false, error: String(e.message || e) }; }
+
+  const confirmed = [];
+  for (const order of pendingOrders) {
+    // 该订单的唯一金额（USDT 6 位小数：分 * 10000）
+    const targetQuant = BigInt(order.amount_cents || order.amount * 100) * 10000n;
+    for (const t of transfers) {
+      if (t.to === address && t.quant && BigInt(t.quant) === targetQuant) {
+        // 该交易是否已被其他订单使用？（防重复确认）
+        const used = await db.prepare("SELECT id FROM orders WHERE tx_id = ? AND id != ?").bind(t.transaction_id, order.id).first();
+        if (used) continue;
+        const chars = PLANS[order.plan]?.chars || 0;
+        await db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, order.user_id).run();
+        await db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now'), tx_id = ? WHERE id = ?").bind(t.transaction_id, order.id).run();
+        await logAction(db, 'usdt_auto_confirm', '订单#' + order.id + ' USDT 自动确认 $' + (order.amount_cents / 100).toFixed(2) + ' tx:' + String(t.transaction_id || '').slice(0, 16));
+        confirmed.push(order.id);
+        break;
+      }
+    }
+  }
+  return { ok: true, scanned: pendingOrders.length, confirmed, expired: expired.meta.changes };
 }
 
 // 管理：确认收款 → 给用户加字符（字符包模式，无到期时间）
@@ -380,7 +467,7 @@ async function handleAdminGetSettings(db) {
 // 管理：设置保存
 async function handleAdminSaveSettings(request, db) {
   const body = await request.json().catch(() => ({}));
-  const allowed = ['contact_tg', 'contact_whatsapp', 'contact_email', 'announcement'];
+  const allowed = ['contact_tg', 'contact_whatsapp', 'contact_email', 'announcement', 'usdt_address'];
   const keys = [];
   for (const k of allowed) {
     if (body[k] !== undefined) {
@@ -638,6 +725,11 @@ const ADMIN_HTML = `<!DOCTYPE html>
         <textarea id="set-ann" placeholder="例如：新用户注册送 2 万字符"></textarea>
         <div class="hint">显示在官网首页</div>
       </div>
+      <div class="field">
+        <label>USDT 收款地址（TRC20）</label>
+        <input type="text" id="set-usdt" placeholder="T...（客户扫码转账到该地址，自动确认到账）">
+        <div class="hint">客户下单后显示该地址 + 唯一金额，扫码转账自动到账加字符</div>
+      </div>
       <button class="primary" onclick="saveSettings()">保存设置</button>
       <div id="settingsOk" style="color:#4ade80;font-size:13px;margin-top:12px"></div>
       <div id="settingsErr" style="color:#f87171;font-size:13px;margin-top:12px"></div>
@@ -843,6 +935,7 @@ async function loadSettings() {
     document.getElementById('set-wa').value = s.contact_whatsapp || '';
     document.getElementById('set-email').value = s.contact_email || '';
     document.getElementById('set-ann').value = s.announcement || '';
+    document.getElementById('set-usdt').value = s.usdt_address || '';
   } catch (e) { console.error(e); }
 }
 async function saveSettings() {
@@ -854,6 +947,7 @@ async function saveSettings() {
       contact_whatsapp: document.getElementById('set-wa').value.trim(),
       contact_email: document.getElementById('set-email').value.trim(),
       announcement: document.getElementById('set-ann').value.trim(),
+      usdt_address: document.getElementById('set-usdt').value.trim(),
     }) });
     ok.textContent = '✓ 设置已保存';
     loadLogs();
@@ -925,6 +1019,18 @@ async function requireUser(request, db, env) {
 
 // ========== 入口 ==========
 export default {
+  async scheduled(event, env, ctx) {
+    // 定时任务：USDT 链上监控（每分钟）
+    const db = env.geek_subscriptions;
+    try {
+      const result = await runUsdtSweeper(db);
+      console.log('usdt sweeper:', JSON.stringify(result));
+    } catch (e) {
+      console.error('usdt sweeper error:', String(e.message || e));
+    }
+    ctx.waitUntil(Promise.resolve());
+  },
+
   async fetch(request, env) {
     if (request.method === 'OPTIONS') return handleOptions();
     const url = new URL(request.url);

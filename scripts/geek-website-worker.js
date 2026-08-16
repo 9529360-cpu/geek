@@ -483,17 +483,70 @@ const ACCOUNT = layout(`
     ok.textContent = ''; er.textContent = '';
     const names = { basic: '基础包 · 100万字符', standard: '标准包 · 150万字符', pro: '大包 · 450万字符' };
     try {
-      const { status, data } = await api('/api/orders', { plan });
+      const { status, data } = await api('/api/orders', { plan, pay_method: 'usdt' });
       if (status !== 200) { er.textContent = data.error || '下单失败'; return; }
-      document.getElementById('order-box').innerHTML =
-        '<div style="background:rgba(0,229,160,.05);border:1px solid rgba(0,229,160,.25);border-radius:14px;padding:18px;margin-top:18px">' +
-        '<div style="font-weight:600">' + esc(names[data.order.plan] || data.order.plan) + '</div>' +
-        '<div style="font-size:26px;font-weight:800;margin:6px 0">$' + data.order.amount + '</div>' +
-        '<div style="color:var(--text-dim);font-size:13px;line-height:1.7">订单号 <b style="color:var(--text)">#' + data.order.id + '</b><br>联系客服转账对应金额并备注订单号，客服确认后自动到账。</div>' +
-        '<button class="btn btn-ghost" style="margin-top:14px;padding:8px 18px" onclick="refreshOrder()">我已完成付款，刷新</button>' +
-        '</div>';
-      ok.textContent = '订单已生成，请完成付款';
+      const pay = data.pay || {};
+      if (pay.method === 'usdt' && pay.usdt_address) {
+        // USDT 支付：显示收款码（静态图）+ 唯一金额 + 自动检测到账
+        document.getElementById('order-box').innerHTML =
+          '<div style="background:rgba(0,229,160,.05);border:1px solid rgba(0,229,160,.25);border-radius:16px;padding:24px;margin-top:18px;text-align:center">' +
+          '<div style="font-weight:700;font-size:16px;margin-bottom:4px">' + esc(names[data.order.plan] || data.order.plan) + '</div>' +
+          '<div style="color:var(--text-dim);font-size:13px;margin-bottom:16px">订单号 <b style="color:var(--text)">#' + data.order.id + '</b> · USDT (TRC20)</div>' +
+          '<div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">' +
+            '<div style="background:#fff;border-radius:12px;padding:12px;width:176px;height:176px;flex-shrink:0">' +
+              '<img src="https://geek-release.9529360.workers.dev/usdt-qr.png" width="152" height="152" style="width:152px;height:152px;display:block" alt="USDT收款二维码">' +
+            '</div>' +
+            '<div style="text-align:left;min-width:200px">' +
+              '<div style="color:var(--text-dim);font-size:12.5px;margin-bottom:4px">请转账以下精确金额</div>' +
+              '<div style="font-size:34px;font-weight:800;letter-spacing:-1px;color:#00e5a0" id="usdt-amount">$' + pay.usdt_amount_display + '</div>' +
+              '<div style="color:var(--text-faint);font-size:12px;margin-top:2px">（含优惠 · 识别订单用）</div>' +
+              '<div style="color:var(--text-dim);font-size:12.5px;margin-top:14px;margin-bottom:4px">USDT (TRC20) 收款地址</div>' +
+              '<div style="font-size:12.5px;color:#8fb7ff;word-break:break-all;line-height:1.5" id="usdt-addr">' + esc(pay.usdt_address) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="color:var(--text-dim);font-size:13px;line-height:1.7">打开支持 TRC20 的钱包（Token Pocket / TronLink / OKX）扫码或复制地址，<br>转账 <b style="color:#00e5a0">' + pay.usdt_amount_display + ' USDT</b>，系统自动确认到账，无需人工。</div>' +
+          '<div style="margin-top:16px" id="usdt-status">' +
+            '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.3)">⏳ 等待链上确认…</span>' +
+          '</div>' +
+          '</div>';
+        ok.textContent = '订单已生成，扫码转账后自动到账';
+        startUsdtPoll(data.order.id);
+      } else {
+        // 降级：手动确认（未配置 USDT 地址时）
+        document.getElementById('order-box').innerHTML =
+          '<div style="background:rgba(0,229,160,.05);border:1px solid rgba(0,229,160,.25);border-radius:14px;padding:18px;margin-top:18px">' +
+          '<div style="font-weight:600">' + esc(names[data.order.plan] || data.order.plan) + '</div>' +
+          '<div style="font-size:26px;font-weight:800;margin:6px 0">$' + data.order.amount + '</div>' +
+          '<div style="color:var(--text-dim);font-size:13px;line-height:1.7">订单号 <b style="color:var(--text)">#' + data.order.id + '</b><br>联系客服转账对应金额，客服确认后自动到账。</div>' +
+          '<button class="btn btn-ghost" style="margin-top:14px;padding:8px 18px" onclick="refreshOrder()">我已完成付款，刷新</button>' +
+          '</div>';
+        ok.textContent = '订单已生成，请完成付款';
+      }
     } catch (e) { er.textContent = '网络错误，请稍后重试'; }
+  }
+  // 轮询订单状态：每 5 秒查一次，到账自动更新余额
+  let usdtPollTimer = null;
+  async function startUsdtPoll(orderId) {
+    if (usdtPollTimer) clearInterval(usdtPollTimer);
+    usdtPollTimer = setInterval(async () => {
+      try {
+        const { data } = await api('/api/orders');
+        const order = (data.orders || []).find(o => o.id === orderId);
+        if (order && order.status === 'paid') {
+          clearInterval(usdtPollTimer);
+          document.getElementById('usdt-status').innerHTML =
+            '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)">✅ 已到账！正在为你开通…</span>';
+          ok.textContent = '✅ 支付成功，字符已到账！';
+          const q = await api('/api/quota');
+          document.getElementById('quota').textContent = (q.data.remaining_chars ?? 0).toLocaleString() + ' 字符';
+        } else if (order && order.status === 'expired') {
+          clearInterval(usdtPollTimer);
+          document.getElementById('usdt-status').innerHTML =
+            '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(248,113,113,.12);color:#f87171;border:1px solid rgba(248,113,113,.3)">订单已过期，请重新下单</span>';
+          ok.textContent = '';
+        }
+      } catch (e) { /* 轮询失败静默 */ }
+    }, 5000);
   }
   async function refreshOrder() {
     const ok = document.getElementById('ok'); const er = document.getElementById('err');

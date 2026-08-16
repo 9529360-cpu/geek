@@ -24,9 +24,12 @@ CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   plan TEXT NOT NULL,
-  amount INTEGER NOT NULL,                         -- 欧元整数
-  currency TEXT NOT NULL DEFAULT 'EUR',
+  amount INTEGER NOT NULL,                         -- 美元整数
+  currency TEXT NOT NULL DEFAULT 'USD',
   status TEXT NOT NULL DEFAULT 'pending',          -- pending / paid / cancelled
+  pay_method TEXT NOT NULL DEFAULT 'manual',       -- manual / usdt
+  amount_cents INTEGER,                            -- USDT 唯一金额（分，如 2537 = $25.37，识别订单用）
+  tx_id TEXT,                                      -- 链上交易哈希（USDT 到账后记录）
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   paid_at TEXT,
   FOREIGN KEY (user_id) REFERENCES users(id)

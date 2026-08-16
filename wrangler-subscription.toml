@@ -8,6 +8,10 @@ routes = [
   { pattern = "admin.bbnba.com", custom_domain = true }
 ]
 
+# USDT 链上监控：每分钟扫描一次
+[triggers]
+crons = ["* * * * *"]
+
 [[d1_databases]]
 binding = "geek_subscriptions"
 database_name = "geek-subscriptions"
