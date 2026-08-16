@@ -1542,8 +1542,8 @@ function configureWebviewSecurity(window) {
       webPreferences.preload = path.join(__dirname, '..', 'resources', 's3loYR.js');
       webPreferences.contextIsolation = false;
     } else {
-      // WhatsApp 保持原有无 preload 配置，避免旧版 1843 页面白屏。
-      delete webPreferences.preload;
+      // WA/TG：保留 renderer 提供的桥 preload（bridge-preload.cjs，翻译/原生输入 sendToHost）；
+      // renderer 未设置 preload 时保持原有无 preload 行为，避免旧版 1843 页面白屏。
       webPreferences.contextIsolation = false;
     }
 
