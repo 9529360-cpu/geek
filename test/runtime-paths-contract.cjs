@@ -69,16 +69,39 @@ function freshDir(prefix) {
     assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'copied'], '两个文件都应标记为 copied');
   }
 
-  // 2) 目标已存在 -> 目标数据获胜，绝不回写覆盖
+  // 2) 目标已存在（非空账号）-> 目标数据获胜，绝不回写覆盖
   {
     const ud = freshDir('geek-p0-ud-wins');
-    const destAccounts = JSON.stringify({ dest: 'accounts' });
+    const destAccounts = JSON.stringify({ accounts: [{ id: 'dest-account', type: 'whatsapp' }] });
     fs.writeFileSync(path.join(ud, 'accounts.json'), destAccounts, 'utf8');
     const results = await runtimePaths.migrateRuntimeFiles({ userDataDir: ud, projectRoot: legacyRoot });
     assert.equal(fs.readFileSync(path.join(ud, 'accounts.json'), 'utf8'), destAccounts, '目标已存在时必须以目标为准');
     assert.equal(fs.readFileSync(path.join(legacyRoot, 'data', 'accounts.json'), 'utf8'), legacyAccounts, '旧源文件必须保持原样');
     assert.equal(fs.readFileSync(path.join(ud, 'config.json'), 'utf8'), legacyConfig, '缺失的 config 仍应被复制补齐');
     assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'kept'], 'accounts=kept, config=copied');
+  }
+
+  // 2b) 目标 accounts.json 为空数组（陈旧空文件）-> 旧源有账号时必须迁移，空目标不能永久遮蔽真实账号
+  {
+    const ud = freshDir('geek-p0-ud-empty-shadow');
+    fs.writeFileSync(path.join(ud, 'accounts.json'), JSON.stringify({ accounts: [] }), 'utf8');
+    const results = await runtimePaths.migrateRuntimeFiles({ userDataDir: ud, projectRoot: legacyRoot });
+    assert.equal(
+      fs.readFileSync(path.join(ud, 'accounts.json'), 'utf8'),
+      legacyAccounts,
+      '空数组目标必须被旧源账号覆盖（防止空文件遮蔽真实账号）'
+    );
+    assert.equal(fs.readFileSync(path.join(legacyRoot, 'data', 'accounts.json'), 'utf8'), legacyAccounts, '旧源文件必须保持原样');
+    assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'copied'], '空目标应标记为 copied');
+  }
+
+  // 2c) 目标 config.json 非空 -> config 仍目标优先（配置可能合法为空/含值，不按账号规则覆盖）
+  {
+    const ud = freshDir('geek-p0-ud-config-wins');
+    const destConfig = JSON.stringify({ theme: 'dark' });
+    fs.writeFileSync(path.join(ud, 'config.json'), destConfig, 'utf8');
+    await runtimePaths.migrateRuntimeFiles({ userDataDir: ud, projectRoot: legacyRoot });
+    assert.equal(fs.readFileSync(path.join(ud, 'config.json'), 'utf8'), destConfig, 'config 目标存在时仍目标优先');
   }
 
   // 3) 绝不覆盖登录分区/凭据：迁移只触碰两个 JSON，其余 userData 内容必须原样保留
