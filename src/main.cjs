@@ -11,6 +11,8 @@ const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
 const { createInternalCdp } = require('./internal-cdp.cjs');
+const { createRateLimiter } = require('./crash-recovery.cjs');
+const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
   overrideDir: process.env.GEEK_USER_DATA_DIR
@@ -1754,6 +1756,22 @@ function createMainWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => ({
     action: 'deny'
   }));
+
+  // 主窗口渲染进程崩溃 → 限频 relaunch（避免崩溃循环）
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    diagnostics.log('main-window-crash', { reason: details?.reason, exitCode: details?.exitCode });
+    if (relaunchLimiter.allow()) {
+      console.error('[crash] 主窗口渲染进程崩溃，5分钟内限频2次内自动重启');
+      // 等待账号/配置持久化队列落盘后再重启，避免丢失最后一次变更
+      Promise.all([persistenceQueue, configQueue]).catch(() => {}).finally(() => {
+        setTimeout(() => {
+          try { app.relaunch(); app.exit(0); } catch (e) { console.error('[crash] 自动重启失败:', e.message); }
+        }, 500);
+      });
+    } else {
+      console.error('[crash] 主窗口崩溃超限，停止自动重启，请手动启动');
+    }
+  });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const destination = new URL(url);
