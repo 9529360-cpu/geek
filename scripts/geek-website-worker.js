@@ -78,7 +78,7 @@ const SHARED_CSS = `
   /* 区块通用 */
   .section { padding: 88px 0; }
   .section-head { text-align: center; max-width: 560px; margin: 0 auto 52px; }
-  .section-head .kicker { font-size: 13px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+  .section-head .kicker { font-size: 13px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #7db4ff; margin-bottom: 14px; text-shadow: 0 0 16px rgba(79,140,255,.4); }
   .section-head h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 800; letter-spacing: -1px; margin-bottom: 14px; }
   .section-head p { color: var(--text-dim); font-size: 15.5px; line-height: 1.7; }
 
