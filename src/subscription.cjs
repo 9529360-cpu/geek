@@ -46,6 +46,13 @@ function createSubscriptionStore({ userDataDir }) {
       if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
         cache.token = decryptField(cache.token);
       }
+      // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
+      if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
+        try {
+          const disk = { ...cache, token: encryptField(cache.token) };
+          await fs.writeFile(stateFile(), JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
+        } catch (e) { /* 迁移失败不阻塞 */ }
+      }
     } catch {
       cache = {};
     }

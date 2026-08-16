@@ -91,8 +91,18 @@ async function loadLineTokens() {
   try {
     const raw = await fs.readFile(LINE_TOKENS_FILE(), 'utf-8');
     const parsed = JSON.parse(raw || '{}');
+    let needsMigrate = false;
     // 兼容旧版明文：解密 enc: 前缀字段
-    for (const [k, v] of Object.entries(parsed)) lineTokensCache[k] = lineTokenDecrypt(v);
+    for (const [k, v] of Object.entries(parsed)) {
+      lineTokensCache[k] = lineTokenDecrypt(v);
+      if (typeof v === 'string' && !v.startsWith('enc:')) needsMigrate = true;
+    }
+    // 安全迁移：旧明文 token 立即加密重写（防止明文长期滞留磁盘）
+    if (needsMigrate && safeStorage.isEncryptionAvailable()) {
+      const encrypted = {};
+      for (const [k, v] of Object.entries(lineTokensCache)) encrypted[k] = lineTokenEncrypt(v);
+      await fs.writeFile(LINE_TOKENS_FILE(), JSON.stringify(encrypted), 'utf-8');
+    }
   } catch { lineTokensCache = {}; }
 }
 async function saveLineToken(partition, tokenJson) {
@@ -395,6 +405,8 @@ async function loadConfig() {
   try {
     const content = await fs.readFile(CONFIG_FILE, 'utf8');
     configState = normalizeConfig(JSON.parse(content));
+    // 安全迁移：读取后立即重写（persistConfig 会加密 password/lockPassword，清除明文滞留）
+    await persistConfig();
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.error('读取配置文件失败:', error);
@@ -506,6 +518,8 @@ async function loadAccounts() {
   try {
     const content = await fs.readFile(ACCOUNTS_FILE, 'utf8');
     accountsState = normalizeStoredState(JSON.parse(content));
+    // 安全迁移：读取后立即重写（persistAccounts 会加密 hpwd，清除明文滞留）
+    await persistAccounts();
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.error('读取账号文件失败:', error);
