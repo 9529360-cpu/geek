@@ -9,9 +9,29 @@ const { initAutoUpdater } = require('./updater.cjs');
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
 const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
+const { createDiagnostics } = require('./diagnostics.cjs');
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
   overrideDir: process.env.GEEK_USER_DATA_DIR
+});
+const diagnostics = (() => {
+  try {
+    return createDiagnostics({
+      dir: path.join(USER_DATA_DIR, 'diagnostics'),
+      maxBytes: 5 * 1024 * 1024,
+      maxFiles: 5
+    });
+  } catch (error) {
+    console.error('[diagnostics] 初始化失败:', error.message);
+    return { log() {} };
+  }
+})();
+
+process.on('uncaughtExceptionMonitor', (error, origin) => {
+  diagnostics.log('uncaught-exception', {
+    origin,
+    errorMessage: String(error?.message || error).slice(0, 500)
+  });
 });
 
 // 固定 userData 目录：防止 package name 变化导致登录态数据目录漂移
@@ -1573,6 +1593,19 @@ function configureWebviewSecurity(window) {
     // 诊断：记录 webview 导航与失败（Line 扩展页面排查用）
     webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       console.log(`[wv] did-fail-load code=${errorCode} desc=${errorDescription} url=${validatedURL}`);
+      diagnostics.log('webview-load-failed', {
+        partition: part,
+        errorCode,
+        errorDescription,
+        url: validatedURL
+      });
+    });
+    webContents.on('render-process-gone', (_event, details) => {
+      diagnostics.log('webview-render-process-gone', {
+        partition: part,
+        reason: details?.reason,
+        exitCode: details?.exitCode
+      });
     });
     webContents.on('did-navigate', (event, url) => {
       wppInjected.delete(part); // 主框架导航后需要重新注入 WPP（刷新/重载）
@@ -1825,6 +1858,7 @@ async function startWaLocalServer() {
 }
 
 app.whenReady().then(async () => {
+  diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });
   startWaLocalServer();
   try {
     await runtimePaths.migrateRuntimeFiles({
@@ -1851,6 +1885,7 @@ app.whenReady().then(async () => {
 
   // 退出时兜底清理：删除账号后因文件锁未删掉的分区目录
   app.on('will-quit', () => {
+    diagnostics.log('app-will-quit', {});
     for (const dir of pendingPartitionDeletions) {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -1863,6 +1898,15 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('child-process-gone', (_event, details) => {
+  diagnostics.log('child-process-gone', {
+    type: details?.type,
+    reason: details?.reason,
+    exitCode: details?.exitCode,
+    name: details?.name
+  });
 });
 
 app.on('before-quit', () => {
