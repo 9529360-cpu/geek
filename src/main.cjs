@@ -860,11 +860,11 @@ async function translateViaRemoteGateway(event, payload) {
     if (body.isHistory === true && body.translateHistory !== true) return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true };
     if (translationInflight.has(inflightKey)) return translationInflight.get(inflightKey);
   }
-  // Freemium 额度检查：未登录/无 token 不允许翻译；额度用完抛错（UI 静默处理）
+  // 字符余额检查：额度用完抛错（UI 静默处理）
   if (body.skipQuota !== true) {
     const sub = initSubscriptionStore();
-    const quota = await sub.getQuota().catch(() => ({ unlimited: true }));
-    if (!quota.unlimited && (quota.remaining_chars == null || quota.remaining_chars <= 0)) {
+    const quota = await sub.getQuota().catch(() => ({ remaining_chars: Number.MAX_SAFE_INTEGER }));
+    if (quota.remaining_chars != null && quota.remaining_chars <= 0) {
       const error = new Error('翻译额度已用完，请前往个人中心开通');
       error.code = 'QUOTA_EXHAUSTED';
       throw error;
@@ -898,10 +898,10 @@ async function translateViaRemoteGateway(event, payload) {
         const item = { text: translated, at: Date.now() };
         cache.set(key, item);
         await appendTranslationCache(partition, key, item);
-        // Freemium 用量上报（fire-and-forget，不阻塞翻译返回；缓存命中不重复计费）
+        // 字符扣减上报（fire-and-forget，不阻塞翻译返回；缓存命中不重复计费）
+        // 上报原文+译文，服务端按 1汉字=2字符 规则换算
         if (body.skipQuota !== true) {
-          const consumed = Math.max(1, Math.ceil((text.length + translated.length) / 2));
-          initSubscriptionStore().reportUsage(consumed).catch(() => {});
+          initSubscriptionStore().reportUsage(text, translated).catch(() => {});
         }
         return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, route: picked.route };
       } catch (error) {

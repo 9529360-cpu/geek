@@ -59,20 +59,16 @@ function createSubscriptionStore({ userDataDir }) {
     return data;
   }
 
-  // 本地状态（不请求网络）：{ loggedIn, email, plan, expires_at, days_left }
+  // 本地状态（不请求网络）：{ loggedIn, email, remaining_chars, valid }
   async function getState() {
     const state = await load();
     if (!state.token) return { loggedIn: false };
-    const now = Date.now();
-    const exp = state.expires_at ? new Date(state.expires_at + (state.expires_at.includes('T') ? '' : 'Z')).getTime() : 0;
-    const valid = state.expires_at ? exp > now : false;
+    const remaining = state.remaining_chars != null ? state.remaining_chars : state.quota_cache?.remaining_chars;
     return {
       loggedIn: true,
       email: state.email || '',
-      plan: state.plan || '',
-      expires_at: state.expires_at || '',
-      days_left: valid ? Math.max(1, Math.ceil((exp - now) / 86400000)) : 0,
-      valid,
+      remaining_chars: remaining != null ? remaining : 0,
+      valid: remaining == null || remaining > 0,
     };
   }
 
@@ -82,12 +78,7 @@ function createSubscriptionStore({ userDataDir }) {
     if (!state.token) return getState();
     try {
       const data = await request('/api/status');
-      if (data.valid) {
-        await save({ email: state.email, plan: data.plan, expires_at: data.expires_at, checked_at: new Date().toISOString() });
-      } else {
-        // 无订阅或已过期：保留 token（用户可能续费），标记未验证
-        await save({ plan: data.plan || '', expires_at: data.expires_at || '', checked_at: new Date().toISOString() });
-      }
+      await save({ remaining_chars: data.remaining_chars, checked_at: new Date().toISOString() });
       return getState();
     } catch (e) {
       if (e.status === 401 || e.code === 'account_disabled') {
@@ -103,10 +94,9 @@ function createSubscriptionStore({ userDataDir }) {
   async function login(email, password) {
     const data = await request('/api/login', { method: 'POST', body: { email, password } });
     await save({ token: data.token, email: data.user.email, checked_at: new Date().toISOString() });
-    // 拉取订阅状态
+    // 拉取字符余额
     const status = await request('/api/status').catch(() => ({}));
-    if (status.valid) await save({ plan: status.plan, expires_at: status.expires_at });
-    else await save({ plan: '', expires_at: '' });
+    if (status.remaining_chars != null) await save({ remaining_chars: status.remaining_chars });
     return { ok: true, user: data.user };
   }
 
@@ -127,7 +117,7 @@ function createSubscriptionStore({ userDataDir }) {
     return request('/api/me');
   }
 
-  // Freemium 额度查询：{ unlimited, remaining_chars, plan, expires_at }
+  // 字符余额查询：{ remaining_chars }（纯字符包，无订阅概念）
   // 有本地缓存直接返回；否则请求远程
   async function getQuota(force = false) {
     const state = await load();
@@ -137,34 +127,31 @@ function createSubscriptionStore({ userDataDir }) {
     try {
       const data = await request('/api/quota');
       const quota = {
-        unlimited: !!data.unlimited,
         remaining_chars: data.remaining_chars,
-        plan: data.plan || '',
-        expires_at: data.expires_at || '',
         email: data.email || state.email || '',
       };
       await save({ quota_cache: quota, quota_checked_at: new Date().toISOString() });
       return quota;
     } catch (e) {
-      // 网络失败：回退本地缓存（离线容忍）；无缓存则视为不限量（不阻断已有用户）
+      // 网络失败：回退本地缓存（离线容忍）；无缓存则视为有额度（不阻断已有用户）
       if (state.quota_cache) return state.quota_cache;
-      return { unlimited: true, remaining_chars: null, plan: '', expires_at: '', email: state.email || '' };
+      return { remaining_chars: Number.MAX_SAFE_INTEGER, email: state.email || '' };
     }
   }
 
-  // Freemium 扣减：翻译成功后上报字符数；订阅有效期服务端不扣
-  async function reportUsage(chars) {
+  // 字符扣减：翻译成功后上报原文+译文，服务端按 1汉字=2字符 规则换算扣减
+  async function reportUsage(sourceText, targetText) {
     const state = await load();
-    if (!state.token) return { ok: true, unlimited: true, remaining_chars: null };
+    if (!state.token) return { ok: true, remaining_chars: null };
     try {
-      const data = await request('/api/usage', { method: 'POST', body: { chars } });
+      const data = await request('/api/usage', { method: 'POST', body: { source: String(sourceText || ''), target: String(targetText || '') } });
       if (data.remaining_chars != null) {
-        const quota = { unlimited: false, remaining_chars: data.remaining_chars, plan: '', expires_at: '', email: state.email || '' };
+        const quota = { remaining_chars: data.remaining_chars, email: state.email || '' };
         await save({ quota_cache: quota, quota_checked_at: new Date().toISOString() });
       }
       return data;
     } catch (e) {
-      return { ok: false, unlimited: true, remaining_chars: null };
+      return { ok: false, remaining_chars: null };
     }
   }
 

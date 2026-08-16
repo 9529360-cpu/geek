@@ -204,24 +204,24 @@
 
     <!-- 套餐视图 -->
     <div class="card view" id="view-plans">
-      <h2>选择订阅套餐</h2>
-      <div class="hint">付款后由客服手动开通，通常几分钟内生效</div>
+      <h2>选择字符套餐</h2>
+      <div class="hint">买断不限时，用完再买 · 付款后由客服手动开通</div>
       <div class="plans" id="plans">
-        <div class="plan sel" data-plan="monthly">
-          <div class="p-name">月付</div>
-          <div class="p-price">€9<span>/月</span></div>
-          <div class="p-per">灵活试水</div>
+        <div class="plan sel" data-plan="basic">
+          <div class="p-name">基础包</div>
+          <div class="p-price">$25<span></span></div>
+          <div class="p-per">100 万字符 · 入门</div>
         </div>
-        <div class="plan" data-plan="quarterly">
-          <div class="p-name">季付</div>
-          <div class="p-price">€24<span>/季</span></div>
-          <div class="p-per">省 €3 · 推荐</div>
+        <div class="plan" data-plan="standard">
+          <div class="p-name">标准包</div>
+          <div class="p-price">$48<span></span></div>
+          <div class="p-per">150 万字符 · 推荐</div>
           <div class="p-tag">推荐</div>
         </div>
-        <div class="plan" data-plan="yearly">
-          <div class="p-name">年付</div>
-          <div class="p-price">€79<span>/年</span></div>
-          <div class="p-per">省 €29</div>
+        <div class="plan" data-plan="pro">
+          <div class="p-name">大包</div>
+          <div class="p-price">$128<span></span></div>
+          <div class="p-per">450 万字符 · 划算</div>
         </div>
       </div>
       <button class="btn-primary no-drag" id="btn-buy">生成订单</button>
@@ -235,24 +235,24 @@
       <div class="hint">请按以下方式完成付款</div>
       <div class="order-box">
         <div class="o-title" id="order-plan-name"></div>
-        <div class="o-amount"><span>应付</span> €<span id="order-amount"></span></div>
-        <div class="o-line">1. 添加客服联系方式，转账对应金额<br>2. 转账时备注你的订单号 <b id="order-id"></b><br>3. 客服确认收款后自动开通，<br>&nbsp;&nbsp;&nbsp;&nbsp;客户端刷新状态即可使用</div>
+        <div class="o-amount"><span>应付</span> $<span id="order-amount"></span></div>
+        <div class="o-line">1. 添加客服联系方式，转账对应金额<br>2. 转账时备注你的订单号 <b id="order-id"></b><br>3. 客服确认收款后自动到账，<br>&nbsp;&nbsp;&nbsp;&nbsp;刷新状态即可使用</div>
       </div>
       <button class="btn-ghost no-drag" id="btn-refresh-status">我已完成付款，刷新状态</button>
       <div class="ok" id="order-ok"></div>
       <div class="err" id="order-err"></div>
     </div>
 
-    <!-- 已登录个人中心视图（Freemium：额度/订阅状态，随时可进应用） -->
+    <!-- 已登录个人中心视图（Freemium：字符余额，随时可进应用） -->
     <div class="card view" id="view-home">
       <div class="status-card">
-        <div class="status-icon" id="home-icon">✅</div>
+        <div class="status-icon" id="home-icon">🎁</div>
         <div class="status-title" id="home-title">已登录</div>
         <div class="status-sub" id="home-email"></div>
         <div class="status-pill" id="home-quota"></div>
         <div class="status-sub" id="home-sub"></div>
         <button class="btn-primary no-drag" id="btn-enter">进入极客</button>
-        <button class="btn-ghost no-drag" style="margin-top:10px" id="btn-open-plans">购买套餐 / 续费</button>
+        <button class="btn-ghost no-drag" style="margin-top:10px" id="btn-open-plans">购买字符包</button>
       </div>
       <div class="switch-row"><a id="home-logout">退出登录</a></div>
     </div>
@@ -331,7 +331,7 @@
     err('plans-err', '');
     try {
       const data = await window.api.subscription.createOrder(currentPlan);
-      const names = { monthly: '月付套餐', quarterly: '季付套餐', yearly: '年付套餐' };
+      const names = { basic: '基础包 · 100万字符', standard: '标准包 · 150万字符', pro: '大包 · 450万字符' };
       $('#order-plan-name').textContent = names[data.order.plan] || data.order.plan;
       $('#order-amount').textContent = data.order.amount;
       $('#order-id').textContent = '#' + data.order.id;
@@ -341,7 +341,7 @@
     } finally { btn.disabled = false; btn.textContent = '生成订单'; }
   };
 
-  // 刷新订阅状态
+  // 刷新字符余额（付款后）
   $('#btn-refresh-status').onclick = async () => {
     const btn = $('#btn-refresh-status');
     btn.disabled = true;
@@ -349,13 +349,11 @@
     try {
       const state = await window.api.subscription.refresh();
       btn.textContent = '刷新中…';
-      if (state.loggedIn && state.valid) {
-        err('order-ok', '✅ 已开通！');
-        setTimeout(() => { location.reload(); }, 900);
-      } else if (state.loggedIn && state.days_left === 0) {
-        err('order-err', '订单尚未确认，请稍后再试或联系客服');
+      if (state.valid && state.remaining_chars > 0) {
+        err('order-ok', '✅ 已到账！剩余 ' + state.remaining_chars.toLocaleString() + ' 字符');
+        setTimeout(() => { location.reload(); }, 1200);
       } else {
-        err('order-err', '尚未生效，请稍后再试');
+        err('order-err', '尚未到账，请稍后再试或联系客服');
       }
     } catch (e) {
       err('order-err', '网络错误，请稍后再试');
@@ -374,24 +372,17 @@
     try {
       const state = await window.api.subscription.getState();
       if (!state.loggedIn) { show('view-login'); return; }
-      // 已登录 → 个人中心：显示额度/订阅，随时可进
+      // 已登录 → 个人中心：显示字符余额，随时可进
       $('#home-email').textContent = state.email || '';
       try {
         const quota = await window.api.subscription.getQuota(true);
-        if (quota.unlimited) {
-          const names = { monthly: '月付', quarterly: '季付', yearly: '年付' };
-          $('#home-icon').textContent = '⭐';
-          $('#home-title').textContent = '订阅生效中';
-          $('#home-quota').textContent = names[quota.plan] || quota.plan || '订阅';
-          $('#home-sub').textContent = '翻译不限量 · 到期 ' + (quota.expires_at || '').slice(0, 10);
-        } else {
-          $('#home-icon').textContent = '🎁';
-          $('#home-title').textContent = '免费用户';
-          $('#home-quota').textContent = '剩余 ' + (quota.remaining_chars ?? 0).toLocaleString() + ' 字符';
-          $('#home-sub').textContent = (quota.remaining_chars > 0)
-            ? '注册赠送额度，用完可开通套餐不限量翻译'
-            : '额度已用完，开通套餐即可不限量翻译';
-        }
+        const remaining = quota.remaining_chars ?? 0;
+        $('#home-icon').textContent = remaining > 0 ? '🎁' : '🔋';
+        $('#home-title').textContent = remaining > 0 ? '免费用户' : '字符已用完';
+        $('#home-quota').textContent = '剩余 ' + remaining.toLocaleString() + ' 字符';
+        $('#home-sub').textContent = remaining > 0
+          ? '注册赠送 2 万字符，用完可购买字符包'
+          : '购买字符包即可继续翻译，买断不限时';
       } catch (e) {
         $('#home-quota').textContent = '—';
         $('#home-sub').textContent = '';

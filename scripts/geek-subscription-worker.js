@@ -8,14 +8,24 @@
 //   UI：GET /admin（管理后台页面）
 // 环境变量：JWT_SECRET（JWT 签名密钥）、ADMIN_PASSWORD（管理员密码）
 
-// ========== 套餐配置（改这里即可调整定价） ==========
+// ========== 套餐配置（改这里即可调整定价；美元字符包，买断不限时） ==========
+// 对齐原版 Hello-GPT 定价体系：字符包模式，购买后直接加到字符余额，无到期时间
 const PLANS = {
-  monthly:   { name: '月付',   priceEur: 9,  days: 30 },
-  quarterly: { name: '季付',   priceEur: 24, days: 90 },
-  yearly:    { name: '年付',   priceEur: 79, days: 365 },
+  basic:    { name: '基础包',   priceUsd: 25,  chars: 1000000 },  // $25 / 100万字符
+  standard: { name: '标准包',   priceUsd: 48,  chars: 1500000 },  // $48 / 150万字符（对齐原版高级版）
+  pro:      { name: '大包',     priceUsd: 128, chars: 4500000 },  // $128 / 450万字符（对齐原版高级大包）
 };
 // 注册赠送免费翻译字符额度（Freemium：注册即用，用完引导开通）
 const FREE_QUOTA_CHARS = 20000;
+
+// 字符换算（国际标准，对齐原版规则）：一个英文字母=1字符，一个汉字/非ASCII字符=2字符
+function countChars(text) {
+  let n = 0;
+  for (const ch of String(text || '')) {
+    n += ch.codePointAt(0) > 255 ? 2 : 1;
+  }
+  return n;
+}
 
 // ========== 工具 ==========
 const enc = new TextEncoder();
@@ -169,61 +179,41 @@ async function handleLogin(request, db, env) {
 }
 
 async function handleMe(user, db) {
-  const sub = await currentSub(db, user.id);
   return json({
     ok: true,
     user: { id: user.id, email: user.email, status: user.status, quota_chars: user.quota_chars || 0, created_at: user.created_at },
-    subscription: sub
-      ? {
-          plan: sub.plan,
-          planName: PLANS[sub.plan]?.name || sub.plan,
-          starts_at: sub.starts_at,
-          expires_at: sub.expires_at,
-          days_left: Math.max(0, Math.ceil((new Date(sub.expires_at + 'Z') - new Date()) / 86400000)),
-        }
-      : null,
   });
 }
 
 async function handleStatus(user, db) {
-  const sub = await currentSub(db, user.id);
-  if (!sub) return json({ ok: true, valid: false, reason: 'no_subscription' });
-  const daysLeft = Math.max(0, Math.ceil((new Date(sub.expires_at + 'Z') - new Date()) / 86400000));
+  const remaining = user.quota_chars || 0;
   return json({
     ok: true,
-    valid: true,
-    plan: sub.plan,
-    planName: PLANS[sub.plan]?.name || sub.plan,
-    expires_at: sub.expires_at,
-    days_left: daysLeft,
+    valid: remaining > 0,
+    remaining_chars: remaining,
   });
 }
 
-// Freemium 额度查询：返回剩余免费字符 + 是否有有效订阅（有订阅=不限量）
+// Freemium 额度查询：返回剩余字符（纯字符包，无订阅/无到期概念）
 async function handleQuota(user, db) {
-  const sub = await currentSub(db, user.id);
-  const unlimited = !!sub;
   return json({
     ok: true,
     email: user.email,
-    unlimited,                                  // 有有效订阅 = 翻译不限量
-    remaining_chars: unlimited ? null : (user.quota_chars || 0),
-    plan: sub ? sub.plan : null,
-    expires_at: sub ? sub.expires_at : null,
+    remaining_chars: user.quota_chars || 0,
   });
 }
 
-// Freemium 扣减：翻译成功后客户端上报字符数；有有效订阅不扣（原子扣减防并发超扣）
+// 字符扣减：翻译成功后客户端上报原文+译文，服务端按国际标准换算扣减
+// （1 英文字母=1 字符，1 汉字/非ASCII=2 字符；原子扣减防并发超扣）
 async function handleUsage(user, db, request) {
   const body = await request.json().catch(() => ({}));
-  const chars = Number(body.chars);
-  if (!Number.isFinite(chars) || chars < 0) return json({ error: 'invalid_chars' }, 400);
-  const sub = await currentSub(db, user.id);
-  if (sub) return json({ ok: true, unlimited: true, remaining_chars: null });
-  const used = Math.max(1, Math.ceil(chars));
+  const source = String(body.source || '');
+  const target = String(body.target || '');
+  if (!source && !target) return json({ error: 'invalid_text' }, 400);
+  const used = Math.max(1, countChars(source) + countChars(target));
   await db.prepare('UPDATE users SET quota_chars = MAX(0, quota_chars - ?) WHERE id = ?').bind(used, user.id).run();
   const row = await db.prepare('SELECT quota_chars FROM users WHERE id = ?').bind(user.id).first();
-  return json({ ok: true, unlimited: false, remaining_chars: row.quota_chars, deducted: used });
+  return json({ ok: true, remaining_chars: row.quota_chars, deducted: used });
 }
 
 async function handleCreateOrder(user, db, request) {
@@ -239,7 +229,7 @@ async function handleCreateOrder(user, db, request) {
   if (results[0]) return json({ ok: true, order: results[0], reuse: true });
   const { meta } = await db
     .prepare('INSERT INTO orders (user_id, plan, amount, currency) VALUES (?, ?, ?, ?)')
-    .bind(user.id, plan, p.priceEur, 'EUR')
+    .bind(user.id, plan, p.priceUsd, 'USD')
     .run();
   const { results: created } = await db
     .prepare('SELECT * FROM orders WHERE id = ?')
@@ -256,7 +246,7 @@ async function handleMyOrders(user, db) {
   return json({ ok: true, orders: results });
 }
 
-// 管理：确认收款并开通/续费
+// 管理：确认收款 → 给用户加字符（字符包模式，无到期时间）
 async function handleAdminConfirmOrder(request, db, url) {
   const parts = url.pathname.split('/').filter(Boolean);
   const id = parts[parts.length - 2];
@@ -267,26 +257,12 @@ async function handleAdminConfirmOrder(request, db, url) {
   const user = await getUserById(db, order.user_id);
   if (!user) return json({ error: 'user_not_found' }, 404);
 
-  const days = PLANS[order.plan]?.days || 30;
-  const existing = await currentSub(db, user.id);
-  const base = existing ? existing.expires_at : null;
-  // 续费：从现有到期日开始叠加；新开：从今天开始
-  const startMs = base ? new Date(base + 'Z').getTime() : Date.now();
-  const startIso = new Date(startMs).toISOString().slice(0, 19).replace('T', ' ');
-  const endIso = new Date(startMs + days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+  const chars = PLANS[order.plan]?.chars || 0;
+  await db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, user.id).run();
+  await db.prepare(`UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ?`).bind(order.id).run();
+  const row = await db.prepare('SELECT quota_chars FROM users WHERE id = ?').bind(user.id).first();
 
-  await db
-    .prepare(
-      `INSERT INTO subs (user_id, plan, starts_at, expires_at, status) VALUES (?, ?, ?, ?, 'active')`
-    )
-    .bind(user.id, order.plan, startIso, endIso)
-    .run();
-  await db
-    .prepare(`UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ?`)
-    .bind(order.id)
-    .run();
-
-  return json({ ok: true, userId: user.id, plan: order.plan, expires_at: endIso, extended_from: base || null });
+  return json({ ok: true, userId: user.id, plan: order.plan, charsAdded: chars, remaining_chars: row.quota_chars });
 }
 
 async function handleAdminUsers(db, request) {
@@ -300,13 +276,7 @@ async function handleAdminUsers(db, request) {
   }
   stmt += ` ORDER BY id DESC LIMIT 100`;
   const { results } = binds.length ? await db.prepare(stmt).bind(...binds).all() : await db.prepare(stmt).all();
-  // 附加每个用户的当前有效订阅
-  const out = [];
-  for (const u of results) {
-    const sub = await currentSub(db, u.id);
-    out.push({ ...u, subscription: sub ? { plan: sub.plan, expires_at: sub.expires_at } : null });
-  }
-  return json({ ok: true, users: out });
+  return json({ ok: true, users: results });
 }
 
 async function handleAdminOrders(db) {
@@ -320,25 +290,19 @@ async function handleAdminOrders(db) {
 }
 
 async function handleAdminStats(db) {
-  const [users, activeSubs, revenue, pending] = await Promise.all([
+  const [users, totalChars, revenue, pending] = await Promise.all([
     db.prepare('SELECT COUNT(*) AS c FROM users').first(),
-    db.prepare(`SELECT COUNT(*) AS c FROM subs WHERE status = 'active' AND expires_at > datetime('now')`).first(),
+    db.prepare('SELECT COALESCE(SUM(quota_chars),0) AS c FROM users').first(),
     db.prepare(`SELECT COALESCE(SUM(amount),0) AS c FROM orders WHERE status = 'paid'`).first(),
     db.prepare(`SELECT COUNT(*) AS c FROM orders WHERE status = 'pending'`).first(),
   ]);
-  const expiring = await db
-    .prepare(`SELECT u.email, s.expires_at FROM subs s JOIN users u ON u.id = s.user_id
-              WHERE s.status = 'active' AND s.expires_at > datetime('now') AND s.expires_at < datetime('now', '+7 days')
-              ORDER BY s.expires_at ASC LIMIT 20`)
-    .all();
   return json({
     ok: true,
     stats: {
       users: users.c,
-      activeSubs: activeSubs.c,
-      revenueEur: revenue.c,
+      totalChars: totalChars.c,
+      revenueUsd: revenue.c,
       pendingOrders: pending.c,
-      expiringSoon: expiring.results,
     },
   });
 }
@@ -436,7 +400,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
     </div>
     <div class="card" style="overflow-x:auto">
       <table>
-        <thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>订阅</th><th>到期</th><th>额度</th><th>注册时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>剩余字符</th><th>注册时间</th><th>操作</th></tr></thead>
         <tbody id="usersBody"></tbody>
       </table>
     </div>
@@ -445,7 +409,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
   <div id="ordersView" style="display:none">
     <div class="card" style="overflow-x:auto">
       <table>
-        <thead><tr><th>ID</th><th>用户</th><th>套餐</th><th>金额</th><th>状态</th><th>下单时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>ID</th><th>用户</th><th>套餐</th><th>金额(USD)</th><th>状态</th><th>下单时间</th><th>操作</th></tr></thead>
         <tbody id="ordersBody"></tbody>
       </table>
     </div>
@@ -499,13 +463,11 @@ async function loadStats() {
     const data = await api('/api/admin/stats');
     const s = data.stats;
     document.getElementById('stats').innerHTML = [
-      ['用户总数', s.users], ['有效订阅', s.activeSubs], ['累计收入', '€' + s.revenueEur], ['待确认订单', s.pendingOrders],
+      ['用户总数', s.users],
+      ['剩余字符总量', (s.totalChars || 0).toLocaleString()],
+      ['累计收入', '$' + s.revenueUsd],
+      ['待确认订单', s.pendingOrders],
     ].map(([l, n]) => '<div class="stat"><div class="n">' + esc(n) + '</div><div class="l">' + l + '</div></div>').join('');
-    const soon = s.expiringSoon || [];
-    if (soon.length) {
-      const list = soon.map((x) => esc(x.email) + '（' + esc(x.expires_at.slice(0, 10)) + '）').join('、');
-      document.getElementById('stats').innerHTML += '<div class="card" style="margin-top:12px"><div class="sub">⚠️ 7天内到期：' + list + '</div></div>';
-    }
   } catch (e) { console.error(e); }
 }
 
@@ -514,21 +476,18 @@ async function loadUsers() {
   try {
     const data = await api('/api/admin/users?q=' + encodeURIComponent(q));
     document.getElementById('usersBody').innerHTML = (data.users || []).map((u) => {
-      const sub = u.subscription;
       return '<tr>' +
         '<td>' + u.id + '</td>' +
         '<td>' + esc(u.email) + '</td>' +
         '<td><span class="badge ' + (u.status === 'disabled' ? 'b-disabled' : 'b-active') + '">' + (u.status === 'disabled' ? '封禁' : '正常') + '</span></td>' +
-        '<td>' + (sub ? (PLAN_NAMES[sub.plan] || sub.plan) : '—') + '</td>' +
-        '<td>' + (sub ? esc(sub.expires_at.slice(0, 10)) : '—') + '</td>' +
-        '<td>' + (sub ? '不限量' : (u.quota_chars != null ? u.quota_chars.toLocaleString() + ' 字符' : '—')) + '</td>' +
+        '<td>' + (u.quota_chars != null ? u.quota_chars.toLocaleString() + ' 字符' : '—') + '</td>' +
         '<td class="muted">' + esc((u.created_at || '').slice(0, 10)) + '</td>' +
         '<td class="row">' +
           (u.status === 'disabled'
             ? '<button onclick="setUser(' + u.id + ', true)">解封</button>'
             : '<button class="danger" onclick="setUser(' + u.id + ', false)">封禁</button>') +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="8" class="muted">暂无用户</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">暂无用户</td></tr>';
   } catch (e) { console.error(e); }
 }
 
@@ -550,25 +509,25 @@ async function loadOrders() {
         '<td>' + o.id + '</td>' +
         '<td>' + esc(o.email || ('用户#' + o.user_id)) + '</td>' +
         '<td>' + p + '</td>' +
-        '<td>€' + o.amount + '</td>' +
+        '<td>$' + o.amount + '</td>' +
         '<td><span class="badge ' + (o.status === 'paid' ? 'b-paid' : 'b-pending') + '">' + (o.status === 'paid' ? '已收款' : '待确认') + '</span></td>' +
         '<td class="muted">' + esc((o.created_at || '').slice(0, 16)) + '</td>' +
-        '<td>' + (o.status === 'pending' ? '<button class="primary" onclick="confirmOrder(' + o.id + ')">确认收款·开通</button>' : '<span class="muted">' + esc((o.paid_at || '').slice(0, 16)) + '</span>') + '</td>' +
+        '<td>' + (o.status === 'pending' ? '<button class="primary" onclick="confirmOrder(' + o.id + ')">确认收款·加字符</button>' : '<span class="muted">' + esc((o.paid_at || '').slice(0, 16)) + '</span>') + '</td>' +
         '</tr>';
     }).join('') || '<tr><td colspan="7" class="muted">暂无订单</td></tr>';
   } catch (e) { console.error(e); }
 }
 
 async function confirmOrder(id) {
-  if (!confirm('确认已收到该笔款项并开通订阅？')) return;
+  if (!confirm('确认已收到该笔款项并给用户加字符？')) return;
   try {
     const data = await api('/api/admin/orders/' + id + '/confirm', { method: 'POST' });
-    alert('已开通：' + (data.expires_at || '').slice(0, 10) + ' 到期');
+    alert('已加字符：' + (data.charsAdded || 0).toLocaleString() + '，当前剩余 ' + (data.remaining_chars || 0).toLocaleString());
     loadOrders(); loadStats(); loadUsers();
   } catch (e) { alert('操作失败：' + e.message); }
 }
 
-const PLAN_NAMES = { monthly: '月付', quarterly: '季付', yearly: '年付' };
+const PLAN_NAMES = { basic: '基础包', standard: '标准包', pro: '大包' };
 
 async function init() {
   await Promise.all([loadStats(), loadUsers()]);
