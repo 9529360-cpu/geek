@@ -14,7 +14,7 @@
           const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
           const securedPayload = { ...(payload || {}), bridgeToken: window.__geekTranslationBridgeToken };
           window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
-          if (document.documentElement.getAttribute('data-geek-bridge') === '1') {
+          if (document.documentElement.getAttribute('data-geek-bridge') === '1' || document.getAttribute('data-geek-bridge') === '1') {
             window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id, token: window.__geekTranslationBridgeToken } }, '*');
           } else {
             console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
@@ -53,7 +53,7 @@
       const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
       return new Promise((resolve, reject) => {
         window.__geekNativeInputPending.set(id, { resolve, reject, text: String(text) });
-        if (document.documentElement.getAttribute('data-geek-bridge') === '1') {
+        if (document.documentElement.getAttribute('data-geek-bridge') === '1' || document.getAttribute('data-geek-bridge') === '1') {
           window.postMessage({ __geekBridge: true, payload: { type: 'native-input-request', id, token: window.__geekTranslationBridgeToken } }, '*');
         } else {
           console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);

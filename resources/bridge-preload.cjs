@@ -8,9 +8,21 @@ const { ipcRenderer } = require('electron');
 const HOST_CHANNEL = 'geek-bridge';
 const MARKER = 'data-geek-bridge';
 
-try {
-  document.documentElement.setAttribute(MARKER, '1');
-} catch { /* 页面未就绪时忽略 */ }
+// preload 时机 documentElement 可能尚未就绪：先标记 document，元素就绪后再补标记
+// （DOM 属性跨世界共享，页面脚本可检测）。
+function markReady() {
+  try {
+    const root = document.documentElement || (document.head && document.head.parentElement) || document;
+    root.setAttribute(MARKER, '1');
+    return true;
+  } catch {
+    return false;
+  }
+}
+markReady();
+document.addEventListener('readystatechange', () => markReady());
+document.addEventListener('DOMContentLoaded', () => markReady());
+setTimeout(markReady, 50);
 
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
