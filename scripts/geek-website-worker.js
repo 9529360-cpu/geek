@@ -45,7 +45,7 @@ const SHARED_CSS = `
   /* 导航 */
   nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
   .logo { display: flex; align-items: center; gap: 11px; font-weight: 700; font-size: 17px; letter-spacing: .2px; }
-  .logo-mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, rgba(79,140,255,.9), rgba(0,229,160,.85)); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(79,140,255,.35); }
+  .logo-mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #1d2438, #0a0d16); border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(79,140,255,.25); }
   .logo-mark svg { width: 20px; height: 20px; }
   .nav-links { display: flex; gap: 30px; align-items: center; }
   .nav-links a { color: var(--text-dim); font-size: 14px; transition: color .18s; }
@@ -176,7 +176,7 @@ function layout(body, active) {
 <div class="wrap">
   <nav>
     <a href="/" class="logo">
-      <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="#04121a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>
+      <span class="logo-mark"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f8cff"/><stop offset="0.55" stop-color="#00e5a0"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs><path d="M13.3 4.5 6.4 14.8h3.9L8.8 19.5 17.6 10h-4.1l1.8-5.5z" fill="url(#lg1)"/></svg></span>
       极客 Geek
     </a>
     <div class="nav-links">
@@ -198,7 +198,7 @@ function layout(body, active) {
   <footer>
     <div class="footer-grid">
       <div class="footer-brand">
-        <div class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="#04121a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>极客 Geek</div>
+        <div class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lgf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f8cff"/><stop offset="0.55" stop-color="#00e5a0"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs><path d="M13.3 4.5 6.4 14.8h3.9L8.8 19.5 17.6 10h-4.1l1.8-5.5z" fill="url(#lgf)"/></svg></span>极客 Geek</div>
         <p>为出海业务打造的多平台多账号实时翻译客户端。</p>
       </div>
       <div class="footer-cols">
