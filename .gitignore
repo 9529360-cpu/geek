@@ -4,3 +4,5 @@ packaged-userdata*/
 *.log
 npm-debug.log*
 .DS_Store
+.wrangler/
+scripts/.r2-creds.json
