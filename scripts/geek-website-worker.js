@@ -329,7 +329,7 @@ const HOME = layout(`
       <div><a href="/download" class="btn btn-primary" style="font-size:15px;padding:14px 34px">${ICONS.down} 下载 Windows 版</a></div>
     </div>
   </section>
-`);
+`, 'home');
 
 const LOGIN = layout(`
   <section style="padding:64px 0 88px">
@@ -397,7 +397,7 @@ const LOGIN = layout(`
   };
   document.getElementById('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('btn-login').click(); });
   </script>
-`);
+`, 'login');
 
 const ACCOUNT = layout(`
   <section style="padding:56px 0 88px">
@@ -506,7 +506,7 @@ const ACCOUNT = layout(`
   }
   load();
   </script>
-`);
+`, 'account');
 
 function html(content, status = 200) {
   return new Response(content, { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' } });
