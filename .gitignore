@@ -1,0 +1,6 @@
+node_modules/
+dist-release/
+packaged-userdata*/
+*.log
+npm-debug.log*
+.DS_Store

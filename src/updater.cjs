@@ -14,6 +14,9 @@
 
 const { autoUpdater } = require('electron-updater');
 const { app } = require('electron');
+const fs = require('node:fs');
+const path = require('node:path');
+const { shouldCheckForUpdates } = require('./updater-policy.cjs');
 
 const LOG_PREFIX = '[updater]';
 
@@ -21,6 +24,16 @@ function initAutoUpdater() {
   // 开发模式（electron . 直接跑源码）没有打包产物，无法更新，直接跳过。
   if (!app.isPackaged) {
     console.log(`${LOG_PREFIX} 开发模式运行，跳过自动更新检查`);
+    return;
+  }
+
+  const updateConfigPath = path.join(process.resourcesPath, 'app-update.yml');
+  if (!shouldCheckForUpdates({
+    isPackaged: app.isPackaged,
+    updateConfigPath,
+    fileExists: fs.existsSync
+  })) {
+    console.log(`${LOG_PREFIX} 未配置发布渠道，跳过自动更新检查`);
     return;
   }
 

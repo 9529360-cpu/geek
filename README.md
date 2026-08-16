@@ -18,9 +18,9 @@ ui/ (渲染层：Linear 深色外壳，webview 白底)
 resources/
  ├── extensions/line-3.5.1/  → 原版 LINE 扩展（+2 patch：明文 token 存/读）
  └── s3loYR.js              → 原版 preload（+4 全局补全：_pluginKD/_PluginT/_PluginVT/hS）
-data/
- ├── accounts.json          → 账号列表（partition / 平台 / 登录态）
- └── config.json            → 全局配置
+data/                        → 首启迁移来源（旧版运行数据；新版固定写入 userData）
+ ├── accounts.json           → 账号列表（partition / 平台 / 登录态）
+ └── config.json             → 全局配置
 ```
 
 ## 核心机制（破解要点）
@@ -105,7 +105,7 @@ node test/line-authenticated-event-source.cjs
 - `ui/` — 外壳 UI（深色 Linear 风；webview 白底）
 - `resources/extensions/` — 原版扩展（md5 对齐原版，仅 LINE main.js +2 patch）
 - `resources/s3loYR.js` — 原版 preload + 全局补全
-- `data/` — accounts.json / config.json（用户数据在 `AppData/Roaming/whatsapp-multi/`）
+- `data/` — 首启迁移来源；运行期 accounts/config 固定写入 `AppData/Roaming/whatsapp-multi/`
 - `ISSUES.md` — 完整逆向过程与坑记录
 
 ## 逆向参考
