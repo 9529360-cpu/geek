@@ -4,7 +4,7 @@ export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
-      const key = url.pathname.replace(/^\//, '') || 'index.html';
+      const key = decodeURIComponent(url.pathname.replace(/^\//, '')) || 'index.html';
       if (key === '__debug') {
         const bindingNames = Object.keys(env);
         const listed = await env.RELEASE_BUCKET.list({ limit: 100 });
