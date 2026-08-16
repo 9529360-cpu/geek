@@ -197,22 +197,11 @@ const LINE_EXTENSION_PATH = path.join(
   RESOURCES_DIR, 'extensions', 'line-3.5.1'
 );
 
-// HelloWorld 剥离的 WhatsApp 扩展（Pragmaz——a_test 中文版，用户截图的中文群发面板）
-const PRAGMAZ_EXTENSION_PATH = path.join(
-  RESOURCES_DIR, 'pragmaz-ext', '1.7_0'
-);
-
-async function loadWaplusExtension(partition) {
-  try {
-    const ses = session.fromPartition(partition, { cache: true });
-    const ext = await ses.loadExtension(PRAGMAZ_EXTENSION_PATH); // 中文面板（a_test）优先
-    if (ext) {
-      console.log(`[waplus] 扩展已加载到 ${partition}: ${ext.name} ${ext.version}`);
-    }
-  } catch (error) {
-    console.error(`[waplus] 扩展加载失败 (${partition}):`, error.message);
-  }
-}
+// HelloWorld 剥离的 WhatsApp 扩展（Pragmaz）已弃用：
+// - 内含原版作者硬编码的 BrightData 代理凭据（安全/数据风险）
+// - 会与第三方 pragmaz.ai 通信
+// - 极客自有群发/翻译/发送功能走 WPP+CDP，不依赖该扩展
+// - 打包时已从 asarUnpack 排除（见 electron-builder.yml）
 
 async function loadLineExtension(partition) {
   try {
@@ -1698,10 +1687,8 @@ function configureWebviewSecurity(window) {
     if (account.type === 'line' || account.type === 'line-business') {
       loadLineExtension(partition);
     }
-    // WhatsApp 系列账号加载 HelloWorld 剥离的 WA 扩展（WAPlus——群发面板/完整功能）
-    if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') {
-      loadWaplusExtension(partition);
-    }
+    // WhatsApp 系列账号：不加载第三方 pragmaz 扩展（安全：含原版硬编码代理凭据 + pragmaz.ai 通信）
+    // 极客自有群发/翻译/发送走 WPP+CDP，无需扩展
   });
 
   window.webContents.on('did-attach-webview', (_event, webContents) => {

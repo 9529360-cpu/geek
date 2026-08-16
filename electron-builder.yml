@@ -14,10 +14,10 @@ files:
   - build/icon.ico
   - package.json
   - '!data/**/*'
-  - '!resources/waplus-ext/**/*'  # 死代码资源（代码实际加载 pragmaz-ext），排除瘦身 38MB
+  - '!resources/waplus-ext/**/*'  # 死代码资源，排除瘦身 38MB
+  - '!resources/pragmaz-ext/**/*'  # 弃用扩展：含原版硬编码 BrightData 凭据 + pragmaz.ai 通信，安全排除
 asarUnpack:
   - resources/extensions/**/*
-  - resources/pragmaz-ext/**/*
 icon: build/icon.ico
 
 # 自动更新渠道：Cloudflare R2（公开读，源码仍私有）
