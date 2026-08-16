@@ -14,9 +14,9 @@ files:
   - build/icon.ico
   - package.json
   - '!data/**/*'
+  - '!resources/waplus-ext/**/*'  # 死代码资源（代码实际加载 pragmaz-ext），排除瘦身 38MB
 asarUnpack:
   - resources/extensions/**/*
-  - resources/waplus-ext/**/*
   - resources/pragmaz-ext/**/*
 icon: build/icon.ico
 

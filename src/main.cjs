@@ -181,10 +181,6 @@ const LINE_EXTENSION_PATH = path.join(
   RESOURCES_DIR, 'extensions', 'line-3.5.1'
 );
 
-// HelloWorld 剥离的 WhatsApp 扩展（WAPlus——b_test 英文版，功能最全）
-const WAPLUS_EXTENSION_PATH = path.join(
-  RESOURCES_DIR, 'waplus-ext', '1.7.96_0'
-);
 // HelloWorld 剥离的 WhatsApp 扩展（Pragmaz——a_test 中文版，用户截图的中文群发面板）
 const PRAGMAZ_EXTENSION_PATH = path.join(
   RESOURCES_DIR, 'pragmaz-ext', '1.7_0'
