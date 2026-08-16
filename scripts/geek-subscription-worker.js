@@ -261,6 +261,7 @@ async function handleAdminConfirmOrder(request, db, url) {
   await db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, user.id).run();
   await db.prepare(`UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ?`).bind(order.id).run();
   const row = await db.prepare('SELECT quota_chars FROM users WHERE id = ?').bind(user.id).first();
+  await logAction(db, 'confirm_order', '订单#' + order.id + ' ' + user.email + ' ' + (PLANS[order.plan]?.name || '') + ' +' + chars.toLocaleString() + '字符 $' + order.amount);
 
   return json({ ok: true, userId: user.id, plan: order.plan, charsAdded: chars, remaining_chars: row.quota_chars });
 }
@@ -313,6 +314,8 @@ async function handleAdminSetUserStatus(db, url, enabled) {
   const status = enabled ? 'active' : 'disabled';
   const { meta } = await db.prepare('UPDATE users SET status = ? WHERE id = ?').bind(status, id).run();
   if (meta.changes === 0) return json({ error: 'user_not_found' }, 404);
+  const user = await getUserById(db, id);
+  await logAction(db, enabled ? 'enable_user' : 'disable_user', (user?.email || '#' + id) + (enabled ? ' 解封' : ' 封禁'));
   return json({ ok: true, status });
 }
 
@@ -332,6 +335,7 @@ async function handleAdminAdjustChars(request, db, url) {
     await db.prepare('UPDATE users SET quota_chars = MAX(0, quota_chars - ?) WHERE id = ?').bind(Math.floor(-delta), id).run();
   }
   const row = await db.prepare('SELECT quota_chars FROM users WHERE id = ?').bind(id).first();
+  await logAction(db, 'adjust_chars', user.email + ' ' + (delta > 0 ? '+' : '') + delta.toLocaleString() + '字符' + (reason ? ' · ' + reason : ''));
   return json({ ok: true, userId: id, delta: Math.floor(delta), remaining_chars: row.quota_chars });
 }
 
@@ -341,7 +345,68 @@ async function handleAdminCancelOrder(db, url) {
   const id = parts[parts.length - 2];
   const { meta } = await db.prepare(`UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending'`).bind(id).run();
   if (meta.changes === 0) return json({ error: 'order_not_found_or_processed' }, 400);
+  await logAction(db, 'cancel_order', '订单#' + id + ' 已取消');
   return json({ ok: true, cancelled: true });
+}
+
+// ========== 运营后台 v2 新接口 ==========
+
+async function logAction(db, action, detail) {
+  try {
+    await db.prepare('INSERT INTO admin_logs (action, detail) VALUES (?, ?)').bind(action, detail).run();
+  } catch (e) { /* 日志失败不影响主流程 */ }
+}
+
+// 管理：近 N 天注册/收入趋势
+async function handleAdminTrends(db, url) {
+  const days = Math.min(30, Math.max(1, Number(url.searchParams.get('days')) || 7));
+  const users = await db.prepare(
+    'SELECT date(created_at) AS d, COUNT(*) AS c FROM users WHERE created_at >= date(\'now\', ?) GROUP BY d'
+  ).bind('-' + days + ' days').all();
+  const orders = await db.prepare(
+    'SELECT date(paid_at) AS d, COALESCE(SUM(amount),0) AS rev, COUNT(*) AS c FROM orders WHERE status=\'paid\' AND paid_at >= date(\'now\', ?) GROUP BY d'
+  ).bind('-' + days + ' days').all();
+  return json({ ok: true, days, users: users.results, orders: orders.results });
+}
+
+// 管理：设置读取
+async function handleAdminGetSettings(db) {
+  const { results } = await db.prepare('SELECT key, value FROM settings').all();
+  const settings = {};
+  for (const r of results) settings[r.key] = r.value;
+  return json({ ok: true, settings });
+}
+
+// 管理：设置保存
+async function handleAdminSaveSettings(request, db) {
+  const body = await request.json().catch(() => ({}));
+  const allowed = ['contact_tg', 'contact_whatsapp', 'contact_email', 'announcement'];
+  const keys = [];
+  for (const k of allowed) {
+    if (body[k] !== undefined) {
+      await db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime(\'now\')')
+        .bind(k, String(body[k]).slice(0, 500)).run();
+      keys.push(k);
+    }
+  }
+  await logAction(db, 'update_settings', '更新设置: ' + keys.join(', '));
+  return json({ ok: true, updated: keys });
+}
+
+// 管理：操作日志
+async function handleAdminLogs(db) {
+  const { results } = await db.prepare('SELECT * FROM admin_logs ORDER BY id DESC LIMIT 100').all();
+  return json({ ok: true, logs: results });
+}
+
+// 管理：用户详情
+async function handleAdminUserDetail(db, url) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  const id = parts[parts.length - 2];
+  const user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first();
+  if (!user) return json({ error: 'user_not_found' }, 404);
+  const { results: orders } = await db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 50').bind(id).all();
+  return json({ ok: true, user, orders });
 }
 
 // ========== 管理后台 UI ==========
@@ -353,95 +418,236 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <title>极客 · 运营后台</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #0b0d10; color: #e8eaed; min-height: 100vh; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
-  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
-  .sub { color: #8a919c; font-size: 13px; margin-bottom: 24px; }
-  .card { background: #14171c; border: 1px solid #23272f; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .stat { background: #14171c; border: 1px solid #23272f; border-radius: 12px; padding: 16px; }
-  .stat .n { font-size: 26px; font-weight: 700; }
-  .stat .l { font-size: 12px; color: #8a919c; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: #8a919c; font-weight: 500; padding: 8px; border-bottom: 1px solid #23272f; }
-  td { padding: 8px; border-bottom: 1px solid #1a1e24; vertical-align: middle; }
-  tr:hover td { background: #171b21; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
-  .b-active { background: #0f2e1c; color: #4ade80; }
-  .b-disabled { background: #331414; color: #f87171; }
-  .b-pending { background: #2d2408; color: #fbbf24; }
-  .b-paid { background: #0f2e1c; color: #4ade80; }
-  .b-cancelled { background: #23272f; color: #8a919c; }
-  button { background: #23272f; color: #e8eaed; border: 1px solid #2f3540; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
-  button:hover { background: #2c313b; }
-  button.primary { background: #16a34a; border-color: #16a34a; color: #fff; }
-  button.primary:hover { background: #15803d; }
-  button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fff; }
-  button.danger:hover { background: #991b1b; }
-  input[type=email], input[type=password], input[type=search] { background: #0e1116; border: 1px solid #2f3540; border-radius: 8px; padding: 9px 12px; color: #e8eaed; font-size: 14px; width: 100%; outline: none; }
-  input:focus { border-color: #16a34a; }
-  .login-box { max-width: 360px; margin: 120px auto; }
-  .login-box h2 { margin-bottom: 16px; font-size: 18px; }
-  .login-box input { margin-bottom: 12px; }
-  .row { display: flex; gap: 8px; align-items: center; }
-  .muted { color: #8a919c; font-size: 12px; }
-  .err { color: #f87171; font-size: 13px; margin-top: 8px; }
-  .ok { color: #4ade80; font-size: 13px; margin-top: 8px; }
-  .toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
-  .toolbar input { max-width: 260px; }
-  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
-  .tab { padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; background: #14171c; border: 1px solid #23272f; color: #8a919c; }
-  .tab.on { background: #16a34a; border-color: #16a34a; color: #fff; }
-  .logout { float: right; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; background: #05060a; color: #f2f4f8; min-height: 100vh; display: flex; -webkit-font-smoothing: antialiased; }
+  :root { --dim: #9aa3b2; --faint: #5c6470; --accent: #4f8cff; --accent2: #00e5a0; --border: rgba(255,255,255,.08); --card: rgba(255,255,255,.03); }
+
+  /* 侧边栏 */
+  .sidebar { width: 220px; min-height: 100vh; background: #0a0d14; border-right: 1px solid var(--border); padding: 24px 16px; position: fixed; top: 0; bottom: 0; left: 0; display: flex; flex-direction: column; z-index: 10; }
+  .sb-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 24px; font-weight: 700; font-size: 16px; }
+  .sb-logo { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #1d2438, #0a0d16); border: 1px solid rgba(255,255,255,.12); display: flex; align-items: center; justify-content: center; }
+  .sb-logo svg { width: 20px; height: 20px; }
+  .sb-item { display: flex; align-items: center; gap: 11px; padding: 11px 14px; border-radius: 10px; color: var(--dim); font-size: 14px; cursor: pointer; margin-bottom: 4px; transition: all .15s; border: 1px solid transparent; }
+  .sb-item:hover { background: rgba(255,255,255,.04); color: #f2f4f8; }
+  .sb-item.on { background: rgba(79,140,255,.12); color: #8fb7ff; border-color: rgba(79,140,255,.25); }
+  .sb-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .sb-bottom { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); }
+  .sb-item.logout { color: #f87171; }
+  .sb-item.logout:hover { background: rgba(248,113,113,.08); color: #f87171; }
+
+  /* 主区 */
+  .main { margin-left: 220px; flex: 1; padding: 28px 32px; min-width: 0; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 26px; }
+  .topbar h1 { font-size: 22px; font-weight: 800; letter-spacing: -.3px; }
+  .topbar .sub { color: var(--dim); font-size: 13px; margin-top: 4px; }
+
+  /* 统计卡 */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; backdrop-filter: blur(8px); }
+  .stat .label { color: var(--dim); font-size: 12.5px; margin-bottom: 8px; }
+  .stat .value { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
+  .stat .value.green { color: #4ade80; }
+  .stat .value.blue { color: #8fb7ff; }
+  .stat .value.yellow { color: #fbbf24; }
+  .stat .value.pink { color: #f472b6; }
+
+  /* 图表 */
+  .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-bottom: 22px; }
+  .chart-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 16px; }
+  .chart { display: flex; align-items: flex-end; gap: 8px; height: 160px; padding-top: 10px; }
+  .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .bar { width: 70%; max-width: 44px; border-radius: 6px 6px 2px 2px; min-height: 3px; transition: height .4s ease; }
+  .bar.blue { background: linear-gradient(180deg, #4f8cff, #2d5fd0); }
+  .bar.green { background: linear-gradient(180deg, #00e5a0, #00a876); }
+  .bar-label { color: var(--faint); font-size: 11px; }
+  .bar-val { color: var(--dim); font-size: 11px; font-weight: 600; }
+
+  /* 卡片/表格 */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-bottom: 22px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .card-head h3 { font-size: 15px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--faint); font-weight: 600; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: middle; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .muted { color: var(--faint); }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 600; }
+  .b-active { background: rgba(74,222,128,.12); color: #4ade80; }
+  .b-disabled { background: rgba(248,113,113,.12); color: #f87171; }
+  .b-pending { background: rgba(251,191,36,.12); color: #fbbf24; }
+  .b-paid { background: rgba(74,222,128,.12); color: #4ade80; }
+  .b-cancelled { background: rgba(255,255,255,.06); color: var(--faint); }
+  button { background: rgba(255,255,255,.06); color: #f2f4f8; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; transition: all .15s; }
+  button:hover { background: rgba(255,255,255,.1); }
+  button.primary { background: linear-gradient(135deg, #4f8cff, #2d5fd0); border-color: transparent; color: #fff; font-weight: 600; }
+  button.primary:hover { opacity: .9; }
+  button.danger { background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.3); color: #f87171; }
+  button.green { background: rgba(74,222,128,.12); border-color: rgba(74,222,128,.3); color: #4ade80; }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .toolbar input { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; color: #f2f4f8; font-size: 13px; outline: none; }
+  .toolbar input:focus { border-color: rgba(79,140,255,.5); }
+  .toolbar input::placeholder { color: var(--faint); }
+
+  /* 设置表单 */
+  .field { margin-bottom: 18px; }
+  .field label { display: block; color: var(--dim); font-size: 13px; margin-bottom: 7px; }
+  .field input, .field textarea { width: 100%; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; color: #f2f4f8; font-size: 14px; outline: none; }
+  .field input:focus, .field textarea:focus { border-color: rgba(79,140,255,.5); }
+  .field textarea { min-height: 80px; resize: vertical; }
+  .hint { color: var(--faint); font-size: 12px; margin-top: 5px; }
+
+  /* 日志时间线 */
+  .log-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.04); font-size: 13.5px; }
+  .log-time { color: var(--faint); font-size: 12px; white-space: nowrap; min-width: 130px; }
+  .log-badge { flex-shrink: 0; }
+
+  /* 登录页 */
+  #loginView { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #05060a; z-index: 100; }
+  .login-card { width: 360px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 36px 32px; text-align: center; }
+  .login-card .sb-logo { margin: 0 auto 18px; width: 48px; height: 48px; border-radius: 13px; }
+  .login-card h2 { font-size: 20px; margin-bottom: 6px; }
+  .login-card .sub { color: var(--dim); font-size: 13px; margin-bottom: 26px; }
+  .login-card input { width: 100%; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: #f2f4f8; font-size: 14px; outline: none; margin-bottom: 16px; }
+  .login-card button { width: 100%; padding: 12px; font-size: 14.5px; }
+  .login-err { color: #f87171; font-size: 13px; min-height: 20px; margin-top: 10px; }
+
+  /* 视图切换 */
+  .view { display: none; }
+  .view.on { display: block; }
+  @media (max-width: 900px) {
+    .sidebar { width: 64px; }
+    .sb-brand span, .sb-item span { display: none; }
+    .main { margin-left: 64px; padding: 20px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
 </style>
 </head>
 <body>
-<div class="wrap" id="loginView" style="display:none">
-  <div class="login-box card">
-    <h2>极客订阅管理后台</h2>
-    <input type="password" id="adminPass" placeholder="管理员密码">
-    <button class="primary" style="width:100%; padding:10px" onclick="login()">登录</button>
-    <div id="loginErr" class="err"></div>
+
+<!-- 登录 -->
+<div id="loginView">
+  <div class="login-card">
+    <div class="sb-logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f8cff"/><stop offset="0.55" stop-color="#00e5a0"/><stop offset="1" stop-color="#a78bfa"/></linearGradient><linearGradient id="lw1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7db4ff"/><stop offset="1" stop-color="#4f8cff"/></linearGradient><linearGradient id="lw2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00e5a0"/><stop offset="1" stop-color="#00c48a"/></linearGradient></defs><rect x="31.5" y="9.5" width="20.5" height="14" rx="3.5" fill="rgba(0,229,160,0.08)" stroke="url(#lw2)" stroke-width="1.8"/><circle cx="34.8" cy="12.8" r="1.2" fill="#00e5a0"/><rect x="12.5" y="24.5" width="25.5" height="17" rx="4" fill="rgba(79,140,255,0.1)" stroke="url(#lw1)" stroke-width="1.9"/><circle cx="16" cy="28" r="1.2" fill="#7db4ff"/><path d="M39.5 42 C46 36 48 29.5 46.5 23" fill="none" stroke="url(#lg)" stroke-width="3.4" stroke-linecap="round"/><path d="M49.5 20.5 l-4.8 2.7 l1.6 -5.2 z" fill="url(#lg)"/></svg></div>
+    <h2>极客运营后台</h2>
+    <div class="sub">付费体系 · 用户 · 订单 · 数据</div>
+    <input type="password" id="adminPass" placeholder="管理员密码" autocomplete="current-password">
+    <button class="primary" onclick="login()">登 录</button>
+    <div class="login-err" id="loginErr"></div>
   </div>
 </div>
 
-<div class="wrap" id="panelView" style="display:none">
-  <div class="row" style="justify-content:space-between">
-    <div>
-      <h1>极客运营后台</h1>
-      <div class="sub">付费体系 · 用户 · 订单 · 字符管理</div>
+<!-- 主界面 -->
+<div class="sidebar" id="sidebar" style="display:none">
+  <div class="sb-brand">
+    <div class="sb-logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f8cff"/><stop offset="0.55" stop-color="#00e5a0"/><stop offset="1" stop-color="#a78bfa"/></linearGradient><linearGradient id="lw1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7db4ff"/><stop offset="1" stop-color="#4f8cff"/></linearGradient><linearGradient id="lw2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00e5a0"/><stop offset="1" stop-color="#00c48a"/></linearGradient></defs><rect x="31.5" y="9.5" width="20.5" height="14" rx="3.5" fill="rgba(0,229,160,0.08)" stroke="url(#lw2)" stroke-width="1.8"/><circle cx="34.8" cy="12.8" r="1.2" fill="#00e5a0"/><rect x="12.5" y="24.5" width="25.5" height="17" rx="4" fill="rgba(79,140,255,0.1)" stroke="url(#lw1)" stroke-width="1.9"/><circle cx="16" cy="28" r="1.2" fill="#7db4ff"/><path d="M39.5 42 C46 36 48 29.5 46.5 23" fill="none" stroke="url(#lg2)" stroke-width="3.4" stroke-linecap="round"/><path d="M49.5 20.5 l-4.8 2.7 l1.6 -5.2 z" fill="url(#lg2)"/></svg></div>
+    <span>极客运营</span>
+  </div>
+  <div class="sb-item on" data-view="overview" onclick="switchView('overview')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>
+    <span>总览</span>
+  </div>
+  <div class="sb-item" data-view="users" onclick="switchView('users')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <span>用户</span>
+  </div>
+  <div class="sb-item" data-view="orders" onclick="switchView('orders')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+    <span>订单</span>
+  </div>
+  <div class="sb-item" data-view="settings" onclick="switchView('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <span>设置</span>
+  </div>
+  <div class="sb-item" data-view="logs" onclick="switchView('logs')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+    <span>操作日志</span>
+  </div>
+  <div class="sb-bottom">
+    <div class="sb-item logout" onclick="logout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+      <span>退出登录</span>
     </div>
-    <button onclick="logout()" class="logout">退出</button>
+  </div>
+</div>
+
+<div class="main" id="panelView" style="display:none">
+  <!-- 总览 -->
+  <div class="view on" id="view-overview">
+    <div class="topbar"><div><h1>运营总览</h1><div class="sub">实时数据一览</div></div></div>
+    <div class="stats" id="stats"></div>
+    <div class="chart-card">
+      <h3>近 7 天注册趋势</h3>
+      <div class="chart" id="users-chart"></div>
+    </div>
+    <div class="chart-card">
+      <h3>近 7 天收入（USD）</h3>
+      <div class="chart" id="revenue-chart"></div>
+    </div>
   </div>
 
-  <div class="stats" id="stats"></div>
-
-  <div class="tabs">
-    <div class="tab on" data-tab="users" onclick="switchTab('users')">用户</div>
-    <div class="tab" data-tab="orders" onclick="switchTab('orders')">订单</div>
-  </div>
-
-  <div id="usersView">
-    <div class="toolbar">
-      <input type="search" id="searchQ" placeholder="搜索邮箱…" onkeydown="if(event.key==='Enter')loadUsers()">
-      <button onclick="loadUsers()">搜索</button>
-      <button onclick="loadStats()">刷新统计</button>
-    </div>
-    <div class="card" style="overflow-x:auto">
-      <table>
-        <thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>剩余字符</th><th>注册时间</th><th>操作</th></tr></thead>
-        <tbody id="usersBody"></tbody>
-      </table>
+  <!-- 用户 -->
+  <div class="view" id="view-users">
+    <div class="topbar"><div><h1>用户管理</h1><div class="sub">查看用户、调整字符、封禁/解封</div></div></div>
+    <div class="card">
+      <div class="toolbar">
+        <input type="search" id="searchQ" placeholder="搜索邮箱…" onkeydown="if(event.key==='Enter')loadUsers()">
+        <button onclick="loadUsers()">搜索</button>
+        <button onclick="loadUsers();loadStats()">刷新</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>剩余字符</th><th>注册时间</th><th>操作</th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <div id="ordersView" style="display:none">
-    <div class="card" style="overflow-x:auto">
-      <table>
-        <thead><tr><th>ID</th><th>用户</th><th>套餐</th><th>金额(USD)</th><th>状态</th><th>下单时间</th><th>操作</th></tr></thead>
-        <tbody id="ordersBody"></tbody>
-      </table>
+  <!-- 订单 -->
+  <div class="view" id="view-orders">
+    <div class="topbar"><div><h1>订单管理</h1><div class="sub">确认收款、取消订单</div></div></div>
+    <div class="card">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>ID</th><th>用户</th><th>套餐</th><th>金额(USD)</th><th>状态</th><th>下单时间</th><th>操作</th></tr></thead>
+          <tbody id="ordersBody"></tbody>
+        </table>
+      </div>
     </div>
+  </div>
+
+  <!-- 设置 -->
+  <div class="view" id="view-settings">
+    <div class="topbar"><div><h1>运营设置</h1><div class="sub">客服联系方式将展示在官网个人中心下单页</div></div></div>
+    <div class="card" style="max-width:560px">
+      <div class="field">
+        <label>Telegram 客服</label>
+        <input type="text" id="set-tg" placeholder="@your_support">
+        <div class="hint">客户通过 TG 联系你付款</div>
+      </div>
+      <div class="field">
+        <label>WhatsApp 客服</label>
+        <input type="text" id="set-wa" placeholder="+1 234 567 8900">
+      </div>
+      <div class="field">
+        <label>联系邮箱</label>
+        <input type="email" id="set-email" placeholder="support@example.com">
+      </div>
+      <div class="field">
+        <label>官网公告</label>
+        <textarea id="set-ann" placeholder="例如：新用户注册送 2 万字符"></textarea>
+        <div class="hint">显示在官网首页</div>
+      </div>
+      <button class="primary" onclick="saveSettings()">保存设置</button>
+      <div id="settingsOk" style="color:#4ade80;font-size:13px;margin-top:12px"></div>
+      <div id="settingsErr" style="color:#f87171;font-size:13px;margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- 日志 -->
+  <div class="view" id="view-logs">
+    <div class="topbar"><div><h1>操作日志</h1><div class="sub">管理操作记录（最近 100 条）</div></div></div>
+    <div class="card" id="logsBody"></div>
   </div>
 </div>
 
@@ -454,13 +660,14 @@ async function api(path, opts = {}) {
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401) { localStorage.removeItem(TOKEN_KEY); showLogin(); throw new Error('unauthorized'); }
+  if (res.status === 401) { localStorage.removeItem(TOKEN_KEY); location.reload(); throw new Error('unauthorized'); }
   if (!res.ok) throw new Error(data.error || res.status);
   return data;
 }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-function showLogin() { document.getElementById('loginView').style.display = 'block'; document.getElementById('panelView').style.display = 'none'; }
-function showPanel() { document.getElementById('loginView').style.display = 'none'; document.getElementById('panelView').style.display = 'block'; }
+function showLogin() { document.getElementById('loginView').style.display = 'flex'; document.getElementById('sidebar').style.display = 'none'; document.getElementById('panelView').style.display = 'none'; }
+function showPanel() { document.getElementById('loginView').style.display = 'none'; document.getElementById('sidebar').style.display = 'flex'; document.getElementById('panelView').style.display = 'block'; }
 
 async function login() {
   const pass = document.getElementById('adminPass').value;
@@ -471,54 +678,100 @@ async function login() {
     document.getElementById('loginErr').textContent = '';
     showPanel();
     init();
-  } catch (e) {
-    document.getElementById('loginErr').textContent = '密码错误或登录失败：' + e.message;
-  }
+  } catch (e) { document.getElementById('loginErr').textContent = '密码错误或登录失败'; }
 }
+document.getElementById('adminPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
 
-function logout() { localStorage.removeItem(TOKEN_KEY); token = ''; showLogin(); }
+function logout() { localStorage.removeItem(TOKEN_KEY); location.href = '/admin'; }
 
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === name));
-  document.getElementById('usersView').style.display = name === 'users' ? 'block' : 'none';
-  document.getElementById('ordersView').style.display = name === 'orders' ? 'block' : 'none';
+function switchView(name) {
+  document.querySelectorAll('.sb-item[data-view]').forEach(el => el.classList.toggle('on', el.dataset.view === name));
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('on'));
+  const v = document.getElementById('view-' + name);
+  if (v) v.classList.add('on');
+  if (name === 'overview') { loadStats(); loadTrends(); }
+  if (name === 'users') loadUsers();
   if (name === 'orders') loadOrders();
+  if (name === 'settings') loadSettings();
+  if (name === 'logs') loadLogs();
 }
 
-function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-
+// ===== 总览 =====
 async function loadStats() {
   try {
     const data = await api('/api/admin/stats');
     const s = data.stats;
     document.getElementById('stats').innerHTML = [
-      ['用户总数', s.users],
-      ['剩余字符总量', (s.totalChars || 0).toLocaleString()],
-      ['累计收入', '$' + s.revenueUsd],
-      ['待确认订单', s.pendingOrders],
-    ].map(([l, n]) => '<div class="stat"><div class="n">' + esc(n) + '</div><div class="l">' + l + '</div></div>').join('');
+      ['用户总数', s.users, 'blue'],
+      ['剩余字符总量', (s.totalChars || 0).toLocaleString(), 'green'],
+      ['累计收入', '$' + (s.revenueUsd || 0), 'pink'],
+      ['待确认订单', s.pendingOrders, 'yellow'],
+    ].map(([label, value, cls]) => \`<div class="stat"><div class="label">\${label}</div><div class="value \${cls}">\${value}</div></div>\`).join('');
   } catch (e) { console.error(e); }
 }
 
-async function loadUsers() {
-  const q = document.getElementById('searchQ').value.trim();
+async function loadTrends() {
   try {
-    const data = await api('/api/admin/users?q=' + encodeURIComponent(q));
-    document.getElementById('usersBody').innerHTML = (data.users || []).map((u) => {
+    const data = await api('/api/admin/trends?days=7');
+    // 注册趋势
+    const umap = {}; for (const u of data.users) umap[u.d] = u.c;
+    const rmap = {}; for (const o of data.orders) rmap[o.d] = { rev: o.rev, c: o.c };
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      days.push(d);
+    }
+    const usersChart = days.map(d => \`<div class="bar-wrap"><div class="bar blue" style="height:\${Math.max(3, (umap[d] || 0) * 28)}px"></div><div class="bar-val">\${umap[d] || 0}</div><div class="bar-label">\${d.slice(5)}</div></div>\`).join('');
+    const maxRev = Math.max(1, ...days.map(d => rmap[d]?.rev || 0));
+    const revChart = days.map(d => {
+      const rev = rmap[d]?.rev || 0;
+      return \`<div class="bar-wrap"><div class="bar green" style="height:\${Math.max(3, rev / maxRev * 130)}px"></div><div class="bar-val">$\${rev}</div><div class="bar-label">\${d.slice(5)}</div></div>\`;
+    }).join('');
+    document.getElementById('users-chart').innerHTML = usersChart;
+    document.getElementById('revenue-chart').innerHTML = revChart;
+  } catch (e) { console.error(e); }
+}
+
+// ===== 用户 =====
+async function loadUsers() {
+  try {
+    const q = document.getElementById('searchQ').value.trim();
+    const data = await api('/api/admin/users' + (q ? '?q=' + encodeURIComponent(q) : ''));
+    document.getElementById('usersBody').innerHTML = data.users.map(u => {
+      const st = u.status === 'disabled' ? '<span class="badge b-disabled">已封禁</span>' : '<span class="badge b-active">正常</span>';
       return '<tr>' +
         '<td>' + u.id + '</td>' +
         '<td>' + esc(u.email) + '</td>' +
-        '<td><span class="badge ' + (u.status === 'disabled' ? 'b-disabled' : 'b-active') + '">' + (u.status === 'disabled' ? '封禁' : '正常') + '</span></td>' +
-        '<td>' + (u.quota_chars != null ? u.quota_chars.toLocaleString() + ' 字符' : '—') + '</td>' +
+        '<td>' + st + '</td>' +
+        '<td>' + (u.quota_chars != null ? u.quota_chars.toLocaleString() : '—') + '</td>' +
         '<td class="muted">' + esc((u.created_at || '').slice(0, 10)) + '</td>' +
         '<td class="row">' +
-          '<button onclick="adjustChars(' + u.id + ', \'' + esc(u.email) + '\')">加字符</button>' +
+          '<button onclick="viewUser(' + u.id + ')">详情</button>' +
+          '<button class="green" onclick="adjustChars(' + u.id + ', &#39;' + esc(u.email) + '&#39;)">加字符</button>' +
           (u.status === 'disabled'
             ? '<button onclick="setUser(' + u.id + ', true)">解封</button>'
             : '<button class="danger" onclick="setUser(' + u.id + ', false)">封禁</button>') +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="6" class="muted">暂无用户</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">暂无用户</td></tr>';
   } catch (e) { console.error(e); }
+}
+
+async function viewUser(id) {
+  try {
+    const data = await api('/api/admin/users/' + id);
+    const u = data.user;
+    const orders = data.orders || [];
+    const detail = [
+      '用户 #' + u.id + ' · ' + esc(u.email),
+      '状态：' + (u.status === 'disabled' ? '已封禁' : '正常'),
+      '剩余字符：' + (u.quota_chars || 0).toLocaleString(),
+      '注册时间：' + esc(u.created_at || ''),
+      '',
+      '订单记录（' + orders.length + ' 条）：',
+      ...orders.map(o => '  #' + o.id + ' ' + (PLAN_NAMES[o.plan] || o.plan) + ' $' + o.amount + ' ' + (o.status === 'paid' ? '已收款' : o.status === 'cancelled' ? '已取消' : '待确认') + ' ' + esc((o.created_at || '').slice(0, 10))),
+    ].join('\\n');
+    alert(detail);
+  } catch (e) { alert('加载失败：' + e.message); }
 }
 
 async function setUser(id, enabled) {
@@ -526,13 +779,12 @@ async function setUser(id, enabled) {
   if (!enabled && !confirm('确认封禁该用户？封禁后无法登录。')) return;
   try {
     await api('/api/admin/users/' + id + '/' + act, { method: 'POST' });
-    loadUsers(); loadStats();
+    loadUsers(); loadStats(); loadLogs();
   } catch (e) { alert('操作失败：' + e.message); }
 }
 
-// 手动加/减字符（客户直接转账或赠送/扣回）
 async function adjustChars(id, email) {
-  const delta = prompt('用户：' + email + '\n输入字符数（加用正数，扣回用负数）\n例如：1000000 或 -500000');
+  const delta = prompt('用户：' + email + '\\n输入字符数（加用正数，扣回用负数）\\n例如：1000000 或 -500000');
   if (delta === null || delta === '') return;
   const n = Number(delta);
   if (!Number.isFinite(n) || n === 0) { alert('请输入有效数字'); return; }
@@ -540,25 +792,28 @@ async function adjustChars(id, email) {
   try {
     const data = await api('/api/admin/users/' + id + '/adjust', { method: 'POST', body: JSON.stringify({ delta: n, reason: reason || '' }) });
     alert('已调整 ' + (n > 0 ? '+' : '') + n.toLocaleString() + ' 字符，当前剩余 ' + (data.remaining_chars || 0).toLocaleString());
-    loadUsers(); loadStats();
+    loadUsers(); loadStats(); loadLogs();
   } catch (e) { alert('操作失败：' + e.message); }
 }
 
+// ===== 订单 =====
+const PLAN_NAMES = { basic: '基础包 · 100万', standard: '标准包 · 150万', pro: '大包 · 450万' };
 async function loadOrders() {
   try {
     const data = await api('/api/admin/orders');
-    document.getElementById('ordersBody').innerHTML = (data.orders || []).map((o) => {
+    document.getElementById('ordersBody').innerHTML = data.orders.map(o => {
       const p = PLAN_NAMES[o.plan] || o.plan;
+      const badge = o.status === 'paid' ? '<span class="badge b-paid">已收款</span>' : o.status === 'cancelled' ? '<span class="badge b-cancelled">已取消</span>' : '<span class="badge b-pending">待确认</span>';
       return '<tr>' +
         '<td>' + o.id + '</td>' +
         '<td>' + esc(o.email || ('用户#' + o.user_id)) + '</td>' +
         '<td>' + p + '</td>' +
         '<td>$' + o.amount + '</td>' +
-        '<td><span class="badge ' + (o.status === 'paid' ? 'b-paid' : o.status === 'cancelled' ? 'b-cancelled' : 'b-pending') + '">' + (o.status === 'paid' ? '已收款' : o.status === 'cancelled' ? '已取消' : '待确认') + '</span></td>' +
+        '<td>' + badge + '</td>' +
         '<td class="muted">' + esc((o.created_at || '').slice(0, 16)) + '</td>' +
-        '<td>' + (o.status === 'pending' ? '<button class="primary" onclick="confirmOrder(' + o.id + ')">确认收款·加字符</button> <button onclick="cancelOrder(' + o.id + ')">取消</button>' : '<span class="muted">' + esc(o.status === 'paid' ? '已收款 ' + (o.paid_at || '').slice(0, 16) : '已取消') + '</span>') + '</td>' +
+        '<td>' + (o.status === 'pending' ? '<button class="primary" onclick="confirmOrder(' + o.id + ')">确认收款</button> <button onclick="cancelOrder(' + o.id + ')">取消</button>' : '<span class="muted">—</span>') + '</td>' +
         '</tr>';
-    }).join('') || '<tr><td colspan="7" class="muted">暂无订单</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">暂无订单</td></tr>';
   } catch (e) { console.error(e); }
 }
 
@@ -567,7 +822,7 @@ async function confirmOrder(id) {
   try {
     const data = await api('/api/admin/orders/' + id + '/confirm', { method: 'POST' });
     alert('已加字符：' + (data.charsAdded || 0).toLocaleString() + '，当前剩余 ' + (data.remaining_chars || 0).toLocaleString());
-    loadOrders(); loadStats(); loadUsers();
+    loadOrders(); loadStats(); loadUsers(); loadLogs();
   } catch (e) { alert('操作失败：' + e.message); }
 }
 
@@ -575,21 +830,64 @@ async function cancelOrder(id) {
   if (!confirm('确认取消该订单？')) return;
   try {
     await api('/api/admin/orders/' + id + '/cancel', { method: 'POST' });
-    loadOrders();
+    loadOrders(); loadLogs();
   } catch (e) { alert('操作失败：' + e.message); }
 }
 
-const PLAN_NAMES = { basic: '基础包', standard: '标准包', pro: '大包' };
-
-async function init() {
-  await Promise.all([loadStats(), loadUsers()]);
+// ===== 设置 =====
+async function loadSettings() {
+  try {
+    const data = await api('/api/admin/settings');
+    const s = data.settings || {};
+    document.getElementById('set-tg').value = s.contact_tg || '';
+    document.getElementById('set-wa').value = s.contact_whatsapp || '';
+    document.getElementById('set-email').value = s.contact_email || '';
+    document.getElementById('set-ann').value = s.announcement || '';
+  } catch (e) { console.error(e); }
+}
+async function saveSettings() {
+  const ok = document.getElementById('settingsOk'); const er = document.getElementById('settingsErr');
+  ok.textContent = ''; er.textContent = '';
+  try {
+    await api('/api/admin/settings', { method: 'POST', body: JSON.stringify({
+      contact_tg: document.getElementById('set-tg').value.trim(),
+      contact_whatsapp: document.getElementById('set-wa').value.trim(),
+      contact_email: document.getElementById('set-email').value.trim(),
+      announcement: document.getElementById('set-ann').value.trim(),
+    }) });
+    ok.textContent = '✓ 设置已保存';
+    loadLogs();
+  } catch (e) { er.textContent = '保存失败：' + e.message; }
 }
 
+// ===== 日志 =====
+async function loadLogs() {
+  try {
+    const data = await api('/api/admin/logs');
+    const badges = {
+      confirm_order: '<span class="badge b-paid">确认收款</span>',
+      adjust_chars: '<span class="badge b-active">调字符</span>',
+      disable_user: '<span class="badge b-disabled">封禁</span>',
+      enable_user: '<span class="badge b-active">解封</span>',
+      cancel_order: '<span class="badge b-cancelled">取消订单</span>',
+      update_settings: '<span class="badge b-pending">设置</span>',
+    };
+    document.getElementById('logsBody').innerHTML = (data.logs || []).map(l =>
+      '<div class="log-item"><span class="log-time">' + esc((l.created_at || '').slice(0, 16)) + '</span>' +
+      (badges[l.action] || '<span class="badge">' + esc(l.action) + '</span>') +
+      '<span>' + esc(l.detail || '') + '</span></div>'
+    ).join('') || '<div class="muted" style="text-align:center;padding:24px">暂无操作记录</div>';
+  } catch (e) { console.error(e); }
+}
+
+// ===== 初始化 =====
+async function init() {
+  if (!token) return;
+  loadStats();
+  loadTrends();
+}
 (async () => {
-  if (token) {
-    try { await api('/api/admin/stats'); showPanel(); init(); }
-    catch (e) { showLogin(); }
-  } else { showLogin(); }
+  if (token) { showPanel(); init(); }
 })();
 </script>
 </body>
@@ -655,6 +953,11 @@ export default {
       if (request.method === 'GET' && path === '/api/admin/users') return handleAdminUsers(db, request);
       if (request.method === 'GET' && path === '/api/admin/orders') return handleAdminOrders(db);
       if (request.method === 'GET' && path === '/api/admin/stats') return handleAdminStats(db);
+      if (request.method === 'GET' && path === '/api/admin/trends') return handleAdminTrends(db, url);
+      if (request.method === 'GET' && path === '/api/admin/settings') return handleAdminGetSettings(db);
+      if (request.method === 'POST' && path === '/api/admin/settings') return handleAdminSaveSettings(request, db);
+      if (request.method === 'GET' && path === '/api/admin/logs') return handleAdminLogs(db);
+      if (request.method === 'GET' && /^\/api\/admin\/users\/\d+$/.test(path)) return handleAdminUserDetail(db, url);
       if (request.method === 'POST' && /^\/api\/admin\/orders\/\d+\/confirm$/.test(path)) return handleAdminConfirmOrder(request, db, url);
       if (request.method === 'POST' && /^\/api\/admin\/orders\/\d+\/cancel$/.test(path)) return handleAdminCancelOrder(db, url);
       if (request.method === 'POST' && /^\/api\/admin\/users\/\d+\/adjust$/.test(path)) return handleAdminAdjustChars(request, db, url);
