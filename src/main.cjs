@@ -10,6 +10,7 @@ const { createOwnershipRegistry } = require('./webview-ownership.cjs');
 const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
+const { createInternalCdp } = require('./internal-cdp.cjs');
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
   overrideDir: process.env.GEEK_USER_DATA_DIR
@@ -32,6 +33,30 @@ process.on('uncaughtExceptionMonitor', (error, origin) => {
     origin,
     errorMessage: String(error?.message || error).slice(0, 500)
   });
+});
+
+// 应用内 CDP：正式打包版不依赖外部 9344。开发模式（带 --remote-debugging-port=9344）时
+// 外部调试器已附加到 webview，webContents.debugger 命令会静默无效，因此探测到 9344 时
+// 附件处理器走原外部 CDP 路径；未探测到（打包版）走应用内 CDP。
+let externalDebuggingActive = false;
+async function probeExternalDebugging() {
+  try {
+    await new Promise((resolve, reject) => {
+      const httpMod = require('node:http');
+      httpMod.get('http://127.0.0.1:9344/json', (res) => {
+        res.resume();
+        res.on('end', resolve);
+      }).on('error', reject);
+    });
+    externalDebuggingActive = true;
+  } catch {
+    externalDebuggingActive = false;
+  }
+}
+const internalCdp = createInternalCdp({
+  getAllWebContents: () => webContents.getAllWebContents(),
+  timeoutMs: 10000,
+  externalDebugging: false
 });
 
 // 固定 userData 目录：防止 package name 变化导致登录态数据目录漂移
@@ -1099,27 +1124,63 @@ function registerIpcHandlers() {
     return files.length === 1 ? files[0] : files;
   });
 
-  // 群发文件（WA 底层 API——HelloWorld 同款）：CDP 注入 File 对象到页面（不传 base64——大图不卡）
-  // 页面内：隐藏 input 接收 File → prepRawMedia → sendMediaMsgToChat（ChatStore.get 模型）
-  ipcMain.handle('broadcast:send-file', async (event, payload) => {
-    assertTrustedSender(event);
-    const { partition, filePath, chatId, caption, mime, name } = payload || {};
-    if (!partition || !filePath || !chatId) throw new Error('参数错误');
-    const urlMatch = 'web.whatsapp.com';
-    const isWaTarget = (u) => u.includes(urlMatch) || u.includes(`127.0.0.1:${WA_LOCAL_PORT}`);
-    const targets = await new Promise((resolve, reject) => {
-      const httpMod = require('node:http');
-      httpMod.get('http://127.0.0.1:9344/json', (res) => {
-        let d = ''; res.on('data', (c) => d += c);
-        res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } });
-      }).on('error', reject);
-    });
-    const target = targets.find((t) => t.type === 'webview' && isWaTarget(t.url));
-    if (!target || !target.webSocketDebuggerUrl) throw new Error('找不到账号页面');
+  // WA 媒体发送链路（HelloWorld 同款）：隐藏 input 接收 File → prepRawMedia → sendMediaMsgToChat
+  // 传输层由调用方提供 send(method, params)，不关心内部/外部 CDP。
+  async function waSendFileViaCdp(send, { filePath, chatId, caption }) {
+    await send('DOM.enable');
+    // 1. 页面创建隐藏 input
+    const created = await send('Runtime.evaluate', { expression: `(() => {
+      const i = document.createElement('input');
+      i.type = 'file';
+      i.id = '__hw_file_input';
+      i.style.display = 'none';
+      document.body.appendChild(i);
+      return !!i;
+    })()`, returnByValue: true });
+    if (!created.result.value) throw new Error('创建文件输入框失败');
+    // 2. 注入文件（File 对象到 input.files）
+    const doc = await send('DOM.getDocument', { depth: -1 });
+    const q = await send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: '#__hw_file_input' });
+    const nodeIds = q.nodeIds || [];
+    if (!nodeIds.length) throw new Error('找不到文件输入框');
+    await send('DOM.setFileInputFiles', { nodeId: nodeIds[0], files: [filePath] });
+    // 3. 页面内 File → prepRawMedia → sendMediaMsgToChat（HelloWorld 同款链路）
+    const expr = `(async () => {
+      try {
+        const inp = document.getElementById('__hw_file_input');
+        const file = inp && inp.files && inp.files[0];
+        if (!file) return 'NO_FILE';
+        const W = window.require;
+        const wpp = window.WAPLUS_WPP || window.WPP;
+        const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
+        if (!chatModel) return 'NO_CHAT';
+        const mediaData = W('WAWebMediaOpaqueData').createFromData(file, file.type);
+        const mime = file.type || '';
+        const type = mime.startsWith('image') ? 'image' : mime.startsWith('video') ? 'video' : mime.startsWith('audio') ? 'audio' : 'document';
+        const prepOptions = { isPtt: false, asDocument: type === 'document', asGif: false, isAudio: type === 'audio', asSticker: type === 'sticker', precomputedFields: { duration: null, waveform: null } };
+        const preparedMedia = W('WAWebMedia').prepRawMedia(mediaData, prepOptions);
+        await preparedMedia.waitForPrep();
+        const result = await W('WAWebMediaPrep').sendMediaMsgToChat({
+          chat: chatModel,
+          options: { addEvenWhilePreparing: false, caption: ${JSON.stringify(caption || '')}, type },
+          prep: preparedMedia,
+          earlyUpload: null,
+        });
+        inp.remove();
+        return result ? 'SENT' : 'FAIL';
+      } catch (e) { return 'ERR:' + e.message; }
+    })()`;
+    const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
+    return r.result ? r.result.value : 'EMPTY';
+  }
+
+  // 外部 CDP（9344）传输：给页面级流程提供 { send, onEvent }
+  async function withExternalCdpSend(targetUrl, run) {
     return await new Promise((resolve, reject) => {
-      const sock = new WebSocket(target.webSocketDebuggerUrl);
+      const sock = new WebSocket(targetUrl);
       let nextId = 1;
       const pending = new Map();
+      const listeners = new Set();
       sock.addEventListener('message', (ev) => {
         const msg = JSON.parse(ev.data);
         if (msg.id && pending.has(msg.id)) {
@@ -1128,110 +1189,10 @@ function registerIpcHandlers() {
           if (msg.error) rej(new Error(JSON.stringify(msg.error)));
           else res(msg.result);
         }
-      });
-      const send = (method, params = {}) => new Promise((res, rej) => {
-        const id = nextId++;
-        pending.set(id, { res, rej });
-        sock.send(JSON.stringify({ id, method, params }));
-      });
-      sock.addEventListener('open', async () => {
-        try {
-          await send('DOM.enable');
-          // 1. 页面创建隐藏 input
-          const created = await send('Runtime.evaluate', { expression: `(() => {
-            const i = document.createElement('input');
-            i.type = 'file';
-            i.id = '__hw_file_input';
-            i.style.display = 'none';
-            document.body.appendChild(i);
-            return !!i;
-          })()`, returnByValue: true });
-          if (!created.result.value) throw new Error('创建文件输入框失败');
-          // 2. 注入文件（File 对象到 input.files）
-          const doc = await send('DOM.getDocument', { depth: -1 });
-          const q = await send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: '#__hw_file_input' });
-          const nodeIds = q.nodeIds || [];
-          if (!nodeIds.length) throw new Error('找不到文件输入框');
-          await send('DOM.setFileInputFiles', { nodeId: nodeIds[0], files: [filePath] });
-          // 3. 页面内 File → prepRawMedia → sendMediaMsgToChat（HelloWorld 同款链路）
-          const expr = `(async () => {
-            try {
-              const inp = document.getElementById('__hw_file_input');
-              const file = inp && inp.files && inp.files[0];
-              if (!file) return 'NO_FILE';
-              const W = window.require;
-              const wpp = window.WAPLUS_WPP || window.WPP;
-              const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
-              if (!chatModel) return 'NO_CHAT';
-              const mediaData = W('WAWebMediaOpaqueData').createFromData(file, file.type);
-              const mime = file.type || '';
-              const type = mime.startsWith('image') ? 'image' : mime.startsWith('video') ? 'video' : mime.startsWith('audio') ? 'audio' : 'document';
-              const prepOptions = { isPtt: false, asDocument: type === 'document', asGif: false, isAudio: type === 'audio', asSticker: type === 'sticker', precomputedFields: { duration: null, waveform: null } };
-              const preparedMedia = W('WAWebMedia').prepRawMedia(mediaData, prepOptions);
-              await preparedMedia.waitForPrep();
-              const result = await W('WAWebMediaPrep').sendMediaMsgToChat({
-                chat: chatModel,
-                options: { addEvenWhilePreparing: false, caption: ${JSON.stringify(caption || '')}, type },
-                prep: preparedMedia,
-                earlyUpload: null,
-              });
-              inp.remove();
-              return result ? 'SENT' : 'FAIL';
-            } catch (e) { return 'ERR:' + e.message; }
-          })()`;
-          const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
-          resolve(r.result ? r.result.value : 'EMPTY');
-        } catch (e) { reject(e); }
-        finally { sock.close(); }
-      });
-      sock.addEventListener('error', () => { reject(new Error('CDP 连接失败')); });
-    });
-  });
-
-  // 群发附件（WA UI 路径）：拦截文件选择器 + 点附件 + 照片菜单 + 喂文件（真实鼠标——React 一定响应）
-  ipcMain.handle('broadcast:attach-file', async (event, payload) => {
-    assertTrustedSender(event);
-    const { partition, filePath, platform } = payload || {};
-    if (!partition || !filePath) throw new Error('参数错误');
-    const wc = webContents.getAllWebContents().find((w) => {
-      if (w.isDestroyed()) return false;
-      try { return (w.session?.storagePath || '').includes(partition.replace(/^persist:/, '')); } catch (e) { return false; }
-    });
-    if (!wc) throw new Error('找不到账号页面');
-    // 用 9344 外部 CDP（webview 有独立 target——不占用 wc.debugger）
-    return await attachFileViaExternalCdp(filePath, platform);
-  });
-
-  // 外部 CDP（9344）UI 文件注入：拦截文件选择器 + 真实鼠标点附件/照片 + 喂文件（React 一定响应）
-  async function attachFileViaExternalCdp(filePath, platform) {
-    const urlMatch = platform === 'whatsapp' ? ('web.whatsapp.com|127.0.0.1:' + WA_LOCAL_PORT) : platform === 'line' ? 'chrome-extension' : 'web.telegram.org';
-    const isTarget = (u) => urlMatch.includes('|') ? (u.includes('web.whatsapp.com') || u.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) : u.includes(urlMatch);
-    const targets = await new Promise((resolve, reject) => {
-      const httpMod = require('node:http');
-      httpMod.get('http://127.0.0.1:9344/json', (res) => {
-        let d = ''; res.on('data', (c) => d += c);
-        res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } });
-      }).on('error', reject);
-    });
-    const target = targets.find((t) => t.type === 'webview' && isTarget(t.url));
-    if (!target || !target.webSocketDebuggerUrl) throw new Error('找不到账号页面');
-    return await new Promise((resolve, reject) => {
-      const sock = new WebSocket(target.webSocketDebuggerUrl);
-      let nextId = 1;
-      const pending = new Map();
-      sock.addEventListener('message', (ev) => {
-        const msg = JSON.parse(ev.data);
-        if (msg.id && pending.has(msg.id)) {
-          const { res, rej } = pending.get(msg.id);
-          pending.delete(msg.id);
-          if (msg.error) rej(new Error(JSON.stringify(msg.error)));
-          else res(msg.result);
-        }
-        // 文件选择器打开 → 喂文件
-        if (msg.method === 'Page.fileChooserOpened' && msg.params && msg.params.backendNodeId) {
-          send('DOM.setFileInputFiles', { backendNodeId: msg.params.backendNodeId, files: [filePath] })
-            .then(() => console.log('[attach] 文件已喂给选择器'))
-            .catch((e) => console.log('[attach] 喂文件失败:', e.message));
+        if (msg.method) {
+          for (const handler of listeners) {
+            try { handler(msg.method, msg.params); } catch { /* 事件处理器异常不影响命令流 */ }
+          }
         }
       });
       const send = (method, params = {}) => new Promise((res, rej) => {
@@ -1239,114 +1200,181 @@ function registerIpcHandlers() {
         pending.set(id, { res, rej });
         sock.send(JSON.stringify({ id, method, params }));
       });
-      const realClick = async (x, y) => {
-        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-      };
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const onEvent = (handler) => { listeners.add(handler); return () => listeners.delete(handler); };
+      const connectTimer = setTimeout(() => { try { sock.close(); } catch { /* ignore */ } reject(new Error('CDP 连接超时')); }, 10000);
       sock.addEventListener('open', async () => {
+        clearTimeout(connectTimer);
         try {
-          await send('Page.enable');
-          await send('DOM.enable');
-          await send('Page.setInterceptFileChooserDialog', { enabled: true });
-          // 1. 确保打开了聊天（附件按钮只在聊天页）——没打开就真实点击第一个聊天行
-          let btn = await send('Runtime.evaluate', { expression: `(() => {
-            const b = document.querySelector('[data-testid="plus-rounded"]');
-            if (!b) return JSON.stringify({ ok: false });
-            const r = b.getBoundingClientRect();
-            return JSON.stringify({ ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
-          })()`, returnByValue: true });
-          let bp = JSON.parse(btn.result.value);
-          if (!bp.ok) {
-            // 循环尝试点击聊天行（排除过滤行/Business 广告行），直到聊天打开（输入框出现）
-            let opened = false;
-            for (let attempt = 0; attempt < 6 && !opened; attempt++) {
-              const row = await send('Runtime.evaluate', { expression: `(() => {
-                const rows = [...document.querySelectorAll('div[role="row"]')];
-                const r = rows.find(x => {
-                  const t = (x.textContent || '').trim();
-                  const testId = x.getAttribute('data-testid') || '';
-                  return testId !== 'list-item-0'
-                    && !/^(所有|未读|特别关注|群组|已归档|收件人)$/.test(t.slice(0, 4))
-                    && !/wds-ic-whatsapp|Principal|立即发布广告|只有 WhatsApp/.test(t.slice(0, 30));
-                });
-                if (!r) return JSON.stringify({ ok: false });
-                const rc = r.getBoundingClientRect();
-                return JSON.stringify({ ok: true, x: Math.round(rc.x + rc.width / 2), y: Math.round(rc.y + rc.height / 2) });
-              })()`, returnByValue: true });
-              const rp = JSON.parse(row.result.value);
-              if (!rp.ok) break;
-              await realClick(rp.x, rp.y);
-              await sleep(2500);
-              const chk = await send('Runtime.evaluate', { expression: `!!document.querySelector('[contenteditable="true"][data-tab="10"]')`, returnByValue: true });
-              if (chk.result.value) { opened = true; break; }
-              // 没打开：关掉可能的弹层（Esc）再试下一个
-              await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-              await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
-            }
-            if (!opened) throw new Error('无法自动打开聊天');
-            btn = await send('Runtime.evaluate', { expression: `(() => {
-              const b = document.querySelector('[data-testid="plus-rounded"]');
-              if (!b) return JSON.stringify({ ok: false });
-              const r = b.getBoundingClientRect();
-              return JSON.stringify({ ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
-            })()`, returnByValue: true });
-            bp = JSON.parse(btn.result.value);
-            if (!bp.ok) throw new Error('聊天打开后仍未找到附件按钮');
-          }
-          await realClick(bp.x, bp.y);
-          await sleep(1200);
-          // 2. 点"照片和视频"菜单
-          const menu = await send('Runtime.evaluate', { expression: `(() => {
-            const items = [...document.querySelectorAll('[role="menuitem"]')];
-            const photo = items.find(b => /照片|photo/i.test(b.textContent || ''));
-            if (!photo) return JSON.stringify({ ok: false });
-            const r = photo.getBoundingClientRect();
-            return JSON.stringify({ ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
-          })()`, returnByValue: true });
-          const mp = JSON.parse(menu.result.value);
-          if (mp.ok) {
-            await realClick(mp.x, mp.y);
-            console.log('[attach] 照片菜单已点，等待文件选择器…');
-            // 3. 等 fileChooserOpened（消息处理器喂文件）
-            await sleep(3000);
-            resolve(true);
-          } else {
-            // 没有照片菜单（可能菜单没开/或当前没有附件按钮）——直接注入 file input
-            const doc = await send('DOM.getDocument', { depth: -1 });
-            const q = await send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: 'input[type="file"]' });
-            const nodeIds = q.nodeIds || [];
-            if (!nodeIds.length) throw new Error('找不到文件输入框');
-            await send('DOM.setFileInputFiles', { nodeId: nodeIds[0], files: [filePath] });
-            resolve(true);
-          }
+          const result = await run({ send, onEvent });
+          resolve(result);
         } catch (e) { reject(e); }
-        finally { sock.close(); }
+        finally { sock.close(); listeners.clear(); }
       });
-      sock.addEventListener('error', () => { reject(new Error('CDP 连接失败')); });
+      sock.addEventListener('error', () => { clearTimeout(connectTimer); reject(new Error('CDP 连接失败')); });
     });
   }
 
-  // 群发附件：真实拖拽文件到账号页面（走 9344 CDP——debugger.attach 会被调试端口占用）
-  ipcMain.handle('broadcast:drop-file', async (event, payload) => {
-    assertTrustedSender(event);
-    const { partition, filePath, mime, platform } = payload || {};
-    if (!partition || !filePath) throw new Error('参数错误');
+  async function externalTargets() {
+    return await new Promise((resolve, reject) => {
+      const httpMod = require('node:http');
+      httpMod.get('http://127.0.0.1:9344/json', (res) => {
+        let d = ''; res.on('data', (c) => d += c);
+        res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } });
+      }).on('error', reject);
+    });
+  }
+
+  function findExternalTarget(targets, platform) {
     const urlMatch = platform === 'whatsapp' ? ('web.whatsapp.com|127.0.0.1:' + WA_LOCAL_PORT)
       : platform === 'line' ? 'chrome-extension'
       : 'web.telegram.org';
     const isTarget = (u) => urlMatch.includes('|') ? (u.includes('web.whatsapp.com') || u.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) : u.includes(urlMatch);
-    // 1. 拿 webview 的 CDP target
-    const targets = await new Promise((resolve, reject) => {
-      const httpMod = require('node:http');
-      httpMod.get('http://127.0.0.1:9344/json', (res) => {
-        let d = ''; res.on('data', (c) => d += c);
-        res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } });
-      }).on('error', reject);
-    });
     const target = targets.find((t) => t.type === 'webview' && isTarget(t.url));
     if (!target || !target.webSocketDebuggerUrl) throw new Error('找不到账号页面');
-    // 2. 拿输入区坐标（同 webContents executeJavaScript——先通过主窗口 webContents 找 guest）
+    return target.webSocketDebuggerUrl;
+  }
+
+  // 群发文件（WA 底层 API——HelloWorld 同款）：CDP 注入 File 对象到页面（不传 base64——大图不卡）
+  ipcMain.handle('broadcast:send-file', async (event, payload) => {
+    assertTrustedSender(event);
+    const { partition, filePath, chatId, caption, mime, name } = payload || {};
+    if (!partition || !filePath || !chatId) throw new Error('参数错误');
+    if (externalDebuggingActive) {
+      const targets = await externalTargets();
+      const wsUrl = findExternalTarget(targets, 'whatsapp');
+      return await withExternalCdpSend(wsUrl, ({ send }) => waSendFileViaCdp(send, { filePath, chatId, caption }));
+    }
+    return await internalCdp.run(partition, 'whatsapp', ({ send }) => waSendFileViaCdp(send, { filePath, chatId, caption }));
+  });
+
+  // 群发附件（WA UI 路径）：拦截文件选择器 + 点附件 + 照片菜单 + 喂文件（真实鼠标——React 一定响应）
+  // UI 文件注入：拦截文件选择器 + 真实鼠标点附件/照片 + 喂文件（React 一定响应）
+  async function attachFileViaCdp({ send, onEvent }, filePath) {
+    await send('Page.enable');
+    await send('DOM.enable');
+    await send('Page.setInterceptFileChooserDialog', { enabled: true });
+    // 文件选择器打开 → 喂文件
+    const off = onEvent((method, params) => {
+      if (method === 'Page.fileChooserOpened' && params && params.backendNodeId) {
+        send('DOM.setFileInputFiles', { backendNodeId: params.backendNodeId, files: [filePath] })
+          .then(() => console.log('[attach] 文件已喂给选择器'))
+          .catch((e) => console.log('[attach] 喂文件失败:', e.message));
+      }
+    });
+    const realClick = async (x, y) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    try {
+      // 1. 确保打开了聊天（附件按钮只在聊天页）——没打开就真实点击第一个聊天行
+      let btn = await send('Runtime.evaluate', { expression: `(() => {
+        const b = document.querySelector('[data-testid="plus-rounded"]');
+        if (!b) return JSON.stringify({ ok: false });
+        const r = b.getBoundingClientRect();
+        return JSON.stringify({ ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
+      })()`, returnByValue: true });
+      let bp = JSON.parse(btn.result.value);
+      if (!bp.ok) {
+        // 循环尝试点击聊天行（排除过滤行/Business 广告行），直到聊天打开（输入框出现）
+        let opened = false;
+        for (let attempt = 0; attempt < 6 && !opened; attempt++) {
+          const row = await send('Runtime.evaluate', { expression: `(() => {
+            const rows = [...document.querySelectorAll('div[role="row"]')];
+            const r = rows.find(x => {
+              const t = (x.textContent || '').trim();
+              const testId = x.getAttribute('data-testid') || '';
+              return testId !== 'list-item-0'
+                && !/^(所有|未读|特别关注|群组|已归档|收件人)$/.test(t.slice(0, 4))
+                && !/wds-ic-whatsapp|Principal|立即发布广告|只有 WhatsApp/.test(t.slice(0, 30));
+            });
+            if (!r) return JSON.stringify({ ok: false });
+            const rc = r.getBoundingClientRect();
+            return JSON.stringify({ ok: true, x: Math.round(rc.x + rc.width / 2), y: Math.round(rc.y + rc.height / 2) });
+          })()`, returnByValue: true });
+          const rp = JSON.parse(row.result.value);
+          if (!rp.ok) break;
+          await realClick(rp.x, rp.y);
+          await sleep(2500);
+          const chk = await send('Runtime.evaluate', { expression: `!!document.querySelector('[contenteditable="true"][data-tab="10"]')`, returnByValue: true });
+          if (chk.result.value) { opened = true; break; }
+          // 没打开：关掉可能的弹层（Esc）再试下一个
+          await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        }
+        if (!opened) throw new Error('无法自动打开聊天');
+        btn = await send('Runtime.evaluate', { expression: `(() => {
+          const b = document.querySelector('[data-testid="plus-rounded"]');
+          if (!b) return JSON.stringify({ ok: false });
+          const r = b.getBoundingClientRect();
+          return JSON.stringify({ ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
+        })()`, returnByValue: true });
+        bp = JSON.parse(btn.result.value);
+        if (!bp.ok) throw new Error('聊天打开后仍未找到附件按钮');
+      }
+      await realClick(bp.x, bp.y);
+      await sleep(1200);
+      // 2. 点"照片和视频"菜单
+      const menu = await send('Runtime.evaluate', { expression: `(() => {
+        const items = [...document.querySelectorAll('[role="menuitem"]')];
+        const photo = items.find(b => /照片|photo/i.test(b.textContent || ''));
+        if (!photo) return JSON.stringify({ ok: false });
+        const r = photo.getBoundingClientRect();
+        return JSON.stringify({ ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
+      })()`, returnByValue: true });
+      const mp = JSON.parse(menu.result.value);
+      if (mp.ok) {
+        await realClick(mp.x, mp.y);
+        console.log('[attach] 照片菜单已点，等待文件选择器…');
+        // 3. 等 fileChooserOpened（onEvent 处理器喂文件）
+        await sleep(3000);
+        return true;
+      }
+      // 没有照片菜单（可能菜单没开/或当前没有附件按钮）——直接注入 file input
+      const doc = await send('DOM.getDocument', { depth: -1 });
+      const q = await send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: 'input[type="file"]' });
+      const nodeIds = q.nodeIds || [];
+      if (!nodeIds.length) throw new Error('找不到文件输入框');
+      await send('DOM.setFileInputFiles', { nodeId: nodeIds[0], files: [filePath] });
+      return true;
+    } finally {
+      off();
+    }
+  }
+
+  ipcMain.handle('broadcast:attach-file', async (event, payload) => {
+    assertTrustedSender(event);
+    const { partition, filePath, platform } = payload || {};
+    if (!partition || !filePath) throw new Error('参数错误');
+    const targetPlatform = platform || 'whatsapp';
+    if (externalDebuggingActive) {
+      const targets = await externalTargets();
+      const wsUrl = findExternalTarget(targets, targetPlatform);
+      return await withExternalCdpSend(wsUrl, (ctx) => attachFileViaCdp(ctx, filePath));
+    }
+    return await internalCdp.run(partition, targetPlatform, (ctx) => attachFileViaCdp(ctx, filePath));
+  });
+
+  // 群发附件：真实拖拽文件到账号页面（应用内 CDP；开发模式探测到 9344 时走外部 CDP）
+  async function dropFileViaCdp({ send }, { filePath, mime, pos }) {
+    const dragData = {
+      items: [{ mimeType: mime || 'application/octet-stream', data: 'file:///' + filePath.replace(/\\/g, '/') }],
+      files: [filePath],
+      dragOperationsMask: 1
+    };
+    await send('Input.dispatchDragEvent', { type: 'dragEnter', x: pos.x, y: pos.y, data: dragData });
+    await send('Input.dispatchDragEvent', { type: 'dragOver', x: pos.x, y: pos.y, data: dragData });
+    await send('Input.dispatchDragEvent', { type: 'drop', x: pos.x, y: pos.y, data: dragData });
+    // 验证弹窗
+    const chk = await send('Runtime.evaluate', { expression: `(() => {
+      const modalBtn = [...document.querySelectorAll('.modal-dialog button, .modal-container button')].find(b => /primary/.test((b.className || '').toString()));
+      return modalBtn ? 'MODAL_OK' : 'NO_MODAL';
+    })()`, returnByValue: true });
+    return chk?.result?.value === 'MODAL_OK';
+  }
+
+  async function getDropPos(partition) {
+    // 拿输入区坐标（同 webContents executeJavaScript——先通过主窗口 webContents 找 guest）
     const wc = webContents.getAllWebContents().find((w) => {
       if (w.isDestroyed()) return false;
       try { return (w.session?.storagePath || '').includes(partition.replace(/^persist:/, '')); } catch (e) { return false; }
@@ -1364,49 +1392,21 @@ function registerIpcHandlers() {
       } catch (e) { /* ignore */ }
     }
     if (!pos) throw new Error('找不到输入区');
-    // 3. WebSocket CDP 发真实拖拽
-    const wsUrl = target.webSocketDebuggerUrl;
-    const result = await new Promise((resolve, reject) => {
-      const sock = new WebSocket(wsUrl);
-      let nextId = 1;
-      const pending = new Map();
-      const onMsg = (ev) => {
-        const msg = JSON.parse(ev.data);
-        if (msg.id && pending.has(msg.id)) {
-          const { res, rej } = pending.get(msg.id);
-          pending.delete(msg.id);
-          if (msg.error) rej(new Error(JSON.stringify(msg.error)));
-          else res(msg.result);
-        }
-      };
-      sock.addEventListener('message', onMsg);
-      const send = (method, params = {}) => new Promise((res, rej) => {
-        const id = nextId++;
-        pending.set(id, { res, rej });
-        sock.send(JSON.stringify({ id, method, params }));
-      });
-      sock.addEventListener('open', async () => {
-        try {
-          const dragData = {
-            items: [{ mimeType: mime || 'application/octet-stream', data: 'file:///' + filePath.replace(/\\/g, '/') }],
-            files: [filePath],
-            dragOperationsMask: 1
-          };
-          await send('Input.dispatchDragEvent', { type: 'dragEnter', x: pos.x, y: pos.y, data: dragData });
-          await send('Input.dispatchDragEvent', { type: 'dragOver', x: pos.x, y: pos.y, data: dragData });
-          await send('Input.dispatchDragEvent', { type: 'drop', x: pos.x, y: pos.y, data: dragData });
-          // 验证弹窗
-          const chk = await send('Runtime.evaluate', { expression: `(() => {
-            const modalBtn = [...document.querySelectorAll('.modal-dialog button, .modal-container button')].find(b => /primary/.test((b.className || '').toString()));
-            return modalBtn ? 'MODAL_OK' : 'NO_MODAL';
-          })()`, returnByValue: true });
-          resolve(chk?.result?.value === 'MODAL_OK');
-        } catch (e) { reject(e); }
-        finally { sock.close(); }
-      });
-      sock.addEventListener('error', (e) => { reject(new Error('CDP 连接失败')); });
-    });
-    return result;
+    return pos;
+  }
+
+  ipcMain.handle('broadcast:drop-file', async (event, payload) => {
+    assertTrustedSender(event);
+    const { partition, filePath, mime, platform } = payload || {};
+    if (!partition || !filePath) throw new Error('参数错误');
+    const targetPlatform = platform || 'whatsapp';
+    const pos = await getDropPos(partition);
+    if (externalDebuggingActive) {
+      const targets = await externalTargets();
+      const wsUrl = findExternalTarget(targets, targetPlatform);
+      return await withExternalCdpSend(wsUrl, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos }));
+    }
+    return await internalCdp.run(partition, targetPlatform, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos }));
   });
   // 选择 CSV 联系人文件（群发导入）
   ipcMain.handle('file:pick-csv', async (event) => {
@@ -1859,6 +1859,7 @@ async function startWaLocalServer() {
 
 app.whenReady().then(async () => {
   diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });
+  await probeExternalDebugging();
   startWaLocalServer();
   try {
     await runtimePaths.migrateRuntimeFiles({
