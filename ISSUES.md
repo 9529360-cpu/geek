@@ -45,3 +45,30 @@
 - Telegram 登录页恢复，翻译配置、请求桥和适配器均已注入；当前没有选中聊天，所以本轮未产生新译文。
 - 两路 LINE 均恢复到 `#/chats` 且本地 token 有效；认证实时流进入 `OPEN`，“网络不稳定”已消失，当前在线状态通过。
 - 本地翻译网关 `/health` 返回 200，实际 POST `Hello` → `你好` 成功。
+
+## 付费订阅体系（2026-08-16）
+
+### 产品逻辑（用户纠正，重要）
+- **Freemium，绝不强制付费**：注册即用 + 赠送 2 万字符翻译额度；额度用完翻译静默停止（不弹提示、不锁客户端），用户自行决定充值；订阅生效期翻译不限量。
+- 登录门禁保留（未登录弹登录窗，登录后才能进主应用——对齐原版），但**已登录无论是否有订阅都直接进主应用**，不用订阅锁定客户端。
+- 用户原话："不购买也可以正常使用，就是没有翻译能力而已；注册了账户之后就可以使用，送两万字符；购买在个人中心续费开通，不能强制客户。"
+
+### 架构（全 Cloudflare 零成本）
+- D1 数据库 `geek-subscriptions`（users 含 quota_chars 默认 20000 / subs / orders）
+- Worker `geek-subscription`：`https://geek-subscription.9529360.workers.dev`
+- 管理后台 `/admin`（管理员密码在桌面 服务器.txt）
+- API：register/login(JWT)/me/status/quota/usage(原子扣减)/orders + admin 系列
+- 套餐常量 `PLANS`（worker 顶部）：月 €9 / 季 €24 / 年 €79
+
+### 客户端接入
+- `src/subscription.cjs`：状态/额度/扣减 store（token 存 userData/subscription.json）
+- `ui/subscription.html`：登录/注册/个人中心（额度/订阅/购买）/订单视图
+- 翻译链路：翻译前 `getQuota`（30s 缓存）→ 不足抛 `QUOTA_EXHAUSTED`；成功翻译后 `reportUsage` fire-and-forget；UI 遇额度错误静默移除译文框
+- 门禁：未登录→订阅窗口；已登录→主窗口 + 后台 refresh
+
+### 坑
+- `wrangler deploy` 不支持 `--d1` 命令行参数，必须用 wrangler.toml 配置 `[[d1_databases]]` 绑定
+- D1 加列：`ALTER TABLE users ADD COLUMN quota_chars INTEGER NOT NULL DEFAULT 20000`（已有行默认值不会自动填，需 UPDATE）
+- 管理接口路径取 ID 用 `split('/').filter(Boolean)` 后取 `[len-2]`，`pop()` 会拿到 `confirm`/`disable` 而非 ID
+- 开发调试用 `GEEK_USER_DATA_DIR` 隔离 userData；杀 electron 测试实例要 taskkill 进程树（kill wrapper 会残留主进程）
+- 额度扣减必须原子：`UPDATE ... SET quota_chars = MAX(0, quota_chars - ?)` 防并发超扣
