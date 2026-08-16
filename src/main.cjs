@@ -72,22 +72,36 @@ try {
 } catch (e) { /* 设置失败不影响 */ }
 
 // LINE 登录 token 宿主文件备份（对齐原版 line.json 机制：登出清 localStorage 也不丢）
+// 敏感数据：token 用 safeStorage(DPAPI) 加密落盘，防止木马直接读明文
 const LINE_TOKENS_FILE = () => path.join(app.getPath('userData'), 'line-tokens.json');
 let lineTokensCache = {}; // partition -> token JSON 字符串
 const lineGuestContents = new Map(); // partition -> LINE guest webContents（token 备份用）
 const wppInjected = new Set(); // 已注入 WPP 的 partition（WA 内部 API 直发）
 const pendingPartitionDeletions = new Set(); // 删除失败的分区目录，退出时兜底清理
+function lineTokenEncrypt(text) {
+  try { return 'enc:' + safeStorage.encryptString(String(text)).toString('base64'); } catch { return text; }
+}
+function lineTokenDecrypt(value) {
+  if (typeof value === 'string' && value.startsWith('enc:')) {
+    try { return safeStorage.decryptString(Buffer.from(value.slice(4), 'base64')); } catch { return ''; }
+  }
+  return value;
+}
 async function loadLineTokens() {
   try {
     const raw = await fs.readFile(LINE_TOKENS_FILE(), 'utf-8');
-    lineTokensCache = JSON.parse(raw || '{}');
+    const parsed = JSON.parse(raw || '{}');
+    // 兼容旧版明文：解密 enc: 前缀字段
+    for (const [k, v] of Object.entries(parsed)) lineTokensCache[k] = lineTokenDecrypt(v);
   } catch { lineTokensCache = {}; }
 }
 async function saveLineToken(partition, tokenJson) {
   if (!tokenJson) return;
   lineTokensCache[partition] = tokenJson;
   try {
-    await fs.writeFile(LINE_TOKENS_FILE(), JSON.stringify(lineTokensCache), 'utf-8');
+    const encrypted = {};
+    for (const [k, v] of Object.entries(lineTokensCache)) encrypted[k] = lineTokenEncrypt(v);
+    await fs.writeFile(LINE_TOKENS_FILE(), JSON.stringify(encrypted), 'utf-8');
   } catch (e) { /* 写失败不影响 */ }
 }
 
@@ -375,7 +389,10 @@ function normalizeConfig(raw) {
     host: typeof value.host === 'string' ? value.host : DEFAULT_CONFIG.host,
     port: typeof value.port === 'string' ? value.port : DEFAULT_CONFIG.port,
     login: typeof value.login === 'string' ? value.login : DEFAULT_CONFIG.login,
-    password: typeof value.password === 'string' ? value.password : DEFAULT_CONFIG.password
+    // 代理密码加密存储（safeStorage DPAPI），兼容旧版明文（enc: 前缀是加密的）
+    password: typeof value.password === 'string'
+      ? (value.password.startsWith('enc:') ? safeDecrypt(value.password.slice(4)) : value.password)
+      : DEFAULT_CONFIG.password
   };
 }
 
@@ -393,8 +410,19 @@ async function loadConfig() {
   }
 }
 
+function safeDecrypt(b64) {
+  try { return safeStorage.decryptString(Buffer.from(b64, 'base64')); } catch { return ''; }
+}
+function safeEncrypt(text) {
+  try { return 'enc:' + safeStorage.encryptString(String(text)).toString('base64'); } catch { return text; }
+}
+
 function persistConfig() {
-  const snapshot = JSON.stringify(configState, null, 2);
+  // 代理密码等敏感字段加密后再落盘（内存里保留明文用于代理鉴权，磁盘不落明文）
+  const snapshot = JSON.stringify({
+    ...configState,
+    password: configState.password ? safeEncrypt(configState.password) : ''
+  }, null, 2);
   configQueue = configQueue
     .catch(() => {})
     .then(async () => {
@@ -1796,6 +1824,13 @@ let subscriptionCheckDone = false; // 启动检查是否完成（避免重复弹
 function initSubscriptionStore() {
   if (!subscriptionStore) {
     subscriptionStore = createSubscriptionStore({ userDataDir: USER_DATA_DIR });
+    // 注入 safeStorage 加解密：token 落盘加密（DPAPI），防止木马直接读明文凭据
+    try {
+      subscriptionStore._injectCrypto({
+        encrypt: (text) => safeStorage.encryptString(text).toString('base64'),
+        decrypt: (b64) => safeStorage.decryptString(Buffer.from(b64, 'base64')),
+      });
+    } catch (e) { console.error('[subscription] 安全存储注入失败:', e.message); }
   }
   return subscriptionStore;
 }

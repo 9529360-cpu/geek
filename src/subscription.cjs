@@ -9,6 +9,25 @@ const fs = require('node:fs/promises');
 
 const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
 
+// 敏感字段加密（safeStorage DPAPI）：token 等不落明文
+// 注入方式：main.cjs 里调用 initSecureCrypto()，把 {encrypt, decrypt} 传进来
+let secureCrypto = null;
+function setSecureCrypto(cryptoImpl) {
+  secureCrypto = cryptoImpl;
+}
+function encryptField(text) {
+  if (secureCrypto && text) {
+    try { return 'enc:' + secureCrypto.encrypt(String(text)); } catch (e) { /* 降级明文 */ }
+  }
+  return text;
+}
+function decryptField(value) {
+  if (typeof value === 'string' && value.startsWith('enc:') && secureCrypto) {
+    try { return secureCrypto.decrypt(value.slice(4)); } catch (e) { return ''; }
+  }
+  return value;
+}
+
 function apiBase() {
   return (process.env.GEEK_SUBSCRIPTION_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
 }
@@ -23,6 +42,10 @@ function createSubscriptionStore({ userDataDir }) {
     try {
       const raw = await fs.readFile(stateFile(), 'utf-8');
       cache = JSON.parse(raw || '{}');
+      // 兼容：解密加密的 token（enc: 前缀）
+      if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
+        cache.token = decryptField(cache.token);
+      }
     } catch {
       cache = {};
     }
@@ -31,9 +54,12 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function save(patch) {
     const current = await load();
+    // 内存 cache 保留明文（request 等需要明文 token），写盘时加密敏感字段
     cache = { ...current, ...patch };
     try {
-      await fs.writeFile(stateFile(), JSON.stringify(cache, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      const disk = { ...cache };
+      if (disk.token) disk.token = encryptField(disk.token);
+      await fs.writeFile(stateFile(), JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
     } catch (e) {
       console.error('[subscription] 状态写入失败:', e.message);
     }
@@ -182,6 +208,7 @@ function createSubscriptionStore({ userDataDir }) {
     reportUsage,
     logout,
     clear,
+    _injectCrypto: setSecureCrypto,
     _file: stateFile,
   };
 }
