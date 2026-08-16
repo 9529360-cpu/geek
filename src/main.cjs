@@ -324,7 +324,10 @@ function normalizeStoredState(value) {
       host: typeof item.host === 'string' ? item.host : '',
       port: typeof item.port === 'string' ? item.port : '',
       huser: typeof item.huser === 'string' ? item.huser : '',
-      hpwd: typeof item.hpwd === 'string' ? item.hpwd : '',
+      // 代理密码：兼容旧版明文 + 新版 enc: 密文
+      hpwd: typeof item.hpwd === 'string'
+        ? (item.hpwd.startsWith('enc:') ? safeDecrypt(item.hpwd.slice(4)) : item.hpwd)
+        : '',
       createdAt:
         typeof item.createdAt === 'string'
           ? item.createdAt
@@ -383,7 +386,9 @@ function normalizeConfig(raw) {
     // 迁移：旧版 theme 存的是强调色（green/blue...）→ 转为 accent + 跟随系统
     accent: ['green','blue','purple','cyan','orange','pink'].includes(value.theme) ? value.theme
       : ['green','blue','purple','cyan','orange','pink'].includes(value.accent) ? value.accent : 'green',
-    lockPassword: typeof value.lockPassword === 'string' ? value.lockPassword : '',
+    lockPassword: typeof value.lockPassword === 'string'
+      ? (value.lockPassword.startsWith('enc:') ? safeDecrypt(value.lockPassword.slice(4)) : value.lockPassword)
+      : '',
     openProxy: typeof value.openProxy === 'boolean' ? value.openProxy : DEFAULT_CONFIG.openProxy,
     protocal: value.protocal === 'https' || value.protocal === 'socks4' || value.protocal === 'socks5' ? value.protocal : 'http',
     host: typeof value.host === 'string' ? value.host : DEFAULT_CONFIG.host,
@@ -418,9 +423,10 @@ function safeEncrypt(text) {
 }
 
 function persistConfig() {
-  // 代理密码等敏感字段加密后再落盘（内存里保留明文用于代理鉴权，磁盘不落明文）
+  // 代理密码、锁屏密码等敏感字段加密后再落盘（内存里保留明文用于鉴权/解锁，磁盘不落明文）
   const snapshot = JSON.stringify({
     ...configState,
+    lockPassword: configState.lockPassword ? safeEncrypt(configState.lockPassword) : '',
     password: configState.password ? safeEncrypt(configState.password) : ''
   }, null, 2);
   configQueue = configQueue
@@ -511,10 +517,15 @@ async function loadAccounts() {
 }
 
 function persistAccounts() {
+  // 敏感字段（代理密码 hpwd）加密落盘，内存保留明文用于代理鉴权
+  const accountsForDisk = accountsState.accounts.map((account) => ({
+    ...account,
+    hpwd: account.hpwd ? safeEncrypt(account.hpwd) : '',
+  }));
   const snapshot = JSON.stringify(
     {
       activeAccountId: accountsState.activeAccountId,
-      accounts: accountsState.accounts
+      accounts: accountsForDisk
     },
     null,
     2
