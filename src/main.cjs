@@ -928,7 +928,8 @@ function registerIpcHandlers() {
 
   ipcMain.handle('bridge:get-preload-path', async (event) => {
     assertTrustedSender(event);
-    return path.join(RESOURCES_DIR, 'bridge-preload.cjs');
+    const { pathToFileURL } = require('node:url');
+    return pathToFileURL(path.join(RESOURCES_DIR, 'bridge-preload.cjs')).href;
   });
 
   ipcMain.handle('accounts:list', async (event) => {
