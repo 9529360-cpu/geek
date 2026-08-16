@@ -14,7 +14,11 @@
           const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
           const securedPayload = { ...(payload || {}), bridgeToken: window.__geekTranslationBridgeToken };
           window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
-          console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+          if (document.documentElement.getAttribute('data-geek-bridge') === '1') {
+            window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id, token: window.__geekTranslationBridgeToken } }, '*');
+          } else {
+            console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+          }
           setTimeout(() => {
             const pending = window.__geekTranslationPending.get(id);
             if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); }
@@ -49,7 +53,11 @@
       const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
       return new Promise((resolve, reject) => {
         window.__geekNativeInputPending.set(id, { resolve, reject, text: String(text) });
-        console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+        if (document.documentElement.getAttribute('data-geek-bridge') === '1') {
+          window.postMessage({ __geekBridge: true, payload: { type: 'native-input-request', id, token: window.__geekTranslationBridgeToken } }, '*');
+        } else {
+          console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+        }
         setTimeout(() => { const p = window.__geekNativeInputPending.get(id); if (p) { window.__geekNativeInputPending.delete(id); p.reject(new Error('原生输入请求超时')); } }, 10000);
       });
     };
