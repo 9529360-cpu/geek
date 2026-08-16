@@ -549,6 +549,19 @@
 
   // ---------- WebView 创建 ----------
   let bridgePreloadPath = '';
+  // webview 崩溃自动重载限频（1分钟内最多2次，防崩溃循环）
+  const webviewCrashLimiter = (() => {
+    const timestamps = [];
+    return {
+      allow() {
+        const t = Date.now();
+        while (timestamps.length && timestamps[0] <= t - 60000) timestamps.shift();
+        if (timestamps.length >= 2) return false;
+        timestamps.push(t);
+        return true;
+      }
+    };
+  })();
   function getWebview(account) {
     if (wvMap.has(account.id)) return wvMap.get(account.id);
     const wv = document.createElement('webview');
@@ -579,6 +592,15 @@
       resizeWebviews();
       setTimeout(resizeWebviews, 100);
       registerWebviewBridge(wv, account).catch(error => console.error('WebView安全登记失败:', error.message));
+    });
+    // 崩溃自动恢复：限频重载（防崩溃循环），超限停止并记录
+    wv.addEventListener('render-process-gone', () => {
+      if (webviewCrashLimiter.allow()) {
+        console.warn('[crash] webview 崩溃，1分钟内限频2次内自动重载');
+        try { wv.reload(); } catch (e) { console.error('[crash] webview 重载失败:', e.message); }
+      } else {
+        console.error('[crash] webview 崩溃超限，停止自动重载，请手动刷新该账号');
+      }
     });
     // 未读消息检测：页面 title 带未读数（如 "（2）WhatsApp"）→ 红点+闪烁+通知
     wv.addEventListener('page-title-updated', (e) => {
