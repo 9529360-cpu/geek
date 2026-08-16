@@ -1860,6 +1860,7 @@ async function startWaLocalServer() {
 app.whenReady().then(async () => {
   diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });
   await probeExternalDebugging();
+  diagnostics.log('cdp-mode', { externalDebugging: externalDebuggingActive });
   startWaLocalServer();
   try {
     await runtimePaths.migrateRuntimeFiles({
