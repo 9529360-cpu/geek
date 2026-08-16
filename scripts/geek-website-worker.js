@@ -284,8 +284,9 @@ const ACCOUNT_HTML = `<!DOCTYPE html>
 <body>
 <div class="wrap">
   <nav>
-    <div class="logo">极客 Geek · 个人中心</div>
+    <a href="/" class="logo" style="text-decoration:none;color:inherit">极客 Geek · 个人中心</a>
     <div>
+      <a href="/" class="btn-ghost" style="display:inline-block;margin-right:8px;text-decoration:none">← 返回首页</a>
       <button class="btn-ghost" id="btn-logout">退出登录</button>
     </div>
   </nav>
