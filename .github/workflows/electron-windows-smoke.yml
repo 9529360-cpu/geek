@@ -1,0 +1,43 @@
+name: electron-windows-smoke
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - electron-builder.yml
+      - .github/workflows/electron-windows-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package Windows app
+        run: npm run pack
+
+      - name: Verify unpacked app
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist-release\win-unpacked')) {
+            throw 'Windows unpacked build was not created'
+          }
+          Get-ChildItem 'dist-release\win-unpacked' | Select-Object Name, Length
