@@ -424,14 +424,18 @@ function safeEncrypt(text) {
 }
 
 // 数据目录权限收紧：只允许当前 Windows 用户读取（阻止其他用户/低权限服务进程扫盘）
-// 使用 icacls 继承移除 + 当前用户只读权限；失败不影响启动（尽力而为）
+// 注意：不能使用 /inheritance:r（移除继承）——实验证实它会把子目录 ACL 清空
+// （子目录 Access count=0，连 Owner 都写不了 → 应用启动写 diagnostics 日志 EPERM → whenReady 中断）。
+// 安全做法：保留继承链，仅追加/替换当前用户完全控制；子目录继承后仍可写。
 function hardenUserDataDir() {
   if (process.platform !== 'win32' || !app.isPackaged) return;
   try {
     const { execFile } = require('node:child_process');
     const dir = app.getPath('userData');
-    // 1. 移除继承权限（阻止 Everyone/Users 组继承读）
-    execFile('icacls', [dir, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:F`], { timeout: 10000 }, (err) => {
+    // 1. 确保 diagnostics 等关键子目录已存在（继承收紧后的权限）
+    fs.mkdir(path.join(dir, 'diagnostics'), { recursive: true }).catch(() => {});
+    // 2. 替换当前用户权限为完全控制；保留继承（不加 /inheritance:r）
+    execFile('icacls', [dir, '/grant:r', `${process.env.USERNAME}:F`], { timeout: 10000 }, (err) => {
       if (err) console.error('[security] ACL 收紧失败（不影响运行）:', err.message);
       else console.log('[security] 数据目录 ACL 已收紧，仅当前用户可访问');
     });

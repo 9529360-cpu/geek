@@ -101,3 +101,30 @@
 - 管理接口路径取 ID 用 `split('/').filter(Boolean)` 后取 `[len-2]`，`pop()` 会拿到 `confirm`/`disable` 而非 ID
 - 开发调试用 `GEEK_USER_DATA_DIR` 隔离 userData；杀 electron 测试实例要 taskkill 进程树（kill wrapper 会残留主进程）
 - 额度扣减必须原子：`UPDATE ... SET quota_chars = MAX(0, quota_chars - ?)` 防并发超扣
+
+## 正式版"窗口消失"事故（2026-08-17 修复，v1.2.3）
+
+### 症状
+- 正式安装版（1.2.2）登录成功后，主窗口不出现；任务管理器能看到进程但没有窗口、没有托盘图标。
+- 用户描述"桌面上没有进程了"，实际是进程活着、窗口从未创建。
+
+### 根因（hardenUserDataDir 弄坏子目录 ACL → 日志写入失败 → whenReady 中断）
+1. `hardenUserDataDir()` 用 `icacls <dir> /inheritance:r /grant:r USER:F` 收紧权限。
+   **实验证实：/inheritance:r 会把子目录 ACL 清空（Access count=0，连 Owner 都无法写入）**。
+2. diagnostics 目录在模块加载时由 createDiagnostics 的 mkdirSync 创建（早于 app.setPath('userData')），
+   ACL 继承链被 icacls 破坏后，`diagnostics.log('app-ready')` 写日志抛 EPERM。
+3. whenReady 回调是 async 函数，第 2169 行 `diagnostics.log(...)` 抛异常 → 整个回调 reject →
+   后面 `createMainWindow()`（2188 行）**从未执行** → 无窗口、无托盘，但 app 进程活着。
+
+### 修复
+- `src/diagnostics.cjs`：log() 包 try/catch，日志写入失败静默降级（绝不影响主流程）。
+- `src/main.cjs` hardenUserDataDir()：去掉 `/inheritance:r`，仅 `icacls <dir> /grant:r USER:F`
+  （保留继承链，子目录仍可写）；收紧前先 mkdir diagnostics 子目录。
+- 用户已损坏的目录用 `icacls ... /grant:r USER:F /T /C` 递归修复。
+
+### 坑速查
+| 症状 | 原因 | 解法 |
+|---|---|---|
+| 进程活着但无窗口/托盘 | diagnostics 日志 EPERM → whenReady reject → createMainWindow 未执行 | log() 容错；ACL 收紧不用 /inheritance:r |
+| diagnostics 目录 Access count=0 | icacls /inheritance:r 清空子目录 ACL | 用 /grant:r（不带 /inheritance:r）+ 递归修复 |
+| 复现（副本目录）正常但正式版挂 | 副本用 icacls 递归修过权限 | 用真实目录/复刻用户 ACL 状态复现 |

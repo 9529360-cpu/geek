@@ -99,22 +99,28 @@ function createDiagnostics(options) {
   }
 
   function log(eventName, metadata) {
-    rotateIfNeeded();
-    const entry = {
-      timestamp: now(),
-      event: eventName,
-      metadata: sanitizeMetadata(metadata || {})
-    };
-    const line = JSON.stringify(entry) + '\n';
-    const lineBytes = Buffer.byteLength(line, 'utf8');
-    if (currentSize + lineBytes > maxBytes && currentSize > 0) {
+    try {
+      rotateIfNeeded();
+      const entry = {
+        timestamp: now(),
+        event: eventName,
+        metadata: sanitizeMetadata(metadata || {})
+      };
+      const line = JSON.stringify(entry) + '\n';
+      const lineBytes = Buffer.byteLength(line, 'utf8');
+      if (currentSize + lineBytes > maxBytes && currentSize > 0) {
+        currentFile = null;
+        currentSize = 0;
+        rotateIfNeeded();
+      }
+      fs.appendFileSync(currentFile, line, 'utf8');
+      currentSize += lineBytes;
+      cleanupOldFiles();
+    } catch (e) {
+      // 诊断日志失败绝不影响主流程（ACL/磁盘异常时静默降级）
       currentFile = null;
       currentSize = 0;
-      rotateIfNeeded();
     }
-    fs.appendFileSync(currentFile, line, 'utf8');
-    currentSize += lineBytes;
-    cleanupOldFiles();
   }
 
   return { log };

@@ -3,7 +3,7 @@
 // 设计语言：Linear/Vercel 风格——深色 + 霓虹渐变 + 毛玻璃 + SVG 线性图标 + 微动效
 
 const API_BASE = 'https://admin.bbnba.com';
-const VERSION = '1.2.2';
+const VERSION = '1.2.3';
 
 const SHARED_CSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
