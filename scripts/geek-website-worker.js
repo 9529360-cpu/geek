@@ -293,7 +293,7 @@ const HOME = layout(`
     <div class="section-head fade-up">
       <div class="kicker">Pricing</div>
       <h2>字符套餐 · 买断不限时</h2>
-      <p>注册即送 2 万字符，用完再买，没有时间限制。付款后由客服手动开通，通常几分钟内到账。</p>
+      <p>注册即送 2 万字符，用完再买，没有时间限制。USDT 到账后系统自动增加字符余额。</p>
     </div>
     <div class="plans">
       <div class="plan fade-up">
@@ -438,7 +438,7 @@ const ACCOUNT = layout(`
       <!-- 购买卡 -->
       <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:30px;backdrop-filter:blur(10px);margin-bottom:22px">
         <h3 style="font-size:18px;font-weight:700;margin-bottom:6px">购买字符包</h3>
-        <p style="color:var(--text-dim);font-size:13.5px;margin-bottom:24px">买断不限时，付款后客服手动到账</p>
+        <p style="color:var(--text-dim);font-size:13.5px;margin-bottom:24px">买断不限时，USDT 到账后自动增加字符余额</p>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px" class="mini-plans">
           <div style="background:rgba(255,255,255,.03);border:1px solid var(--card-border);border-radius:16px;padding:22px 18px;text-align:center">
             <div style="font-size:14px;color:var(--text-dim)">基础包</div>
@@ -463,6 +463,12 @@ const ACCOUNT = layout(`
         <div id="order-box"></div>
         <div id="ok" style="color:#4ade80;font-size:13.5px;margin-top:12px"></div>
         <div id="err" style="color:#f87171;font-size:13.5px;margin-top:12px"></div>
+      </div>
+
+      <!-- 订单记录 -->
+      <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:26px 30px;backdrop-filter:blur(10px);margin-bottom:22px">
+        <h3 style="font-size:17px;font-weight:700;margin-bottom:14px">最近订单</h3>
+        <div id="orders-list" style="display:grid;gap:10px;color:var(--text-dim);font-size:13.5px">加载中…</div>
       </div>
 
       <!-- 下载卡 -->
@@ -491,7 +497,29 @@ const ACCOUNT = layout(`
       const { data } = await api('/api/quota');
       const q = data.remaining_chars ?? 0;
       document.getElementById('quota').textContent = q.toLocaleString() + ' 字符';
+      await loadOrders();
     } catch (e) { document.getElementById('quota').textContent = '—'; }
+  }
+  async function loadOrders() {
+    const box = document.getElementById('orders-list');
+    const result = await api('/api/orders');
+    if (result.status !== 200) { box.textContent = '订单加载失败'; return; }
+    const orders = Array.isArray(result.data.orders) ? result.data.orders.slice(0, 10) : [];
+    if (!orders.length) { box.textContent = '暂无订单'; return; }
+    const planNames = { basic: '基础包', standard: '标准包', pro: '大包' };
+    const statusNames = { pending: '等待付款', processing: '确认中', paid: '已到账', cancelled: '已取消', expired: '已过期' };
+    const nodes = orders.map(order => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid var(--card-border);border-radius:11px;background:rgba(255,255,255,.02)';
+      const summary = document.createElement('span');
+      summary.textContent = '#' + (Number(order.id) || 0) + ' · ' + (planNames[order.plan] || '字符包') + ' · $' + (Number(order.amount) || 0);
+      const status = document.createElement('span');
+      status.textContent = statusNames[order.status] || '处理中';
+      status.style.color = order.status === 'paid' ? '#4ade80' : order.status === 'pending' ? '#fbbf24' : 'var(--text-dim)';
+      row.append(summary, status);
+      return row;
+    });
+    box.replaceChildren(...nodes);
   }
   async function buy(plan) {
     const ok = document.getElementById('ok'); const er = document.getElementById('err');

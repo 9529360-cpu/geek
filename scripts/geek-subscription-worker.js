@@ -35,10 +35,6 @@ function json(payload, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': 'https://geek.bbnba.com',
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
       'Cache-Control': 'no-store',
     },
   });
@@ -48,10 +44,7 @@ function handleOptions() {
   return new Response(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': 'https://geek.bbnba.com',
-      'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Cache-Control': 'no-store',
     },
   });
 }
@@ -378,10 +371,15 @@ async function runUsdtSweeper(db) {
           .bind(t.transaction_id, order.id).run();
         if (claim.meta.changes !== 1) continue;
         const chars = PLANS[order.plan]?.chars || 0;
-        await db.batch([
-          db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, order.user_id),
-          db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'processing'").bind(order.id),
-        ]);
+        try {
+          await db.batch([
+            db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, order.user_id),
+            db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'processing'").bind(order.id),
+          ]);
+        } catch (error) {
+          await db.prepare("UPDATE orders SET status = 'pending', tx_id = NULL WHERE id = ? AND status = 'processing'").bind(order.id).run();
+          throw error;
+        }
         await logAction(db, 'usdt_auto_confirm', '订单#' + order.id + ' USDT 自动确认 $' + (order.amount_cents / 100).toFixed(2) + ' tx:' + String(t.transaction_id || '').slice(0, 16));
         confirmed.push(order.id);
         break;
@@ -405,10 +403,15 @@ async function handleAdminConfirmOrder(request, db, url) {
   const claim = await db.prepare("UPDATE orders SET status = 'processing' WHERE id = ? AND status = 'pending'").bind(order.id).run();
   if (claim.meta.changes !== 1) return json({ error: 'order_already_processed' }, 409);
   const chars = PLANS[order.plan]?.chars || 0;
-  await db.batch([
-    db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, user.id),
-    db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'processing'").bind(order.id),
-  ]);
+  try {
+    await db.batch([
+      db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, user.id),
+      db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'processing'").bind(order.id),
+    ]);
+  } catch (error) {
+    await db.prepare("UPDATE orders SET status = 'pending' WHERE id = ? AND status = 'processing'").bind(order.id).run();
+    throw error;
+  }
   const row = await db.prepare('SELECT quota_chars FROM users WHERE id = ?').bind(user.id).first();
   await logAction(db, 'confirm_order', '订单#' + order.id + ' ' + user.email + ' ' + (PLANS[order.plan]?.name || '') + ' +' + chars.toLocaleString() + '字符 $' + order.amount);
 
