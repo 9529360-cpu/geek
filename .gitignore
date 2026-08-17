@@ -2,6 +2,12 @@ node_modules/
 dist-release/
 packaged-userdata*/
 *.log
+*-log.txt
+*-shot.png
+screen*.png
+final*.png
+*.bak
+*.bad
 npm-debug.log*
 .DS_Store
 .wrangler/
@@ -10,3 +16,8 @@ scripts/.r2-creds.json
 # Runtime account/config data belongs in Electron userData, never in Git.
 data/accounts.json
 data/config.json
+
+# Local debugging and one-off reconstruction artifacts
+test-min*.cjs
+gt_new.html
+gt_rebuild.py
