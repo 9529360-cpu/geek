@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/dependency-audit
+  pull_request:
 
 permissions:
   contents: read
