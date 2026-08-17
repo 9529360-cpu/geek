@@ -12,11 +12,13 @@ const LANG_NAMES = {
 };
 
 // 免费模型池（按顺序尝试；429/5xx/超时/空响应 → 自动切换下一个）
+// 2026-08-17 晚：Groq/Gemini 旧 key 失效、旧模型名下架 → 换新 key 和新模型名
+// 顺序策略：Groq 最快(1-2s)放最前；GLM 慢(5-12s)+易429限流放最后当备用
 const PROVIDERS = [
-  { id: 'glm',    model: 'glm-4.7-flash',          base: 'https://api.z.ai/api/paas/v4',           keyEnv: 'ZAI_API_KEY' },
-  { id: 'groq',   model: 'llama-3.3-70b-versatile', base: 'https://api.groq.com/openai/v1',         keyEnv: 'GROQ_API_KEY' },
-  { id: 'gemini', model: 'gemini-2.0-flash',        base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
+  { id: 'groq',   model: 'qwen/qwen3.6-27b',       base: 'https://api.groq.com/openai/v1',         keyEnv: 'GROQ_API_KEY' },
+  { id: 'gemini', model: 'gemini-2.5-flash',       base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
   { id: 'mistral', model: 'mistral-small-latest',   base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
+  { id: 'glm',    model: 'glm-4.7-flash',          base: 'https://api.z.ai/api/paas/v4',           keyEnv: 'ZAI_API_KEY' },
 ];
 
 const enc = new TextEncoder();
