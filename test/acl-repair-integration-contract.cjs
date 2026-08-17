@@ -1,6 +1,6 @@
 'use strict';
 // 集成测试：真实 icacls 修复损坏的 userData ACL（Windows only）
-// 场景：稳定模拟老版本造成的 diagnostics 不可写 → 运行修复 → 验证可写、数据保留、幂等、
+// 场景：稳定模拟老版本造成的 diagnostics ACL 损坏 → 运行修复 → 验证 ACL 恢复、可写、数据保留、幂等、
 //       且 Partitions/Cookies/IndexedDB 哨兵的**显式 ACE** 前后一致（根目录修复不带 /T，
 //       不递归改写整个树；继承恢复允许，显式 ACE 必须原样保留）。
 // 仅在本机 Windows 下运行；使用临时目录，绝不触碰真实 userData。
@@ -25,6 +25,10 @@ function freshDir(prefix) {
 
 function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: 'utf8', windowsHide: true });
+}
+
+function aclText(p) {
+  return run('icacls', [p]).replace(/\r\n/g, '\n');
 }
 
 (async () => {
@@ -56,8 +60,7 @@ function run(cmd, args) {
   // 提取显式（非继承）ACE 行：icacls 输出中无 (I) 标记的行才是显式 ACE
   const snapshotExplicitAcl = (p) => {
     try {
-      return run('icacls', [p])
-        .replace(/\r\n/g, '\n')
+      return aclText(p)
         .split('\n')
         .map((l) => l.trim())
         .filter((l) => l && !l.includes('(I)') && !l.startsWith('已成功') && !l.startsWith('Successfully'))
@@ -65,13 +68,16 @@ function run(cmd, args) {
     } catch { return null; }
   };
 
-  // 2. 稳定模拟老版本损坏后的结果：diagnostics 失去继承写权限，只保留 Users 读取权限。
+  // 2. 稳定模拟老版本损坏后的 ACL 结果：diagnostics 关闭继承，只保留 Users 读取权限。
   //    旧实现曾对父 userData 使用 /inheritance:r；不同 Windows 版本对既有子目录的传播行为并不一致，
-  //    因此集成测试直接构造需要修复的目标状态，而不是依赖某一版 Windows 的 ACL 副作用。
-  //    repairUserDataAcl 对 diagnostics 的真实修复动作会恢复继承，并给当前用户 (OI)(CI)F + /T。
+  //    因此集成测试直接构造需要修复的目标 ACL 状态，而不是依赖某一版 Windows 的传播副作用。
   run('icacls', [diagDir, '/inheritance:r', '/grant:r', 'BUILTIN\\Users:(RX)']);
-  const brokenBefore = await isWritable(diagDir);
-  assert.equal(brokenBefore, false, '前置条件：diagnostics 必须不可写（模拟老用户损坏现场）');
+  const damagedAcl = aclText(diagDir);
+  assert.doesNotMatch(damagedAcl, /\(I\)/, '前置条件：diagnostics 不应再包含继承 ACE');
+  assert.match(damagedAcl, /BUILTIN\\Users:.*\(RX\)/i, '前置条件：diagnostics 应只保留显式读取权限夹具');
+
+  // GitHub 托管 Windows runner 使用高权限账号，管理员/所有者可能仍能写入受限目录，
+  // 因此不可写性不能作为跨 Windows 版本的可靠前置断言；真正的修复目标是 ACL 状态本身。
 
   // 2b. 破坏后、修复前快照哨兵**显式 ACE**（非继承部分）—— 修复不得改写它们
   const beforeAcl = {
@@ -86,7 +92,10 @@ function run(cmd, args) {
   assert.equal(r1.ok, true, `修复必须成功: ${r1.reason || ''}`);
   assert.equal(r1.repaired, true, '首次必须执行修复');
 
-  // 4. 验证 diagnostics 可写 + 标记存在
+  // 4. 验证 diagnostics ACL 恢复 + 可写 + 标记存在
+  const repairedAcl = aclText(diagDir);
+  assert.ok(repairedAcl.toLowerCase().includes(String(username).toLowerCase()), '修复后 ACL 必须包含当前用户');
+  assert.match(repairedAcl, /\(F\)/, '修复后当前 ACL 必须包含完全控制权限');
   assert.equal(await isWritable(diagDir), true, '修复后 diagnostics 必须可写');
   assert.ok(await readMarker(ud), '修复后必须写入版本化标记');
 
