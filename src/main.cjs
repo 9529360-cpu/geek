@@ -962,6 +962,12 @@ async function translateViaRemoteGateway(event, payload) {
     }
   }
   const requestSequence = ++translationRequestSequence;
+  const needsRemoteAuthorization = pool.endpoints.some((endpoint) => {
+    const parsed = new URL(endpoint);
+    return !(parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1');
+  });
+  const remoteAuthorization = needsRemoteAuthorization ? await initSubscriptionStore().getTranslationToken() : '';
+  const translationRequestId = crypto.randomUUID();
   translationLatestRequest.set(inflightKey, requestSequence);
   const request = enqueueTranslationRemote(async () => {
     // 多端点故障切换：优先健康端点（primary），失败切换 backup；全部失败抛最后错误。
@@ -977,7 +983,11 @@ async function translateViaRemoteGateway(event, payload) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), remaining);
       try {
-        const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Geek-Client': '1' }, body: JSON.stringify({ text, source: body.source || 'auto', target, provider: body.provider || 'auto', route: body.route || picked.route }), signal: controller.signal });
+        const parsedEndpoint = new URL(endpoint);
+        const isLocalGateway = parsedEndpoint.protocol === 'http:' && parsedEndpoint.hostname === '127.0.0.1';
+        const headers = { 'Content-Type': 'application/json', 'X-Geek-Client': '1', 'X-Request-ID': translationRequestId };
+        if (!isLocalGateway) headers.Authorization = `Bearer ${remoteAuthorization}`;
+        const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers, body: JSON.stringify({ text, source: body.source || 'auto', target, provider: body.provider || 'auto', route: body.route || picked.route }), signal: controller.signal });
         const raw = await response.text();
         let result; try { result = JSON.parse(raw); } catch { result = {}; }
         if (!response.ok) { pool.reportFailure(endpoint); lastError = new Error(String(result.error || `翻译网关错误 ${response.status}`).slice(0, 300)); continue; }
@@ -989,11 +999,7 @@ async function translateViaRemoteGateway(event, payload) {
         const item = { text: translated, at: Date.now() };
         cache.set(key, item);
         await appendTranslationCache(partition, key, item);
-        // 字符扣减上报（fire-and-forget，不阻塞翻译返回；缓存命中不重复计费）
-        // 上报原文+译文，服务端按 1汉字=2字符 规则换算
-        if (body.skipQuota !== true) {
-          initSubscriptionStore().reportUsage(text, translated).catch(() => {});
-        }
+        // 远程翻译 Worker 已服务端原子扣额；客户端不再二次上报，避免重复计费。
         return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, route: picked.route };
       } catch (error) {
         pool.reportFailure(endpoint);

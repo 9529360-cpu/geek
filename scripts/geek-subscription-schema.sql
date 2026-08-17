@@ -68,3 +68,16 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
   fails INTEGER NOT NULL DEFAULT 0,
   locked_until TEXT
 );
+
+-- 翻译请求幂等与服务端计费记录；不保存聊天正文或译文。
+CREATE TABLE IF NOT EXISTS translation_usage (
+  request_id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  reserved_chars INTEGER NOT NULL,
+  target_chars INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'reserved',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_translation_usage_user_created ON translation_usage(user_id, created_at);

@@ -54,6 +54,7 @@ function createSubscriptionStore({ userDataDir }) {
   }
 
   let cache = null; // { token, email, expires_at, plan, checked_at }
+  let translationTokenCache = null;
 
   async function load() {
     if (cache) return cache;
@@ -194,6 +195,17 @@ function createSubscriptionStore({ userDataDir }) {
     }
   }
 
+  async function getTranslationToken(force = false) {
+    const now = Math.floor(Date.now() / 1000);
+    if (!force && translationTokenCache?.token && translationTokenCache.expires_at > now + 30) {
+      return translationTokenCache.token;
+    }
+    const data = await request('/api/translation-token', { method: 'POST' });
+    if (!data.token || !Number.isFinite(Number(data.expires_at))) throw new Error('翻译授权返回格式错误');
+    translationTokenCache = { token: String(data.token), expires_at: Number(data.expires_at) };
+    return translationTokenCache.token;
+  }
+
   // 字符扣减：翻译成功后上报原文+译文，服务端按 1汉字=2字符 规则换算扣减
   async function reportUsage(sourceText, targetText) {
     const state = await load();
@@ -212,6 +224,7 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function clear() {
     cache = {};
+    translationTokenCache = null;
     try {
       await fs.rm(stateFile(), { force: true });
     } catch (e) { /* 忽略 */ }
@@ -231,6 +244,7 @@ function createSubscriptionStore({ userDataDir }) {
     myOrders,
     me,
     getQuota,
+    getTranslationToken,
     reportUsage,
     logout,
     clear,

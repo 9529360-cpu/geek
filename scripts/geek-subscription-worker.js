@@ -203,6 +203,18 @@ async function handleQuota(user, db) {
   });
 }
 
+async function handleTranslationToken(user, env) {
+  const now = Math.floor(Date.now() / 1000);
+  const token = await signJwt({
+    uid: user.id,
+    aud: 'geek-translate',
+    purpose: 'translate',
+    iat: now,
+    exp: now + 5 * 60,
+  }, env.JWT_SECRET);
+  return json({ ok: true, token, expires_at: now + 5 * 60 });
+}
+
 // 字符扣减：翻译成功后客户端上报原文+译文，服务端按国际标准换算扣减
 // （1 英文字母=1 字符，1 汉字/非ASCII=2 字符；原子扣减防并发超扣）
 async function handleUsage(user, db, request) {
@@ -1141,6 +1153,7 @@ export default {
     if (request.method === 'GET' && path === '/api/me') return handleMe(user, db);
     if (request.method === 'GET' && path === '/api/status') return handleStatus(user, db);
     if (request.method === 'GET' && path === '/api/quota') return handleQuota(user, db);
+    if (request.method === 'POST' && path === '/api/translation-token') return handleTranslationToken(user, env);
     if (request.method === 'POST' && path === '/api/usage') return handleUsage(user, db, request);
     if (request.method === 'POST' && path === '/api/orders') return handleCreateOrder(user, db, request);
     if (request.method === 'GET' && path === '/api/orders') return handleMyOrders(user, db);
