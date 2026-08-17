@@ -28,6 +28,8 @@ publish:
   url: https://geek-release.9529360.workers.dev
 
 win:
+  # Formal releases use scripts/release-build.cjs with forceCodeSigning=true.
+  verifyUpdateCodeSignature: true
   target:
     - nsis
   artifactName: geek-setup-${version}.exe
