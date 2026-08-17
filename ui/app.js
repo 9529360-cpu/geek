@@ -957,19 +957,27 @@
         }
         window.__geekRefreshTranslationView();
         mod.__geekOriginalSendText = original;
-        mod.sendTextMsgToChat = async function (chat, ...args) {
-          try {
-            const id = chat?.id?._serialized;
-            const setting = id ? window.__geekGetTranslationSetting(id) : null;
-            const text = args[0];
-            if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && (setting.includeZh || !/[\u3400-\u9fff]/.test(text)) && window.__geekTranslationRequest) {
-              const result = await window.__geekTranslationRequest({text,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:id});
-              if (!result?.text) throw new Error('翻译失败');
-              window.__geekRememberOutgoing(result.text, text);
-              args[0] = result.text;
-            }
-          } catch (error) { console.error('[geek-translation]', error); throw error; }
-          return original.call(this, chat, ...args);
+        // 发送串行队列：用户快速连发多条时，翻译+发送必须按输入顺序排队，防止乱序/合并
+        window.__geekSendQueue = window.__geekSendQueue || Promise.resolve();
+        mod.sendTextMsgToChat = function (chat, ...args) {
+          const run = async () => {
+            try {
+              const id = chat?.id?._serialized;
+              const setting = id ? window.__geekGetTranslationSetting(id) : null;
+              const text = args[0];
+              if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && (setting.includeZh || !/[\u3400-\u9fff]/.test(text)) && window.__geekTranslationRequest) {
+                const result = await window.__geekTranslationRequest({text,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:id});
+                if (!result?.text) throw new Error('翻译失败');
+                window.__geekRememberOutgoing(result.text, text);
+                args[0] = result.text;
+              }
+              return original.call(this, chat, ...args);
+            } catch (error) { console.error('[geek-translation]', error); throw error; }
+          };
+          // 排队：前一条完成后再执行本条（失败也继续下一条，不阻塞队列）
+          const next = window.__geekSendQueue.then(run, run);
+          window.__geekSendQueue = next.catch(() => {});
+          return next;
         };
         const mediaMod = window.require?.('WAWebMediaPrep');
         if (mediaMod?.sendMediaMsgToChat) {
