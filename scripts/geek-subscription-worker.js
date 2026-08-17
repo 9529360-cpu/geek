@@ -263,6 +263,14 @@ async function sendResetEmail(env, email, resetUrl, requestId) {
       text: `请在 30 分钟内打开以下链接重置密码：\n\n${resetUrl}\n\n如果不是你本人操作，请忽略此邮件。`,
     }),
   });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    console.warn('password reset email rejected', {
+      status: response.status,
+      type: String(error.type || 'unknown').slice(0, 80),
+      message: String(error.message || 'unknown').slice(0, 200),
+    });
+  }
   return response.ok;
 }
 
