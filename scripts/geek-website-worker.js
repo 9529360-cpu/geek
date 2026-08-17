@@ -3,7 +3,24 @@
 // 设计语言：Linear/Vercel 风格——深色 + 霓虹渐变 + 毛玻璃 + SVG 线性图标 + 微动效
 
 const API_BASE = 'https://admin.bbnba.com';
-const VERSION = '1.2.3';
+const RELEASE_BASE = 'https://geek-release.9529360.workers.dev';
+const VERSION = '__GEEK_LATEST_VERSION__';
+const FALLBACK_VERSION = '1.2.4';
+
+async function latestVersion() {
+  try {
+    const response = await fetch(`${RELEASE_BASE}/latest.yml`, { cf: { cacheTtl: 60 } });
+    if (!response.ok) return FALLBACK_VERSION;
+    const match = (await response.text()).match(/^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$/m);
+    return match ? match[1] : FALLBACK_VERSION;
+  } catch {
+    return FALLBACK_VERSION;
+  }
+}
+
+function withLatestVersion(content, version) {
+  return content.replaceAll(VERSION, version);
+}
 
 const SHARED_CSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -570,13 +587,13 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (request.method === 'GET' && (path === '/' || path === '/index.html')) return html(HOME);
-    if (request.method === 'GET' && path === '/login') return html(LOGIN);
-    if (request.method === 'GET' && path === '/account') return html(ACCOUNT);
+    if (request.method === 'GET' && (path === '/' || path === '/index.html')) return html(withLatestVersion(HOME, await latestVersion()));
+    if (request.method === 'GET' && path === '/login') return html(withLatestVersion(LOGIN, await latestVersion()));
+    if (request.method === 'GET' && path === '/account') return html(withLatestVersion(ACCOUNT, await latestVersion()));
     if (request.method === 'GET' && path === '/download') {
-      return Response.redirect('https://geek-release.9529360.workers.dev/geek-setup-' + VERSION + '.exe', 302);
+      return Response.redirect(`${RELEASE_BASE}/geek-setup-${await latestVersion()}.exe`, 302);
     }
-    if (request.method === 'GET' && path === '/health') return new Response(JSON.stringify({ ok: true, service: 'geek-website', version: VERSION }), { headers: { 'Content-Type': 'application/json' } });
+    if (request.method === 'GET' && path === '/health') return new Response(JSON.stringify({ ok: true, service: 'geek-website', version: await latestVersion() }), { headers: { 'Content-Type': 'application/json' } });
 
     return html('<div style="font-family:system-ui;color:#9aa3b2;padding:80px;text-align:center;background:#05060a;min-height:100vh"><h1 style="font-size:60px;font-weight:800;margin-bottom:12px">404</h1><p>页面不存在</p><a href="/" style="color:#4f8cff;margin-top:16px;display:inline-block">← 返回首页</a></div>', 404);
   },
