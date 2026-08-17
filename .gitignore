@@ -6,3 +6,7 @@ npm-debug.log*
 .DS_Store
 .wrangler/
 scripts/.r2-creds.json
+
+# Runtime account/config data belongs in Electron userData, never in Git.
+data/accounts.json
+data/config.json

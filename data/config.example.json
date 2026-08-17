@@ -1,0 +1,14 @@
+{
+  "autoLaunch": false,
+  "isStartupMinimize": false,
+  "messageSound": true,
+  "theme": "system",
+  "accent": "blue",
+  "lockPassword": "",
+  "openProxy": false,
+  "protocal": "https",
+  "host": "",
+  "port": "",
+  "login": "",
+  "password": ""
+}
