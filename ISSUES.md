@@ -1,5 +1,34 @@
 # 复刻过程关键问题记录
 
+## 发布事故：正式安装包读到开发测试账号（2026-08-17 修复，v1.2.2）
+
+### 症状
+- 官网下载 1.2.0/1.2.1 安装包，装完打开主界面，出现开发期测试账号（"阿豪测试"/"测试"/"测试啊"），且默认打开对应 webview。
+- 登录/注册显示"网络连接失败"（另一问题，见下）。
+
+### 根因（两个独立问题）
+1. **测试数据泄漏**：`src/runtime-paths.cjs` 的 `USER_DATA_SUBDIR` 硬编码为 `whatsapp-multi`（开发期目录名）。
+   正式版启动后 userData 固定到 `%APPDATA%\whatsapp-multi`，而该目录在开发机上是 8/13-16 测试时创建的
+   （含 3 个测试账号的 accounts.json）。正式安装直接读到开发残留数据。
+   - 安装包本身是干净的：electron-builder.yml 已排除 `data/**`，asar 内无 accounts.json/data。
+2. **订阅 API 全挂**：客户端默认 API `https://geek-subscription.9529360.workers.dev`（workers.dev 子域）
+   返回 `error code: 1042`（404 + Cloudflare 脚本异常），所有注册/登录请求失败。
+   同一 Worker 在自定义域 `admin.bbnba.com` 完全正常 → 是 workers.dev 子域路由未启用，
+   不是 Worker 本体故障。`wrangler-subscription.toml` 缺 `workers_dev = true`。
+
+### 修复
+- `USER_DATA_SUBDIR = 'geek'`（正式版与开发目录彻底分离）；契约测试同步更新。
+- `wrangler-subscription.toml` 加 `workers_dev = true` 重新部署 → workers.dev 子域恢复。
+- 官网 `geek-website-worker.js` VERSION 从 1.2.0 → 1.2.2（之前官网还挂着 1.2.0 旧包）。
+- 重新打包 v1.2.2 并上传 R2（latest.yml + exe + blockmap），官网部署验证通过。
+
+### 坑速查
+| 症状 | 原因 | 解法 |
+|---|---|---|
+| 正式版出现测试账号 | USER_DATA_SUBDIR 沿用开发目录名 | 正式版用独立目录名（geek），开发目录不动 |
+| workers.dev 子域 1042 | wrangler.toml 缺 workers_dev=true | 加配置重新部署；自定义域不受影响 |
+| 官网下载到旧版本 | geek-website-worker.js VERSION 没同步 | 发版时同步更新官网 VERSION 并部署 |
+
 ## LINE 扫码登录 + 重启自动恢复（2026-08-13 最终解决）
 
 ### 最终方案（照原版 line.json 机制）

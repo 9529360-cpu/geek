@@ -4,7 +4,9 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 
-const USER_DATA_SUBDIR = 'whatsapp-multi';
+// 正式版数据目录：固定为 geek，与开发期目录（whatsapp-multi，含测试账号）彻底分离，
+// 防止正式安装读到开发残留数据。
+const USER_DATA_SUBDIR = 'geek';
 
 function userDataDirFor(appDataDir) {
   return path.join(appDataDir, USER_DATA_SUBDIR);

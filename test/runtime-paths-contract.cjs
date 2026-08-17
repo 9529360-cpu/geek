@@ -28,10 +28,10 @@ function freshDir(prefix) {
   assert.equal(
     runtimePaths.resolveUserDataDir({ appDataDir: roaming, overrideDir: '' }),
     userData,
-    '正常运行无覆写时仍必须使用固定 whatsapp-multi 目录'
+    '正常运行无覆写时仍必须使用固定 geek 目录'
   );
-  assert.equal(runtimePaths.USER_DATA_SUBDIR, 'whatsapp-multi', 'userData 子目录必须固定为 whatsapp-multi');
-  assert.equal(userData, path.join(roaming, 'whatsapp-multi'), 'userDataDirFor 必须基于 appData 计算固定目录');
+  assert.equal(runtimePaths.USER_DATA_SUBDIR, 'geek', 'userData 子目录必须固定为 geek（正式版与开发期 whatsapp-multi 分离）');
+  assert.equal(userData, path.join(roaming, 'geek'), 'userDataDirFor 必须基于 appData 计算固定目录');
 
   const projectRoot = path.join('D:', 'proj', 'geek');
   assert.equal(runtimePaths.accountsFile(userData), path.join(userData, 'accounts.json'), 'accounts 必须落在 userData 下');
