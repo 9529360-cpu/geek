@@ -16,6 +16,7 @@ const { createRateLimiter } = require('./crash-recovery.cjs');
 const { createGatewayPool } = require('./gateway-failover.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
+const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -421,25 +422,6 @@ function safeDecrypt(b64) {
 }
 function safeEncrypt(text) {
   try { return 'enc:' + safeStorage.encryptString(String(text)).toString('base64'); } catch { return text; }
-}
-
-// 数据目录权限收紧：只允许当前 Windows 用户读取（阻止其他用户/低权限服务进程扫盘）
-// 注意：不能使用 /inheritance:r（移除继承）——实验证实它会把子目录 ACL 清空
-// （子目录 Access count=0，连 Owner 都写不了 → 应用启动写 diagnostics 日志 EPERM → whenReady 中断）。
-// 安全做法：保留继承链，仅追加/替换当前用户完全控制；子目录继承后仍可写。
-function hardenUserDataDir() {
-  if (process.platform !== 'win32' || !app.isPackaged) return;
-  try {
-    const { execFile } = require('node:child_process');
-    const dir = app.getPath('userData');
-    // 1. 确保 diagnostics 等关键子目录已存在（继承收紧后的权限）
-    fs.mkdir(path.join(dir, 'diagnostics'), { recursive: true }).catch(() => {});
-    // 2. 替换当前用户权限为完全控制；保留继承（不加 /inheritance:r）
-    execFile('icacls', [dir, '/grant:r', `${process.env.USERNAME}:F`], { timeout: 10000 }, (err) => {
-      if (err) console.error('[security] ACL 收紧失败（不影响运行）:', err.message);
-      else console.log('[security] 数据目录 ACL 已收紧，仅当前用户可访问');
-    });
-  } catch (e) { /* 尽力而为 */ }
 }
 
 function persistConfig() {
@@ -2170,11 +2152,20 @@ async function cleanupOrphanPartitions() {
 }
 
 app.whenReady().then(async () => {
+  // 0) Windows 正式版启动：先修复 userData ACL（一次性、幂等；老版本 /inheritance:r 曾清空子目录 ACL）。
+  //    diagnostics 对象在模块加载时创建，但 log() 每次写入前会自动重试 mkdir——
+  //    因此即使修复前目录损坏，修复完成后日志自动恢复，无需重新初始化。
+  //    runStartupAclRepair 从不抛出；后续流程（含 createMainWindow）照常执行，不受修复成败影响。
+  await runStartupAclRepair({
+    shouldRun: app.isPackaged && process.platform === 'win32',
+    userDataDir: USER_DATA_DIR,
+    expectedUserDataDir: app.getPath('userData'),
+    username: resolveUsername(process.env.USERNAME)
+  });
   diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });
   await probeExternalDebugging();
   diagnostics.log('cdp-mode', { externalDebugging: externalDebuggingActive });
   startWaLocalServer();
-  hardenUserDataDir(); // 数据目录 ACL 收紧（仅当前用户可访问）
   try {
     await runtimePaths.migrateRuntimeFiles({
       userDataDir: USER_DATA_DIR,

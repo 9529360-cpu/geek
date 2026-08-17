@@ -1,5 +1,47 @@
 # 复刻过程关键问题记录
 
+## Windows 正式版升级兼容：老版本 ACL 损坏迁移（2026-08-17 修复，v1.2.4 待发布）
+
+### 症状
+- 老版本（v1.2.1 曾用 `icacls <userData> /inheritance:r`）升级到 v1.2.3 后，
+  `%APPDATA%\geek\diagnostics` 等子目录仍无有效 ACE（Access count=0），连 Owner 都写不了。
+- v1.2.3 已让 diagnostics 写日志容错并停止使用 /inheritance:r，但**已经损坏的目录**没有被主动修复，
+  老用户升级后 diagnostics 等子目录仍不可访问；启动早期写日志仍会失败（虽不致命但日志缺失）。
+
+### 根因
+- `icacls /inheritance:r` 会清空已存在子目录的 ACL（实验确认：子目录 Access count=0，连 Owner 都写不了）。
+- `fs.mkdir({recursive:true})` 对**已存在**目录不会修复 ACL。
+- 只给父目录 `/grant:r` 不会自动传播到已损坏的子目录。
+
+### 修复（src/acl-repair.cjs，一次性、幂等；吸收 Issue #2 评审意见）
+- 新增 `repairUserDataAcl({ userDataDir, expectedUserDataDir, username })`：
+  - 路径安全：目标必须与调用方（Electron app.getPath('userData')）可信基准完全一致（防自证），
+    另有 `isRejectedWideDir` 拒绝磁盘根/用户目录/AppData 根；username 空值安全失败
+  - 修复范围：只修 userDataDir 本身 + REQUIRED_SUBDIRS（diagnostics），**不做全树 /T 递归**，
+    避免改写 Cookies/IndexedDB/Partitions 等文件 ACL；每目标单独 `icacls <target> /inheritance:e /grant:r <user>:(OI)(CI)F /T /C`
+    （恢复继承 + 当前用户文件夹/子文件夹/文件可继承的完全控制，只改权限不删数据）
+  - mkdir 单独容错，失败不阻断 icacls
+  - 版本化标记 `.acl-repair-v1.json`：成功才写；每次启动仍探测 diagnostics 可写，不可写则重跑
+  - execFile 参数数组（空格/中文/特殊字符路径安全）；失败返回 ok:false 不抛出
+- `runStartupAclRepair()` 启动前置编排：shouldRun（打包+win32）→ 修复 → 返回结构化结果，从不抛出；
+  whenReady 顺序保证修复失败也继续 createWindow。
+- main.cjs：whenReady 第一行先 `await runStartupAclRepair(...)` 再 `diagnostics.log('app-ready')`；
+  移除旧 `hardenUserDataDir()`。
+- diagnostics.cjs：log() 每次写入前 `ensureDir()` 自动重试 mkdir——ACL 修复后无需重新初始化对象即恢复日志。
+- 测试：`acl-repair-contract`（单元：路径/参数/marker/幂等/空用户/可信基准/mkdir容错）、
+  `acl-repair-integration-contract`（真实 icacls 修复损坏目录+数据保留+幂等+基准拒绝）、
+  `acl-repair-main-integration-contract`（main.cjs 顺序契约）、
+  `acl-repair-startup-behavior-contract`（修复失败/成功/非打包均继续 createWindow 的行为测试）。
+- 端到端：模拟 /inheritance:r 损坏现场 → 打包版启动 → 日志 `[security] userData ACL 已修复`、
+  diagnostics 可写并落盘日志、标记 v1、账号数据完整保留、主窗口正常创建。
+
+### 坑速查
+| 症状 | 原因 | 解法 |
+|---|---|---|
+| 升级后 diagnostics 等子目录不可写 | v1.2.1 /inheritance:r 清空子目录 ACL | 一次性 ACL 修复迁移（acl-repair.cjs） |
+| fs.mkdir recursive 不修复 ACL | 已存在目录 mkdir 幂等 | 用 icacls /inheritance:e + /grant:r (OI)(CI)F /T |
+| 修复只给父目录不够 | 损坏在子目录 | 递归 /T + 启动时探测可写性重跑 |
+
 ## 发布事故：正式安装包读到开发测试账号（2026-08-17 修复，v1.2.2）
 
 ### 症状

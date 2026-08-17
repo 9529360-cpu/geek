@@ -63,7 +63,6 @@ function sanitizeMetadata(obj) {
 
 function createDiagnostics(options) {
   const dir = options.dir;
-  fs.mkdirSync(dir, { recursive: true });
   const maxBytes = options.maxBytes || 1024 * 1024;
   const maxFiles = options.maxFiles || 5;
   const now = options.now || (() => new Date().toISOString());
@@ -77,6 +76,17 @@ function createDiagnostics(options) {
     const name = `diagnostics-${timestamp}-${fileIndex}.jsonl`;
     fileIndex++;
     return path.join(dir, name);
+  }
+
+  // 每次写入前确保目录存在：老版本 ACL 损坏时 mkdir 不重建已存在目录，
+  // 因此修复 ACL 后本函数自动成功，无需重新初始化 diagnostics 对象。
+  function ensureDir() {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function rotateIfNeeded() {
@@ -100,6 +110,12 @@ function createDiagnostics(options) {
 
   function log(eventName, metadata) {
     try {
+      // 目录不可用（ACL 损坏/未创建）时静默降级；ACL 修复后下次调用自动恢复
+      if (!ensureDir()) {
+        currentFile = null;
+        currentSize = 0;
+        return;
+      }
       rotateIfNeeded();
       const entry = {
         timestamp: now(),
