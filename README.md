@@ -2,6 +2,8 @@
 
 Electron 多平台多账号客户端（复刻 Hello-GPT v1.4.39 的架构与行为）。
 
+> AI/自动化代理接手前请先阅读 [`AGENTS.md`](AGENTS.md)。账户、忘记密码、Resend 与 Cloudflare 的生产交接见 [`docs/account-password-reset-operations.md`](docs/account-password-reset-operations.md)。
+
 > 当前范围：WhatsApp / Telegram / LINE 三平台共 6 类型（WA=普通+纯净版、TG=Z版+K版、LINE=普通+商业版），支持多账号沙箱、群发和统一翻译桥。
 > 2026-08-16 非破坏性回归：极客主页面和 5 个账号 WebView 正常恢复；两路 WA 与 TG 已登录，TG 翻译适配器已注入；两路 LINE token、聊天页和认证实时事件流均恢复，“网络不稳定”已消失。
 > TG 翻译策略：缓存命中优先；未命中才进入主进程 20 并发队列；旧历史消息默认不自动翻译；历史 DOM 延迟重试仍保留 `isHistory`。
