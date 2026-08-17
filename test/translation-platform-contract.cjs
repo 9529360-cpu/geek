@@ -63,4 +63,10 @@ assert.match(
   'Telegram 历史消息延迟重试必须保留 isHistory 标记'
 );
 
+assert.match(
+  appSource,
+  /const original = window\.__geekTakeOutgoing\(text\);\s*let outgoing = !!original;\s*if \(!outgoing\)/,
+  'WhatsApp 新发送消息必须先消费原文映射，避免 fromMe 数据库竞态触发二次反向翻译'
+);
+
 console.log('TRANSLATION_PLATFORM_CONTRACT_OK');

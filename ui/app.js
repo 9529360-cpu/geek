@@ -904,9 +904,15 @@
             if (!setting?.displayTranslation || !window.__geekTranslationRequest) return;
             const text = (textNode.querySelector('span[dir="ltr"],span[dir="rtl"]')?.innerText || textNode.innerText || '').trim();
             if (!text) return;
-            let outgoing = false;
-            try { outgoing = await window.__geekMessageFromMe(chatId, messageId); } catch {}
-            const original = outgoing ? window.__geekTakeOutgoing(text) : '';
+            // The freshly rendered WhatsApp row can appear before getMessages() marks it as
+            // fromMe. Consume our short-lived exact translation mapping first so an outgoing
+            // message immediately shows the user's original text instead of making a second,
+            // lossy reverse-translation request.
+            const original = window.__geekTakeOutgoing(text);
+            let outgoing = !!original;
+            if (!outgoing) {
+              try { outgoing = await window.__geekMessageFromMe(chatId, messageId); } catch {}
+            }
             if (!original && (setting.messageTarget || 'zh') === 'zh' && /[\u3400-\u9fff]/.test(text)) { messageRoot.dataset.geekTranslationState = 'skip'; return; }
             const box = document.createElement('div');
             box.className = 'trans-wrap geek-translation-result'; box.dataset.id = messageId;
