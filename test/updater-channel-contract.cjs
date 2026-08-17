@@ -8,12 +8,11 @@ const preload = fs.readFileSync(path.join(__dirname, '../src/preload.cjs'), 'utf
 const app = fs.readFileSync(path.join(__dirname, '../ui/app.js'), 'utf8');
 const yml = fs.readFileSync(path.join(__dirname, '../electron-builder.yml'), 'utf8');
 
-// 1) 发布渠道配置落地（GitHub 私有仓库）
+// 1) 发布渠道配置落地（公开只读的 R2 更新源；源码仓库仍保持私有）
 assert.match(yml, /publish:/, 'electron-builder.yml 必须启用 publish');
-assert.match(yml, /provider: github/, '必须使用 GitHub provider');
-assert.match(yml, /owner: 9529360-cpu/, 'owner 必须为私有仓库账号');
-assert.match(yml, /repo: geek/, 'repo 必须为 geek');
-assert.match(yml, /private: true/, '必须为私有仓库');
+assert.match(yml, /provider:\s*generic/, '必须使用 generic provider');
+assert.match(yml, /url:\s*https:\/\/geek-release\.9529360\.workers\.dev/, '必须使用正式 R2 更新地址');
+assert.doesNotMatch(yml, /provider:\s*github|GH_TOKEN|private:\s*true/, '客户端构建配置不得依赖 GitHub 发布凭据');
 
 // 2) updater 事件转发给 renderer（UI 可见）
 assert.match(updater, /webContents\.send\(STATUS_CHANNEL/, 'updater 必须把事件转发给主窗口');

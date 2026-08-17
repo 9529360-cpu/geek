@@ -1,6 +1,5 @@
 # electron-builder 打包配置
-# 当前：发布渠道留空。接入 GitHub 私有仓库自动更新时，取消注释 publish 节点并填 owner/repo。
-# 打包发布：GH_TOKEN=<token> npx electron-builder --win --publish always
+# 自动更新元数据与安装包由正式发布流程上传至公开只读的 R2 更新源。
 
 appId: com.stardust.geek
 productName: 极客

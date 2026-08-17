@@ -5,6 +5,7 @@
   "description": "极客——多平台多账号聊天客户端（WhatsApp / Telegram / LINE）",
   "main": "src/main.cjs",
   "scripts": {
+    "test": "node scripts/run-tests.cjs",
     "start": "electron .",
     "pack": "electron-builder --win --dir",
     "dist:test": "electron-builder --win --publish never",
@@ -16,8 +17,7 @@
   },
   "dependencies": {
     "@wppconnect/wa-js": "^4.3.0",
-    "electron-updater": "^6.8.9",
-    "xlsx": "^0.18.5"
+    "electron-updater": "^6.8.9"
   },
   "allowScripts": {
     "electron@35.5.1": true

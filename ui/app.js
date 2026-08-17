@@ -2637,7 +2637,7 @@
     try {
       const f = await window.api.file.pickCsv();
       if (!f) return;
-      // 主进程对 XLS/XLSX 已解析为 rows；CSV/TXT 保留原始文本
+      // CSV/TXT 由主进程按 UTF-8 文本读取；兼容旧版返回的 rows 结构
       const rows = Array.isArray(f.rows) ? f.rows.map(row => row.map(v => String(v ?? ''))) : null;
       const lines = rows
         ? rows.filter(row => row.some(v => v.trim())).map(row => row)

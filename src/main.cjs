@@ -4,7 +4,6 @@ const { app, BrowserWindow, ipcMain, session, Notification, nativeTheme, webCont
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
-const XLSX = require('xlsx');
 const { initAutoUpdater } = require('./updater.cjs');
 const { quitAndInstallForUpdate, isUpdateInstalling } = require('./updater.cjs');
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
@@ -1582,19 +1581,12 @@ function registerIpcHandlers() {
       title: '选择联系人 CSV 文件',
       properties: ['openFile'],
       filters: [
-        { name: '联系人表格', extensions: ['csv', 'txt', 'xlsx', 'xls'] },
+        { name: '联系人表格', extensions: ['csv', 'txt'] },
         { name: '所有文件', extensions: ['*'] }
       ]
     });
     if (result.canceled || !result.filePaths.length) return null;
     const filePath = result.filePaths[0];
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext === '.xlsx' || ext === '.xls') {
-      const workbook = XLSX.read(await fs.readFile(filePath), { type: 'buffer' });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-      return { name: path.basename(filePath), rows };
-    }
     const content = await fs.readFile(filePath, 'utf-8');
     return { name: path.basename(filePath), content };
   });

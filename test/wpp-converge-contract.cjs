@@ -6,7 +6,7 @@ const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
 
 // 1) WAPLUS_EXTENSION_PATH 死代码已清理：不得再定义
 assert.doesNotMatch(main, /WAPLUS_EXTENSION_PATH\s*=/, 'WAPLUS_EXTENSION_PATH 常量不得再定义（死代码）');
-assert.match(main, /PRAGMAZ_EXTENSION_PATH/, '实际加载的 Pragmaz 扩展路径必须保留');
+assert.doesNotMatch(main, /PRAGMAZ_EXTENSION_PATH/, '已弃用且包含历史凭据的 Pragmaz 扩展不得加载');
 
 // 2) WA 媒体发送链语义锁定（HelloWorld 同款，大图不卡——File 对象直传，不经 base64）
 assert.match(main, /createFromData\(file, file\.type\)/, '媒体必须走 createFromData（File 对象直传）');
