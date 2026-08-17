@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - agent/audit-hardening-20260817
   pull_request:
 
 permissions:
