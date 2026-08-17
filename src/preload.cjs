@@ -109,7 +109,6 @@ contextBridge.exposeInMainWorld(
       register: (email, password) => ipcRenderer.invoke('subscription:register', email, password),
       createOrder: (plan) => ipcRenderer.invoke('subscription:create-order', plan),
       getQuota: (force) => ipcRenderer.invoke('subscription:get-quota', force === true),
-      reportUsage: (chars) => ipcRenderer.invoke('subscription:report-usage', chars),
       logout: () => ipcRenderer.invoke('subscription:logout'),
       enterApp: () => ipcRenderer.invoke('subscription:enter-app'),
       closeWindow: () => ipcRenderer.invoke('subscription:close-window'),
