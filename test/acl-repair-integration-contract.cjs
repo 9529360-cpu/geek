@@ -1,6 +1,6 @@
 'use strict';
 // 集成测试：真实 icacls 修复损坏的 userData ACL（Windows only）
-// 场景：模拟 v1.2.1 用 /inheritance:r 破坏后的目录 → 运行修复 → 验证可写、数据保留、幂等、
+// 场景：稳定模拟老版本造成的 diagnostics 不可写 → 运行修复 → 验证可写、数据保留、幂等、
 //       且 Partitions/Cookies/IndexedDB 哨兵的**显式 ACE** 前后一致（根目录修复不带 /T，
 //       不递归改写整个树；继承恢复允许，显式 ACE 必须原样保留）。
 // 仅在本机 Windows 下运行；使用临时目录，绝不触碰真实 userData。
@@ -65,11 +65,13 @@ function run(cmd, args) {
     } catch { return null; }
   };
 
-  // 2. 模拟 v1.2.1 的破坏：对父目录 /inheritance:r（实测会清空子目录 ACL）
-  run('icacls', [ud, '/inheritance:r', '/grant:r', `${username}:F`]);
-  // 验证子目录确实损坏（不可写）
+  // 2. 稳定模拟老版本损坏后的结果：diagnostics 失去继承写权限，只保留 Users 读取权限。
+  //    旧实现曾对父 userData 使用 /inheritance:r；不同 Windows 版本对既有子目录的传播行为并不一致，
+  //    因此集成测试直接构造需要修复的目标状态，而不是依赖某一版 Windows 的 ACL 副作用。
+  //    repairUserDataAcl 对 diagnostics 的真实修复动作会恢复继承，并给当前用户 (OI)(CI)F + /T。
+  run('icacls', [diagDir, '/inheritance:r', '/grant:r', 'BUILTIN\\Users:(RX)']);
   const brokenBefore = await isWritable(diagDir);
-  assert.equal(brokenBefore, false, '前置条件：/inheritance:r 后 diagnostics 应不可写（模拟老用户损坏现场）');
+  assert.equal(brokenBefore, false, '前置条件：diagnostics 必须不可写（模拟老用户损坏现场）');
 
   // 2b. 破坏后、修复前快照哨兵**显式 ACE**（非继承部分）—— 修复不得改写它们
   const beforeAcl = {
