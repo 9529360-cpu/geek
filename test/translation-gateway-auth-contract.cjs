@@ -38,12 +38,12 @@ function loadWorker() {
   assert.doesNotMatch(mainSource.slice(mainSource.indexOf('async function translateViaRemoteGateway'), mainSource.indexOf('function registerIpcHandlers')), /reportUsage\(/, '主进程不得在服务端扣费后再次上报扣费');
 
   const worker = loadWorker();
-  const env = { DEEPSEEK_API_KEY: 'configured', JWT_SECRET: 'secret', geek_subscriptions: {} };
+  const env = { ZAI_API_KEY: 'configured', JWT_SECRET: 'secret', geek_subscriptions: {} };
   const unauthorized = await worker.handler(new Request('https://translate.invalid/v1/translate', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Request-ID': crypto.randomUUID() }, body: JSON.stringify({ text: 'hello', target: 'zh' }),
   }), env);
   assert.equal(unauthorized.status, 401, '无短期令牌必须在触发上游前拒绝');
-  assert.equal(worker.upstreamCalls(), 0, '无令牌请求不得调用 DeepSeek');
+  assert.equal(worker.upstreamCalls(), 0, '无令牌请求不得调用上游');
 
   const health = await worker.handler(new Request('https://translate.invalid/health'), env);
   assert.equal(health.status, 200, '配置齐全时健康检查应成功');

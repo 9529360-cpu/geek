@@ -1,6 +1,7 @@
 // geek-translate Worker —— 极客翻译网关云端版（协议对齐 local_translation_gateway.py）
 // 路由：GET /health、POST /v1/translate
-// 上游：DeepSeek（OpenAI 兼容），API Key 从环境变量 DEEPSEEK_API_KEY 读取（不写入代码）
+// 上游：免费模型轮换池（GLM → Groq → Gemini → Mistral），限流/失败自动切换下一个，无付费上游
+// 配置：各上游 API Key 从环境变量读取（GLM=ZAI_API_KEY, Groq=GROQ_API_KEY, Gemini=GEMINI_API_KEY, Mistral=MISTRAL_API_KEY），不写入代码
 
 const LANG_NAMES = {
   zh: 'Simplified Chinese', en: 'English', it: 'Italian', es: 'Spanish',
@@ -10,8 +11,14 @@ const LANG_NAMES = {
   nl: 'Dutch', sv: 'Swedish', el: 'Greek', th: 'Thai',
 };
 
-const MODEL = 'deepseek-chat';
-const BASE = 'https://api.deepseek.com';
+// 免费模型池（按顺序尝试；429/5xx/超时/空响应 → 自动切换下一个）
+const PROVIDERS = [
+  { id: 'glm',    model: 'glm-4.7-flash',          base: 'https://api.z.ai/api/paas/v4',           keyEnv: 'ZAI_API_KEY' },
+  { id: 'groq',   model: 'llama-3.3-70b-versatile', base: 'https://api.groq.com/openai/v1',         keyEnv: 'GROQ_API_KEY' },
+  { id: 'gemini', model: 'gemini-2.0-flash',        base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
+  { id: 'mistral', model: 'mistral-small-latest',   base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
+];
+
 const enc = new TextEncoder();
 
 function bytesToB64Url(bytes) {
@@ -84,8 +91,10 @@ function handleOptions(request, env) {
 }
 
 async function health(env, request) {
-  const configured = Boolean(env.DEEPSEEK_API_KEY && env.JWT_SECRET && env.geek_subscriptions);
-  return json({ ok: configured, service: 'geek-translate' }, configured ? 200 : 503, request, env);
+  const hasProvider = PROVIDERS.some(p => Boolean(env[p.keyEnv]));
+  const configured = Boolean(hasProvider && env.JWT_SECRET && env.geek_subscriptions);
+  const providers = PROVIDERS.filter(p => Boolean(env[p.keyEnv])).map(p => p.id);
+  return json({ ok: configured, service: 'geek-translate', providers }, configured ? 200 : 503, request, env);
 }
 
 async function rateLimited(db, bucket, limit, windowSeconds) {
@@ -132,30 +141,58 @@ async function finishUsage(db, userId, requestId, targetChars) {
   ]);
 }
 
-async function translate(text, target, route, env) {
+function buildMessages(text, target) {
   const language = LANG_NAMES[target] || target;
-  const body = {
-    model: MODEL,
-    temperature: 0,
-    max_tokens: 2000,
-    messages: [
-      { role: 'system', content: `You are a professional translator. Translate the user text faithfully into ${language} (${target}). Preserve all original formatting, line breaks, emojis, special characters, names, numbers, dates, URLs, punctuation and professional terminology. Adapt naturally to local expressions and cultural context while matching the original tone and level of formality. Do not explain. Output only the ${language} translation.` },
-      { role: 'user', content: text },
-    ],
-  };
-  const res = await fetch(`${BASE}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const raw = await res.text().catch(() => '');
-    throw new Error(`deepseek: ${res.status} ${raw.slice(0, 120)}`);
+  return [
+    { role: 'system', content: `You are a professional translator. Translate the user text faithfully into ${language} (${target}). Preserve all original formatting, line breaks, emojis, special characters, names, numbers, dates, URLs, punctuation and professional terminology. Adapt naturally to local expressions and cultural context while matching the original tone and level of formality. Do not explain. Output only the ${language} translation.` },
+    { role: 'user', content: text },
+  ];
+}
+
+// 调单个免费模型；非 2xx / 超时 / 空响应 → 抛错（上层轮换）
+async function callProvider(provider, env, text, target, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const body = {
+      model: provider.model,
+      temperature: 0,
+      max_tokens: 2000,
+      messages: buildMessages(text, target),
+    };
+    const res = await fetch(`${provider.base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env[provider.keyEnv]}` },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const raw = await res.text().catch(() => '');
+      // 429/5xx = 限流或故障，交给上层切换；4xx 其他也切换（如 401 说明 key 失效）
+      throw new Error(`${provider.id}: ${res.status} ${raw.slice(0, 100)}`);
+    }
+    const data = await res.json();
+    const result = ((data.choices || [])[0] || {}).message?.content?.trim();
+    if (!result) throw new Error(`${provider.id}: empty response`);
+    return { text: result, engine: provider.id };
+  } finally {
+    clearTimeout(timer);
   }
-  const data = await res.json();
-  const result = ((data.choices || [])[0] || {}).message?.content?.trim();
-  if (!result) throw new Error('deepseek: empty response');
-  return { text: result, engine: MODEL, route };
+}
+
+// 多免费模型轮换：按 PROVIDERS 顺序尝试，全部失败抛最后错误
+async function translate(text, target, env) {
+  const pool = PROVIDERS.filter(p => Boolean(env[p.keyEnv]));
+  if (!pool.length) throw new Error('no free provider configured');
+  let lastError = null;
+  for (const provider of pool) {
+    try {
+      return await callProvider(provider, env, text, target);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('all free providers failed');
 }
 
 export default {
@@ -193,13 +230,13 @@ export default {
         if (!text.trim()) return json({ error: 'empty_text' }, 400, request, env);
         if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
         if (!LANG_NAMES[target] || target === 'auto') return json({ error: 'invalid_target' }, 400, request, env);
-        if (!env.DEEPSEEK_API_KEY) return json({ error: 'service_unavailable' }, 503, request, env);
+        if (!PROVIDERS.some(p => Boolean(env[p.keyEnv]))) return json({ error: 'service_unavailable' }, 503, request, env);
         reserved = Math.max(1, countChars(text));
         const reservation = await reserveUsage(db, auth.uid, requestId, reserved);
         if (!reservation.ok) return json({ error: reservation.error }, reservation.error === 'duplicate_request' ? 409 : 402, request, env);
-        const { text: result, engine, route: usedRoute } = await translate(text, target, route, env);
+        const { text: result, engine } = await translate(text, target, env);
         await finishUsage(db, auth.uid, requestId, countChars(result));
-        return json({ text: result, source, target, engine, route: usedRoute }, 200, request, env);
+        return json({ text: result, source, target, engine, route }, 200, request, env);
       } catch (error) {
         if (reserved > 0) await refundUsage(db, auth.uid, requestId, reserved).catch(() => {});
         return json({ error: 'translation_failed' }, 502, request, env);
