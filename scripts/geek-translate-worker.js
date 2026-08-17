@@ -21,6 +21,34 @@ const PROVIDERS = [
 
 const enc = new TextEncoder();
 
+// 模型健康状态（内存态，进程重启重置；失败降级标记 + 成功自动恢复）
+// 规则：连续 2 次失败 → 标记不健康（跳过）；30 秒冷却后允许重试探测；任意成功 → 恢复健康
+const providerState = new Map();
+const FAIL_THRESHOLD = 2;
+const COOLDOWN_MS = 30000;
+
+function markProviderFail(id, errorMessage) {
+  const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0 };
+  st.failCount = (st.failCount || 0) + 1;
+  st.lastError = String(errorMessage || '');
+  st.lastFailAt = Date.now();
+  if (st.failCount >= FAIL_THRESHOLD) st.healthy = false;
+  providerState.set(id, st);
+}
+
+function markProviderOk(id) {
+  const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0 };
+  st.healthy = true; st.failCount = 0; st.lastError = ''; st.lastOkAt = Date.now();
+  providerState.set(id, st);
+}
+
+function providerUsable(provider) {
+  const st = providerState.get(provider.id);
+  if (!st || st.healthy) return true;
+  // 冷却期过后允许重试探测
+  return Date.now() - (st.lastFailAt || 0) > COOLDOWN_MS;
+}
+
 function bytesToB64Url(bytes) {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -94,7 +122,13 @@ async function health(env, request) {
   const hasProvider = PROVIDERS.some(p => Boolean(env[p.keyEnv]));
   const configured = Boolean(hasProvider && env.JWT_SECRET && env.geek_subscriptions);
   const providers = PROVIDERS.filter(p => Boolean(env[p.keyEnv])).map(p => p.id);
-  return json({ ok: configured, service: 'geek-translate', providers }, configured ? 200 : 503, request, env);
+  const status = {};
+  for (const p of PROVIDERS) {
+    if (!env[p.keyEnv]) continue;
+    const st = providerState.get(p.id) || { healthy: true, lastError: '', failCount: 0, lastFailAt: 0, lastOkAt: 0 };
+    status[p.id] = { healthy: st.healthy, failCount: st.failCount, lastError: st.lastError.slice(0, 120), lastFailAt: st.lastFailAt ? new Date(st.lastFailAt).toISOString() : null, lastOkAt: st.lastOkAt ? new Date(st.lastOkAt).toISOString() : null };
+  }
+  return json({ ok: configured, service: 'geek-translate', providers, models: status }, configured ? 200 : 503, request, env);
 }
 
 async function rateLimited(db, bucket, limit, windowSeconds) {
@@ -180,15 +214,19 @@ async function callProvider(provider, env, text, target, timeoutMs = 45000) {
   }
 }
 
-// 多免费模型轮换：按 PROVIDERS 顺序尝试，全部失败抛最后错误
+// 多免费模型轮换：跳过已知故障模型（健康监测），按 PROVIDERS 顺序尝试，全部失败抛最后错误
 async function translate(text, target, env) {
   const pool = PROVIDERS.filter(p => Boolean(env[p.keyEnv]));
   if (!pool.length) throw new Error('no free provider configured');
   let lastError = null;
   for (const provider of pool) {
+    if (!providerUsable(provider)) { lastError = lastError || new Error(`${provider.id}: 模型暂不可用（冷却中）`); continue; }
     try {
-      return await callProvider(provider, env, text, target);
+      const result = await callProvider(provider, env, text, target);
+      markProviderOk(provider.id);
+      return result;
     } catch (error) {
+      markProviderFail(provider.id, error.message);
       lastError = error;
     }
   }
