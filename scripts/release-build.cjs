@@ -14,6 +14,14 @@ function fail(message) {
   process.exit(1);
 }
 
+// GitHub Actions 不是唯一安全边界：正式发布入口本身必须先跑完整测试。
+const testRunner = path.join(root, 'scripts', 'run-tests.cjs');
+const tests = spawnSync(process.execPath, [testRunner], {
+  cwd: root, stdio: 'inherit', env: process.env,
+});
+if (tests.error) fail(`无法启动发布前测试: ${tests.error.message}`);
+if (tests.status !== 0) fail(`发布前测试失败 (${tests.status})`);
+
 const builderCli = require.resolve('electron-builder/out/cli/cli.js');
 const build = spawnSync(process.execPath, [builderCli, '--win', '--publish', 'never'], {
   cwd: root, stdio: 'inherit', env: process.env,
