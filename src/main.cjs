@@ -221,14 +221,31 @@ async function loadLineExtension(partition) {
       ses.webRequest.onBeforeSendHeaders((details, callback) => {
         if (/checkQrCodeVerified/.test(details.url)) {
           const h = details.requestHeaders || {};
-          console.log(`[line-hdr] ${details.url.slice(-60)} UA=${(h['User-Agent']||'').slice(0,50)} Origin=${h['Origin']||''} Referer=${h['Referer']||''} CT=${h['Content-Type']||''} XSID=${h['X-Line-Session-ID']||''} XLST=${h['X-LST']||''}`);
+          // 安全日志：凭证头只记录存在性布尔值，绝不输出原值；
+          // URL 只记录 host+pathname，去掉 query（可能携带会话/令牌参数）
+          let urlSafe = '';
+          try {
+            const u = new URL(details.url);
+            urlSafe = `${u.host}${u.pathname}`.slice(-60);
+          } catch {
+            urlSafe = String(details.url).replace(/[?#].*$/, '').slice(-60);
+          }
+          console.log(`[line-hdr] ${urlSafe} UA=${(h['User-Agent']||'').slice(0,50)} Origin=${h['Origin']||''} Referer=${h['Referer']||''} CT=${h['Content-Type']||''} XSID=${h['X-Line-Session-ID']?'yes':'no'} XLST=${h['X-LST']?'yes':'no'}`);
         }
         // 必须调用 callback，否则请求被阻塞（Electron webRequest API 要求）
         callback({ requestHeaders: details.requestHeaders });
       });
       ses.webRequest.onCompleted((details) => {
         if (/line-chrome-gw/.test(details.url)) {
-          console.log(`[line-api] ${details.statusCode} ${details.method} ${details.url.slice(0, 150)}`);
+          // 安全日志：URL 只记录 host+pathname，去掉 query（可能携带会话/令牌参数）
+          let urlSafe = '';
+          try {
+            const u = new URL(details.url);
+            urlSafe = `${u.host}${u.pathname}`;
+          } catch {
+            urlSafe = String(details.url).replace(/[?#].*$/, '');
+          }
+          console.log(`[line-api] ${details.statusCode} ${details.method} ${urlSafe.slice(0, 150)}`);
         }
       });
     } catch (e) { /* webRequest 监听失败不影响 */ }
