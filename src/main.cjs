@@ -124,22 +124,11 @@ async function saveLineToken(partition, tokenJson) {
   } catch (e) { /* 写失败不影响 */ }
 }
 
-// 对齐原版 Hello-GPT 的进程参数（原版 renderer 带 --no-sandbox/--no-zygote/--js-flags/
-// --service-worker-schemes 等；webview 扩展 SW 注册与沙箱行为可能受影响）
+// 保留经过验证且不降低网页安全边界的进程参数。
 try {
-  // 沙箱强化：不再全局 --no-sandbox（保留原版其余参数）。
-  // 若 LINE 扩展/启动出现兼容问题，改回 app.commandLine.appendSwitch('no-sandbox')。
   app.commandLine.appendSwitch('no-zygote');
   app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
-  app.commandLine.appendSwitch('service-worker-schemes', 'http,https');
 } catch (e) { /* 参数设置失败不影响 */ }
-try {
-  const { protocol } = require('electron');
-  protocol.registerSchemesAsPrivileged([
-    { scheme: 'http', privileges: { standard: true, bypassCSP: true, corsEnabled: true, fetch: true, serviceWorkers: true, streaming: true } },
-    { scheme: 'https', privileges: { standard: true, bypassCSP: true, corsEnabled: true, fetch: true, serviceWorkers: true, streaming: true } },
-  ]);
-} catch (e) { /* scheme 设置失败不影响 */ }
 
 // 运行期 accounts/config 固定写入 Electron userData，不再写入项目 data/。
 // 首次运行时会从旧 data/ 安全迁移（目标已存在则以目标为准）。
