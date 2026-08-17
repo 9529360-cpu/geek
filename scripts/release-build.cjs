@@ -14,27 +14,28 @@ function fail(message) {
   process.exit(1);
 }
 
-const certificate = process.env.WIN_CSC_LINK || process.env.CSC_LINK;
-const password = process.env.WIN_CSC_KEY_PASSWORD || process.env.CSC_KEY_PASSWORD;
-if (!certificate) fail('缺少 WIN_CSC_LINK/CSC_LINK，正式发布禁止生成未签名安装包');
-if (!password) fail('缺少 WIN_CSC_KEY_PASSWORD/CSC_KEY_PASSWORD');
-
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const build = spawnSync(npx, ['electron-builder', '--win', '--publish', 'never', '--config.forceCodeSigning=true'], {
+const builderCli = require.resolve('electron-builder/out/cli/cli.js');
+const build = spawnSync(process.execPath, [builderCli, '--win', '--publish', 'never'], {
   cwd: root, stdio: 'inherit', env: process.env,
 });
+if (build.error) fail(`无法启动 electron-builder: ${build.error.message}`);
 if (build.status !== 0) fail(`electron-builder 失败 (${build.status})`);
 
 const installers = fs.readdirSync(outDir).filter(name => name.toLowerCase().endsWith('.exe'));
 if (!installers.length) fail('没有生成 Windows EXE');
-for (const name of installers) {
-  const file = path.join(outDir, name);
-  const escaped = file.replace(/'/g, "''");
-  const verify = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-    `$s=Get-AuthenticodeSignature -LiteralPath '${escaped}'; if($s.Status -ne 'Valid'){Write-Error $s.Status; exit 1}; $s.SignerCertificate.Subject`],
-  { cwd: root, encoding: 'utf8', windowsHide: true });
-  if (verify.status !== 0) fail(`${name} Authenticode 签名无效`);
-  console.log(`[release] signed ${name}: ${String(verify.stdout || '').trim()}`);
+const certificate = process.env.WIN_CSC_LINK || process.env.CSC_LINK;
+if (certificate) {
+  for (const name of installers) {
+    const file = path.join(outDir, name);
+    const escaped = file.replace(/'/g, "''");
+    const verify = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `$s=Get-AuthenticodeSignature -LiteralPath '${escaped}'; if($s.Status -ne 'Valid'){Write-Error $s.Status; exit 1}; $s.SignerCertificate.Subject`],
+    { cwd: root, encoding: 'utf8', windowsHide: true });
+    if (verify.status !== 0) fail(`${name} Authenticode 签名无效`);
+    console.log(`[release] signed ${name}: ${String(verify.stdout || '').trim()}`);
+  }
+} else {
+  console.warn('[release] 未配置代码签名证书：按既有免费发布方式生成“未知发布者”安装包');
 }
 
 const latest = path.join(outDir, 'latest.yml');
