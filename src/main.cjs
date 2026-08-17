@@ -941,10 +941,11 @@ async function translateViaRemoteGateway(event, payload) {
     if (body.isHistory === true && body.translateHistory !== true) return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true };
     if (translationInflight.has(inflightKey)) return translationInflight.get(inflightKey);
   }
-  // 字符余额检查：额度用完抛错（UI 静默处理）
+  // 字符余额检查：只读本地缓存（不发起网络请求），额度用完抛错（UI 静默处理）。
+  // 额度固定：服务端原子扣减并返回剩余值，客户端本地更新；本地无缓存则放行（服务端兜底 402）。
   if (body.skipQuota !== true) {
     const sub = initSubscriptionStore();
-    const quota = await sub.getQuota().catch(() => ({ remaining_chars: Number.MAX_SAFE_INTEGER }));
+    const quota = await sub.getQuota({ network: false }).catch(() => ({ remaining_chars: null }));
     if (quota.remaining_chars != null && quota.remaining_chars <= 0) {
       const error = new Error('翻译额度已用完，请前往个人中心开通');
       error.code = 'QUOTA_EXHAUSTED';

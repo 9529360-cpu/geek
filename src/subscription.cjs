@@ -174,12 +174,17 @@ function createSubscriptionStore({ userDataDir }) {
   }
 
   // 字符余额查询：{ remaining_chars }（纯字符包，无订阅概念）
-  // 有本地缓存直接返回；否则请求远程
-  async function getQuota(force = false) {
+  // 默认有本地缓存直接返回；否则请求远程。
+  // 传 { network: false } 时只读本地缓存，绝不发网络请求（翻译热路径用，额度固定由服务端扣减）。
+  async function getQuota(force = false, opts = {}) {
     const state = await load();
     const now = Date.now();
     const fresh = state.quota_checked_at && (now - new Date(state.quota_checked_at).getTime()) < 30 * 1000;
     if (!force && fresh && state.quota_cache) return state.quota_cache;
+    if (opts.network === false) {
+      // 只读本地：有缓存返回缓存（哪怕是旧的），无缓存视为未知（放行，服务端兜底）
+      return state.quota_cache ? state.quota_cache : { remaining_chars: null, email: state.email || '' };
+    }
     try {
       const data = await request('/api/quota');
       const quota = {
