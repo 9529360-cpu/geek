@@ -230,7 +230,7 @@ async function loadLineExtension(partition) {
           } catch {
             urlSafe = String(details.url).replace(/[?#].*$/, '').slice(-60);
           }
-          console.log(`[line-hdr] ${urlSafe} UA=${(h['User-Agent']||'').slice(0,50)} Origin=${h['Origin']||''} Referer=${h['Referer']||''} CT=${h['Content-Type']||''} XSID=${h['X-Line-Session-ID']?'yes':'no'} XLST=${h['X-LST']?'yes':'no'}`);
+          console.log(`[line-hdr] ${urlSafe} UA=${(h['User-Agent']||'').slice(0,50)} OriginPresent=${h['Origin']?'yes':'no'} RefererPresent=${h['Referer']?'yes':'no'} CT=${h['Content-Type']||''} XSID=${h['X-Line-Session-ID']?'yes':'no'} XLST=${h['X-LST']?'yes':'no'}`);
         }
         // 必须调用 callback，否则请求被阻塞（Electron webRequest API 要求）
         callback({ requestHeaders: details.requestHeaders });

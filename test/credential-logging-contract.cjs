@@ -14,10 +14,14 @@ assert.match(hdrLine, /XLST=\$\{h\['X-LST'\].*\?'yes':'no'\}/, 'X-LST 必须只�
 assert.doesNotMatch(hdrLine, /XSID=\$\{h\['X-Line-Session-ID'\]\|\|''\}/, '不得输出 X-Line-Session-ID 原值');
 assert.doesNotMatch(hdrLine, /XLST=\$\{h\['X-LST'\]\|\|''\}/, '不得输出 X-LST 原值');
 
-// 2. LINE 日志不得打印 Cookie / Authorization 头
+// 2. LINE 日志不得打印 Cookie / Authorization / Origin / Referer 原值
 const logRegion = main.slice(main.indexOf('onBeforeSendHeaders'), main.indexOf('loadExtension'));
 assert.doesNotMatch(logRegion, /Cookie=\$\{/, 'LINE 日志不得输出 Cookie 头');
 assert.doesNotMatch(logRegion, /Authorization=\$\{/, 'LINE 日志不得输出 Authorization 头');
+assert.doesNotMatch(hdrLine, /Origin=\$\{/, 'LINE 日志不得输出 Origin 原值');
+assert.doesNotMatch(hdrLine, /Referer=\$\{/, 'LINE 日志不得输出 Referer 原值');
+assert.match(hdrLine, /OriginPresent=\$\{h\['Origin'\].*\?'yes':'no'\}/, 'Origin 只能记录存在性');
+assert.match(hdrLine, /RefererPresent=\$\{h\['Referer'\].*\?'yes':'no'\}/, 'Referer 只能记录存在性');
 
 // 3. LINE 请求/完成日志必须对 URL 去 query（host+pathname）
 assert.match(main, /new URL\(details\.url\)/, '必须用 URL 解析去 query');
@@ -27,5 +31,6 @@ assert.match(main, /const u = new URL\(details\.url\)/, '完成日志同样必�
 // 4. 全文件不得再出现任何直接把请求头原值写入 console 的表达式
 assert.doesNotMatch(main, /console\.(log|error|warn)\([^\n]*X-Line-Session-ID'\]\s*\|\|/, '不得直接输出 X-Line-Session-ID 原值到日志');
 assert.doesNotMatch(main, /console\.(log|error|warn)\([^\n]*X-LST'\]\s*\|\|/, '不得直接输出 X-LST 原值到日志');
+assert.doesNotMatch(main, /console\.(log|error|warn)\([^\n]*Referer'\]\s*\|\|/, '不得直接输出 Referer 原值到日志');
 
 console.log('CREDENTIAL_LOGGING_CONTRACT_OK');
