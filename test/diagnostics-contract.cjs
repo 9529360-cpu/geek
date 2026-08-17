@@ -11,7 +11,12 @@ const clean = sanitizeMetadata({
   cookie: 'sid=secret-cookie',
   apiKey: 'secret-key',
   accessToken: 'nested-secret-token',
-  headers: { Authorization: 'Bearer nested-secret', Cookie: 'sid=nested-secret' },
+  sessionId: 'line-session-secret',
+  email: 'user@example.com',
+  phoneNumber: '+60123456789',
+  login: 'proxy-user',
+  username: 'private-user',
+  headers: { Authorization: 'Bearer nested-secret', Cookie: 'sid=nested-secret', sessionToken: 'nested-session' },
   message: 'ordinary diagnostic message',
   messageBody: 'PRIVATE MESSAGE BODY',
   chatText: 'PRIVATE CHAT BODY'
@@ -21,11 +26,24 @@ assert.equal(clean.authorization, '[REDACTED]', 'Authorization必须脱敏');
 assert.equal(clean.cookie, '[REDACTED]', 'Cookie必须脱敏');
 assert.equal(clean.apiKey, '[REDACTED]', 'API key必须脱敏');
 assert.equal(clean.accessToken, '[REDACTED]', 'accessToken必须脱敏');
+assert.equal(clean.sessionId, '[REDACTED]', 'session ID必须脱敏');
+assert.equal(clean.email, '[REDACTED]', '邮箱必须脱敏');
+assert.equal(clean.phoneNumber, '[REDACTED]', '手机号必须脱敏');
+assert.equal(clean.login, '[REDACTED]', '登录名必须脱敏');
+assert.equal(clean.username, '[REDACTED]', '用户名必须脱敏');
 assert.equal(clean.headers.Authorization, '[REDACTED]', '嵌套Authorization必须脱敏');
 assert.equal(clean.headers.Cookie, '[REDACTED]', '嵌套Cookie必须脱敏');
+assert.equal(clean.headers.sessionToken, '[REDACTED]', '嵌套session token必须脱敏');
 assert.equal(clean.message, 'ordinary diagnostic message', '普通诊断文字应保留');
 assert.equal(Object.hasOwn(clean, 'messageBody'), false, 'message正文键必须丢弃');
 assert.equal(Object.hasOwn(clean, 'chatText'), false, '聊天正文键必须丢弃');
+
+const malformed = sanitizeMetadata({
+  url: 'not-a-valid-url/path?token=SHOULD_NOT_LEAK#secret-fragment',
+  nested: { url: 'custom://user:pass@example/path?auth=SHOULD_NOT_LEAK' }
+});
+assert.equal(malformed.url, 'not-a-valid-url/path', '非法URL也必须去掉query/hash');
+assert.doesNotMatch(malformed.nested.url, /user|pass|auth=|SHOULD_NOT_LEAK/, '嵌套URL不得泄露userinfo/query');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-diagnostics-'));
 const diagnostics = createDiagnostics({ dir, maxBytes: 220, maxFiles: 3, now: () => '2026-08-16T10:00:00.000Z' });
@@ -34,6 +52,7 @@ for (let i = 0; i < 20; i += 1) {
     accountId: 'account-1', platform: 'telegram-z', errorCode: -105,
     url: `https://example.com/path?token=secret-${i}`,
     authorization: `Bearer secret-${i}`,
+    email: `person${i}@example.com`,
     chatText: `PRIVATE-${i}`
   });
 }
@@ -42,7 +61,7 @@ assert.ok(files.length >= 1 && files.length <= 3, '轮转文件最多保留3个'
 const output = files.map((name) => fs.readFileSync(path.join(dir, name), 'utf8')).join('\n');
 assert.match(output, /webview-load-failed/, '应记录事件名');
 assert.match(output, /account-1/, '应记录账号ID元数据');
-assert.doesNotMatch(output, /secret-|PRIVATE-|Bearer/, '日志不得包含凭据或聊天正文');
+assert.doesNotMatch(output, /secret-|PRIVATE-|Bearer|@example\.com|proxy-user/, '日志不得包含凭据、PII或聊天正文');
 assert.doesNotMatch(output, /\?token=/, '日志不得包含URL query');
 
 console.log('DIAGNOSTICS_CONTRACT_OK');

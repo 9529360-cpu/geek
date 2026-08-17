@@ -3,7 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SENSITIVE_KEY_FRAGMENTS = ['authorization', 'cookie', 'apikey', 'token', 'secret', 'password'];
+const SENSITIVE_KEY_FRAGMENTS = [
+  'authorization', 'cookie', 'apikey', 'token', 'secret', 'password',
+  'credential', 'session', 'email', 'phone', 'login', 'username'
+];
 const DROP_KEY_FRAGMENTS = ['chattext', 'chatbody', 'messagebody', 'messagetext', 'content'];
 
 function isSensitiveKey(key) {
@@ -16,19 +19,26 @@ function isDropKey(key) {
   return DROP_KEY_FRAGMENTS.some(frag => lower.includes(frag));
 }
 
+function sanitizeUrl(value) {
+  try {
+    const url = new URL(value);
+    url.search = '';
+    url.hash = '';
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    // 即使 URL 不完整/非法，也不能因为解析失败而把 query/hash 原样写入日志。
+    // 同时尽力去掉 scheme 后的 userinfo，避免 malformed URL 泄露 user:password@host。
+    const withoutQuery = String(value).replace(/[?#].*$/, '');
+    return withoutQuery.replace(/^([a-z][a-z0-9+.-]*:\/\/)(?:[^/@]+@)/i, '$1[REDACTED]@');
+  }
+}
+
 function sanitizeValue(value, key) {
   if (typeof value === 'string') {
     if (key.toLowerCase() === 'url') {
-      try {
-        const url = new URL(value);
-        url.search = '';
-        url.hash = '';
-        url.username = '';
-        url.password = '';
-        return url.toString();
-      } catch {
-        return value;
-      }
+      return sanitizeUrl(value);
     }
     if (isSensitiveKey(key)) {
       return '[REDACTED]';
