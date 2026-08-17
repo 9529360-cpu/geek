@@ -18,8 +18,10 @@
   - 路径安全：目标必须与调用方（Electron app.getPath('userData')）可信基准完全一致（防自证），
     另有 `isRejectedWideDir` 拒绝磁盘根/用户目录/AppData 根；username 空值安全失败
   - 修复范围：只修 userDataDir 本身 + REQUIRED_SUBDIRS（diagnostics），**不做全树 /T 递归**，
-    避免改写 Cookies/IndexedDB/Partitions 等文件 ACL；每目标单独 `icacls <target> /inheritance:e /grant:r <user>:(OI)(CI)F /T /C`
-    （恢复继承 + 当前用户文件夹/子文件夹/文件可继承的完全控制，只改权限不删数据）
+    避免改写 Cookies/IndexedDB/Partitions 等文件 ACL；
+    **参数拆分（Issue #2 二轮评审）**：根目录 `icacls <root> /inheritance:e /grant:r <user>:(OI)(CI)F /C`
+    **不带 /T**（只修根本身，子对象通过继承恢复，显式 ACE 原样保留）；
+    仅 diagnostics 用 `... /T /C` 递归（明确允许的应用私有子目录）。
   - mkdir 单独容错，失败不阻断 icacls
   - 版本化标记 `.acl-repair-v1.json`：成功才写；每次启动仍探测 diagnostics 可写，不可写则重跑
   - execFile 参数数组（空格/中文/特殊字符路径安全）；失败返回 ok:false 不抛出

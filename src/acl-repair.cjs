@@ -51,8 +51,12 @@ function isRejectedWideDir(resolved) {
 }
 
 // 组装 icacls 参数数组（execFile 参数形式，不含命令名；路径含空格/中文/特殊字符安全，绝不拼 shell）
-function buildIcaclsArgs(target, username) {
-  return [target, '/inheritance:e', '/grant:r', `${username}:(OI)(CI)F`, '/T', '/C'];
+// recursive=true 时追加 /T（仅允许对明确的应用私有子目录递归）；
+// 根目录默认 recursive=false，禁止 /T 递归整个 userData（避免改写 Cookies/IndexedDB/Partitions ACL）。
+function buildIcaclsArgs(target, username, options = {}) {
+  const args = [target, '/inheritance:e', '/grant:r', `${username}:(OI)(CI)F`, '/C'];
+  if (options.recursive) args.push('/T');
+  return args;
 }
 
 function markerPath(userDataDir) {
@@ -95,10 +99,10 @@ async function isWritable(dir) {
   }
 }
 
-// 对单个目录执行 icacls 修复
-function runIcacls(target, username, execFileImpl) {
+// 对单个目录执行 icacls 修复；recursive 仅对明确允许的应用私有子目录为 true
+function runIcacls(target, username, execFileImpl, options = {}) {
   return new Promise((resolve) => {
-    const args = buildIcaclsArgs(target, username);
+    const args = buildIcaclsArgs(target, username, options);
     execFileImpl('icacls', args, { timeout: 30000, windowsHide: true }, (err, stdout, stderr) => {
       resolve({
         ok: !err,
@@ -142,8 +146,12 @@ async function repairUserDataAcl({ userDataDir, expectedUserDataDir, username, e
       return { ok: false, repaired: false, reason: `ACL 修复拒绝宽泛目录: ${resolved}` };
     }
 
-    // 4) 修复目标列表：userDataDir 本身 + 必要子目录（只改应用私有目标，不做全树 /T）
-    const targets = [resolved, ...REQUIRED_SUBDIRS.map((sub) => path.join(resolved, sub))];
+    // 4) 修复目标列表：userDataDir 本身（recursive=false，禁止 /T 递归整个树）
+    //    + 必要应用私有子目录（recursive=true，仅这些目录允许递归）。
+    const targets = [
+      { target: resolved, recursive: false },
+      ...REQUIRED_SUBDIRS.map((sub) => ({ target: path.join(resolved, sub), recursive: true })),
+    ];
 
     // 可写探测函数（可注入用于测试）
     const probeWritable = probe || (async (dir) => isWritable(dir));
@@ -156,13 +164,13 @@ async function repairUserDataAcl({ userDataDir, expectedUserDataDir, username, e
     }
 
     // 6) 逐目标执行 icacls（不因 mkdir 失败阻断：mkdir 只用于补建缺失目录，单独容错）
-    for (const target of targets) {
+    for (const { target, recursive } of targets) {
       try {
         await fs.mkdir(target, { recursive: true }); // 已存在目录不会重建/删除；失败仅跳过该目标
       } catch (e) {
         // 目录可能因 ACL 无法访问——先尝试修复它，再补建
       }
-      const result = await runIcacls(target, user, execFileImpl);
+      const result = await runIcacls(target, user, execFileImpl, { recursive });
       if (!result.ok) {
         return { ok: false, repaired: true, reason: `icacls 失败(${target}): ${result.stderr || result.stdout}` };
       }

@@ -41,16 +41,20 @@ function freshDir(prefix) {
   assert.equal(isRejectedWideDir(path.resolve('C:\\Users\\someone\\AppData\\Roaming')), true, 'AppData Roaming 必须拒绝');
   assert.equal(isRejectedWideDir(path.resolve('C:\\Windows')), false, '其他目录不误伤（由可信基准把关）');
 
-  // ---- 2. icacls 参数数组：空格/中文路径不拼接 shell ----
+  // ---- 2. icacls 参数数组：空格/中文路径不拼接 shell；recursive 控制 /T ----
   const spaced = 'C:\\Users\\test user\\AppData\\Roaming\\geek 极客\\diagnostics';
   const args = buildIcaclsArgs(spaced, 'test user');
   assert.ok(Array.isArray(args), '参数必须是数组');
   assert.equal(args[0], spaced, '路径必须作为独立参数，不能被 shell 拆分');
   assert.ok(args.some((a) => a.includes('(OI)(CI)F')), '必须授予可继承的完全控制');
   assert.ok(args.includes('/inheritance:e'), '必须恢复继承');
-  assert.ok(args.includes('/T'), '必须递归子对象');
   assert.ok(args.includes('/C'), '出错必须继续');
   assert.ok(args.some((a) => a.startsWith('test user:')), '用户名必须作为独立参数');
+  // 默认不带 /T（根目录禁止递归整个 userData）
+  assert.ok(!args.includes('/T'), '默认参数不得包含 /T');
+  // recursive=true 才带 /T
+  const recArgs = buildIcaclsArgs(spaced, 'test user', { recursive: true });
+  assert.ok(recArgs.includes('/T'), 'recursive=true 时必须包含 /T');
 
   // ---- 3. 版本化标记 ----
   const mdir = freshDir('geek-acl-marker');
@@ -85,8 +89,15 @@ function freshDir(prefix) {
   assert.ok(calls.length >= REQUIRED_SUBDIRS.length + 1, '必须对每个目标调用 icacls');
   assert.equal(calls[0].cmd, 'icacls');
   assert.equal(calls[0].args[0], ud, '第一个目标必须是 userDataDir');
-  // 必须包含 diagnostics 目标
-  assert.ok(calls.some((c) => c.args[0] === path.join(ud, 'diagnostics')), '必须修复 diagnostics 子目录');
+  // 根目录调用不得带 /T（禁止递归整个 userData 树）
+  assert.ok(!calls[0].args.includes('/T'), '根目录 icacls 不得带 /T');
+  // 必须包含 diagnostics 目标，且带 /T（明确允许递归的应用私有子目录）
+  const diagCall = calls.find((c) => c.args[0] === path.join(ud, 'diagnostics'));
+  assert.ok(diagCall, '必须修复 diagnostics 子目录');
+  assert.ok(diagCall.args.includes('/T'), 'diagnostics 允许带 /T');
+  // 不得出现 Partitions/Cookies/IndexedDB 等宽泛目标调用
+  const bannedTargets = calls.some((c) => /(Partitions|Cookies|IndexedDB|Local Storage|Cache)[\\/]?$/.test(c.args[0]));
+  assert.equal(bannedTargets, false, '不得对 Partitions/Cookies/IndexedDB 等目标调用 icacls');
   assert.ok(await readMarker(ud), '修复成功后必须写标记');
   assert.equal(fs.readFileSync(path.join(ud, 'accounts.json'), 'utf8'), '{"accounts":[]}', '账号数据不得被删除/覆盖');
 
