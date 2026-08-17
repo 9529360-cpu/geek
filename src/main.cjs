@@ -855,9 +855,9 @@ function translationGatewayEndpoints() {
   const list = configured
     ? configured.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean)
     : [];
-  // 未配置环境变量时：正式打包版默认走云端翻译 Worker（geek-translate.9529360.workers.dev）；
-  // 开发模式默认走本地网关（可被 GEEK_TRANSLATION_GATEWAY_URL 覆盖）。
-  const endpoints = list.length ? list : (app.isPackaged ? ['https://geek-translate.9529360.workers.dev'] : ['http://127.0.0.1:18991']);
+  // 未配置环境变量时：默认走云端翻译 Worker（geek-translate.9529360.workers.dev）。
+  // 本地网关（127.0.0.1:18991）仅当显式通过 GEEK_TRANSLATION_GATEWAY_URL 配置时才使用。
+  const endpoints = list.length ? list : ['https://geek-translate.9529360.workers.dev'];
   if (!endpoints.length) throw new Error('远程翻译服务尚未配置');
   for (const endpoint of endpoints) {
     let parsed;
