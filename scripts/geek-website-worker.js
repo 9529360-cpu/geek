@@ -2,7 +2,8 @@
 // 部署在 geek.bbnba.com；动态功能（登录/注册/余额/下单）调用 geek-subscription API
 // 设计语言：Linear/Vercel 风格——深色 + 霓虹渐变 + 毛玻璃 + SVG 线性图标 + 微动效
 
-const API_BASE = 'https://admin.bbnba.com';
+const API_BASE = '';
+const SUBSCRIPTION_API = 'https://admin.bbnba.com';
 const RELEASE_BASE = 'https://geek-release.9529360.workers.dev';
 const VERSION = '__GEEK_LATEST_VERSION__';
 const FALLBACK_VERSION = '1.2.4';
@@ -250,7 +251,7 @@ const io = new IntersectionObserver((entries) => {
 }, { threshold: .08 });
 document.querySelectorAll('.fade-up').forEach(el => io.observe(el));
 </script>
-${active === 'account' ? '<script>function logout(){localStorage.removeItem("geek_web_token");localStorage.removeItem("geek_web_email");location.href="/";}</script>' : ''}
+${active === 'account' ? '<script>async function logout(){await fetch("/api/logout",{method:"POST",credentials:"same-origin"});location.href="/";}</script>' : ''}
 </body>
 </html>`;
 }
@@ -362,7 +363,7 @@ const LOGIN = layout(`
         </div>
         <div style="margin-bottom:20px">
           <label style="display:block;font-size:12.5px;color:var(--text-dim);margin-bottom:7px">密码</label>
-          <input type="password" id="password" placeholder="••••••••" style="width:100%;padding:13px 16px;font-size:14.5px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;transition:border-color .15s">
+          <input type="password" id="password" minlength="10" maxlength="128" autocomplete="current-password" placeholder="至少 10 位密码" style="width:100%;padding:13px 16px;font-size:14.5px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;transition:border-color .15s">
         </div>
         <button class="btn btn-primary" id="btn-login" style="width:100%;padding:14px;font-size:15px">登 录</button>
         <div id="err" style="color:#f87171;font-size:13px;margin-top:12px;min-height:18px"></div>
@@ -389,25 +390,24 @@ const LOGIN = layout(`
     const pass = document.getElementById('password').value;
     const err = document.getElementById('err');
     if (!email || !pass) { err.textContent = '请输入邮箱和密码'; return; }
+    if (isRegister && (pass.length < 10 || pass.length > 128)) { err.textContent = '密码需要 10–128 位'; return; }
     const btn = document.getElementById('btn-login');
     btn.disabled = true; btn.textContent = isRegister ? '注册中…' : '登录中…';
     try {
       if (isRegister) {
-        const reg = await fetch('${API_BASE}/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pass }) });
+        const reg = await fetch('${API_BASE}/api/register', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pass }) });
         const regData = await reg.json();
         if (!reg.ok) {
           err.textContent = regData.error === 'email_exists' ? '该邮箱已注册，请直接登录' : '注册失败，请稍后重试';
           return;
         }
       }
-      const res = await fetch('${API_BASE}/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pass }) });
+      const res = await fetch('${API_BASE}/api/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pass }) });
       const data = await res.json();
       if (!res.ok) {
         err.textContent = data.error === 'invalid_credentials' ? '邮箱或密码错误' : data.error === 'account_disabled' ? '账号已被封禁，请联系客服' : '操作失败，请稍后重试';
         return;
       }
-      localStorage.setItem('geek_web_token', data.token);
-      localStorage.setItem('geek_web_email', email);
       window.location.href = '/account';
     } catch (e) { err.textContent = '网络错误，请稍后重试'; }
     finally { btn.disabled = false; btn.textContent = isRegister ? '注册并登录' : '登 录'; }
@@ -477,19 +477,17 @@ const ACCOUNT = layout(`
   </section>
   <script>
   const API = '${API_BASE}';
-  function getToken() { return localStorage.getItem('geek_web_token') || ''; }
   async function api(path, body) {
     const headers = { 'Content-Type': 'application/json' };
-    const t = getToken();
-    if (t) headers['Authorization'] = 'Bearer ' + t;
-    const res = await fetch(API + path, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined });
+    const res = await fetch(API + path, { method: body ? 'POST' : 'GET', credentials: 'same-origin', headers, body: body ? JSON.stringify(body) : undefined });
     return { status: res.status, data: await res.json().catch(() => ({})) };
   }
   function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
   async function load() {
-    if (!getToken()) { window.location.href = '/login'; return; }
-    document.getElementById('email').textContent = localStorage.getItem('geek_web_email') || '';
     try {
+      const me = await api('/api/me');
+      if (me.status !== 200) { window.location.href = '/login'; return; }
+      document.getElementById('email').textContent = me.data.user?.email || '';
       const { data } = await api('/api/quota');
       const q = data.remaining_chars ?? 0;
       document.getElementById('quota').textContent = q.toLocaleString() + ' 字符';
@@ -579,13 +577,44 @@ const ACCOUNT = layout(`
 `, 'account');
 
 function html(content, status = 200) {
-  return new Response(content, { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' } });
+  return new Response(content, { status, headers: {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'public, max-age=60',
+    'Content-Security-Policy': "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+  } });
+}
+
+async function proxyApi(request, path) {
+  const headers = new Headers();
+  for (const name of ['Content-Type', 'Authorization', 'Cookie']) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  headers.set('Origin', SUBSCRIPTION_API);
+  const upstream = await fetch(SUBSCRIPTION_API + path, {
+    method: request.method,
+    headers,
+    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
+  });
+  const responseHeaders = new Headers({
+    'Content-Type': upstream.headers.get('Content-Type') || 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  const cookie = upstream.headers.get('Set-Cookie');
+  if (cookie) responseHeaders.set('Set-Cookie', cookie);
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 }
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (path.startsWith('/api/')) return proxyApi(request, path + url.search);
 
     if (request.method === 'GET' && (path === '/' || path === '/index.html')) return html(withLatestVersion(HOME, await latestVersion()));
     if (request.method === 'GET' && path === '/login') return html(withLatestVersion(LOGIN, await latestVersion()));

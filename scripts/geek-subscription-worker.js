@@ -35,7 +35,8 @@ function json(payload, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': 'https://geek.bbnba.com',
+      'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
       'Cache-Control': 'no-store',
@@ -47,7 +48,8 @@ function handleOptions() {
   return new Response(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': 'https://geek.bbnba.com',
+      'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     },
@@ -79,11 +81,13 @@ function hexToBytes(hex) {
   return out;
 }
 
-async function hashPassword(password, saltHex) {
+const PASSWORD_ITERATIONS = 310000;
+
+async function hashPassword(password, saltHex, iterations = PASSWORD_ITERATIONS) {
   const salt = saltHex ? hexToBytes(saltHex) : crypto.getRandomValues(new Uint8Array(16));
   const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
     keyMaterial,
     256
   );
@@ -91,8 +95,10 @@ async function hashPassword(password, saltHex) {
 }
 
 async function verifyPassword(password, saltHex, expectedHash) {
-  const { hash } = await hashPassword(password, saltHex);
-  return hash === expectedHash;
+  const modern = String(expectedHash || '').startsWith('v2$');
+  const stored = modern ? String(expectedHash).slice(3) : String(expectedHash || '');
+  const { hash } = await hashPassword(password, saltHex, modern ? PASSWORD_ITERATIONS : 100000);
+  return { ok: hash === stored, needsUpgrade: !modern && hash === stored };
 }
 
 async function signJwt(payload, secret) {
@@ -124,7 +130,35 @@ async function verifyJwt(token, secret) {
 function authToken(request) {
   const h = request.headers.get('Authorization') || '';
   const m = h.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  const cookies = request.headers.get('Cookie') || '';
+  const match = cookies.match(/(?:^|;\s*)geek_session=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function adminAuthToken(request) {
+  const h = request.headers.get('Authorization') || '';
+  const bearer = h.match(/^Bearer\s+(.+)$/i);
+  if (bearer) return bearer[1];
+  const cookies = request.headers.get('Cookie') || '';
+  const match = cookies.match(/(?:^|;\s*)geek_admin_session=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function csrfAllowed(request) {
+  if (request.headers.get('Authorization')) return true;
+  const origin = request.headers.get('Origin');
+  return Boolean(origin && origin === new URL(request.url).origin);
+}
+
+function authCookie(name, token, maxAge) {
+  return `${name}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+}
+
+function withCookie(response, cookie) {
+  const headers = new Headers(response.headers);
+  headers.append('Set-Cookie', cookie);
+  return new Response(response.body, { status: response.status, headers });
 }
 
 // 当前有效订阅（从 expires_at 最新的一条 active 中取）
@@ -154,12 +188,12 @@ async function handleRegister(request, db) {
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
-  if (password.length < 6) return json({ error: 'password_too_short' }, 400);
+  if (password.length < 10 || password.length > 128) return json({ error: 'password_length_invalid' }, 400);
   if (await getUserByEmail(db, email)) return json({ error: 'email_exists' }, 409);
   const { salt, hash } = await hashPassword(password);
   const { meta } = await db
     .prepare('INSERT INTO users (email, password_hash, password_salt, quota_chars) VALUES (?, ?, ?, ?)')
-    .bind(email, hash, salt, FREE_QUOTA_CHARS)
+    .bind(email, `v2$${hash}`, salt, FREE_QUOTA_CHARS)
     .run();
   const userId = meta.last_row_id;
   return json({ ok: true, userId });
@@ -170,12 +204,19 @@ async function handleLogin(request, db, env) {
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
   const user = await getUserByEmail(db, email);
-  if (!user || !(await verifyPassword(password, user.password_salt, user.password_hash))) {
+  const verification = user ? await verifyPassword(password, user.password_salt, user.password_hash) : { ok: false };
+  if (!user || !verification.ok) {
     return json({ error: 'invalid_credentials' }, 401);
   }
   if (user.status === 'disabled') return json({ error: 'account_disabled' }, 403);
-  const token = await signJwt({ uid: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 }, env.JWT_SECRET);
-  return json({ ok: true, token, user: { id: user.id, email: user.email } });
+  if (verification.needsUpgrade) {
+    const upgraded = await hashPassword(password);
+    await db.prepare('UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?')
+      .bind(`v2$${upgraded.hash}`, upgraded.salt, user.id).run();
+  }
+  const maxAge = 60 * 60 * 24 * 30;
+  const token = await signJwt({ uid: user.id, email: user.email, kind: 'user', exp: Math.floor(Date.now() / 1000) + maxAge }, env.JWT_SECRET);
+  return withCookie(json({ ok: true, token, user: { id: user.id, email: user.email } }), authCookie('geek_session', token, maxAge));
 }
 
 async function handleMe(user, db) {
@@ -333,9 +374,14 @@ async function runUsdtSweeper(db) {
         // 该交易是否已被其他订单使用？（防重复确认）
         const used = await db.prepare("SELECT id FROM orders WHERE tx_id = ? AND id != ?").bind(t.transaction_id, order.id).first();
         if (used) continue;
+        const claim = await db.prepare("UPDATE orders SET status = 'processing', tx_id = ? WHERE id = ? AND status = 'pending'")
+          .bind(t.transaction_id, order.id).run();
+        if (claim.meta.changes !== 1) continue;
         const chars = PLANS[order.plan]?.chars || 0;
-        await db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, order.user_id).run();
-        await db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now'), tx_id = ? WHERE id = ?").bind(t.transaction_id, order.id).run();
+        await db.batch([
+          db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, order.user_id),
+          db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'processing'").bind(order.id),
+        ]);
         await logAction(db, 'usdt_auto_confirm', '订单#' + order.id + ' USDT 自动确认 $' + (order.amount_cents / 100).toFixed(2) + ' tx:' + String(t.transaction_id || '').slice(0, 16));
         confirmed.push(order.id);
         break;
@@ -356,9 +402,13 @@ async function handleAdminConfirmOrder(request, db, url) {
   const user = await getUserById(db, order.user_id);
   if (!user) return json({ error: 'user_not_found' }, 404);
 
+  const claim = await db.prepare("UPDATE orders SET status = 'processing' WHERE id = ? AND status = 'pending'").bind(order.id).run();
+  if (claim.meta.changes !== 1) return json({ error: 'order_already_processed' }, 409);
   const chars = PLANS[order.plan]?.chars || 0;
-  await db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, user.id).run();
-  await db.prepare(`UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ?`).bind(order.id).run();
+  await db.batch([
+    db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, user.id),
+    db.prepare("UPDATE orders SET status = 'paid', paid_at = datetime('now') WHERE id = ? AND status = 'processing'").bind(order.id),
+  ]);
   const row = await db.prepare('SELECT quota_chars FROM users WHERE id = ?').bind(user.id).first();
   await logAction(db, 'confirm_order', '订单#' + order.id + ' ' + user.email + ' ' + (PLANS[order.plan]?.name || '') + ' +' + chars.toLocaleString() + '字符 $' + order.amount);
 
@@ -502,7 +552,7 @@ async function handleAdminLogs(db) {
 async function handleAdminUserDetail(db, url) {
   const parts = url.pathname.split('/').filter(Boolean);
   const id = parts[parts.length - 2];
-  const user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first();
+  const user = await db.prepare('SELECT id, email, status, quota_chars, created_at FROM users WHERE id = ?').bind(id).first();
   if (!user) return json({ error: 'user_not_found' }, 404);
   const { results: orders } = await db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 50').bind(id).all();
   return json({ ok: true, user, orders });
@@ -756,15 +806,11 @@ const ADMIN_HTML = `<!DOCTYPE html>
 </div>
 
 <script>
-const TOKEN_KEY = 'geek_admin_token';
-let token = localStorage.getItem(TOKEN_KEY) || '';
-
 async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(path, { ...opts, headers });
+  const res = await fetch(path, { ...opts, headers, credentials: 'same-origin' });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401) { localStorage.removeItem(TOKEN_KEY); location.reload(); throw new Error('unauthorized'); }
+  if (res.status === 401) { showLogin(); throw new Error('unauthorized'); }
   if (!res.ok) throw new Error(data.error || res.status);
   return data;
 }
@@ -777,8 +823,6 @@ async function login() {
   const pass = document.getElementById('adminPass').value;
   try {
     const data = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: pass }) });
-    token = data.token;
-    localStorage.setItem(TOKEN_KEY, token);
     document.getElementById('loginErr').textContent = '';
     showPanel();
     init();
@@ -786,7 +830,7 @@ async function login() {
 }
 document.getElementById('adminPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
 
-function logout() { localStorage.removeItem(TOKEN_KEY); location.href = '/admin'; }
+async function logout() { await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/admin'; }
 
 function switchView(name) {
   document.querySelectorAll('.sb-item[data-view]').forEach(el => el.classList.toggle('on', el.dataset.view === name));
@@ -988,12 +1032,15 @@ async function loadLogs() {
 
 // ===== 初始化 =====
 async function init() {
-  if (!token) return;
   loadStats();
   loadTrends();
 }
 (async () => {
-  if (token) { showPanel(); init(); }
+  try {
+    await api('/api/admin/stats');
+    showPanel();
+    init();
+  } catch { showLogin(); }
 })();
 </script>
 </body>
@@ -1005,13 +1052,14 @@ async function handleAdminLogin(request, env) {
   if (!env.ADMIN_PASSWORD || password !== env.ADMIN_PASSWORD) {
     return json({ error: 'invalid_credentials' }, 401);
   }
-  const token = await signJwt({ admin: true, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }, env.JWT_SECRET);
-  return json({ ok: true, token });
+  const maxAge = 60 * 60 * 12;
+  const token = await signJwt({ admin: true, kind: 'admin', exp: Math.floor(Date.now() / 1000) + maxAge }, env.JWT_SECRET);
+  return withCookie(json({ ok: true }), authCookie('geek_admin_session', token, maxAge));
 }
 
 // 管理员鉴权
 async function requireAdmin(request, env) {
-  const token = authToken(request);
+  const token = adminAuthToken(request);
   if (!token) return null;
   const payload = await verifyJwt(token, env.JWT_SECRET);
   return payload && payload.admin ? payload : null;
@@ -1102,7 +1150,14 @@ export default {
 
     // 管理后台页面
     if (request.method === 'GET' && path === '/admin') {
-      return new Response(ADMIN_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+      return new Response(ADMIN_HTML, { headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Security-Policy': "frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+        'X-Frame-Options': 'DENY',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+      } });
     }
 
     // ---- 公开接口（带速率限制防刷）----
@@ -1127,8 +1182,12 @@ export default {
         else await adminLoginFail(db, ip);
         return result;
       }
+      if (request.method === 'POST' && path === '/api/admin/logout') {
+        return withCookie(json({ ok: true }), authCookie('geek_admin_session', '', 0));
+      }
       const admin = await requireAdmin(request, env);
       if (!admin) return json({ error: 'unauthorized' }, 401);
+      if (request.method === 'POST' && !csrfAllowed(request)) return json({ error: 'invalid_origin' }, 403);
       if (request.method === 'GET' && path === '/api/admin/users') return handleAdminUsers(db, request);
       if (request.method === 'GET' && path === '/api/admin/orders') return handleAdminOrders(db);
       if (request.method === 'GET' && path === '/api/admin/stats') return handleAdminStats(db);
@@ -1146,9 +1205,13 @@ export default {
     }
 
     // ---- 用户接口 ----
+    if (request.method === 'POST' && path === '/api/logout') {
+      return withCookie(json({ ok: true }), authCookie('geek_session', '', 0));
+    }
     const auth = await requireUser(request, db, env);
     if (auth.error) return auth.error;
     const user = auth.user;
+    if (request.method === 'POST' && !csrfAllowed(request)) return json({ error: 'invalid_origin' }, 403);
 
     if (request.method === 'GET' && path === '/api/me') return handleMe(user, db);
     if (request.method === 'GET' && path === '/api/status') return handleStatus(user, db);

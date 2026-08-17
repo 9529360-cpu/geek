@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS orders (
   plan TEXT NOT NULL,
   amount INTEGER NOT NULL,                         -- 美元整数
   currency TEXT NOT NULL DEFAULT 'USD',
-  status TEXT NOT NULL DEFAULT 'pending',          -- pending / paid / cancelled
+  status TEXT NOT NULL DEFAULT 'pending',          -- pending / processing / paid / cancelled / expired
   pay_method TEXT NOT NULL DEFAULT 'manual',       -- manual / usdt
   amount_cents INTEGER,                            -- USDT 唯一金额（分，如 2537 = $25.37，识别订单用）
   tx_id TEXT,                                      -- 链上交易哈希（USDT 到账后记录）
