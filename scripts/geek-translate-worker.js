@@ -13,10 +13,10 @@ const LANG_NAMES = {
 
 // 免费模型池（按顺序尝试；429/5xx/超时/空响应 → 自动切换下一个）
 // 2026-08-17 晚：Groq/Gemini 旧 key 失效、旧模型名下架 → 换新 key 和新模型名
-// 顺序策略：Groq 最快(1-2s)放最前；GLM 慢(5-12s)+易429限流放最后当备用
+// 2026-08-17 深夜：Groq qwen 模型输出 <think> 思考过程污染翻译结果（几字变千字，扣光额度）
+//   → Groq 从池中移除；Gemini 优先（新 key 干净输出）；GLM 慢+易限流放最后备用
 const PROVIDERS = [
-  { id: 'groq',   model: 'qwen/qwen3.6-27b',       base: 'https://api.groq.com/openai/v1',         keyEnv: 'GROQ_API_KEY' },
-  { id: 'gemini', model: 'gemini-2.5-flash',       base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
+  { id: 'gemini', model: 'gemini-3.6-flash',       base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
   { id: 'mistral', model: 'mistral-small-latest',   base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
   { id: 'glm',    model: 'glm-4.7-flash',          base: 'https://api.z.ai/api/paas/v4',           keyEnv: 'ZAI_API_KEY' },
 ];
@@ -209,8 +209,18 @@ async function callProvider(provider, env, text, target, timeoutMs = 15000) {
       throw new Error(`${provider.id}: ${res.status} ${raw.slice(0, 100)}`);
     }
     const data = await res.json();
-    const result = ((data.choices || [])[0] || {}).message?.content?.trim();
+    let result = ((data.choices || [])[0] || {}).message?.content?.trim();
+    // reasoning 模型兜底：content 为空时尝试 reasoning 字段；剥除 <think> 思考块
+    if (!result && data.choices?.[0]?.message?.reasoning) {
+      result = String(data.choices[0].message.reasoning).trim();
+    }
     if (!result) throw new Error(`${provider.id}: empty response`);
+    // 剥除 <think>...</think> 思考过程（reasoning 模型污染）
+    const thinkMatch = result.match(/^<think>[\s\S]*?<\/think>\s*/);
+    if (thinkMatch) result = result.slice(thinkMatch[0].length).trim();
+    // 剥除开头的中英文"思考过程"自述（部分模型把推理写进 content）
+    result = result.replace(/^(Here's a thinking process|Let me think|I'll translate|以下是思考过程|让我思考)[：:\s]*/i, '');
+    if (!result) throw new Error(`${provider.id}: empty after strip`);
     return { text: result, engine: provider.id };
   } finally {
     clearTimeout(timer);
