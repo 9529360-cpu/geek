@@ -368,6 +368,7 @@ const LOGIN = layout(`
         <button class="btn btn-primary" id="btn-login" style="width:100%;padding:14px;font-size:15px">登 录</button>
         <div id="err" style="color:#f87171;font-size:13px;margin-top:12px;min-height:18px"></div>
         <div style="text-align:center;margin-top:14px;color:var(--text-dim);font-size:13.5px" id="switch-line">还没有账号？<a onclick="toggle()" style="color:var(--accent);cursor:pointer;font-weight:600">注册</a></div>
+        <div style="text-align:center;margin-top:10px;font-size:13px"><a href="/forgot-password" style="color:var(--text-dim)">忘记密码？</a></div>
       </div>
     </div>
   </section>
@@ -413,6 +414,54 @@ const LOGIN = layout(`
     finally { btn.disabled = false; btn.textContent = isRegister ? '注册并登录' : '登 录'; }
   };
   document.getElementById('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('btn-login').click(); });
+  </script>
+`, 'login');
+
+const FORGOT_PASSWORD = layout(`
+  <section style="padding:70px 0 110px">
+    <div style="max-width:440px;margin:0 auto;background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:34px 30px">
+      <h1 style="font-size:28px;margin-bottom:9px">找回密码</h1>
+      <p style="color:var(--text-dim);font-size:14px;line-height:1.7;margin-bottom:22px">输入注册邮箱。若账户存在，我们会发送重置链接；邮件尚未配置时，申请会进入运营后台由客服处理。</p>
+      <input type="email" id="reset-email" autocomplete="email" placeholder="you@example.com" style="width:100%;padding:13px 16px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;margin-bottom:14px">
+      <button class="btn btn-primary" id="reset-request" style="width:100%">提交申请</button>
+      <div id="reset-message" style="font-size:13px;line-height:1.6;margin-top:14px;min-height:20px"></div>
+    </div>
+  </section>
+  <script>
+  document.getElementById('reset-request').onclick = async () => {
+    const email = document.getElementById('reset-email').value.trim();
+    const message = document.getElementById('reset-message');
+    if (!email) { message.style.color = '#f87171'; message.textContent = '请输入注册邮箱'; return; }
+    const response = await fetch('/api/password-reset/request', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }).catch(() => null);
+    message.style.color = response && response.status !== 429 ? '#4ade80' : '#fbbf24';
+    message.textContent = response && response.status === 429 ? '申请过于频繁，请稍后再试' : '申请已提交。如果账户存在，请检查邮箱或联系客服获取一次性重置链接。';
+  };
+  </script>
+`, 'login');
+
+const RESET_PASSWORD = layout(`
+  <section style="padding:70px 0 110px">
+    <div style="max-width:440px;margin:0 auto;background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:34px 30px">
+      <h1 style="font-size:28px;margin-bottom:9px">设置新密码</h1>
+      <p style="color:var(--text-dim);font-size:14px;line-height:1.7;margin-bottom:22px">重置链接 30 分钟有效，只能使用一次。</p>
+      <input type="password" id="new-password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="新密码（至少 10 位）" style="width:100%;padding:13px 16px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;margin-bottom:12px">
+      <input type="password" id="confirm-password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="再次输入新密码" style="width:100%;padding:13px 16px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;margin-bottom:14px">
+      <button class="btn btn-primary" id="reset-complete" style="width:100%">确认重置</button>
+      <div id="reset-message" style="font-size:13px;line-height:1.6;margin-top:14px;min-height:20px"></div>
+    </div>
+  </section>
+  <script>
+  document.getElementById('reset-complete').onclick = async () => {
+    const password = document.getElementById('new-password').value;
+    const confirm = document.getElementById('confirm-password').value;
+    const message = document.getElementById('reset-message');
+    if (password.length < 10 || password.length > 128) { message.style.color = '#f87171'; message.textContent = '密码需要 10–128 位'; return; }
+    if (password !== confirm) { message.style.color = '#f87171'; message.textContent = '两次输入的密码不一致'; return; }
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const response = await fetch('/api/password-reset/complete', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password }) }).catch(() => null);
+    if (response && response.ok) { message.style.color = '#4ade80'; message.textContent = '密码已重置，正在跳转登录…'; setTimeout(() => location.href = '/login', 900); return; }
+    message.style.color = '#f87171'; message.textContent = '链接无效或已过期，请重新申请';
+  };
   </script>
 `, 'login');
 
@@ -646,6 +695,8 @@ export default {
 
     if (request.method === 'GET' && (path === '/' || path === '/index.html')) return html(withLatestVersion(HOME, await latestVersion()));
     if (request.method === 'GET' && path === '/login') return html(withLatestVersion(LOGIN, await latestVersion()));
+    if (request.method === 'GET' && path === '/forgot-password') return html(withLatestVersion(FORGOT_PASSWORD, await latestVersion()));
+    if (request.method === 'GET' && path === '/reset-password') return html(withLatestVersion(RESET_PASSWORD, await latestVersion()));
     if (request.method === 'GET' && path === '/account') return html(withLatestVersion(ACCOUNT, await latestVersion()));
     if (request.method === 'GET' && path === '/download') {
       return Response.redirect(`${RELEASE_BASE}/geek-setup-${await latestVersion()}.exe`, 302);

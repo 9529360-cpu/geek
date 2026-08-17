@@ -11,6 +11,7 @@ final*.png
 npm-debug.log*
 .DS_Store
 .wrangler/
+.playwright-cli/
 scripts/.r2-creds.json
 
 # Runtime account/config data belongs in Electron userData, never in Git.

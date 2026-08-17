@@ -20,5 +20,12 @@ assert.match(api, /status = 'pending', tx_id = NULL/, '自动确认失败后必�
 assert.doesNotMatch(site, /localStorage\.(?:getItem|setItem)\(['"]geek_web_token/, '官网不得把用户 Token 存入 localStorage');
 assert.doesNotMatch(api, /localStorage\.(?:getItem|setItem)\(TOKEN_KEY/, '运营后台不得把管理员 Token 存入 localStorage');
 assert.match(site, /proxyApi\(request, path \+ url\.search\)/, '官网账号请求必须走同源代理');
+assert.match(api, /password_reset_requests/, '服务端必须保存密码重置请求状态');
+assert.match(api, /crypto\.getRandomValues\(new Uint8Array\(32\)\)/, '重置 Token 必须使用 256 位安全随机数');
+assert.match(api, /token_hash = \? AND status = 'issued' AND expires_at > datetime\('now'\)/, '重置 Token 必须校验哈希、状态和有效期');
+assert.match(api, /token_version = token_version \+ 1/, '改密后必须撤销旧会话');
+assert.match(api, /api\.resend\.com\/emails/, '必须通过邮件 API 自动发送重置链接');
+assert.match(site, /href="\/forgot-password"/, '登录页必须提供忘记密码入口');
+assert.match(site, /path === '\/reset-password'/, '官网必须提供设置新密码页面');
 
 console.log('ACCOUNT_SECURITY_CONTRACT_OK');

@@ -129,6 +129,15 @@ function authToken(request) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(String(value || '')));
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function randomToken() {
+  return bytesToB64Url(crypto.getRandomValues(new Uint8Array(32)));
+}
+
 function adminAuthToken(request) {
   const h = request.headers.get('Authorization') || '';
   const bearer = h.match(/^Bearer\s+(.+)$/i);
@@ -208,7 +217,7 @@ async function handleLogin(request, db, env) {
       .bind(`v2$${upgraded.hash}`, upgraded.salt, user.id).run();
   }
   const maxAge = 60 * 60 * 24 * 30;
-  const token = await signJwt({ uid: user.id, email: user.email, kind: 'user', exp: Math.floor(Date.now() / 1000) + maxAge }, env.JWT_SECRET);
+  const token = await signJwt({ uid: user.id, email: user.email, kind: 'user', ver: user.token_version || 0, exp: Math.floor(Date.now() / 1000) + maxAge }, env.JWT_SECRET);
   return withCookie(json({ ok: true, token, user: { id: user.id, email: user.email } }), authCookie('geek_session', token, maxAge));
 }
 
@@ -235,6 +244,100 @@ async function handleQuota(user, db) {
     email: user.email,
     remaining_chars: user.quota_chars || 0,
   });
+}
+
+async function sendResetEmail(env, email, resetUrl, requestId) {
+  if (!env.RESEND_API_KEY || !env.RESET_FROM_EMAIL) return false;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'geek-password-reset/1.0',
+      'Idempotency-Key': `password-reset-${requestId}`,
+    },
+    body: JSON.stringify({
+      from: env.RESET_FROM_EMAIL,
+      to: [email],
+      subject: '重置你的极客 Geek 密码',
+      text: `请在 30 分钟内打开以下链接重置密码：\n\n${resetUrl}\n\n如果不是你本人操作，请忽略此邮件。`,
+    }),
+  });
+  return response.ok;
+}
+
+async function issuePasswordReset(db, env, row) {
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  const claim = await db.prepare("UPDATE password_reset_requests SET status = 'issued', token_hash = ?, expires_at = ? WHERE id = ? AND status = 'requested'")
+    .bind(tokenHash, expiresAt, row.id).run();
+  if (claim.meta.changes !== 1) return null;
+  const resetUrl = `https://geek.bbnba.com/reset-password?token=${encodeURIComponent(token)}`;
+  const emailed = await sendResetEmail(env, row.email, resetUrl, row.id).catch(() => false);
+  return { resetUrl, emailed, expiresAt };
+}
+
+async function handlePasswordResetRequest(request, db, env) {
+  const body = await request.json().catch(() => ({}));
+  const email = String(body.email || '').trim().toLowerCase();
+  const generic = json({ ok: true, message: 'if_account_exists_reset_will_be_sent' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return generic;
+  const user = await getUserByEmail(db, email);
+  if (!user || user.status === 'disabled') return generic;
+  await db.prepare("UPDATE password_reset_requests SET status = 'expired' WHERE user_id = ? AND status IN ('requested','issued')")
+    .bind(user.id).run();
+  const inserted = await db.prepare('INSERT INTO password_reset_requests (user_id, email) VALUES (?, ?)')
+    .bind(user.id, user.email).run();
+  const row = { id: inserted.meta.last_row_id, email: user.email };
+  if (env.RESEND_API_KEY && env.RESET_FROM_EMAIL) {
+    const issued = await issuePasswordReset(db, env, row);
+    if (issued && !issued.emailed) {
+      await db.prepare("UPDATE password_reset_requests SET status = 'requested', token_hash = NULL, expires_at = NULL WHERE id = ? AND status = 'issued'")
+        .bind(row.id).run();
+    }
+  }
+  return generic;
+}
+
+async function handlePasswordResetComplete(request, db) {
+  const body = await request.json().catch(() => ({}));
+  const token = String(body.token || '');
+  const password = String(body.password || '');
+  if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return json({ error: 'invalid_or_expired_token' }, 400);
+  if (password.length < 10 || password.length > 128) return json({ error: 'password_length_invalid' }, 400);
+  const tokenHash = await sha256Hex(token);
+  const row = await db.prepare("SELECT id, user_id FROM password_reset_requests WHERE token_hash = ? AND status = 'issued' AND expires_at > datetime('now')")
+    .bind(tokenHash).first();
+  if (!row) return json({ error: 'invalid_or_expired_token' }, 400);
+  const claim = await db.prepare("UPDATE password_reset_requests SET status = 'processing' WHERE id = ? AND status = 'issued'").bind(row.id).run();
+  if (claim.meta.changes !== 1) return json({ error: 'invalid_or_expired_token' }, 400);
+  try {
+    const next = await hashPassword(password);
+    await db.batch([
+      db.prepare('UPDATE users SET password_hash = ?, password_salt = ?, token_version = token_version + 1 WHERE id = ?').bind(`v2$${next.hash}`, next.salt, row.user_id),
+      db.prepare("UPDATE password_reset_requests SET status = 'used', used_at = datetime('now') WHERE id = ? AND status = 'processing'").bind(row.id),
+    ]);
+    return withCookie(json({ ok: true }), authCookie('geek_session', '', 0));
+  } catch (error) {
+    await db.prepare("UPDATE password_reset_requests SET status = 'issued' WHERE id = ? AND status = 'processing'").bind(row.id).run();
+    throw error;
+  }
+}
+
+async function handleAdminPasswordResets(db) {
+  const { results } = await db.prepare("SELECT id, email, status, expires_at, created_at, used_at FROM password_reset_requests ORDER BY id DESC LIMIT 100").all();
+  return json({ ok: true, requests: results });
+}
+
+async function handleAdminIssuePasswordReset(db, env, url) {
+  const id = Number(url.pathname.split('/').filter(Boolean).at(-2));
+  const row = await db.prepare("SELECT id, email FROM password_reset_requests WHERE id = ? AND status = 'requested'").bind(id).first();
+  if (!row) return json({ error: 'request_not_found_or_processed' }, 404);
+  const issued = await issuePasswordReset(db, env, row);
+  if (!issued) return json({ error: 'request_not_found_or_processed' }, 409);
+  await logAction(db, 'issue_password_reset', `为 ${row.email} 生成一次性密码重置链接`);
+  return json({ ok: true, reset_url: issued.resetUrl, emailed: issued.emailed, expires_at: issued.expiresAt });
 }
 
 async function handleTranslationToken(user, env) {
@@ -1076,6 +1179,7 @@ async function requireUser(request, db, env) {
   if (!payload || !payload.uid) return { error: json({ error: 'unauthorized' }, 401) };
   const user = await getUserById(db, payload.uid);
   if (!user) return { error: json({ error: 'user_not_found' }, 404) };
+  if ((user.token_version || 0) > 0 && payload.ver !== user.token_version) return { error: json({ error: 'session_revoked' }, 401) };
   if (user.status === 'disabled') return { error: json({ error: 'account_disabled' }, 403) };
   return { user };
 }
@@ -1174,6 +1278,16 @@ export default {
       if (await rateLimited(db, 'login:' + ip, 10, 60)) return json({ error: 'rate_limited' }, 429);
       return handleLogin(request, db, env);
     }
+    if (request.method === 'POST' && path === '/api/password-reset/request') {
+      const ip = clientIp(request);
+      if (await rateLimited(db, 'reset-request:' + ip, 3, 3600)) return json({ error: 'rate_limited' }, 429);
+      return handlePasswordResetRequest(request, db, env);
+    }
+    if (request.method === 'POST' && path === '/api/password-reset/complete') {
+      const ip = clientIp(request);
+      if (await rateLimited(db, 'reset-complete:' + ip, 10, 3600)) return json({ error: 'rate_limited' }, 429);
+      return handlePasswordResetComplete(request, db);
+    }
 
     // ---- 管理接口 ----
     if (path.startsWith('/api/admin')) {
@@ -1198,6 +1312,8 @@ export default {
       if (request.method === 'GET' && path === '/api/admin/settings') return handleAdminGetSettings(db);
       if (request.method === 'POST' && path === '/api/admin/settings') return handleAdminSaveSettings(request, db);
       if (request.method === 'GET' && path === '/api/admin/logs') return handleAdminLogs(db);
+      if (request.method === 'GET' && path === '/api/admin/password-resets') return handleAdminPasswordResets(db);
+      if (request.method === 'POST' && /^\/api\/admin\/password-resets\/\d+\/issue$/.test(path)) return handleAdminIssuePasswordReset(db, env, url);
       if (request.method === 'GET' && /^\/api\/admin\/users\/\d+$/.test(path)) return handleAdminUserDetail(db, url);
       if (request.method === 'POST' && /^\/api\/admin\/orders\/\d+\/confirm$/.test(path)) return handleAdminConfirmOrder(request, db, url);
       if (request.method === 'POST' && /^\/api\/admin\/orders\/\d+\/cancel$/.test(path)) return handleAdminCancelOrder(db, url);

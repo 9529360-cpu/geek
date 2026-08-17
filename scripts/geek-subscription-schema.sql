@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_salt TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',          -- active / disabled
   quota_chars INTEGER NOT NULL DEFAULT 20000,     -- 剩余免费翻译字符额度（注册赠送）
+  token_version INTEGER NOT NULL DEFAULT 0,       -- 改密时递增，使旧登录会话立即失效
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -81,3 +82,18 @@ CREATE TABLE IF NOT EXISTS translation_usage (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_translation_usage_user_created ON translation_usage(user_id, created_at);
+
+-- 忘记密码：仅保存一次性 Token 的 SHA-256，不保存明文链接。
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  email TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'requested',
+  token_hash TEXT,
+  expires_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  used_at TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_status_created ON password_reset_requests(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_reset_requests(token_hash);
