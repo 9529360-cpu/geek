@@ -21,7 +21,8 @@ const build = spawnSync(process.execPath, [builderCli, '--win', '--publish', 'ne
 if (build.error) fail(`无法启动 electron-builder: ${build.error.message}`);
 if (build.status !== 0) fail(`electron-builder 失败 (${build.status})`);
 
-const installers = fs.readdirSync(outDir).filter(name => name.toLowerCase().endsWith('.exe'));
+const artifactBase = `geek-setup-${pkg.version}.exe`;
+const installers = fs.readdirSync(outDir).filter(name => name.toLowerCase() === artifactBase.toLowerCase());
 if (!installers.length) fail('没有生成 Windows EXE');
 const certificate = process.env.WIN_CSC_LINK || process.env.CSC_LINK;
 if (certificate) {
@@ -42,9 +43,9 @@ const latest = path.join(outDir, 'latest.yml');
 if (!fs.existsSync(latest)) fail('缺少 latest.yml');
 const latestText = fs.readFileSync(latest, 'utf8');
 if (!new RegExp(`^version:\\s*${pkg.version.replace(/\./g, '\\.')}$`, 'm').test(latestText)) fail('latest.yml 版本与 package.json 不一致');
-if (!fs.readdirSync(outDir).some(name => name.endsWith('.blockmap'))) fail('缺少 blockmap');
+if (!fs.existsSync(path.join(outDir, `${artifactBase}.blockmap`))) fail('缺少当前版本 blockmap');
 
-const releaseFiles = fs.readdirSync(outDir).filter(name => /\.(exe|yml|blockmap)$/i.test(name)).sort();
+const releaseFiles = [artifactBase, `${artifactBase}.blockmap`, 'latest.yml'];
 const manifest = {
   version: pkg.version,
   generatedAt: new Date().toISOString(),

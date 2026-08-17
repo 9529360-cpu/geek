@@ -18,5 +18,6 @@ assert.match(script, /Get-AuthenticodeSignature/, '构建后必须验证 Authent
 assert.match(script, /Status -ne 'Valid'/, '非 Valid 签名必须失败');
 assert.match(script, /release-manifest\.json/, '必须生成 SHA-256 发布清单');
 assert.match(script, /latest\.yml/, '必须验证更新元数据');
+assert.match(script, /artifactBase = `geek-setup-\$\{pkg\.version\}\.exe`/, '发布清单必须限制为当前版本产物');
 
 console.log('RELEASE_SIGNING_CONTRACT_OK');
