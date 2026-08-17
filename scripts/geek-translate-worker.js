@@ -184,7 +184,8 @@ function buildMessages(text, target) {
 }
 
 // 调单个免费模型；非 2xx / 超时 / 空响应 → 抛错（上层轮换）
-async function callProvider(provider, env, text, target, timeoutMs = 45000) {
+// 单模型 15s 超时：4 模型轮换最坏 ~60s，但健康监测跳过故障模型后实际很快；客户端总预算 30s
+async function callProvider(provider, env, text, target, timeoutMs = 15000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
