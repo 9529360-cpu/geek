@@ -16,10 +16,20 @@ function setSecureCrypto(cryptoImpl) {
   secureCrypto = cryptoImpl;
 }
 function encryptField(text) {
-  if (secureCrypto && text) {
-    try { return 'enc:' + secureCrypto.encrypt(String(text)); } catch (e) { /* 降级明文 */ }
+  if (!text) return '';
+  if (!secureCrypto || typeof secureCrypto.encrypt !== 'function') {
+    const error = new Error('系统安全存储不可用，拒绝明文保存订阅 token');
+    error.code = 'SECURE_STORAGE_UNAVAILABLE';
+    throw error;
   }
-  return text;
+  try {
+    return 'enc:' + secureCrypto.encrypt(String(text));
+  } catch (cause) {
+    const error = new Error('订阅 token 加密失败，未写入磁盘');
+    error.code = 'SECURE_STORAGE_ENCRYPT_FAILED';
+    error.cause = cause;
+    throw error;
+  }
 }
 function decryptField(value) {
   if (typeof value === 'string' && value.startsWith('enc:') && secureCrypto) {
@@ -34,6 +44,14 @@ function apiBase() {
 
 function createSubscriptionStore({ userDataDir }) {
   const stateFile = () => path.join(userDataDir, 'subscription.json');
+
+  async function writeStateDisk(disk) {
+    const target = stateFile();
+    const temporary = `${target}.tmp`;
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    await fs.rename(temporary, target);
+  }
 
   let cache = null; // { token, email, expires_at, plan, checked_at }
 
@@ -50,7 +68,7 @@ function createSubscriptionStore({ userDataDir }) {
       if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
         try {
           const disk = { ...cache, token: encryptField(cache.token) };
-          await fs.writeFile(stateFile(), JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
+          await writeStateDisk(disk);
         } catch (e) { /* 迁移失败不阻塞 */ }
       }
     } catch {
@@ -63,12 +81,13 @@ function createSubscriptionStore({ userDataDir }) {
     const current = await load();
     // 内存 cache 保留明文（request 等需要明文 token），写盘时加密敏感字段
     cache = { ...current, ...patch };
+    const disk = { ...cache };
+    if (disk.token) disk.token = encryptField(disk.token);
     try {
-      const disk = { ...cache };
-      if (disk.token) disk.token = encryptField(disk.token);
-      await fs.writeFile(stateFile(), JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      await writeStateDisk(disk);
     } catch (e) {
       console.error('[subscription] 状态写入失败:', e.message);
+      throw e;
     }
     return cache;
   }

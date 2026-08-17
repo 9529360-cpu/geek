@@ -80,13 +80,22 @@ const lineGuestContents = new Map(); // partition -> LINE guest webContents（to
 const wppInjected = new Set(); // 已注入 WPP 的 partition（WA 内部 API 直发）
 const pendingPartitionDeletions = new Set(); // 删除失败的分区目录，退出时兜底清理
 function lineTokenEncrypt(text) {
-  try { return 'enc:' + safeStorage.encryptString(String(text)).toString('base64'); } catch { return text; }
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，拒绝明文保存 LINE token');
+  return 'enc:' + safeStorage.encryptString(String(text)).toString('base64');
 }
 function lineTokenDecrypt(value) {
   if (typeof value === 'string' && value.startsWith('enc:')) {
     try { return safeStorage.decryptString(Buffer.from(value.slice(4), 'base64')); } catch { return ''; }
   }
   return value;
+}
+async function writeLineTokensEncrypted(values) {
+  const encrypted = {};
+  for (const [key, value] of Object.entries(values)) encrypted[key] = lineTokenEncrypt(value);
+  const target = LINE_TOKENS_FILE();
+  const temporary = `${target}.tmp`;
+  await fs.writeFile(temporary, JSON.stringify(encrypted), 'utf-8');
+  await fs.rename(temporary, target);
 }
 async function loadLineTokens() {
   try {
@@ -99,10 +108,12 @@ async function loadLineTokens() {
       if (typeof v === 'string' && !v.startsWith('enc:')) needsMigrate = true;
     }
     // 安全迁移：旧明文 token 立即加密重写（防止明文长期滞留磁盘）
-    if (needsMigrate && safeStorage.isEncryptionAvailable()) {
-      const encrypted = {};
-      for (const [k, v] of Object.entries(lineTokensCache)) encrypted[k] = lineTokenEncrypt(v);
-      await fs.writeFile(LINE_TOKENS_FILE(), JSON.stringify(encrypted), 'utf-8');
+    if (needsMigrate) {
+      try {
+        await writeLineTokensEncrypted(lineTokensCache);
+      } catch (error) {
+        console.error('[security] LINE token 明文迁移失败，保留原文件且本次不写新明文:', error.message);
+      }
     }
   } catch { lineTokensCache = {}; }
 }
@@ -110,9 +121,7 @@ async function saveLineToken(partition, tokenJson) {
   if (!tokenJson) return;
   lineTokensCache[partition] = tokenJson;
   try {
-    const encrypted = {};
-    for (const [k, v] of Object.entries(lineTokensCache)) encrypted[k] = lineTokenEncrypt(v);
-    await fs.writeFile(LINE_TOKENS_FILE(), JSON.stringify(encrypted), 'utf-8');
+    await writeLineTokensEncrypted(lineTokensCache);
   } catch (e) { /* 写失败不影响 */ }
 }
 
@@ -423,14 +432,19 @@ async function loadConfig() {
   try {
     const content = await fs.readFile(CONFIG_FILE, 'utf8');
     configState = normalizeConfig(JSON.parse(content));
-    // 安全迁移：读取后立即重写（persistConfig 会加密 password/lockPassword，清除明文滞留）
-    await persistConfig();
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.error('读取配置文件失败:', error);
     }
     configState = { ...DEFAULT_CONFIG };
     await persistConfig();
+    return;
+  }
+  // 迁移失败不能进入“读取失败”分支，否则会用默认值覆盖用户配置。
+  try {
+    await persistConfig();
+  } catch (error) {
+    console.error('[security] 配置敏感字段迁移失败，保留原文件:', error.message);
   }
 }
 
@@ -438,7 +452,19 @@ function safeDecrypt(b64) {
   try { return safeStorage.decryptString(Buffer.from(b64, 'base64')); } catch { return ''; }
 }
 function safeEncrypt(text) {
-  try { return 'enc:' + safeStorage.encryptString(String(text)).toString('base64'); } catch { return text; }
+  if (!safeStorage.isEncryptionAvailable()) {
+    const error = new Error('系统安全存储不可用，拒绝明文保存敏感配置');
+    error.code = 'SECURE_STORAGE_UNAVAILABLE';
+    throw error;
+  }
+  try {
+    return 'enc:' + safeStorage.encryptString(String(text)).toString('base64');
+  } catch (cause) {
+    const error = new Error('敏感配置加密失败，未写入磁盘');
+    error.code = 'SECURE_STORAGE_ENCRYPT_FAILED';
+    error.cause = cause;
+    throw error;
+  }
 }
 
 function persistConfig() {
@@ -521,8 +547,6 @@ async function loadAccounts() {
   try {
     const content = await fs.readFile(ACCOUNTS_FILE, 'utf8');
     accountsState = normalizeStoredState(JSON.parse(content));
-    // 安全迁移：读取后立即重写（persistAccounts 会加密 hpwd，清除明文滞留）
-    await persistAccounts();
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.error('读取账号文件失败:', error);
@@ -534,6 +558,13 @@ async function loadAccounts() {
     };
 
     await persistAccounts();
+    return;
+  }
+  // 迁移失败不能清空账号列表；保留已加载内存状态和原磁盘文件。
+  try {
+    await persistAccounts();
+  } catch (error) {
+    console.error('[security] 账号敏感字段迁移失败，保留原文件:', error.message);
   }
 }
 
