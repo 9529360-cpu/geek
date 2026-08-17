@@ -1943,17 +1943,18 @@
   }
   function renderScheduleList() {
     const el = document.getElementById('broadcast-schedule-list');
-    if (!scheduleTasks.length) { el.innerHTML = ''; return; }
-    el.innerHTML = scheduleTasks.map((t, i) => `
-      <div class="bc-schedule-item">
-        <input type="datetime-local" class="bc-sched-time" value="${t.time || ''}" data-i="${i}" title="发送时间">
-        <input type="text" class="bc-sched-msg" placeholder="消息内容…（支持 %nc）" value="${escapeHtml(t.message || '')}" data-i="${i}">
-        <select class="bc-sched-group" data-i="${i}" title="发送到哪个群组预设（留空=当前勾选）">
-          <option value="">当前勾选</option>
-          ${currentBroadcastGroupTags().map(g => `<option value="${g.id}" ${t.groupId === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
-        </select>
-        <button class="bc-btn bc-sched-del" data-i="${i}" title="删除">×</button>
-      </div>`).join('');
+    el.replaceChildren();
+    if (!scheduleTasks.length) return;
+    scheduleTasks.forEach((t, i) => {
+      const row = document.createElement('div'); row.className = 'bc-schedule-item';
+      const time = document.createElement('input'); time.type = 'datetime-local'; time.className = 'bc-sched-time'; time.value = String(t.time || ''); time.dataset.i = String(i); time.title = '发送时间';
+      const message = document.createElement('input'); message.type = 'text'; message.className = 'bc-sched-msg'; message.placeholder = '消息内容…（支持 %nc）'; message.value = String(t.message || ''); message.dataset.i = String(i);
+      const group = document.createElement('select'); group.className = 'bc-sched-group'; group.dataset.i = String(i); group.title = '发送到哪个群组预设（留空=当前勾选）';
+      group.appendChild(makeOption('', '当前勾选'));
+      currentBroadcastGroupTags().forEach(g => group.appendChild(makeOption(g.id, g.name, t.groupId === g.id)));
+      const remove = document.createElement('button'); remove.className = 'bc-btn bc-sched-del'; remove.dataset.i = String(i); remove.title = '删除'; remove.textContent = '×';
+      row.append(time, message, group, remove); el.appendChild(row);
+    });
     el.querySelectorAll('.bc-sched-time').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].time = x.value; persistScheduleTasks(); armScheduleTasks(); });
     el.querySelectorAll('.bc-sched-msg').forEach(x => x.oninput = () => { scheduleTasks[+x.dataset.i].message = x.value; persistScheduleTasks(); });
     el.querySelectorAll('.bc-sched-group').forEach(x => x.onchange = () => { scheduleTasks[+x.dataset.i].groupId = x.value; persistScheduleTasks(); });
@@ -2415,7 +2416,8 @@
   let savedLists = JSON.parse(accountStorageGetItem('savedLists') || '[]');
   function renderSavedLists() {
     if (!savedListsEl) return;
-    savedListsEl.innerHTML = '<option value="">已保存列表…</option>' + savedLists.map((l, i) => `<option value="${i}">${(l.name || '').slice(0, 24)}（${(l.ids || []).length}）</option>`).join('');
+    savedListsEl.replaceChildren(makeOption('', '已保存列表…'));
+    savedLists.forEach((l, i) => savedListsEl.appendChild(makeOption(String(i), `${String(l.name || '').slice(0, 24)}（${Array.isArray(l.ids) ? l.ids.length : 0}）`)));
   }
   if (saveListBtn) saveListBtn.onclick = () => {
     if (!broadcastSelected.size) { alert('请先勾选聊天'); return; }
@@ -2582,7 +2584,7 @@
       const sel = document.getElementById('bc-group-members-select');
       if (sel) {
         const groups = broadcastChats.filter(c => c.type === '群组');
-        sel.innerHTML = groups.map(g => `<option value="${g.id}">${escapeHtml(g.name || g.id)}</option>`).join('');
+        sel.replaceChildren(...groups.map(g => makeOption(g.id, g.name || g.id)));
       }
     }
     if (v === 'exclude-contacts') renderTypedExclude('contacts');
@@ -2601,7 +2603,7 @@
     if (!labelSel) return;
     const account = accounts.find(a => a.id === activeId);
     const wv = wvMap.get(activeId);
-    if (!account || !wv || !(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) { labelSel.innerHTML = '<option value="">（需要 WhatsApp 账号）</option>'; return; }
+    if (!account || !wv || !(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) { labelSel.replaceChildren(makeOption('', '（需要 WhatsApp 账号）')); return; }
     try {
       const res = await wv.executeJavaScript(`(async () => {
         try {
@@ -2611,11 +2613,11 @@
         } catch (e) { return 'ERR:' + e.message; }
       })()`);
       const txt = String(res || '');
-      if (txt.startsWith('ERR:')) { labelSel.innerHTML = '<option value="">（标签加载失败）</option>'; return; }
+      if (txt.startsWith('ERR:')) { labelSel.replaceChildren(makeOption('', '（标签加载失败）')); return; }
       const labels = JSON.parse(txt);
-      labelSel.innerHTML = '<option value="">选择标签…</option>' + labels.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
-      if (!labels.length) labelSel.innerHTML = '<option value="">（当前账号无标签）</option>';
-    } catch (e) { labelSel.innerHTML = '<option value="">（标签加载失败）</option>'; }
+      labelSel.replaceChildren(makeOption('', labels.length ? '选择标签…' : '（当前账号无标签）'));
+      labels.forEach(l => labelSel.appendChild(makeOption(l.id, l.name)));
+    } catch (e) { labelSel.replaceChildren(makeOption('', '（标签加载失败）')); }
   }
   const bcPaste = document.getElementById('bc-paste-numbers');
   if (bcPaste) bcPaste.addEventListener('input', () => {
@@ -2755,11 +2757,14 @@
     function renderGtGroups() {
       const listEl = document.getElementById('gt-group-list');
       if (!listEl) return;
-      if (!gtGroupList.length) { listEl.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">当前账号无群组</div>'; return; }
-      listEl.innerHTML = gtGroupList.map(g => `<label style="display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
-        <input type="checkbox" data-gid="${g.id}" ${gtSelected.has(g.id) ? 'checked' : ''}>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.name}</span>
-      </label>`).join('');
+      listEl.replaceChildren();
+      if (!gtGroupList.length) { const empty = document.createElement('div'); empty.style.cssText = 'font-size:12px;color:var(--text-tertiary)'; empty.textContent = '当前账号无群组'; listEl.appendChild(empty); return; }
+      gtGroupList.forEach(g => {
+        const label = document.createElement('label'); label.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:12.5px;color:var(--text-primary);cursor:pointer';
+        const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.dataset.gid = String(g.id || ''); checkbox.checked = gtSelected.has(g.id);
+        const name = document.createElement('span'); name.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; name.textContent = String(g.name || '');
+        label.append(checkbox, name); listEl.appendChild(label);
+      });
       listEl.querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => {
         if (cb.checked) gtSelected.add(cb.dataset.gid); else gtSelected.delete(cb.dataset.gid);
         updateGtCount();
@@ -3029,11 +3034,14 @@
     const gtLinksList = document.getElementById('gt-links-list');
     function renderGroupLinks() {
       if (!gtLinksList) return;
-      if (!savedGroupLinks.length) { gtLinksList.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary)">统一链接列表为空——获取群链接后保存到这里</div>'; return; }
-      gtLinksList.innerHTML = savedGroupLinks.map((l, i) => `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;font-size:12px;color:var(--text-secondary)">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.link}">${l.name || l.link}</span>
-        <button class="gt-link-del" data-i="${i}" style="border:none;background:none;color:#e74c3c;cursor:pointer;font-size:12px">✕</button>
-      </div>`).join('');
+      gtLinksList.replaceChildren();
+      if (!savedGroupLinks.length) { const empty = document.createElement('div'); empty.style.cssText = 'font-size:12px;color:var(--text-tertiary)'; empty.textContent = '统一链接列表为空——获取群链接后保存到这里'; gtLinksList.appendChild(empty); return; }
+      savedGroupLinks.forEach((l, i) => {
+        const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:3px 0;font-size:12px;color:var(--text-secondary)';
+        const text = document.createElement('span'); text.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; text.title = String(l.link || ''); text.textContent = String(l.name || l.link || '');
+        const remove = document.createElement('button'); remove.className = 'gt-link-del'; remove.dataset.i = String(i); remove.style.cssText = 'border:none;background:none;color:#e74c3c;cursor:pointer;font-size:12px'; remove.textContent = '✕';
+        row.append(text, remove); gtLinksList.appendChild(row);
+      });
       gtLinksList.querySelectorAll('.gt-link-del').forEach(b => b.onclick = () => {
         savedGroupLinks.splice(parseInt(b.dataset.i), 1);
         accountStorageSetItem('groupLinks', JSON.stringify(savedGroupLinks));
@@ -3667,6 +3675,14 @@
 
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function makeOption(value, label, selected = false) {
+    const option = document.createElement('option');
+    option.value = String(value ?? '');
+    option.textContent = String(label ?? '');
+    option.selected = selected === true;
+    return option;
   }
 
   // ---------- 主题应用 ----------
