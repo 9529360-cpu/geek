@@ -24,19 +24,34 @@
 Hermes 每次只覆盖下面这一段：
 
 ```text
-更新时间：2026-08-17 21:4x Europe/Rome
-任务：配置 Cloudflare -> GitHub Actions Secrets
+更新时间：2026-08-17 21:5x Europe/Rome
+任务：配置 Cloudflare -> GitHub Actions Secrets —— 已完成（最终交接）
 Cloudflare 正确账户已确认：是
 已看到 geek-subscription Worker：是
 已看到 geek-subscriptions D1：是
-Cloudflare API Token 已创建：否
-Token 已写入 GitHub Secret CLOUDFLARE_API_TOKEN：否
+Cloudflare API Token 已创建：是（用户已手动创建）
+Token 已写入 GitHub Secret CLOUDFLARE_API_TOKEN：是（用户已配置）
 Account ID 已找到：是
 Account ID 末 4 位：8139
-Account ID 已写入 GitHub Secret CLOUDFLARE_ACCOUNT_ID：否
-当前卡点：Cloudflare Dashboard 创建 API Token 的页面自动化失败。已登录（9529360@gmail.com），已进入 Create Token -> Edit Cloudflare Workers 模板页（权限已正确加载：Workers KV/Scripts/Routes/Account Settings 等 Edit/Read），但 "Token name" 输入框无法通过脚本操作（React 受控组件，DOM 中不渲染为可编辑 input，点击/键盘/Tab 均无效）。账号/区域下拉框同样无法脚本操作。已按规则停止，未继续乱点，未创建任何 Token。
-需要用户手动做的动作：1) 浏览器已打开 https://dash.cloudflare.com/profile/api-tokens 且已登录。2) 请手动点击 Create Token -> 选 "Edit Cloudflare Workers" 模板 -> Token 名称填 github-geek-worker-deploy -> Account Resources 只选 9529360@gmail.com's Account（ID 末4位 8139）-> Zone Resources 只选 bbnba.com -> Create Token。3) 创建后把 Token 值告诉 Hermes 或直接由 Hermes 填入 GitHub Secret（Hermes 不会把它写进本分支/任何 GitHub 内容）。
-补充说明：GitHub 仓库 9529360-cpu/geek 的 Repository Actions Secrets 当前为空（gh secret list 无输出），不存在 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID，可安全新建，无需担心覆盖。Cloudflare 账户确认依据：wrangler whoami 显示 9529360@gmail.com's Account ID 4f92d1ce757f9612a6c6955afaa28139；wrangler deployments list --name geek-subscription 成功；wrangler d1 list 显示 geek-subscriptions（uuid 1e78a93a-36de-43db-88aa-4551f9991200）。
+Account ID 已写入 GitHub Secret CLOUDFLARE_ACCOUNT_ID：是（用户已配置）
+当前卡点：无（全部完成）
+需要用户手动做的动作：无
+补充说明（非敏感信息）：
+- Cloudflare 账户：9529360@gmail.com's Account（登录邮箱 9529360@gmail.com）
+- geek-subscription Worker Dashboard 路径：https://dash.cloudflare.com/ 内 Workers & Pages -> geek-subscription
+- geek-subscription 生产域名：https://geek-subscription.9529360.workers.dev
+- 当前可见 Worker 部署：2026-08-17T10:57:11Z（Author 9529360@gmail.com，Version 7857522b-69b4-4537-ba18-04a59327c930）
+- geek-subscriptions D1：名称 geek-subscriptions，Database ID 1e78a93a-36de-43db-88aa-4551f9991200（created 2026-08-16T16:07:24Z）
+- bbnba.com Zone Dashboard 路径：https://dash.cloudflare.com/ 内域名列表 -> bbnba.com
+- Cloudflare API Token 管理页面路径：https://dash.cloudflare.com/profile/api-tokens
+- GitHub Repository Actions Secrets 页面路径：https://github.com/9529360-cpu/geek/settings/secrets/actions
+- CLOUDFLARE_API_TOKEN：已配置
+- CLOUDFLARE_ACCOUNT_ID：已配置
+- wrangler whoami：正常（OAuth 登录，email 9529360@gmail.com，Account ID 对应账户）
+- wrangler deployments list --name geek-subscription：正常（能列出部署记录）
+- wrangler d1 list：正常（能看到 geek-subscriptions）
+- Cloudflare CLI 登录状态：仍处于登录状态（OAuth Token 有效）
+- 下一位维护代理应从哪里开始：从"重新触发 subscription Worker 部署"开始（例如 wrangler deploy --config wrangler-subscription.toml），确认 GitHub Actions 使用新配置的 CLOUDFLARE_API_TOKEN 部署 geek-subscription 是否正常。
 ```
 
 完成后不要做下一步部署，只更新本文件并停止。
