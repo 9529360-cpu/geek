@@ -9,6 +9,11 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { shouldCheckForUpdates } = require('./updater-policy.cjs');
+const { installWindowVisibilityRecovery } = require('./window-visibility.cjs');
+
+// updater.cjs 会在主窗口创建前由主进程加载；在这里安装一次窗口可见性恢复器，
+// 用于兜底 subscription.html 已加载但 ready-to-show 未触发导致的“只有托盘没有窗口”。
+installWindowVisibilityRecovery({ app, BrowserWindow });
 
 const LOG_PREFIX = '[updater]';
 const STATUS_CHANNEL = 'updater:status';
