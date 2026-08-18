@@ -39,7 +39,7 @@ jobs:
           }
 
           const mainPath = 'src/main.cjs';
-          let main = fs.readFileSync(mainPath, 'utf8');
+          let main = fs.readFileSync(mainPath, 'utf8').replace(/\r\n/g, '\n');
           main = replaceOnce(
             main,
             "const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');",
@@ -86,7 +86,7 @@ jobs:
           fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
 
           const releasePath = 'scripts/release-build.cjs';
-          let release = fs.readFileSync(releasePath, 'utf8');
+          let release = fs.readFileSync(releasePath, 'utf8').replace(/\r\n/g, '\n');
           release = replaceOnce(
             release,
             "if (installElectron.status !== 0) fail(`Electron 运行时安装失败 (${installElectron.status})`);\n\nconst builderCli = require.resolve('electron-builder/out/cli/cli.js');",
@@ -96,7 +96,7 @@ jobs:
           fs.writeFileSync(releasePath, release, 'utf8');
 
           const ignorePath = '.gitignore';
-          let ignore = fs.readFileSync(ignorePath, 'utf8');
+          let ignore = fs.readFileSync(ignorePath, 'utf8').replace(/\r\n/g, '\n');
           if (!ignore.includes('src/unpacked-integrity.generated.json')) {
             if (!ignore.endsWith('\n')) ignore += '\n';
             ignore += 'src/unpacked-integrity.generated.json\n';
@@ -125,7 +125,7 @@ jobs:
           assert.ok(main.indexOf('await verifyPackagedUnpackedAssets();') < main.indexOf('await enforceSubscriptionGate();'), 'runtime assets must be verified before any main app window can be created');
           assert.match(main, /if \(!runtimeAssetAllowed\('bridge'\)\) throw new Error/, 'renderer must not receive a tampered bridge preload path');
           assert.match(main, /if \(!runtimeAssetAllowed\('lineExtension'\)\)/, 'LINE extension loader must fail closed after integrity failure');
-          assert.match(main, /event\.preventDefault\(\);[\s\S]{0,120}return;[\s\S]{0,120}if \(isLine\)/, 'tampered webview runtime assets must prevent guest attachment');
+          assert.match(main, /const integrityComponent = isLine \? 'lineExtension' : 'bridge';[\s\S]{0,300}event\.preventDefault\(\);[\s\S]{0,100}return;/, 'tampered webview runtime assets must prevent guest attachment');
           assert.match(pkg.scripts['integrity:generate'] || '', /generate-unpacked-integrity/, 'packaging must have a manifest generator');
           assert.match(pkg.scripts.pack || '', /integrity:generate/, 'directory packaging must generate the protected manifest');
           assert.match(pkg.scripts['dist:test'] || '', /integrity:generate/, 'test installer packaging must generate the protected manifest');
