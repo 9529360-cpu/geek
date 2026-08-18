@@ -6,59 +6,9 @@ on:
       - master
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  lockfile:
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Regenerate lockfile for Electron 43
-        run: npm install --package-lock-only --ignore-scripts
-
-      - name: Verify lockfile Electron version
-        shell: node {0}
-        run: |
-          const path = require('node:path');
-          const lock = require(path.join(process.cwd(), 'package-lock.json'));
-          const electron = lock.packages && lock.packages['node_modules/electron'];
-          if (!electron || electron.version !== '43.4.0') {
-            throw new Error(`expected Electron 43.4.0 in lockfile, got ${electron && electron.version}`);
-          }
-
-      - name: Upload regenerated lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: electron43-package-lock
-          path: package-lock.json
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Commit regenerated lockfile to PR branch
-        shell: bash
-        run: |
-          if git diff --quiet -- package-lock.json; then
-            echo "package-lock.json already current"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          git commit -m "deps: refresh Electron 43 lockfile"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
-
   linux-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -72,8 +22,14 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Install branch dependencies
-        run: npm install --ignore-scripts
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Verify locked Electron version
+        shell: node {0}
+        run: |
+          const electron = require('./node_modules/electron/package.json');
+          if (electron.version !== '43.4.0') throw new Error(`unexpected Electron ${electron.version}`);
 
       - name: Run tests
         run: npm test
@@ -91,8 +47,8 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Install Electron 43 dependencies
-        run: npm install
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
 
       - name: Run tests
         run: npm test
@@ -100,9 +56,13 @@ jobs:
       - name: Package Windows directory
         run: npm run pack
 
-      - name: Verify unpacked executable
+      - name: Verify Electron runtime and unpacked executable
         shell: pwsh
         run: |
+          $electron = Join-Path $PWD 'node_modules\electron\dist\electron.exe'
+          if (-not (Test-Path $electron)) { throw 'Electron runtime was not installed before packaging' }
+          $version = (& $electron --version).Trim()
+          if ($version -ne 'v43.4.0') { throw "Unexpected Electron runtime: $version" }
           $exe = Get-ChildItem -Path dist-release -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { throw 'No packaged Windows executable found' }
-          Write-Host "packaged=$($exe.FullName)"
+          Write-Host "electron=$version packaged=$($exe.FullName)"
