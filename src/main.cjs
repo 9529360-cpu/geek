@@ -1686,6 +1686,11 @@ function configureWebviewSecurity(window) {
       return;
     }
 
+    if (!account || !config) {
+      event.preventDefault();
+      return;
+    }
+
     const hostname = parsedSource.hostname.toLowerCase();
 
     let customAllowed = false;
@@ -1720,7 +1725,7 @@ function configureWebviewSecurity(window) {
           (config.allowSuffix && hostname.endsWith(config.allowSuffix)) ||
           customAllowed));
 
-    if (!account || !config || !isAllowed) {
+    if (!isAllowed) {
       event.preventDefault();
       return;
     }
