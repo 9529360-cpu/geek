@@ -1,0 +1,53 @@
+name: facebook-windows-test-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-package:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Facebook branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/facebook-translation
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full tests
+        run: npm test
+
+      - name: Build unpacked Windows app
+        run: npm run pack
+
+      - name: Verify and zip test build
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist-release\win-unpacked')) {
+            throw 'Windows unpacked build was not created'
+          }
+          $exe = Get-ChildItem 'dist-release\win-unpacked' -Filter '*.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'Windows executable was not found' }
+          Write-Host "TEST_EXECUTABLE=$($exe.Name)"
+          Compress-Archive -Path 'dist-release\win-unpacked\*' -DestinationPath 'geek-facebook-test-win.zip' -Force
+
+      - name: Upload Facebook test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-facebook-test-win
+          path: geek-facebook-test-win.zip
+          retention-days: 3
+          if-no-files-found: error
