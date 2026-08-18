@@ -24,6 +24,25 @@ for (const [name, rel, config] of workflows) {
   assert.doesNotMatch(text, /continue-on-error:\s*true/, `${name} production deploy failures must fail the workflow`);
 }
 
+const infraWorkflow = fs.readFileSync(path.join(root, '.github/workflows/verify-cloudflare-infra.yml'), 'utf8');
+assert.match(infraWorkflow, /workflow_dispatch:/, 'infra verification must support explicit dispatch');
+assert.match(infraWorkflow, /push:[\s\S]*branches:[\s\S]*- master/, 'infra verification must run only from master pushes or dispatch');
+assert.doesNotMatch(infraWorkflow, /pull_request:/, 'infra secret must never be exposed to pull_request events');
+assert.match(infraWorkflow, /permissions:\s*\n\s+contents: read/, 'infra verification must keep repository contents read-only');
+assert.match(infraWorkflow, /secrets\.CLOUDFLARE_INFRA_API_TOKEN/, 'infra verification must use the encrypted infrastructure token');
+assert.match(infraWorkflow, /secrets\.CLOUDFLARE_ACCOUNT_ID/, 'infra verification must use the account id secret');
+assert.match(infraWorkflow, /cloudflare-infra-smoke\.mjs/, 'infra verification must execute the read-only smoke script');
+
+const smoke = fs.readFileSync(path.join(root, 'scripts/cloudflare-infra-smoke.mjs'), 'utf8');
+assert.match(smoke, /user\/tokens\/verify/, 'infra smoke must verify the token is active');
+assert.match(smoke, /dns_records/, 'infra smoke must verify DNS access');
+assert.match(smoke, /workers\/routes/, 'infra smoke must verify Workers Routes access');
+assert.match(smoke, /d1\/database/, 'infra smoke must verify D1 access');
+assert.match(smoke, /r2\/buckets/, 'infra smoke must verify R2 access');
+assert.match(smoke, /storage\/kv\/namespaces/, 'infra smoke must verify KV access');
+assert.doesNotMatch(smoke, /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/, 'infra smoke must remain read-only');
+assert.doesNotMatch(smoke, /Authorization[^\n]*console\./, 'infra smoke must never log the authorization header');
+
 const doc = fs.readFileSync(path.join(root, 'docs/github-control-plane.md'), 'utf8');
 assert.match(doc, /CLOUDFLARE_INFRA_API_TOKEN/, 'control-plane doc must reserve a separate infrastructure secret');
 assert.match(doc, /DNS: Edit/, 'control-plane scope must cover DNS maintenance');

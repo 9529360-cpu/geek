@@ -14,14 +14,13 @@ This repository is the daily operations control plane for the Geek project. Prod
 
 ## Repository Actions Secrets
 
-Required now:
+Configured project control-plane credentials:
 
 - `CLOUDFLARE_API_TOKEN` - project-scoped Worker deployment token.
 - `CLOUDFLARE_ACCOUNT_ID` - Cloudflare account identifier.
+- `CLOUDFLARE_INFRA_API_TOKEN` - project-scoped infrastructure token for D1, DNS, Workers Routes and zone maintenance. Its value is stored only as a GitHub Repository Actions Secret and must never be copied into source, logs or documentation.
 
-Planned infrastructure secret:
-
-- `CLOUDFLARE_INFRA_API_TOKEN` - project-scoped infrastructure token for D1, DNS and zone maintenance. It must be limited to the Geek Cloudflare account and the `bbnba.com` zone. Do not grant billing, membership, API-token-management, or account-ownership permissions.
+The infrastructure token must remain limited to the Geek Cloudflare account and the `bbnba.com` zone. It must not be expanded to billing, membership, API-token-management, unrelated accounts/zones or Cloudflare account-ownership permissions.
 
 Provider/application secrets may be mirrored into GitHub only when an intentional rotation or automated secret-management workflow is added. Existing Cloudflare Worker secrets are not read or printed by deployment workflows.
 
@@ -35,6 +34,12 @@ Production deploy workflows run only from `master` pushes or an explicit `workfl
 - `.github/workflows/deploy-release-worker.yml`
 
 Each workflow runs the full test suite, performs a syntax check for its Worker, then deploys using the matching Wrangler config.
+
+## Infrastructure access verification
+
+`.github/workflows/verify-cloudflare-infra.yml` runs only on `master` or explicit dispatch. It uses `CLOUDFLARE_INFRA_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to perform read-only checks against the Cloudflare API.
+
+The smoke check verifies access to the `bbnba.com` zone plus D1, R2, KV, Workers scripts, Pages, DNS records, Workers Routes and zone settings. It intentionally does not create, edit or delete Cloudflare resources. This gives future maintainers a safe way to confirm that the GitHub control plane still has effective infrastructure access without printing credential values or production response bodies.
 
 ## Infrastructure-token target scope
 
@@ -70,11 +75,11 @@ Do not add Billing Edit, Memberships Edit, API Tokens Edit, Account Settings Edi
 
 - Never commit API tokens, passwords, OAuth sessions, cookies, API keys, JWT secrets or provider credentials.
 - Never export browser profiles, cookies or HAR files into the repository.
-- Production deploy workflows must not run on `pull_request` events.
+- Production deploy and infrastructure workflows must not run on `pull_request` events.
 - Destructive D1 migrations must be explicit migration files and must not be re-run blindly.
 - DNS and zone changes should be represented as reviewed repository changes before automation applies them.
 - Cloudflare login ownership, 2FA recovery and billing remain owner-controlled outside GitHub.
 
 ## Agent handoff
 
-A future maintenance agent should first read `AGENTS.md`, this file, and the relevant Wrangler config. Routine code, Worker deployment and GitHub CI can be managed through the repository. If infrastructure mutation is needed, use `CLOUDFLARE_INFRA_API_TOKEN` through a purpose-built GitHub Actions workflow rather than exposing its value.
+A future maintenance agent should first read `AGENTS.md`, this file, and the relevant Wrangler config. Routine code, Worker deployment and GitHub CI can be managed through the repository. Infrastructure mutations must use `CLOUDFLARE_INFRA_API_TOKEN` through a purpose-built GitHub Actions workflow rather than exposing its value.
