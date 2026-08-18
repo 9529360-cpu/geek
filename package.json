@@ -1,18 +1,19 @@
 {
   "name": "geek",
   "productName": "极客",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "极客——多平台多账号聊天客户端（WhatsApp / Telegram / LINE）",
   "main": "src/main.cjs",
   "scripts": {
     "test": "node scripts/run-tests.cjs",
     "start": "electron .",
-    "pack": "electron-builder --win --dir",
-    "dist:test": "electron-builder --win --publish never",
+    "electron:install": "install-electron --no",
+    "pack": "npm run electron:install && electron-builder --win --dir",
+    "dist:test": "npm run electron:install && electron-builder --win --publish never",
     "dist": "node scripts/release-build.cjs"
   },
   "devDependencies": {
-    "electron": "^35.7.5",
+    "electron": "^43.4.0",
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
@@ -20,6 +21,6 @@
     "electron-updater": "^6.8.9"
   },
   "allowScripts": {
-    "electron@35.7.5": true
+    "electron@43.4.0": true
   }
 }

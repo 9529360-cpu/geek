@@ -29,15 +29,17 @@ data/                        → 仅作为本机旧版首启迁移来源（真�
 
 ### 1. 扩展加载
 - 每账号独立 partition（多开隔离），`session.fromPartition(partition).loadExtension(EXT_PATH)`
-- MV3 service worker 在 Electron 注册失败（Status 15）是**官方预期**，不影响页面功能
+- MV3 service worker 在 Electron 注册失败（Status 15）是历史兼容现象；LINE 页面功能依赖扩展页面与现有补丁，Electron 大版本升级必须重新回归
 - webview 加载扩展页面本身 `chrome-extension://<id>/index.html?lw-key=...`（LINE 聊天应用打包在扩展里）
 
 ### 2. webview 对齐（照抄原版 DOM）
 ```
-webpreferences="contextIsolation=no,sandbox=false,nativeWindowOpen=yes,spellcheck=no"
+webpreferences="contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no"
 style="background-color: rgb(255,255,255)"   ← 白底兜底（深色外壳会让手机扫不了二维码）
 useragent="Mozilla/5.0 ... Chrome/124"        ← 标签属性（webPreferences.userAgent 对 webview 无效）
 ```
+
+安全边界以当前 Geek 主进程配置为准：远程 WebView 保持 `sandbox=true`、`nodeIntegration=false`、`webSecurity=true`，不得为兼容某个平台改成全局 `--no-sandbox`。
 
 ### 3. 缺失全局补全（不补则崩）
 | 全局 | 缺失表现 | 补全 |
@@ -54,63 +56,56 @@ useragent="Mozilla/5.0 ... Chrome/124"        ← 标签属性（webPreferences.
   Electron 不支持扩展 SW → 密钥不持久 → 重启必退。这是死循环：getEncryptedIdentityV3 需要有效 token、
   token 解密又需要它
 - **复刻方案（patch 扩展 main.js 仅 2 处）**：
-  1. `setTokenV3IssueResult`：登录成功 → token JSON **明文存 localStorage**（`__stardust_line_token`）
-  2. `getAccessToken`：内存 token 为空 → **读明文 fallback**（绕过解密死循环）
-- **铁律**：只存+读、**不清除**（createSession 前清明文会破坏恢复；登录成功后内存 token 优先，fallback 不触发）
-- 登录成功表现：localStorage 出现 `__stardust_line_token`；重启后页面 `#/friends` 而非 `#/`
+  1. `setTokenV3IssueResult`：登录成功 → token JSON 存入扩展 localStorage（`__stardust_line_token`）
+  2. `getAccessToken`：内存 token 为空 → 读 fallback（绕过解密死循环）
+- **Geek 当前安全补强**：主进程备份的 LINE token 使用 Electron `safeStorage` 加密后落盘；日志只记录认证头是否存在，不输出值
+- **铁律**：恢复链路不能在 createSession 前清空 fallback；登录成功后内存 token 优先
+- 登录成功表现：localStorage 出现 `__stardust_line_token`；重启后页面 `#/friends` / `#/chats` 而非登录首页
 
-### 5. 环境选型
-- **Electron 35.5.1**（对齐原版）：chrome.storage.local 原生支持 Promise 式（35.7.5 不支持）
-- 不要 mock chrome.storage（破坏原生 LevelDB 持久化）
-- 主进程对齐原版参数：`--no-sandbox --no-zygote --js-flags=--max-old-space-size=4096 --service-worker-schemes=http,https`
+### 5. 运行时与安全基线
+- **Electron 43.4.0**：从 35.7.5 升级后的当前目标运行时；依赖锁文件固定实际安装版本，升级必须通过 Linux/Windows contract 与 Windows 完整打包
+- Electron 42+ 不再依赖 npm postinstall 自动下载运行时；`pack` / `dist:test` / 正式 `dist` 会显式运行官方 `install-electron` 下载步骤
+- 远程页面保持 Chromium sandbox、`nodeIntegration=false`、`webSecurity=true`
+- 仅保留已验证且不降低网页安全边界的进程参数；禁止把 `--no-sandbox` 作为兼容性方案
+- LINE 扩展和 WhatsApp WPP/CDP 对 Electron/Chromium 版本敏感，因此跨大版本升级必须独立分支、自动测试和发布候选构建通过后再进入主线
 
 ### 6. 跨平台翻译
 - WA / TG / LINE 只通过受保护的 WebView 桥向主进程提交文本和语种；客户端页面不持有翻译服务地址或供应商密钥。
-- 开发环境默认使用 `http://127.0.0.1:18991`，正式打包版必须通过 `GEEK_TRANSLATION_GATEWAY_URL` 配置 HTTPS 服务。
+- 开发环境默认使用 `http://127.0.0.1:18991`，正式打包版使用受控 HTTPS 翻译网关。
 - 翻译缓存按账号 partition 隔离，缓存键不保存原文明文，译文使用 Electron `safeStorage` 加密持久化。
-- Telegram Z/K 与 LINE 普通/商业版使用同一平台适配器；回归测试锁定 6 类型映射和注入分支。
-- 2026-08-16 网关实测：`/health` 返回 200（3 个模型），`Hello` 英译中返回“你好”。
+- Telegram Z/K 与 LINE 普通/商业版使用同一平台适配器；回归测试锁定平台映射和注入分支。
+- 服务端负责认证、额度与限流；客户端上报不能作为计费安全边界。
 
 ### 7. LINE 重启后的实时流认证
 - LINE 普通 API 使用 `X-Line-Access` 与 `X-Hmac`，重启后可由持久化 token 恢复；实时收消息走原生 `EventSource`，标准实现不能携带这两个认证头，表现为普通 API 200、`/api/operation/receive` 401、页面显示“网络不稳定”。
 - 当前扩展增加 `GeekAuthenticatedEventSource`：仍调用 LINE 自带 token manager 和 HMAC sandbox，只替换实时流传输层为带认证头的 Fetch SSE，不修改消息业务协议。
-- 真实验证：两路 LINE 页面恢复到 `#/chats`，token 有效；认证事件流进入 `OPEN`，页面不再显示“网络不稳定”。
+- 历史真实验证：两路 LINE 页面恢复到 `#/chats`，token 有效；认证事件流进入 `OPEN`，页面不再显示“网络不稳定”。Electron 大版本升级后仍需重新验证真实 LINE 会话。
 
 ## 运行
 
 ```bash
-npm install           # electron@35.5.1
-npx electron . --remote-debugging-port=9344
+npm install
+npm start
 ```
 
-调试：CDP `http://127.0.0.1:9344`。重启时先用 `netstat -ano` 核对 9344 的 PID，只结束该项目 PID 树，不按进程名误杀其他 Electron 应用。
+首次启动 Electron 43 时运行时二进制可能按 Electron 官方机制下载；Windows 打包使用 `npm run pack`，正式候选构建使用 `npm run dist`，两者都会显式准备 Electron 运行时。
+
+需要 CDP 调试时可使用远程调试端口，但只对本机测试实例开放。结束调试进程时先核对端口对应 PID，不按进程名误杀其他 Electron 应用。
 
 ## 验证
 
 ```bash
-node --check src/main.cjs
-node --check src/preload.cjs
-node --check ui/app.js
-node --check ui/translation-core.js
-node --check ui/translation-adapters.js
-node test/broadcast-safety-contract.cjs
-node test/webview-bridge-security.cjs
-node test/webview-ownership.cjs
-node test/translation-platform-contract.cjs
-node test/line-token-fallback-contract.cjs
-node test/line-authenticated-event-source.cjs
+npm test
+npm run pack
 ```
+
+正式发布前至少要求完整 contract suite 和 Windows release candidate 构建通过；涉及 Electron 大版本、LINE 扩展、WhatsApp WPP/CDP 的改动还应保留独立兼容性记录。
 
 ## 目录
 
 - `src/main.cjs` — 主进程（窗口/webview/扩展加载/日志）
 - `ui/` — 外壳 UI（深色 Linear 风；webview 白底）
-- `resources/extensions/` — 原版扩展（md5 对齐原版，仅 LINE main.js +2 patch）
+- `resources/extensions/` — 原版扩展（仅保留当前 LINE 兼容所需补丁）
 - `resources/s3loYR.js` — 原版 preload + 全局补全
 - `data/` — 本机旧版首启迁移来源；真实 `accounts.json`/`config.json` 被 Git 忽略，仓库只保留脱敏示例；运行期固定写入 Electron `userData`
 - `ISSUES.md` — 完整逆向过程与坑记录
-
-## 逆向参考
-
-- 原版：`D:/GPT/Hello-GPT`（只读观察，不修改）；逆向文档 `D:/GPT/Hello-GPT-analysis/`
-- 技能：`electron-chrome-extension-integration`（完整方案 + 坑列表）
