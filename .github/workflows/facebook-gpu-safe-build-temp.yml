@@ -1,0 +1,77 @@
+name: facebook-gpu-safe-build-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build-gpu-safe-test:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Facebook branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/facebook-translation
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Disable hardware acceleration in test build
+        shell: pwsh
+        run: |
+          $path = 'src/main.cjs'
+          $text = Get-Content $path -Raw
+          $needle = "const { app, BrowserWindow, ipcMain, session, Notification, nativeTheme, webContents, Tray, Menu, nativeImage, safeStorage } = require('electron');"
+          if (-not $text.Contains($needle)) { throw 'Electron import anchor not found' }
+          $replacement = $needle + "`n// Facebook test build only: force software rendering before app ready.`napp.disableHardwareAcceleration();"
+          $text = $text.Replace($needle, $replacement)
+          Set-Content -Path $path -Value $text -Encoding utf8
+          node --check src/main.cjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full tests
+        run: npm test
+
+      - name: Build Windows app
+        run: npm run pack
+
+      - name: Prepare isolated GPU-safe package
+        shell: pwsh
+        run: |
+          $root = Resolve-Path 'dist-release\win-unpacked'
+          $exe = Get-ChildItem $root -Filter '*.exe' | Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $exe) { throw 'Windows executable was not found' }
+          $updateConfig = Join-Path $root 'resources\app-update.yml'
+          if (Test-Path $updateConfig) { Remove-Item $updateConfig -Force }
+          $launcher = @'
+@echo off
+setlocal
+set "GEEK_USER_DATA_DIR=%~dp0test-user-data"
+for %%F in ("%~dp0*.exe") do (
+  start "" "%%~fF"
+  exit /b 0
+)
+echo Test executable not found.
+pause
+'@
+          Set-Content -Path (Join-Path $root 'START-FB-TEST.cmd') -Value $launcher -Encoding ascii
+          if (Test-Path $updateConfig) { throw 'Test build must not contain app-update.yml' }
+          Compress-Archive -Path (Join-Path $root '*') -DestinationPath 'geek-facebook-test-win-gpu-safe.zip' -Force
+
+      - name: Upload GPU-safe Facebook test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-facebook-test-win-gpu-safe
+          path: geek-facebook-test-win-gpu-safe.zip
+          retention-days: 3
+          if-no-files-found: error
