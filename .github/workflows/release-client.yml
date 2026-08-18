@@ -63,6 +63,34 @@ jobs:
             throw 'latest.yml version mismatch'
           }
 
+      - name: Capture previous stable metadata
+        shell: pwsh
+        run: |
+          $root = 'https://geek-release.9529360.workers.dev'
+          $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          try {
+            $response = Invoke-WebRequest -Uri "$root/latest.yml?before=$nonce" -UseBasicParsing -TimeoutSec 20
+            if ($response.StatusCode -ne 200) { throw "latest.yml HTTP $($response.StatusCode)" }
+            $match = [regex]::Match($response.Content, '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$')
+            if (-not $match.Success) { throw 'previous latest.yml has no valid version' }
+            $previousVersion = $match.Groups[1].Value
+            if ($previousVersion -eq $env:RELEASE_VERSION) {
+              Write-Host "Production already reports $previousVersion; treating this as an idempotent rerun."
+              "ROLLBACK_AVAILABLE=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              exit 0
+            }
+            $previousBase = "geek-setup-$previousVersion.exe"
+            $exe = Invoke-WebRequest -Uri "$root/$previousBase?before=$nonce" -Method Head -UseBasicParsing -TimeoutSec 20
+            $map = Invoke-WebRequest -Uri "$root/$previousBase.blockmap?before=$nonce" -Method Head -UseBasicParsing -TimeoutSec 20
+            if ($exe.StatusCode -ne 200 -or $map.StatusCode -ne 200) { throw 'previous stable artifacts are not reachable' }
+            Set-Content -LiteralPath 'dist-release\previous-latest.yml' -Value $response.Content -NoNewline -Encoding utf8
+            "PREVIOUS_RELEASE_VERSION=$previousVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "ROLLBACK_AVAILABLE=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "rollback-target=$previousVersion"
+          } catch {
+            throw "Refusing promotion without a verified previous stable release: $($_.Exception.Message)"
+          }
+
       - name: Upload installer and blockmap to R2
         shell: pwsh
         env:
@@ -75,6 +103,22 @@ jobs:
           npx --yes wrangler@4.36.0 r2 object put "geek-release/$base.blockmap" --file "dist-release/$base.blockmap" --remote
           if ($LASTEXITCODE -ne 0) { throw 'R2 blockmap upload failed' }
 
+      - name: Snapshot rollback metadata
+        shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if ($env:ROLLBACK_AVAILABLE -ne 'true' -or -not (Test-Path 'dist-release\previous-latest.yml')) {
+            Write-Host 'Idempotent rerun: no older rollback snapshot required.'
+            exit 0
+          }
+          npx --yes wrangler@4.36.0 r2 object put 'geek-release/rollback/latest.yml' --file 'dist-release/previous-latest.yml' --remote
+          if ($LASTEXITCODE -ne 0) { throw 'R2 rollback latest.yml snapshot failed' }
+          $versionedKey = "geek-release/rollback/latest-$env:PREVIOUS_RELEASE_VERSION.yml"
+          npx --yes wrangler@4.36.0 r2 object put $versionedKey --file 'dist-release/previous-latest.yml' --remote
+          if ($LASTEXITCODE -ne 0) { throw 'R2 versioned rollback snapshot failed' }
+
       - name: Publish latest metadata last
         shell: pwsh
         env:
@@ -84,19 +128,50 @@ jobs:
           npx --yes wrangler@4.36.0 r2 object put 'geek-release/latest.yml' --file 'dist-release/latest.yml' --remote
           if ($LASTEXITCODE -ne 0) { throw 'R2 latest.yml upload failed' }
 
-      - name: Verify public update source
+      - name: Verify production and rollback on failure
         shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
           $root = 'https://geek-release.9529360.workers.dev'
-          $latestResponse = Invoke-WebRequest -Uri "$root/latest.yml?release=$nonce" -UseBasicParsing
-          if ($latestResponse.StatusCode -ne 200) { throw "latest.yml HTTP $($latestResponse.StatusCode)" }
-          if ($latestResponse.Content -notmatch "(?m)^version:\s*$([regex]::Escape($env:RELEASE_VERSION))\s*$") {
-            throw 'Public latest.yml has the wrong version'
+
+          function Test-PublicRelease([string]$Version, [int]$Attempts = 18) {
+            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+              try {
+                $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                $latestResponse = Invoke-WebRequest -Uri "$root/latest.yml?release=$nonce" -UseBasicParsing -TimeoutSec 20
+                $pattern = "(?m)^version:\s*$([regex]::Escape($Version))\s*$"
+                if ($latestResponse.StatusCode -eq 200 -and $latestResponse.Content -match $pattern) {
+                  $base = "geek-setup-$Version.exe"
+                  $exeResponse = Invoke-WebRequest -Uri "$root/$base?release=$nonce" -Method Head -UseBasicParsing -TimeoutSec 20
+                  $mapResponse = Invoke-WebRequest -Uri "$root/$base.blockmap?release=$nonce" -Method Head -UseBasicParsing -TimeoutSec 20
+                  if ($exeResponse.StatusCode -eq 200 -and $mapResponse.StatusCode -eq 200) {
+                    return $true
+                  }
+                }
+              } catch {
+                Write-Host "Verification attempt $attempt for $Version failed: $($_.Exception.Message)"
+              }
+              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
+            }
+            return $false
           }
-          $base = "geek-setup-$env:RELEASE_VERSION.exe"
-          $exeResponse = Invoke-WebRequest -Uri "$root/$base?release=$nonce" -Method Head -UseBasicParsing
-          if ($exeResponse.StatusCode -ne 200) { throw "installer HTTP $($exeResponse.StatusCode)" }
-          $mapResponse = Invoke-WebRequest -Uri "$root/$base.blockmap?release=$nonce" -Method Head -UseBasicParsing
-          if ($mapResponse.StatusCode -ne 200) { throw "blockmap HTTP $($mapResponse.StatusCode)" }
-          "Published Geek $env:RELEASE_VERSION to the production update source." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+          if (Test-PublicRelease $env:RELEASE_VERSION) {
+            "Published Geek $env:RELEASE_VERSION to the production update source." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            exit 0
+          }
+
+          Write-Host "Geek $env:RELEASE_VERSION did not verify; attempting rollback."
+          if ($env:ROLLBACK_AVAILABLE -eq 'true' -and (Test-Path 'dist-release\previous-latest.yml')) {
+            npx --yes wrangler@4.36.0 r2 object put 'geek-release/latest.yml' --file 'dist-release/previous-latest.yml' --remote
+            if ($LASTEXITCODE -ne 0) { throw 'Release verification failed and rollback upload also failed' }
+            if ($env:PREVIOUS_RELEASE_VERSION -and (Test-PublicRelease $env:PREVIOUS_RELEASE_VERSION)) {
+              "Release $env:RELEASE_VERSION failed verification. Restored previous stable $env:PREVIOUS_RELEASE_VERSION." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+              throw "Release $env:RELEASE_VERSION failed verification; previous stable $env:PREVIOUS_RELEASE_VERSION was restored"
+            }
+            throw 'Release verification failed; rollback metadata was uploaded but public rollback could not be verified'
+          }
+
+          throw "Release $env:RELEASE_VERSION failed verification and no verified rollback target was available"
