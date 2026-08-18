@@ -14,6 +14,10 @@ function fail(message) {
   process.exit(1);
 }
 
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
 // GitHub Actions 不是唯一安全边界：正式发布入口本身必须先跑完整测试。
 const testRunner = path.join(root, 'scripts', 'run-tests.cjs');
 const tests = spawnSync(process.execPath, [testRunner], {
@@ -37,6 +41,14 @@ const build = spawnSync(process.execPath, [builderCli, '--win', '--publish', 'ne
 });
 if (build.error) fail(`无法启动 electron-builder: ${build.error.message}`);
 if (build.status !== 0) fail(`electron-builder 失败 (${build.status})`);
+
+// WA/TG 翻译和原生输入依赖这个 guest preload。打包运行时从
+// app.asar.unpacked/resources 解析，因此发布包必须真实包含且与源码一致，
+// 不能静默退化到 console-message 兼容通道。
+const bridgeSource = path.join(root, 'resources', 'bridge-preload.cjs');
+const bridgePackaged = path.join(outDir, 'win-unpacked', 'resources', 'app.asar.unpacked', 'resources', 'bridge-preload.cjs');
+if (!fs.existsSync(bridgePackaged)) fail('缺少打包后的 translation bridge preload');
+if (sha256File(bridgePackaged) !== sha256File(bridgeSource)) fail('打包后的 translation bridge preload 与源码不一致');
 
 const artifactBase = `geek-setup-${pkg.version}.exe`;
 const installers = fs.readdirSync(outDir).filter(name => name.toLowerCase() === artifactBase.toLowerCase());
