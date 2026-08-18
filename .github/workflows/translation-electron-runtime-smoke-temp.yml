@@ -43,3 +43,15 @@ jobs:
           if ($joined -notmatch 'ELECTRON_TRANSLATION_RUNTIME_SMOKE_OK') {
             throw 'Electron translation smoke exited without completion marker'
           }
+
+      - name: Run actual Electron 43 WebView bridge smoke
+        shell: pwsh
+        run: |
+          $output = & '.\node_modules\electron\dist\electron.exe' 'scripts\webview-bridge-electron43-smoke-temp.cjs' 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($exitCode -ne 0) { exit $exitCode }
+          $joined = ($output | Out-String)
+          if ($joined -notmatch 'WEBVIEW_BRIDGE_ELECTRON43_SMOKE_OK') {
+            throw 'Electron WebView bridge smoke exited without completion marker'
+          }
