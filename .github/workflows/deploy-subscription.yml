@@ -11,15 +11,9 @@ on:
       - 'wrangler-subscription.toml'
       - 'test/account-*.cjs'
       - '.github/workflows/deploy-subscription.yml'
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches:
-      - master
-    paths:
-      - 'test/subscription-deploy-trigger.txt'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: deploy-subscription-production
@@ -27,7 +21,6 @@ concurrency:
 
 jobs:
   test-and-deploy:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'agent/deploy-subscription-hotfix-trigger'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,34 +45,7 @@ jobs:
           node --check scripts/geek-subscription-entry.js
 
       - name: Deploy subscription Worker
-        id: deploy
-        continue-on-error: true
         run: npx --yes wrangler@4.36.0 deploy --config wrangler-subscription.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Record deploy result
-        if: always()
-        env:
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
-          RUN_ID: ${{ github.run_id }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin master
-          git checkout -B master origin/master
-          mkdir -p test
-          {
-            echo "result=${DEPLOY_OUTCOME}"
-            echo "run_id=${RUN_ID}"
-            echo "source_sha=${SOURCE_SHA}"
-          } > test/subscription-deploy-result.txt
-          git add test/subscription-deploy-result.txt
-          git commit -m "ci(account): record subscription deploy ${DEPLOY_OUTCOME}" || true
-          git push origin HEAD:master
-
-      - name: Fail if deploy failed
-        if: steps.deploy.outcome != 'success'
-        run: exit 1
