@@ -28,7 +28,8 @@ jobs:
       - name: Verify lockfile Electron version
         shell: node {0}
         run: |
-          const lock = require('./package-lock.json');
+          const path = require('node:path');
+          const lock = require(path.join(process.cwd(), 'package-lock.json'));
           const electron = lock.packages && lock.packages['node_modules/electron'];
           if (!electron || electron.version !== '43.3.0') {
             throw new Error(`expected Electron 43.3.0 in lockfile, got ${electron && electron.version}`);
