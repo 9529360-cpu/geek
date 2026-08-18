@@ -135,7 +135,7 @@ try {
 const ACCOUNTS_FILE = runtimePaths.accountsFile(USER_DATA_DIR);
 const CONFIG_FILE = runtimePaths.configFile(USER_DATA_DIR);
 const PARTITION_PREFIX = 'persist:webview-page-';
-// Ordinary Chrome UA so WhatsApp/Telegram Web don't reject the embedded browser.
+// Ordinary Chrome UA so WhatsApp/Telegram/Facebook Web do not reject the embedded browser.
 // Same UA family the original Hello-GPT ships (verified working with WhatsApp Web).
 const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.243 Safari/537.36';
 
@@ -185,6 +185,20 @@ const APP_TYPES = {
     hostnames: ['manager.line.biz', 'access.line.me', 'line.me'],
     allowSuffix: '.line.me',
     needsExtension: true
+  },
+  facebook: {
+    name: 'Facebook',
+    short: 'FB',
+    url: 'https://www.facebook.com/messages/',
+    hostnames: ['www.facebook.com', 'm.facebook.com', 'facebook.com', 'www.messenger.com', 'messenger.com'],
+    allowSuffix: '.facebook.com'
+  },
+  'facebook-business': {
+    name: 'Facebook 商业版',
+    short: 'FBB',
+    url: 'https://business.facebook.com/latest/inbox/all',
+    hostnames: ['business.facebook.com', 'www.facebook.com', 'facebook.com'],
+    allowSuffix: '.facebook.com'
   }
 };
 
@@ -1015,8 +1029,10 @@ function registerIpcHandlers() {
     const guestUrl = guest?.getURL?.() || '';
     const isTelegram = ['telegram-z', 'telegram', 'telegram-pure', 'telegram-k'].includes(account?.type);
     const isLine = account?.type === 'line' || account?.type === 'line-business';
+    const isFacebook = account?.type === 'facebook' || account?.type === 'facebook-business';
     const allowedPage = (isTelegram && /^https:\/\/web\.telegram\.org\//.test(guestUrl))
-      || (isLine && /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl));
+      || (isLine && /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl))
+      || (isFacebook && /^https:\/\/(?:[^/]+\.)?(?:facebook\.com|messenger\.com)\//.test(guestUrl));
     if (!account || !guest || guest === event.sender || guest.hostWebContents !== event.sender || guest.session !== session.fromPartition(partition) || !allowedPage) throw new Error('WebView登记失败');
     webviewOwnership.register({ guestId: guest.id, accountId, partition, token, senderId: event.sender.id });
     guest.once('destroyed', () => webviewOwnership.remove(guest.id));
@@ -1029,7 +1045,7 @@ function registerIpcHandlers() {
     if (!value || value.length > 10000) throw new Error('输入文本不合法');
     const guest = webContents.fromId(Number(guestId));
     const guestUrl = guest?.getURL?.() || '';
-    const allowedInputPage = /^https:\/\/web\.telegram\.org\//.test(guestUrl) || /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl);
+    const allowedInputPage = /^https:\/\/web\.telegram\.org\//.test(guestUrl) || /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl) || /^https:\/\/(?:[^/]+\.)?(?:facebook\.com|messenger\.com)\//.test(guestUrl);
     const ownershipOk = webviewOwnership.authorize({ guestId, accountId, partition, token, senderId: event.sender.id });
     if (!guest || guest === event.sender || guest.session !== session.fromPartition(partition) || !allowedInputPage || !ownershipOk || typeof guest.insertText !== 'function') throw new Error('账号输入页面不可用');
     const focusedComposer = await guest.executeJavaScript(`(() => {
@@ -1041,6 +1057,16 @@ function registerIpcHandlers() {
         const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
         const textarea = host?.shadowRoot?.querySelector('textarea');
         return /#\\/chats\\/[^/?#]+/.test(location.hash) && !!textarea && (document.activeElement === host || host.shadowRoot?.activeElement === textarea);
+      }
+      if (/^https:\\/\\/(?:[^/]+\\.)?(?:facebook\\.com|messenger\\.com)\\//.test(location.href)) {
+        const selector = '[contenteditable="true"][role="textbox"],[contenteditable="true"][data-lexical-editor="true"],textarea[aria-label],textarea[placeholder]';
+        const active = document.activeElement;
+        const editor = active?.closest?.(selector) || [...document.querySelectorAll(selector)].find(node => node === active || node.contains(active));
+        if (!editor) return false;
+        const label = [editor.getAttribute('aria-label'), editor.getAttribute('placeholder'), editor.getAttribute('data-placeholder')].filter(Boolean).join(' ');
+        if (/search|搜索|搜尋|buscar|rechercher|cerca|suche|поиск|评论|評論|comment/i.test(label)) return false;
+        const rect = editor.getBoundingClientRect();
+        return rect.width > 120 && rect.height > 16 && rect.bottom > innerHeight * 0.45 && (document.activeElement === editor || editor.contains(document.activeElement));
       }
       return false;
     })()`);
