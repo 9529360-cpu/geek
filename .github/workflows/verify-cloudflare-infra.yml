@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: verify-cloudflare-infra
@@ -42,7 +43,27 @@ jobs:
         run: node --check scripts/cloudflare-infra-smoke.mjs
 
       - name: Verify Cloudflare project access
+        id: smoke
+        continue-on-error: true
         run: node scripts/cloudflare-infra-smoke.mjs
         env:
           CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_INFRA_SUMMARY_PATH: infra-smoke-summary.md
+
+      - name: Publish non-sensitive status
+        if: always() && hashFiles('infra-smoke-summary.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "Run: ${RUN_URL}"
+            echo
+            cat infra-smoke-summary.md
+          } > infra-smoke-comment.md
+          gh issue comment 21 --body-file infra-smoke-comment.md
+
+      - name: Fail if infrastructure verification failed
+        if: steps.smoke.outcome != 'success'
+        run: exit 1
