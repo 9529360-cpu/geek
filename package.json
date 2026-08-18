@@ -7,8 +7,9 @@
   "scripts": {
     "test": "node scripts/run-tests.cjs",
     "start": "electron .",
-    "pack": "electron-builder --win --dir",
-    "dist:test": "electron-builder --win --publish never",
+    "electron:install": "install-electron --no",
+    "pack": "npm run electron:install && electron-builder --win --dir",
+    "dist:test": "npm run electron:install && electron-builder --win --publish never",
     "dist": "node scripts/release-build.cjs"
   },
   "devDependencies": {
