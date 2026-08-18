@@ -1,0 +1,247 @@
+name: unpacked-runtime-integrity-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  harden-and-verify:
+    if: github.event.pull_request.head.ref == 'agent/unpacked-runtime-integrity'
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply packaged runtime-integrity enforcement
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const fs = require('node:fs');
+
+          function replaceOnce(text, from, to, label) {
+            if (!text.includes(from)) throw new Error(`patch anchor missing: ${label}`);
+            return text.replace(from, to);
+          }
+
+          const mainPath = 'src/main.cjs';
+          let main = fs.readFileSync(mainPath, 'utf8');
+          main = replaceOnce(
+            main,
+            "const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');",
+            "const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');\nconst { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');",
+            'integrity import'
+          );
+          main = replaceOnce(
+            main,
+            "const LINE_EXTENSION_PATH = path.join(\n  RESOURCES_DIR, 'extensions', 'line-3.5.1'\n);",
+            `const LINE_EXTENSION_PATH = path.join(\n  RESOURCES_DIR, 'extensions', 'line-3.5.1'\n);\n\nlet unpackedIntegrityState = {\n  manifestOk: !app.isPackaged,\n  bridge: !app.isPackaged,\n  lineExtension: !app.isPackaged\n};\n\nasync function verifyPackagedUnpackedAssets() {\n  if (!app.isPackaged) {\n    unpackedIntegrityState = { manifestOk: true, bridge: true, lineExtension: true };\n    return unpackedIntegrityState;\n  }\n  const manifestPath = path.join(__dirname, 'unpacked-integrity.generated.json');\n  let result;\n  try {\n    result = await verifyRuntimeIntegrity({ manifestPath, resourcesDir: RESOURCES_DIR });\n  } catch {\n    result = { manifestOk: false, bridge: false, lineExtension: false, errors: ['verification'] };\n  }\n  unpackedIntegrityState = {\n    manifestOk: result.manifestOk === true,\n    bridge: result.bridge === true,\n    lineExtension: result.lineExtension === true\n  };\n  diagnostics.log('runtime-asset-integrity', {\n    manifestOk: unpackedIntegrityState.manifestOk,\n    bridgeOk: unpackedIntegrityState.bridge,\n    lineExtensionOk: unpackedIntegrityState.lineExtension\n  });\n  if (!unpackedIntegrityState.bridge || !unpackedIntegrityState.lineExtension) {\n    console.error('[security] 解包运行时代码完整性校验失败；受影响平台已阻止加载');\n  }\n  return unpackedIntegrityState;\n}\n\nfunction runtimeAssetAllowed(component) {\n  return !app.isPackaged || unpackedIntegrityState[component] === true;\n}`,
+            'integrity state'
+          );
+          main = replaceOnce(
+            main,
+            "async function loadLineExtension(partition) {\n  try {",
+            "async function loadLineExtension(partition) {\n  if (!runtimeAssetAllowed('lineExtension')) {\n    diagnostics.log('runtime-asset-blocked', { component: 'line-extension' });\n    console.error('[security] LINE 扩展完整性校验失败，拒绝加载');\n    return;\n  }\n  try {",
+            'LINE extension gate'
+          );
+          main = replaceOnce(
+            main,
+            "  ipcMain.handle('bridge:get-preload-path', async (event) => {\n    assertTrustedSender(event);\n    const { pathToFileURL } = require('node:url');",
+            "  ipcMain.handle('bridge:get-preload-path', async (event) => {\n    assertTrustedSender(event);\n    if (!runtimeAssetAllowed('bridge')) throw new Error('翻译桥完整性校验失败，已阻止加载');\n    const { pathToFileURL } = require('node:url');",
+            'bridge path gate'
+          );
+          main = replaceOnce(
+            main,
+            "    delete webPreferences.preloadURL;\n    const isLine = account.type === 'line' || account.type === 'line-business';\n    if (isLine) {",
+            "    delete webPreferences.preloadURL;\n    const isLine = account.type === 'line' || account.type === 'line-business';\n    const integrityComponent = isLine ? 'lineExtension' : 'bridge';\n    if (!runtimeAssetAllowed(integrityComponent)) {\n      diagnostics.log('runtime-asset-blocked', { component: isLine ? 'line-extension' : 'bridge' });\n      event.preventDefault();\n      return;\n    }\n    if (isLine) {",
+            'webview integrity gate'
+          );
+          main = replaceOnce(
+            main,
+            "  diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });\n  await probeExternalDebugging();",
+            "  diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });\n  await verifyPackagedUnpackedAssets();\n  await probeExternalDebugging();",
+            'startup integrity verification'
+          );
+          fs.writeFileSync(mainPath, main, 'utf8');
+
+          const pkgPath = 'package.json';
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          pkg.scripts['integrity:generate'] = 'node scripts/generate-unpacked-integrity.cjs';
+          pkg.scripts.pack = 'npm run electron:install && npm run integrity:generate && electron-builder --win --dir';
+          pkg.scripts['dist:test'] = 'npm run electron:install && npm run integrity:generate && electron-builder --win --publish never';
+          fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+
+          const releasePath = 'scripts/release-build.cjs';
+          let release = fs.readFileSync(releasePath, 'utf8');
+          release = replaceOnce(
+            release,
+            "if (installElectron.status !== 0) fail(`Electron 运行时安装失败 (${installElectron.status})`);\n\nconst builderCli = require.resolve('electron-builder/out/cli/cli.js');",
+            "if (installElectron.status !== 0) fail(`Electron 运行时安装失败 (${installElectron.status})`);\n\n// 生成受 app.asar 完整性保护的清单，用于启动时校验必须解包到磁盘的桥接/LINE 扩展代码。\nconst integrityGenerator = path.join(root, 'scripts', 'generate-unpacked-integrity.cjs');\nconst generateIntegrity = spawnSync(process.execPath, [integrityGenerator], {\n  cwd: root, stdio: 'inherit', env: process.env,\n});\nif (generateIntegrity.error) fail(`无法生成运行时完整性清单: ${generateIntegrity.error.message}`);\nif (generateIntegrity.status !== 0) fail(`运行时完整性清单生成失败 (${generateIntegrity.status})`);\n\nconst builderCli = require.resolve('electron-builder/out/cli/cli.js');",
+            'release manifest generation'
+          );
+          fs.writeFileSync(releasePath, release, 'utf8');
+
+          const ignorePath = '.gitignore';
+          let ignore = fs.readFileSync(ignorePath, 'utf8');
+          if (!ignore.includes('src/unpacked-integrity.generated.json')) {
+            if (!ignore.endsWith('\n')) ignore += '\n';
+            ignore += 'src/unpacked-integrity.generated.json\n';
+          }
+          fs.writeFileSync(ignorePath, ignore, 'utf8');
+          '@ | Set-Content -LiteralPath "$env:RUNNER_TEMP/apply-integrity-patch.cjs" -Encoding utf8
+          node "$env:RUNNER_TEMP/apply-integrity-patch.cjs"
+
+          @'
+          'use strict';
+
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const fsp = require('node:fs/promises');
+          const os = require('node:os');
+          const path = require('node:path');
+          const { buildRuntimeIntegrityManifest, verifyRuntimeIntegrity } = require('../src/unpacked-integrity.cjs');
+
+          const root = path.join(__dirname, '..');
+          const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
+          const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+          const release = fs.readFileSync(path.join(root, 'scripts', 'release-build.cjs'), 'utf8');
+          const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+
+          assert.match(main, /verifyPackagedUnpackedAssets\(\)/, 'main process must define packaged unpacked-asset verification');
+          assert.ok(main.indexOf('await verifyPackagedUnpackedAssets();') < main.indexOf('await enforceSubscriptionGate();'), 'runtime assets must be verified before any main app window can be created');
+          assert.match(main, /if \(!runtimeAssetAllowed\('bridge'\)\) throw new Error/, 'renderer must not receive a tampered bridge preload path');
+          assert.match(main, /if \(!runtimeAssetAllowed\('lineExtension'\)\)/, 'LINE extension loader must fail closed after integrity failure');
+          assert.match(main, /event\.preventDefault\(\);[\s\S]{0,120}return;[\s\S]{0,120}if \(isLine\)/, 'tampered webview runtime assets must prevent guest attachment');
+          assert.match(pkg.scripts['integrity:generate'] || '', /generate-unpacked-integrity/, 'packaging must have a manifest generator');
+          assert.match(pkg.scripts.pack || '', /integrity:generate/, 'directory packaging must generate the protected manifest');
+          assert.match(pkg.scripts['dist:test'] || '', /integrity:generate/, 'test installer packaging must generate the protected manifest');
+          assert.match(release, /generate-unpacked-integrity\.cjs/, 'formal release build must generate the protected manifest');
+          assert.ok(release.indexOf('generate-unpacked-integrity.cjs') < release.indexOf("electron-builder/out/cli/cli.js"), 'formal release must generate integrity metadata before electron-builder packs app.asar');
+          assert.match(ignore, /src\/unpacked-integrity\.generated\.json/, 'generated manifest must not be committed as mutable source');
+
+          (async () => {
+            const temp = await fsp.mkdtemp(path.join(os.tmpdir(), 'geek-unpacked-integrity-'));
+            const resources = path.join(temp, 'resources');
+            const line = path.join(resources, 'extensions', 'line-3.5.1');
+            const manifestPath = path.join(temp, 'manifest.json');
+            try {
+              await fsp.mkdir(line, { recursive: true });
+              await fsp.writeFile(path.join(resources, 'bridge-preload.cjs'), 'bridge-v1\n');
+              await fsp.writeFile(path.join(line, 'manifest.json'), '{"name":"line"}\n');
+              await fsp.writeFile(path.join(line, 'main.js'), 'console.log("line");\n');
+              const manifest = await buildRuntimeIntegrityManifest(resources);
+              await fsp.writeFile(manifestPath, JSON.stringify(manifest));
+              let verified = await verifyRuntimeIntegrity({ manifestPath, resourcesDir: resources });
+              assert.equal(verified.bridge, true);
+              assert.equal(verified.lineExtension, true);
+
+              await fsp.writeFile(path.join(resources, 'bridge-preload.cjs'), 'bridge-tampered\n');
+              verified = await verifyRuntimeIntegrity({ manifestPath, resourcesDir: resources });
+              assert.equal(verified.bridge, false, 'bridge tampering must be detected');
+              assert.equal(verified.lineExtension, true);
+
+              await fsp.writeFile(path.join(resources, 'bridge-preload.cjs'), 'bridge-v1\n');
+              await fsp.appendFile(path.join(line, 'main.js'), '//tampered\n');
+              verified = await verifyRuntimeIntegrity({ manifestPath, resourcesDir: resources });
+              assert.equal(verified.bridge, true);
+              assert.equal(verified.lineExtension, false, 'LINE extension tampering must be detected');
+              console.log('UNPACKED_RUNTIME_INTEGRITY_CONTRACT_OK');
+            } finally {
+              await fsp.rm(temp, { recursive: true, force: true });
+            }
+          })().catch((error) => { console.error(error); process.exit(1); });
+          '@ | Set-Content -LiteralPath 'test/unpacked-runtime-integrity-contract.cjs' -Encoding utf8
+
+          node --check src/main.cjs
+          node --check src/unpacked-integrity.cjs
+          node --check scripts/generate-unpacked-integrity.cjs
+          node test/unpacked-runtime-integrity-contract.cjs
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run full repository tests
+        run: npm test
+
+      - name: Build full Windows release candidate
+        run: npm run dist
+
+      - name: Verify protected manifest and packaged unpacked assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'src\unpacked-integrity.generated.json')) { throw 'Generated runtime-integrity manifest is missing before packaging' }
+          $asarList = (& npx --yes @electron/asar list 'dist-release\win-unpacked\resources\app.asar' 2>&1 | Out-String)
+          if ($asarList -notmatch 'src[/\\]unpacked-integrity\.generated\.json') {
+            throw 'Protected runtime-integrity manifest was not packed into app.asar'
+          }
+
+          @'
+          'use strict';
+          const fs = require('node:fs/promises');
+          const path = require('node:path');
+          const { verifyRuntimeIntegrity } = require('./src/unpacked-integrity.cjs');
+
+          (async () => {
+            const manifestPath = path.join(process.cwd(), 'src', 'unpacked-integrity.generated.json');
+            const resourcesDir = path.join(process.cwd(), 'dist-release', 'win-unpacked', 'resources', 'app.asar.unpacked', 'resources');
+            let result = await verifyRuntimeIntegrity({ manifestPath, resourcesDir });
+            if (!result.manifestOk || !result.bridge || !result.lineExtension) throw new Error('packaged unpacked assets do not match the protected manifest');
+            console.log('PACKAGED_UNPACKED_INTEGRITY_BASELINE_OK');
+
+            const bridge = path.join(resourcesDir, 'bridge-preload.cjs');
+            const originalBridge = await fs.readFile(bridge);
+            await fs.appendFile(bridge, '\n// integrity smoke tamper\n');
+            result = await verifyRuntimeIntegrity({ manifestPath, resourcesDir });
+            if (result.bridge !== false || result.lineExtension !== true) throw new Error('bridge tamper detection failed');
+            console.log('PACKAGED_BRIDGE_TAMPER_DETECTED');
+            await fs.writeFile(bridge, originalBridge);
+
+            const lineManifest = path.join(resourcesDir, 'extensions', 'line-3.5.1', 'manifest.json');
+            await fs.appendFile(lineManifest, '\n');
+            result = await verifyRuntimeIntegrity({ manifestPath, resourcesDir });
+            if (result.bridge !== true || result.lineExtension !== false) throw new Error('LINE extension tamper detection failed');
+            console.log('PACKAGED_LINE_TAMPER_DETECTED');
+          })().catch((error) => { console.error(error); process.exit(1); });
+          '@ | Set-Content -LiteralPath "$env:RUNNER_TEMP/verify-packaged-integrity.cjs" -Encoding utf8
+          node "$env:RUNNER_TEMP/verify-packaged-integrity.cjs"
+
+      - name: Smoke-launch protected packaged app
+        shell: pwsh
+        run: |
+          $appDir = (Resolve-Path 'dist-release\win-unpacked').Path
+          $exe = Get-ChildItem -LiteralPath $appDir -Filter '*.exe' -File | Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $exe) { throw 'Packaged main executable not found' }
+          $env:GEEK_USER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'geek-runtime-integrity-launch'
+          $process = Start-Process -FilePath $exe.FullName -ArgumentList '--disable-gpu-sandbox' -PassThru
+          Start-Sleep -Seconds 10
+          if ($process.HasExited) { throw "Protected packaged app exited during launch smoke: $($process.ExitCode)" }
+          Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($appDir, [System.StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue
+          Write-Host 'PACKAGED_RUNTIME_INTEGRITY_LAUNCH_OK'
+
+      - name: Commit verified product changes
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .gitignore package.json scripts/release-build.cjs src/main.cjs test/unpacked-runtime-integrity-contract.cjs
+          if git diff --cached --quiet; then
+            echo 'No verified runtime-integrity changes to commit'
+            exit 0
+          fi
+          git commit -m 'security: verify unpacked runtime assets'
+          git push origin HEAD:agent/unpacked-runtime-integrity
