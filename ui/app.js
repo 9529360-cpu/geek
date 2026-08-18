@@ -229,7 +229,7 @@
   let accounts = [];
   let activeId = null;
   let accountSwitchSequence = 0;
-  let activePlatform = null; // 当前平台家族 key（whatsapp/telegram/line）
+  let activePlatform = null; // 当前平台家族 key（whatsapp/telegram/line/facebook）
   let config = null;
   let platforms = [];
   let addSelectedType = null;
@@ -305,7 +305,7 @@
   }
   async function registerWebviewBridge(wv, account) {
     const family = familyOf(account.type).key;
-    if (!(family === 'telegram' || family === 'line')) return true;
+    if (!(family === 'telegram' || family === 'line' || family === 'facebook')) return true;
     return window.api.webviewInput.register(account.id, wv.getWebContentsId(), bridgeTokenFor(wv));
   }
 
@@ -313,7 +313,8 @@
   const PLATFORM_FAMILIES = [
     { key: 'whatsapp', label: 'WhatsApp', iconType: 'whatsapp', iconClass: 'p-icon-whatsapp', types: ['whatsapp', 'whatsapp-pure'] },
     { key: 'telegram', label: 'Telegram', iconType: 'telegram-z', iconClass: 'p-icon-telegram-z', types: ['telegram-z', 'telegram-k'] },
-    { key: 'line', label: 'Line', iconType: 'line', iconClass: 'p-icon-line', types: ['line', 'line-business'] }
+    { key: 'line', label: 'Line', iconType: 'line', iconClass: 'p-icon-line', types: ['line', 'line-business'] },
+    { key: 'facebook', label: 'Facebook', iconType: 'facebook', iconClass: 'p-icon-facebook', types: ['facebook', 'facebook-business'] }
   ];
   function familyOf(type) {
     return PLATFORM_FAMILIES.find(f => f.types.includes(type)) || PLATFORM_FAMILIES[0];
@@ -323,7 +324,8 @@
   const ICON_PATHS = {
     whatsapp: 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z',
     telegram: 'M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z',
-    line: 'M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314'
+    line: 'M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314',
+    facebook: 'M24 12.073c0-6.627-5.373-12-12-12S0 5.446 0 12.073c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z'
   };
 
   // 平台 → 图标/品牌色 class 映射
@@ -333,11 +335,13 @@
     if (type === 'telegram-z' || type === 'telegram-k') return 'p-icon-telegram-z';
     if (type === 'line') return 'p-icon-line';
     if (type === 'line-business') return 'p-icon-line-business';
+    if (type === 'facebook' || type === 'facebook-business') return 'p-icon-facebook';
     return 'p-icon-whatsapp';
   }
   function platformIconPath(type) {
     if (type === 'line' || type === 'line-business') return ICON_PATHS.line;
     if (type === 'telegram-z' || type === 'telegram-k') return ICON_PATHS.telegram;
+    if (type === 'facebook' || type === 'facebook-business') return ICON_PATHS.facebook;
     return ICON_PATHS.whatsapp;
   }
   function iconSvg(type, cls) {
@@ -348,7 +352,8 @@
   const PLATFORM_GROUPS = [
     { label: 'WhatsApp', types: ['whatsapp', 'whatsapp-pure'] },
     { label: 'Telegram', types: ['telegram-z'] },
-    { label: 'Line', types: ['line', 'line-business'] }
+    { label: 'Line', types: ['line', 'line-business'] },
+    { label: 'Facebook', types: ['facebook', 'facebook-business'] }
   ];
 
   async function loadPlatforms() {
@@ -567,7 +572,7 @@
     const wv = document.createElement('webview');
     wv.src = account.url || 'https://web.whatsapp.com/';
     wv.partition = account.partition;
-    // WA/TG 页面翻译/原生输入桥：guest preload（sendToHost）；LINE 用自己的扩展 preload，不叠加
+    // WA/TG/FB 页面翻译/原生输入桥：guest preload（sendToHost）；LINE 用自己的扩展 preload，不叠加
     if (bridgePreloadPath && account.type !== 'line' && account.type !== 'line-business') {
       wv.setAttribute('preload', bridgePreloadPath);
     }
@@ -783,6 +788,13 @@
     wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
   }
 
+  function syncFacebookTranslationCfgToWebview(wv, account) {
+    const installer = window.GeekTranslationAdapters?.facebook;
+    if (!wv || !account || typeof installer !== 'function') return;
+    let chatConfig = {}, globalConfig = {};
+    try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Facebook翻译适配器注入失败:', error.message));
+  }
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
     if (!wv || !account) return;
@@ -792,6 +804,10 @@
     }
     if (account.type === 'line' || account.type === 'line-business') {
       syncLineTranslationCfgToWebview(wv, account);
+      return;
+    }
+    if (account.type === 'facebook' || account.type === 'facebook-business') {
+      syncFacebookTranslationCfgToWebview(wv, account);
       return;
     }
     if (!(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
@@ -1314,6 +1330,22 @@
     const account = accounts.find(item => item.id === activeId);
     const wv = wvMap.get(activeId);
     if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
+    const family = familyOf(account.type).key;
+    if (family === 'facebook') {
+      try {
+        return await wv.executeJavaScript(`(() => {
+          try {
+            if (typeof window.__geekFacebookCurrentChatId === 'function') return window.__geekFacebookCurrentChatId() || null;
+            const path = decodeURIComponent(String(location.pathname || ''));
+            const hit = path.match(/\/messages\/(?:e2ee\/)?t\/([^/?#]+)/i) || path.match(/^\/t\/([^/?#]+)/i);
+            if (hit?.[1]) return 'facebook:' + hit[1];
+            const query = new URLSearchParams(location.search || '');
+            const selected = query.get('selected_item_id') || query.get('thread_id') || query.get('conversation_id');
+            return selected ? 'facebook-business:' + selected : null;
+          } catch { return null; }
+        })()`);
+      } catch { return null; }
+    }
     try { return await platformTransportFor(account, wv).getCurrentChat(); }
     catch { return null; }
   }
@@ -3549,7 +3581,9 @@
     accounts.forEach(a => {
       const opt = document.createElement('option');
       opt.value = a.id;
-      opt.textContent = `${a.name} (${(a.type === 'telegram-z' || a.type === 'telegram-k') ? 'TG' : 'WA'})`;
+      const family = familyOf(a.type).key;
+      const familyShort = { whatsapp: 'WA', telegram: 'TG', line: 'LINE', facebook: 'FB' }[family] || String(a.type || '').slice(0, 4).toUpperCase();
+      opt.textContent = `${a.name} (${familyShort})`;
       accSelect.appendChild(opt);
     });
     if (activeId) accSelect.value = activeId;

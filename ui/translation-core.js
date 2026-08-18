@@ -6,7 +6,8 @@
   const PLATFORM_TYPES = Object.freeze({
     whatsapp: new Set(['whatsapp', 'whatsapp-pure']),
     telegram: new Set(['telegram', 'telegram-z', 'telegram-pure', 'telegram-k']),
-    line: new Set(['line', 'line-business', 'linebusiness'])
+    line: new Set(['line', 'line-business', 'linebusiness']),
+    facebook: new Set(['facebook', 'facebook-business'])
   });
   const adapters = new Map();
 
