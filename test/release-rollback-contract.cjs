@@ -28,6 +28,8 @@ assert.match(workflow, /function Test-PublicRelease/, 'release verification must
 assert.match(workflow, /Start-Sleep -Seconds 10/, 'release verification must tolerate update-source propagation delay');
 assert.match(workflow, /ROLLBACK_AVAILABLE=true/, 'rollback may only be enabled after a previous stable release is verified');
 assert.match(workflow, /previous stable artifacts are not reachable/, 'rollback target must require reachable installer and blockmap');
+assert.match(workflow, /Refusing promotion without a verified previous stable release/, 'new promotions must fail closed when no rollback target can be verified');
+assert.match(workflow, /Production already reports \$previousVersion; treating this as an idempotent rerun/, 'same-version reruns may proceed without requiring an older rollback target');
 assert.match(workflow, /paths:\s*\n\s*- '\.github\/release-client-version'/, 'normal master pushes must not publish a client release');
 
 console.log('release-rollback-contract: ok');
