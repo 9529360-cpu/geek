@@ -1,8 +1,14 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { installSubscriptionWindowVisibilityRecovery } = require('../src/subscription-window-visibility.cjs');
+
+const updater = fs.readFileSync(path.join(__dirname, '..', 'src', 'updater.cjs'), 'utf8');
+assert.match(updater, /installSubscriptionWindowVisibilityRecovery\(\{ app \}\)/,
+  '主进程启动阶段必须安装登录窗口恢复器');
 
 class FakeWebContents extends EventEmitter {
   constructor(url) {
