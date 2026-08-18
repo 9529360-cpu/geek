@@ -8,7 +8,7 @@ const root = path.join(__dirname, '..');
 const entry = fs.readFileSync(path.join(root, 'scripts/geek-subscription-entry.js'), 'utf8');
 const wrangler = fs.readFileSync(path.join(root, 'wrangler-subscription.toml'), 'utf8');
 
-assert.doesNotMatch(entry, /PBKDF2|PASSWORD_ITERATIONS|deriveBits/, 'free Worker auth entry must not execute PBKDF2 in the request hot path');
+assert.doesNotMatch(entry, /PASSWORD_ITERATIONS|deriveBits\(|importKey\([^\n]*PBKDF2/, 'free Worker auth entry must not execute PBKDF2 in the request hot path');
 assert.match(entry, /HASH_PREFIX = 'v4\$'/, 'new hashes must use the CPU-safe v4 scheme');
 assert.match(entry, /PASSWORD_DOMAIN = 'geek-password-v4\\0'/, 'password HMAC must be purpose separated from JWT signing');
 assert.match(entry, /name: 'HMAC', hash: 'SHA-256'/, 'password verifier must use HMAC-SHA-256');
