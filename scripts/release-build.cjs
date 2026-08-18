@@ -35,6 +35,14 @@ const installElectron = spawnSync(process.execPath, [electronInstall, '--no'], {
 if (installElectron.error) fail(`无法启动 Electron 运行时安装: ${installElectron.error.message}`);
 if (installElectron.status !== 0) fail(`Electron 运行时安装失败 (${installElectron.status})`);
 
+// 生成受 app.asar 完整性保护的清单，用于启动时校验必须解包到磁盘的桥接/LINE 扩展代码。
+const integrityGenerator = path.join(root, 'scripts', 'generate-unpacked-integrity.cjs');
+const generateIntegrity = spawnSync(process.execPath, [integrityGenerator], {
+  cwd: root, stdio: 'inherit', env: process.env,
+});
+if (generateIntegrity.error) fail(`无法生成运行时完整性清单: ${generateIntegrity.error.message}`);
+if (generateIntegrity.status !== 0) fail(`运行时完整性清单生成失败 (${generateIntegrity.status})`);
+
 const builderCli = require.resolve('electron-builder/out/cli/cli.js');
 const build = spawnSync(process.execPath, [builderCli, '--win', '--publish', 'never'], {
   cwd: root, stdio: 'inherit', env: process.env,

@@ -16,6 +16,7 @@ const { createGatewayPool } = require('./gateway-failover.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
 const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
+const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -205,6 +206,44 @@ const LINE_EXTENSION_PATH = path.join(
   RESOURCES_DIR, 'extensions', 'line-3.5.1'
 );
 
+let unpackedIntegrityState = {
+  manifestOk: !app.isPackaged,
+  bridge: !app.isPackaged,
+  lineExtension: !app.isPackaged
+};
+
+async function verifyPackagedUnpackedAssets() {
+  if (!app.isPackaged) {
+    unpackedIntegrityState = { manifestOk: true, bridge: true, lineExtension: true };
+    return unpackedIntegrityState;
+  }
+  const manifestPath = path.join(__dirname, 'unpacked-integrity.generated.json');
+  let result;
+  try {
+    result = await verifyRuntimeIntegrity({ manifestPath, resourcesDir: RESOURCES_DIR });
+  } catch {
+    result = { manifestOk: false, bridge: false, lineExtension: false, errors: ['verification'] };
+  }
+  unpackedIntegrityState = {
+    manifestOk: result.manifestOk === true,
+    bridge: result.bridge === true,
+    lineExtension: result.lineExtension === true
+  };
+  diagnostics.log('runtime-asset-integrity', {
+    manifestOk: unpackedIntegrityState.manifestOk,
+    bridgeOk: unpackedIntegrityState.bridge,
+    lineExtensionOk: unpackedIntegrityState.lineExtension
+  });
+  if (!unpackedIntegrityState.bridge || !unpackedIntegrityState.lineExtension) {
+    console.error('[security] 解包运行时代码完整性校验失败；受影响平台已阻止加载');
+  }
+  return unpackedIntegrityState;
+}
+
+function runtimeAssetAllowed(component) {
+  return !app.isPackaged || unpackedIntegrityState[component] === true;
+}
+
 // HelloWorld 剥离的 WhatsApp 扩展（Pragmaz）已弃用：
 // - 内含原版作者硬编码的 BrightData 代理凭据（安全/数据风险）
 // - 会与第三方 pragmaz.ai 通信
@@ -212,6 +251,11 @@ const LINE_EXTENSION_PATH = path.join(
 // - 打包时已从 asarUnpack 排除（见 electron-builder.yml）
 
 async function loadLineExtension(partition) {
+  if (!runtimeAssetAllowed('lineExtension')) {
+    diagnostics.log('runtime-asset-blocked', { component: 'line-extension' });
+    console.error('[security] LINE 扩展完整性校验失败，拒绝加载');
+    return;
+  }
   try {
     const ses = session.fromPartition(partition, { cache: true });
     try {
@@ -1074,6 +1118,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('bridge:get-preload-path', async (event) => {
     assertTrustedSender(event);
+    if (!runtimeAssetAllowed('bridge')) throw new Error('翻译桥完整性校验失败，已阻止加载');
     const { pathToFileURL } = require('node:url');
     return pathToFileURL(path.join(RESOURCES_DIR, 'bridge-preload.cjs')).href;
   });
@@ -1681,6 +1726,12 @@ function configureWebviewSecurity(window) {
 
     delete webPreferences.preloadURL;
     const isLine = account.type === 'line' || account.type === 'line-business';
+    const integrityComponent = isLine ? 'lineExtension' : 'bridge';
+    if (!runtimeAssetAllowed(integrityComponent)) {
+      diagnostics.log('runtime-asset-blocked', { component: isLine ? 'line-extension' : 'bridge' });
+      event.preventDefault();
+      return;
+    }
     if (isLine) {
       // LINE 扩展页面兼容注入 —— 原版 s3loYR.js（chrome API mock + _pluginKD 补全）
       webPreferences.preload = path.join(__dirname, '..', 'resources', 's3loYR.js');
@@ -2201,6 +2252,7 @@ app.whenReady().then(async () => {
     username: resolveUsername(process.env.USERNAME)
   });
   diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });
+  await verifyPackagedUnpackedAssets();
   await probeExternalDebugging();
   diagnostics.log('cdp-mode', { externalDebugging: externalDebuggingActive });
   startWaLocalServer();
