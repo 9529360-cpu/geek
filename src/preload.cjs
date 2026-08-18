@@ -15,6 +15,39 @@ const channels = Object.freeze({
   }),
 });
 
+const SUBSCRIPTION_ERROR_CODES = Object.freeze([
+  'invalid_credentials',
+  'password_reset_required',
+  'account_disabled',
+  'email_exists',
+  'invalid_email',
+  'password_length_invalid',
+  'rate_limited',
+  'invalid_plan',
+  'SECURE_STORAGE_UNAVAILABLE',
+  'SECURE_STORAGE_ENCRYPT_FAILED',
+]);
+
+function normalizeSubscriptionIpcError(error) {
+  const message = String(error?.message || error || '');
+  const known = SUBSCRIPTION_ERROR_CODES.find((code) => message.includes(code));
+  if (known) return known;
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|certificate|TLS/i.test(message)) {
+    return 'network_error';
+  }
+  const http = message.match(/\bHTTP\s+(\d{3})\b/i);
+  if (http) return `http_${http[1]}`;
+  return 'subscription_error';
+}
+
+async function invokeSubscription(channel, ...args) {
+  try {
+    return await ipcRenderer.invoke(channel, ...args);
+  } catch (error) {
+    throw new Error(normalizeSubscriptionIpcError(error));
+  }
+}
+
 contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
@@ -103,15 +136,15 @@ contextBridge.exposeInMainWorld(
       },
     }),
     subscription: Object.freeze({
-      getState: () => ipcRenderer.invoke('subscription:get-state'),
-      refresh: () => ipcRenderer.invoke('subscription:refresh'),
-      login: (email, password) => ipcRenderer.invoke('subscription:login', email, password),
-      register: (email, password) => ipcRenderer.invoke('subscription:register', email, password),
-      createOrder: (plan) => ipcRenderer.invoke('subscription:create-order', plan),
-      getQuota: (force) => ipcRenderer.invoke('subscription:get-quota', force === true),
-      logout: () => ipcRenderer.invoke('subscription:logout'),
-      enterApp: () => ipcRenderer.invoke('subscription:enter-app'),
-      closeWindow: () => ipcRenderer.invoke('subscription:close-window'),
+      getState: () => invokeSubscription('subscription:get-state'),
+      refresh: () => invokeSubscription('subscription:refresh'),
+      login: (email, password) => invokeSubscription('subscription:login', email, password),
+      register: (email, password) => invokeSubscription('subscription:register', email, password),
+      createOrder: (plan) => invokeSubscription('subscription:create-order', plan),
+      getQuota: (force) => invokeSubscription('subscription:get-quota', force === true),
+      logout: () => invokeSubscription('subscription:logout'),
+      enterApp: () => invokeSubscription('subscription:enter-app'),
+      closeWindow: () => invokeSubscription('subscription:close-window'),
     }),
   }),
 );
