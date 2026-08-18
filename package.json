@@ -8,9 +8,10 @@
     "test": "node scripts/run-tests.cjs",
     "start": "electron .",
     "electron:install": "install-electron --no",
-    "pack": "npm run electron:install && electron-builder --win --dir",
-    "dist:test": "npm run electron:install && electron-builder --win --publish never",
-    "dist": "node scripts/release-build.cjs"
+    "pack": "npm run electron:install && npm run integrity:generate && electron-builder --win --dir",
+    "dist:test": "npm run electron:install && npm run integrity:generate && electron-builder --win --publish never",
+    "dist": "node scripts/release-build.cjs",
+    "integrity:generate": "node scripts/generate-unpacked-integrity.cjs"
   },
   "devDependencies": {
     "electron": "^43.4.0",

@@ -22,3 +22,4 @@ data/config.json
 test-min*.cjs
 gt_new.html
 gt_rebuild.py
+src/unpacked-integrity.generated.json
