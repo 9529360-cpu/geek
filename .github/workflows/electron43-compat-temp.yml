@@ -28,7 +28,8 @@ jobs:
       - name: Verify locked Electron version
         shell: node {0}
         run: |
-          const electron = require('./node_modules/electron/package.json');
+          const path = require('node:path');
+          const electron = require(path.join(process.cwd(), 'node_modules/electron/package.json'));
           if (electron.version !== '43.4.0') throw new Error(`unexpected Electron ${electron.version}`);
 
       - name: Run tests
