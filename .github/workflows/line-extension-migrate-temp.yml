@@ -142,3 +142,5 @@ console.log('line-extension-api-contract: ok');
           fi
           git commit -m 'compat: migrate LINE extension API'
           git push origin HEAD:agent/line-extension-electron43
+
+# retrigger after workflow exists on branch
