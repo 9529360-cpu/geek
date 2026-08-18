@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   build-windows-smoke:
@@ -71,3 +72,12 @@ jobs:
           path: geek-facebook-clean-win.zip
           retention-days: 3
           if-no-files-found: error
+
+      - name: Publish non-sensitive build status
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $body = "Run: $env:RUN_URL`n`nWindows smoke artifact: ``geek-facebook-clean-win```n`nNo repository, Cloudflare, Geek-account, or Facebook credentials were provided to this build."
+          gh issue comment 28 --body $body
