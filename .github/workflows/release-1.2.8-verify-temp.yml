@@ -1,0 +1,26 @@
+name: release-1.2.8-verify-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify public update source
+        shell: bash
+        run: |
+          set -euo pipefail
+          root='https://geek-release.9529360.workers.dev'
+          nonce="$(date +%s%N)"
+          latest="$(curl --fail --silent --show-error --location "$root/latest.yml?verify=$nonce")"
+          printf '%s\n' "$latest" | grep -Eq '^version:[[:space:]]*1\.2\.8[[:space:]]*$'
+          curl --fail --silent --show-error --head "$root/geek-setup-1.2.8.exe?verify=$nonce" >/dev/null
+          curl --fail --silent --show-error --head "$root/geek-setup-1.2.8.exe.blockmap?verify=$nonce" >/dev/null
+          echo 'GEEK_1_2_8_PRODUCTION_RELEASE_OK'
