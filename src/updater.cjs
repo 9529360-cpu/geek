@@ -9,6 +9,11 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { shouldCheckForUpdates } = require('./updater-policy.cjs');
+const { installSubscriptionWindowVisibilityRecovery } = require('./subscription-window-visibility.cjs');
+
+// main.cjs 在创建窗口前加载 updater.cjs，因此这里能提前捕获登录窗口创建事件。
+// 只针对 subscription.html；ready-to-show 异常时由 did-finish-load/超时兜底显示。
+installSubscriptionWindowVisibilityRecovery({ app });
 
 const LOG_PREFIX = '[updater]';
 const STATUS_CHANNEL = 'updater:status';
