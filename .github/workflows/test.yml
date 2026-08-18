@@ -34,7 +34,7 @@ jobs:
         run: npm test
 
   facebook-windows-smoke:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/facebook-translation' && github.actor != 'github-actions[bot]'
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/agent/facebook-translation') || (github.event_name == 'pull_request' && github.head_ref == 'agent/facebook-translation')) && github.actor != 'github-actions[bot]'
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
