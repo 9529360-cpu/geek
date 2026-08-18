@@ -57,7 +57,7 @@ jobs:
           }
           'PACKAGED_FUSES_OK' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
-      - name: Launch packaged app and reject tampered ASAR
+      - name: Launch packaged app and reject tampered ASAR header
         shell: pwsh
         run: |
           $sourceDir = (Resolve-Path 'dist-release\win-unpacked').Path
@@ -81,18 +81,27 @@ jobs:
           Copy-Item -LiteralPath $sourceDir -Destination $tamperedDir -Recurse
           $asar = Join-Path $tamperedDir 'resources\app.asar'
           if (-not (Test-Path -LiteralPath $asar)) { throw 'Tamper copy is missing app.asar' }
-          $stream = [System.IO.File]::Open($asar, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
-          try {
-            if ($stream.Length -lt 4096) { throw 'app.asar unexpectedly small' }
-            $position = [Math]::Floor($stream.Length / 2)
-            $stream.Position = $position
-            $value = $stream.ReadByte()
-            if ($value -lt 0) { throw 'Unable to read app.asar tamper byte' }
-            $stream.Position = $position
-            $stream.WriteByte($value -bxor 1)
-          } finally {
-            $stream.Dispose()
+
+          # Change one hex digit inside the ASAR JSON header's first integrity hash.
+          # This preserves the archive shape while making the embedded header hash invalid,
+          # so startup must be rejected immediately by Electron's ASAR-integrity fuse.
+          $bytes = [System.IO.File]::ReadAllBytes($asar)
+          $needle = [System.Text.Encoding]::ASCII.GetBytes('"hash":"')
+          $match = -1
+          for ($i = 0; $i -le [Math]::Min($bytes.Length - $needle.Length, 2MB); $i++) {
+            $same = $true
+            for ($j = 0; $j -lt $needle.Length; $j++) {
+              if ($bytes[$i + $j] -ne $needle[$j]) { $same = $false; break }
+            }
+            if ($same) { $match = $i; break }
           }
+          if ($match -lt 0) { throw 'Unable to locate ASAR integrity hash in header' }
+          $position = $match + $needle.Length
+          $original = [char]$bytes[$position]
+          if ($original -eq '0') { $bytes[$position] = [byte][char]'1' }
+          else { $bytes[$position] = [byte][char]'0' }
+          [System.IO.File]::WriteAllBytes($asar, $bytes)
+          Write-Host "tampered-asar-header-offset=$position"
 
           $tamperedExe = Join-Path $tamperedDir $mainExe.Name
           $env:GEEK_USER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'geek-fuse-tampered-userdata'
@@ -103,7 +112,7 @@ jobs:
             Stop-Process -Id $bad.Id -Force -ErrorAction SilentlyContinue
             Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($tamperedDir, [System.StringComparison]::OrdinalIgnoreCase) } |
               Stop-Process -Force -ErrorAction SilentlyContinue
-            throw 'Tampered app.asar was accepted by the packaged application'
+            throw 'ASAR header tamper was accepted by the packaged application'
           }
-          Write-Host "PACKAGED_ASAR_TAMPER_REJECTED exit=$($bad.ExitCode)"
+          Write-Host "PACKAGED_ASAR_HEADER_TAMPER_REJECTED exit=$($bad.ExitCode)"
           'PACKAGED_ASAR_INTEGRITY_OK' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
