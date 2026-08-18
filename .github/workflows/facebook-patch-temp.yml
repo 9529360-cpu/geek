@@ -1,0 +1,62 @@
+name: facebook-patch-temp
+
+on:
+  push:
+    branches:
+      - agent/facebook-translation
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/facebook-translation
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply integration patch
+        run: node scripts/apply-facebook-translation-patch.cjs
+
+      - name: Syntax checks
+        run: |
+          node --check src/main.cjs
+          node --check ui/app.js
+          node --check ui/translation-core.js
+          node --check ui/facebook-translation-adapter.js
+          node --check test/facebook-translation-contract.cjs
+
+      - name: Facebook contract
+        run: node test/facebook-translation-contract.cjs
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Remove temporary patch files
+        run: |
+          rm scripts/apply-facebook-translation-patch.cjs
+          rm .github/workflows/facebook-patch-temp.yml
+
+      - name: Commit integrated changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: integrate Facebook translation"
+          git push origin HEAD:agent/facebook-translation
