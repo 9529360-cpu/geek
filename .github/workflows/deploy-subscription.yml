@@ -1,0 +1,51 @@
+name: deploy-subscription
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'scripts/geek-subscription-worker.js'
+      - 'scripts/geek-subscription-entry.js'
+      - 'wrangler-subscription.toml'
+      - 'test/account-*.cjs'
+      - '.github/workflows/deploy-subscription.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-subscription-production
+  cancel-in-progress: false
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate Worker syntax
+        run: |
+          node --check scripts/geek-subscription-worker.js
+          node --check scripts/geek-subscription-entry.js
+
+      - name: Deploy subscription Worker
+        run: npx --yes wrangler@4.36.0 deploy --config wrangler-subscription.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
