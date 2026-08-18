@@ -31,34 +31,21 @@ jobs:
 
           path = Path('src/main.cjs')
           source = path.read_text(encoding='utf-8')
-          old = """  'telegram-z': {
-            name: 'TelegramZ',
-            short: 'TGZ',
-            url: 'https://web.telegram.org/a',
-            hostnames: ['web.telegram.org'],
-            allowSuffix: '.telegram.org'
-          },
-          line: {
-          """
-          new = """  'telegram-z': {
-            name: 'TelegramZ',
-            short: 'TGZ',
-            url: 'https://web.telegram.org/a',
-            hostnames: ['web.telegram.org'],
-            allowSuffix: '.telegram.org'
-          },
-          'telegram-k': {
-            name: 'TelegramK',
-            short: 'TGK',
-            url: 'https://web.telegram.org/k/',
-            hostnames: ['web.telegram.org'],
-            allowSuffix: '.telegram.org'
-          },
-          line: {
-          """
+          old = "  line: {\n    name: 'Line',\n"
+          new = (
+              "  'telegram-k': {\n"
+              "    name: 'TelegramK',\n"
+              "    short: 'TGK',\n"
+              "    url: 'https://web.telegram.org/k/',\n"
+              "    hostnames: ['web.telegram.org'],\n"
+              "    allowSuffix: '.telegram.org'\n"
+              "  },\n"
+              "  line: {\n"
+              "    name: 'Line',\n"
+          )
           count = source.count(old)
           if count != 1:
-              raise SystemExit(f'expected exactly one APP_TYPES anchor, found {count}')
+              raise SystemExit(f'expected exactly one Line APP_TYPES anchor, found {count}')
           path.write_text(source.replace(old, new, 1), encoding='utf-8')
 
       - name: Verify patch scope before tests
