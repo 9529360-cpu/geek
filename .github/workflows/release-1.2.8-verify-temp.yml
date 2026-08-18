@@ -11,16 +11,25 @@ permissions:
 jobs:
   verify-production:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Verify public update source
+      - name: Wait for public update source
         shell: bash
         run: |
           set -euo pipefail
           root='https://geek-release.9529360.workers.dev'
-          nonce="$(date +%s%N)"
-          latest="$(curl --fail --silent --show-error --location "$root/latest.yml?verify=$nonce")"
-          printf '%s\n' "$latest" | grep -Eq '^version:[[:space:]]*1\.2\.8[[:space:]]*$'
-          curl --fail --silent --show-error --head "$root/geek-setup-1.2.8.exe?verify=$nonce" >/dev/null
-          curl --fail --silent --show-error --head "$root/geek-setup-1.2.8.exe.blockmap?verify=$nonce" >/dev/null
-          echo 'GEEK_1_2_8_PRODUCTION_RELEASE_OK'
+          for attempt in $(seq 1 32); do
+            nonce="$(date +%s%N)"
+            latest="$(curl --fail --silent --show-error --location "$root/latest.yml?verify=$nonce")"
+            version="$(printf '%s\n' "$latest" | sed -nE 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' | head -n1)"
+            echo "PUBLIC_VERSION=${version:-unknown} attempt=$attempt"
+            if [ "$version" = '1.2.8' ]; then
+              curl --fail --silent --show-error --head "$root/geek-setup-1.2.8.exe?verify=$nonce" >/dev/null
+              curl --fail --silent --show-error --head "$root/geek-setup-1.2.8.exe.blockmap?verify=$nonce" >/dev/null
+              echo 'GEEK_1_2_8_PRODUCTION_RELEASE_OK'
+              exit 0
+            fi
+            sleep 15
+          done
+          echo 'Geek 1.2.8 did not reach the public update source within the verification window' >&2
+          exit 1
