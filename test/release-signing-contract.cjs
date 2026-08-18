@@ -11,10 +11,16 @@ const script = fs.readFileSync(path.join(root, 'scripts/release-build.cjs'), 'ut
 
 assert.equal(pkg.scripts.dist, 'node scripts/release-build.cjs', '正式 dist 必须经过安全发布脚本');
 assert.ok(pkg.scripts['dist:test'], '必须把未签名测试构建与正式构建分开');
+assert.match(pkg.scripts['electron:install'] || '', /install-electron/, 'Electron 42+ 构建必须提供显式运行时下载入口');
+assert.match(pkg.scripts.pack || '', /electron:install/, '目录打包必须先准备 Electron 运行时');
+assert.match(pkg.scripts['dist:test'] || '', /electron:install/, '测试安装包必须先准备 Electron 运行时');
 assert.doesNotMatch(builder, /verifyUpdateCodeSignature:\s*true/, '未签名发布不得强制更新签名校验');
 assert.doesNotMatch(script, /forceCodeSigning=true/, '免费发布流程不得强制要求付费证书');
 assert.match(script, /scripts[',\s]+run-tests\.cjs|scripts['"]\s*,\s*['"]run-tests\.cjs/, '正式打包前必须执行完整测试入口');
 assert.ok(script.indexOf('run-tests.cjs') < script.indexOf("require.resolve('electron-builder/out/cli/cli.js')"), '测试必须发生在 electron-builder 之前');
+assert.match(script, /electron\/install\.js/, '正式构建必须显式准备 Electron 42+ 运行时二进制');
+assert.ok(script.indexOf("electron/install.js") < script.indexOf("require.resolve('electron-builder/out/cli/cli.js')"), 'Electron 运行时必须在 electron-builder 前准备');
+assert.match(script, /Electron 运行时安装失败/, 'Electron 运行时下载失败必须阻断正式构建');
 assert.match(script, /发布前测试失败/, '测试失败必须阻断正式打包');
 assert.match(script, /未配置代码签名证书/, '未签名发布必须给出明确警告');
 assert.match(script, /Get-AuthenticodeSignature/, '构建后必须验证 Authenticode');
