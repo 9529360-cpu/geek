@@ -1,13 +1,15 @@
 import baseWorker from './geek-subscription-worker.js';
 
-// Hotfix entrypoint for Cloudflare Workers Free CPU budget.
-// The previous 310k-iteration PBKDF2 path caused real login/register requests
-// to hit HTTP 500 while /health and nonexistent-user login stayed healthy.
-// Keep auth KDF work to one 100k PBKDF2 operation per request until auth is
-// moved to a runtime/plan with a larger CPU budget.
+// Production auth entrypoint for the Workers Free 10 ms CPU budget.
+// PBKDF2 at 100k/310k iterations is too expensive on the Free plan and caused
+// real register/login requests to terminate with HTTP 500. v4 uses a
+// purpose-separated HMAC-SHA-256 password verifier keyed by the existing
+// server-only JWT_SECRET. This keeps database-only leaks resistant to offline
+// guessing while staying within the runtime budget. Older PBKDF2 rows fail
+// closed into password reset instead of recomputing an expensive KDF.
 const enc = new TextEncoder();
-const PASSWORD_ITERATIONS = 100000;
-const HASH_PREFIX = 'v3$';
+const HASH_PREFIX = 'v4$';
+const PASSWORD_DOMAIN = 'geek-password-v4\0';
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -25,57 +27,73 @@ function bytesToB64Url(bytes) {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function b64UrlToBytes(s) {
-  s = s.replace(/-/g, '+').replace(/_/g, '/');
-  while (s.length % 4) s += '=';
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
 function bytesToHex(bytes) {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function hexToBytes(hex) {
+function hexToBytes(hex, expectedBytes) {
   const value = String(hex || '');
-  if (!/^[0-9a-f]{32}$/i.test(value)) return null;
-  const out = new Uint8Array(value.length / 2);
+  if (!new RegExp(`^[0-9a-f]{${expectedBytes * 2}}$`, 'i').test(value)) return null;
+  const out = new Uint8Array(expectedBytes);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(value.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
 
-async function hashPassword(password, saltHex) {
-  const existingSalt = saltHex ? hexToBytes(saltHex) : null;
-  if (saltHex && !existingSalt) return null;
-  const salt = existingSalt || crypto.getRandomValues(new Uint8Array(16));
-  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(String(password)), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt, iterations: PASSWORD_ITERATIONS, hash: 'SHA-256' },
-    keyMaterial,
-    256
+async function passwordKey(secret) {
+  if (!secret) throw new Error('JWT_SECRET missing');
+  return crypto.subtle.importKey(
+    'raw',
+    enc.encode(String(secret)),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
   );
-  return { salt: bytesToHex(salt), hash: bytesToHex(new Uint8Array(bits)) };
 }
 
-async function verifyPassword(password, saltHex, expectedHash) {
+async function hashPassword(password, saltHex, secret) {
+  const existingSalt = saltHex ? hexToBytes(saltHex, 16) : null;
+  if (saltHex && !existingSalt) return null;
+  const salt = existingSalt || crypto.getRandomValues(new Uint8Array(16));
+  const saltValue = bytesToHex(salt);
+  const key = await passwordKey(secret);
+  const sig = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    enc.encode(`${PASSWORD_DOMAIN}${saltValue}\0${String(password)}`)
+  );
+  return { salt: saltValue, hash: bytesToHex(new Uint8Array(sig)) };
+}
+
+function constantTimeEqualHex(left, right) {
+  const a = hexToBytes(left, 32);
+  const b = hexToBytes(right, 32);
+  if (!a || !b) return false;
+  if (typeof crypto.subtle.timingSafeEqual === 'function') {
+    return crypto.subtle.timingSafeEqual(a, b);
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+async function verifyPassword(password, saltHex, expectedHash, secret) {
   const storedValue = String(expectedHash || '');
 
-  // v2 hashes were produced with 310k iterations. Recomputing them can exceed
-  // the Free Worker request CPU budget, so require a password reset instead of
-  // crashing the Worker. This deployment currently has no production users;
-  // these rows are disposable test accounts.
-  if (storedValue.startsWith('v2$')) {
-    return { ok: false, resetRequired: true };
+  // v2/v3 and legacy unprefixed rows require PBKDF2. Never recompute those on
+  // Workers Free; direct them to the reset path instead. There are currently
+  // no production users that require transparent legacy migration.
+  if (!storedValue.startsWith(HASH_PREFIX)) {
+    const looksLegacy = /^(?:v2\$|v3\$)?[0-9a-f]{64}$/i.test(storedValue);
+    return { ok: false, resetRequired: looksLegacy };
   }
 
-  const stored = storedValue.startsWith(HASH_PREFIX)
-    ? storedValue.slice(HASH_PREFIX.length)
-    : storedValue; // legacy unprefixed rows used 100k iterations.
+  const stored = storedValue.slice(HASH_PREFIX.length);
   if (!/^[0-9a-f]{64}$/i.test(stored)) return { ok: false, resetRequired: false };
-  const derived = await hashPassword(password, saltHex);
-  return { ok: Boolean(derived && derived.hash === stored), resetRequired: false };
+  const derived = await hashPassword(password, saltHex, secret);
+  return {
+    ok: Boolean(derived && constantTimeEqualHex(derived.hash, stored)),
+    resetRequired: false,
+  };
 }
 
 async function signJwt(payload, secret) {
@@ -126,7 +144,7 @@ async function getUserByEmail(db, email) {
   return db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
 }
 
-async function handleRegister(request, db) {
+async function handleRegister(request, db, env) {
   const body = await request.json().catch(() => ({}));
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
@@ -134,7 +152,7 @@ async function handleRegister(request, db) {
   if (password.length < 10 || password.length > 128) return json({ error: 'password_length_invalid' }, 400);
   if (await getUserByEmail(db, email)) return json({ error: 'email_exists' }, 409);
 
-  const next = await hashPassword(password);
+  const next = await hashPassword(password, null, env.JWT_SECRET);
   if (!next) return json({ error: 'password_hash_failed' }, 500);
   const result = await db.prepare(
     'INSERT INTO users (email, password_hash, password_salt, quota_chars) VALUES (?, ?, ?, ?)'
@@ -149,7 +167,7 @@ async function handleLogin(request, db, env) {
   const user = await getUserByEmail(db, email);
   if (!user) return json({ error: 'invalid_credentials' }, 401);
 
-  const verification = await verifyPassword(password, user.password_salt, user.password_hash);
+  const verification = await verifyPassword(password, user.password_salt, user.password_hash, env.JWT_SECRET);
   if (verification.resetRequired) return json({ error: 'password_reset_required' }, 409);
   if (!verification.ok) return json({ error: 'invalid_credentials' }, 401);
   if (user.status === 'disabled') return json({ error: 'account_disabled' }, 403);
@@ -168,7 +186,7 @@ async function handleLogin(request, db, env) {
   );
 }
 
-async function handlePasswordResetComplete(request, db) {
+async function handlePasswordResetComplete(request, db, env) {
   const body = await request.json().catch(() => ({}));
   const token = String(body.token || '');
   const password = String(body.password || '');
@@ -187,7 +205,7 @@ async function handlePasswordResetComplete(request, db) {
   if (claim.meta.changes !== 1) return json({ error: 'invalid_or_expired_token' }, 400);
 
   try {
-    const next = await hashPassword(password);
+    const next = await hashPassword(password, null, env.JWT_SECRET);
     if (!next) throw new Error('password_hash_failed');
     await db.batch([
       db.prepare('UPDATE users SET password_hash = ?, password_salt = ?, token_version = token_version + 1 WHERE id = ?')
@@ -213,7 +231,7 @@ export default {
     if (request.method === 'POST' && path === '/api/register') {
       const ip = clientIp(request);
       if (await rateLimited(db, `reg:${ip}`, 5, 60)) return json({ error: 'rate_limited' }, 429);
-      return handleRegister(request, db);
+      return handleRegister(request, db, env);
     }
 
     if (request.method === 'POST' && path === '/api/login') {
@@ -225,7 +243,7 @@ export default {
     if (request.method === 'POST' && path === '/api/password-reset/complete') {
       const ip = clientIp(request);
       if (await rateLimited(db, `reset-complete:${ip}`, 10, 3600)) return json({ error: 'rate_limited' }, 429);
-      return handlePasswordResetComplete(request, db);
+      return handlePasswordResetComplete(request, db, env);
     }
 
     return baseWorker.fetch(request, env, ctx);
