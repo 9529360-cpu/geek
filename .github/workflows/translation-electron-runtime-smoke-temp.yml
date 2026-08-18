@@ -11,7 +11,7 @@ permissions:
 jobs:
   electron-runtime-smoke:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,4 +54,15 @@ jobs:
           $joined = ($output | Out-String)
           if ($joined -notmatch 'WEBVIEW_BRIDGE_ELECTRON43_SMOKE_OK') {
             throw 'Electron WebView bridge smoke exited without completion marker'
+          }
+
+      - name: Inspect packaged bridge preload location
+        shell: pwsh
+        run: |
+          npm run pack
+          $expected = 'dist-release\win-unpacked\resources\app.asar.unpacked\resources\bridge-preload.cjs'
+          $present = Test-Path $expected
+          Write-Host "PACKAGED_BRIDGE_PRELOAD_PRESENT=$present"
+          if (-not $present) {
+            Write-Host 'PACKAGED_BRIDGE_PRELOAD_MISSING'
           }
