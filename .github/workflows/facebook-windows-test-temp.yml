@@ -33,21 +33,39 @@ jobs:
       - name: Build unpacked Windows app
         run: npm run pack
 
-      - name: Verify and zip test build
+      - name: Prepare isolated test package
         shell: pwsh
         run: |
-          if (-not (Test-Path 'dist-release\win-unpacked')) {
-            throw 'Windows unpacked build was not created'
-          }
-          $exe = Get-ChildItem 'dist-release\win-unpacked' -Filter '*.exe' | Select-Object -First 1
+          $root = Resolve-Path 'dist-release\win-unpacked'
+          $exe = Get-ChildItem $root -Filter '*.exe' | Sort-Object Length -Descending | Select-Object -First 1
           if (-not $exe) { throw 'Windows executable was not found' }
+
+          # 测试包不允许自动更新覆盖自身；移除更新渠道文件后 updater 会安全跳过。
+          $updateConfig = Join-Path $root 'resources\app-update.yml'
+          if (Test-Path $updateConfig) { Remove-Item $updateConfig -Force }
+
+          # 使用独立 userData，避免 Facebook 实测碰到正式版 WA/TG/LINE 登录数据。
+          $launcher = @'
+@echo off
+setlocal
+set "GEEK_USER_DATA_DIR=%~dp0test-user-data"
+for %%F in ("%~dp0*.exe") do (
+  start "" "%%~fF"
+  exit /b 0
+)
+echo Test executable not found.
+pause
+'@
+          Set-Content -Path (Join-Path $root 'START-FB-TEST.cmd') -Value $launcher -Encoding ascii
+
           Write-Host "TEST_EXECUTABLE=$($exe.Name)"
-          Compress-Archive -Path 'dist-release\win-unpacked\*' -DestinationPath 'geek-facebook-test-win.zip' -Force
+          if (Test-Path $updateConfig) { throw 'Test build must not contain app-update.yml' }
+          Compress-Archive -Path (Join-Path $root '*') -DestinationPath 'geek-facebook-test-win.zip' -Force
 
       - name: Upload Facebook test package
         uses: actions/upload-artifact@v4
         with:
-          name: geek-facebook-test-win
+          name: geek-facebook-test-win-isolated
           path: geek-facebook-test-win.zip
           retention-days: 3
           if-no-files-found: error
