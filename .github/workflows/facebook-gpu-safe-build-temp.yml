@@ -2,6 +2,9 @@
 name: facebook-gpu-safe-build-temp
 
 on:
+  push:
+    branches:
+      - agent/facebook-translation
   pull_request:
     branches:
       - master
