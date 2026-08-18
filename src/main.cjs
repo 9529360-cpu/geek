@@ -194,7 +194,7 @@ function appTypeConfig(type) {
 
 // LINE 官方浏览器扩展（复刻项目自带副本，供 line / line-business 账号登录使用）
 // 用 MV3 原始扩展（与 Hello-GPT 原版完全一致）；Electron 35.5.1 下 SW 注册行为待验证
-// 打包后扩展目录会被 asarUnpack 到真实磁盘（session.loadExtension 需要真实文件），
+// 打包后扩展目录会被 asarUnpack 到真实磁盘（ses.extensions.loadExtension 需要真实文件），
 // 因此资源目录在打包模式下解析到 app.asar.unpacked；开发模式仍指向项目 resources/。
 const RESOURCES_DIR = runtimePaths.resourcesDirFor({
   packaged: app.isPackaged,
@@ -246,7 +246,7 @@ async function loadLineExtension(partition) {
         }
       });
     } catch (e) { /* webRequest 监听失败不影响 */ }
-    const ext = await ses.loadExtension(LINE_EXTENSION_PATH);
+    const ext = await ses.extensions.loadExtension(LINE_EXTENSION_PATH);
     if (ext) {
       console.log(`[line] 扩展已加载到 ${partition}: ${ext.name} ${ext.version}`);
       // 扩展就绪后通知 renderer 重载对应 webview（原版 onPluginInstalled 模式）
