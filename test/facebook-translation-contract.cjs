@@ -35,8 +35,14 @@ assert.match(mainSource, /isFacebook[\s\S]*?facebook\\\.com\|messenger\\\.com/,
   'WebView 安全登记必须只允许 Facebook/Messenger 页面');
 assert.match(mainSource, /allowedInputPage[\s\S]*?facebook\\\.com\|messenger\\\.com/,
   '原生输入白名单必须包含 Facebook/Messenger 页面');
-assert.match(mainSource, /data-lexical-editor[\s\S]*?role=\"textbox\"|role=\\\"textbox\\\"[\s\S]*?data-lexical-editor/,
-  'Facebook 原生输入必须验证已聚焦的消息编辑器');
+assert.ok(mainSource.includes('[contenteditable="true"][role="textbox"]'),
+  'Facebook 原生输入必须识别 role=textbox 编辑器');
+assert.ok(mainSource.includes('[contenteditable="true"][data-lexical-editor="true"]'),
+  'Facebook 原生输入必须识别 Lexical 编辑器');
+assert.match(mainSource, /document\.activeElement === editor \|\| editor\.contains\(document\.activeElement\)/,
+  'Facebook 原生输入必须要求消息编辑器已获得焦点');
+assert.match(mainSource, /search\|搜索\|搜尋[\s\S]*?comment/i,
+  'Facebook 原生输入必须排除搜索和评论输入框');
 
 assert.match(appSource, /key:\s*'facebook'[\s\S]*?types:\s*\['facebook',\s*'facebook-business'\]/,
   '顶部平台家族必须包含 Facebook 与 Facebook Business');
@@ -66,11 +72,11 @@ assert.match(adapterSource, /geekFacebookTranslationKey/,
   'Facebook 虚拟列表节点复用必须通过消息指纹重新校验');
 assert.match(adapterSource, /selected_item_id/,
   'Facebook Business 必须从收件箱 URL 提取稳定当前会话标识');
-assert.match(adapterSource, /messages\\\/\(\?:e2ee\\\/\)\?t|messages\/\(\?:e2ee/,
+assert.ok(adapterSource.includes("path.match(/\\/messages\\/(?:e2ee\\/)?t\\/"),
   'Facebook Messenger 必须支持普通和端到端加密会话 URL');
 assert.match(adapterSource, /type:\s*'native-input-request'/,
   '发送前翻译必须通过受控原生输入桥回填编辑器');
-assert.match(adapterSource, /event\?\.stopImmediatePropagation|stopImmediatePropagation/,
+assert.match(adapterSource, /stopImmediatePropagation/,
   '发送前翻译必须拦截原发送动作，避免原文和译文重复发送');
 assert.match(adapterSource, /box\.textContent\s*=\s*translated/,
   '译文必须通过 textContent 安全挂载');
