@@ -1,0 +1,198 @@
+name: line-context-isolation-ab-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  compare-line-worlds:
+    if: github.event.pull_request.head.ref == 'agent/line-context-isolation-ab'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Inspect LINE preload structure
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const source = fs.readFileSync('resources/s3loYR.js', 'utf8');
+          const summary = {
+            bytes: Buffer.byteLength(source),
+            sha256: crypto.createHash('sha256').update(source).digest('hex'),
+            contextBridge: /\bcontextBridge\b/.test(source),
+            ipcRenderer: /\bipcRenderer\b/.test(source),
+            windowWrites: /\bwindow\s*[.[]/.test(source),
+            globalThis: /\bglobalThis\b/.test(source),
+            pluginKD: /_pluginKD/.test(source),
+            pluginEnc: /g_plugin_enc/.test(source),
+            pluginHmac: /g_plugin_hmac/.test(source),
+            chromeRefs: /\bchrome\b/.test(source),
+            documentRefs: /\bdocument\b/.test(source)
+          };
+          console.log('LINE_PRELOAD_STRUCTURE=' + JSON.stringify(summary));
+          if (summary.bytes === 0) throw new Error('LINE compatibility preload is unexpectedly empty');
+          '@ | Set-Content -LiteralPath "$env:RUNNER_TEMP/inspect-line-preload.cjs" -Encoding utf8
+          node "$env:RUNNER_TEMP/inspect-line-preload.cjs"
+
+      - name: Install dependencies and Electron runtime
+        shell: pwsh
+        run: |
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run electron:install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: A/B smoke actual LINE extension page
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const { app, BrowserWindow, session } = require('electron');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const EXPECTED_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
+          const extensionPath = path.join(process.cwd(), 'resources', 'extensions', 'line-3.5.1');
+          const preloadPath = path.join(process.cwd(), 'resources', 's3loYR.js');
+          const tempRoot = path.join(process.env.RUNNER_TEMP, 'geek-line-context-ab');
+          fs.mkdirSync(tempRoot, { recursive: true });
+          app.setPath('userData', path.join(tempRoot, 'user-data'));
+          app.commandLine.appendSwitch('disable-gpu');
+
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function runCase(label, isolated) {
+            const partition = `persist:geek-line-context-${label}`;
+            const ses = session.fromPartition(partition, { cache: true });
+            const extension = await ses.extensions.loadExtension(extensionPath);
+            if (!extension || extension.id !== EXPECTED_ID) {
+              throw new Error(`${label}: unexpected extension id`);
+            }
+
+            const hostPath = path.join(tempRoot, `host-${label}.html`);
+            const src = `chrome-extension://${EXPECTED_ID}/index.html?lw-key=ci${label}&${Date.now()}`;
+            fs.writeFileSync(hostPath, `<!doctype html><meta charset="utf-8"><webview id="line" src="${src}" partition="${partition}" style="width:900px;height:700px"></webview>`, 'utf8');
+
+            const win = new BrowserWindow({
+              show: false,
+              width: 1000,
+              height: 800,
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true,
+                webSecurity: true,
+                webviewTag: true
+              }
+            });
+
+            win.webContents.on('will-attach-webview', (_event, prefs, params) => {
+              prefs.preload = preloadPath;
+              prefs.contextIsolation = isolated;
+              prefs.nodeIntegration = false;
+              prefs.nodeIntegrationInSubFrames = false;
+              prefs.sandbox = true;
+              prefs.webSecurity = true;
+              params.partition = partition;
+              params.webpreferences = `contextIsolation=${isolated ? 'yes' : 'no'},sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false`;
+            });
+
+            let guest = null;
+            const attached = new Promise((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error(`${label}: webview attach timeout`)), 15000);
+              win.webContents.once('did-attach-webview', (_event, wc) => {
+                guest = wc;
+                clearTimeout(timer);
+                resolve();
+              });
+            });
+
+            await win.loadFile(hostPath);
+            await attached;
+
+            await Promise.race([
+              new Promise((resolve) => guest.once('did-finish-load', resolve)),
+              sleep(20000).then(() => { throw new Error(`${label}: LINE page load timeout`); })
+            ]).catch(async (error) => {
+              if (!guest || guest.isDestroyed()) throw error;
+              const ready = await guest.executeJavaScript('document.readyState').catch(() => 'unknown');
+              if (ready !== 'complete') throw error;
+            });
+
+            await sleep(7000);
+            const state = await guest.executeJavaScript(`(() => {
+              const root = document.querySelector('#root');
+              const text = (document.body && document.body.innerText || '').trim();
+              const html = root ? root.innerHTML : '';
+              return {
+                href: location.href,
+                readyState: document.readyState,
+                title: document.title,
+                rootHtmlLength: html.length,
+                bodyTextLength: text.length,
+                hasChromeRuntime: !!(window.chrome && chrome.runtime),
+                pluginEncType: typeof window.g_plugin_enc,
+                pluginHmacType: typeof window.g_plugin_hmac,
+                pluginKDType: typeof window._pluginKD,
+                pageHasRequire: typeof window.require !== 'undefined'
+              };
+            })()`, true);
+
+            console.log(`LINE_CONTEXT_${label.toUpperCase()}=` + JSON.stringify(state));
+            win.destroy();
+            ses.extensions.removeExtension(EXPECTED_ID);
+            return state;
+          }
+
+          app.whenReady().then(async () => {
+            const baseline = await runCase('baseline', false);
+            const isolated = await runCase('isolated', true);
+
+            const baselineReady = baseline.readyState === 'complete' && baseline.hasChromeRuntime && (baseline.rootHtmlLength > 0 || baseline.bodyTextLength > 0);
+            const isolatedReady = isolated.readyState === 'complete' && isolated.hasChromeRuntime && (isolated.rootHtmlLength > 0 || isolated.bodyTextLength > 0);
+            if (!baselineReady) throw new Error('Current LINE baseline did not reach a meaningful extension-page state on CI');
+
+            const requiredGlobals = ['pluginEncType', 'pluginHmacType', 'pluginKDType'];
+            const mismatches = requiredGlobals.filter((key) => baseline[key] !== isolated[key]);
+            const comparable = isolatedReady && mismatches.length === 0 && isolated.pageHasRequire === false;
+
+            console.log(`LINE_CONTEXT_ISOLATION_COMPARABLE=${comparable ? 'yes' : 'no'}`);
+            console.log(`LINE_CONTEXT_GLOBAL_MISMATCHES=${mismatches.join(',') || 'none'}`);
+            if (!comparable) {
+              console.log('LINE_CONTEXT_ISOLATION_KEEP_EXCEPTION');
+              process.exitCode = 2;
+              return;
+            }
+            console.log('LINE_CONTEXT_ISOLATION_CANDIDATE_OK');
+          }).then(() => app.quit()).catch((error) => {
+            console.error(`LINE_CONTEXT_AB_FAIL ${String(error && error.message || error)}`);
+            app.exit(1);
+          });
+          '@ | Set-Content -LiteralPath "$env:RUNNER_TEMP/line-context-ab.cjs" -Encoding utf8
+
+          $output = & '.\node_modules\electron\dist\electron.exe' "$env:RUNNER_TEMP/line-context-ab.cjs" 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($exitCode -eq 2) {
+            Write-Host 'A/B result: keep the existing LINE contextIsolation compatibility exception.'
+            exit 2
+          }
+          if ($exitCode -ne 0) { exit $exitCode }
+          if (($output | Out-String) -notmatch 'LINE_CONTEXT_ISOLATION_CANDIDATE_OK') {
+            throw 'LINE context isolation A/B exited without candidate success marker'
+          }
