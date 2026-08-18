@@ -471,6 +471,8 @@
       if (chatId) {
         scan(document, 'initial');
         setTimeout(() => { if (currentChatId() === chatId) scan(document, 'initial'); }, 900);
+        // 稳定期内新增的真实消息可能被 MutationObserver 暂按 history 处理；稳定后补扫一次，避免漏译。
+        setTimeout(() => { if (currentChatId() === chatId) scan(document, 'new'); }, 2400);
       }
     };
 

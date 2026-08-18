@@ -67,6 +67,8 @@ assert.match(styleSource, /\.p-icon-facebook\s*\{\s*background:\s*#1877F2;/,
 
 assert.match(adapterSource, /MutationObserver/,
   'Facebook 动态消息列表必须由 MutationObserver 跟踪');
+assert.match(adapterSource, /setTimeout\(\(\) => \{ if \(currentChatId\(\) === chatId\) scan\(document, 'new'\); \}, 2400\);/,
+  'Facebook 聊天切换稳定期结束后必须补扫新消息，避免漏译');
 assert.match(adapterSource, /data-geek-facebook-translation-state|geekFacebookTranslationState/,
   'Facebook DOM 复用必须有独立翻译状态标记');
 assert.match(adapterSource, /geekFacebookTranslationKey/,
