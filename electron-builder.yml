@@ -16,6 +16,9 @@ files:
   - '!resources/pragmaz-ext/**/*'  # 弃用扩展：含原版硬编码 BrightData 凭据 + pragmaz.ai 通信，安全排除
 asarUnpack:
   - resources/extensions/**/*
+  # WA/TG guest preload is resolved from app.asar.unpacked at runtime.
+  # Keep it on disk so Electron can actually attach the intended sendToHost bridge.
+  - resources/bridge-preload.cjs
 icon: build/icon.ico
 
 # 自动更新渠道：Cloudflare R2（公开读，源码仍私有）
