@@ -5,6 +5,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const bridgePreload = path.join(__dirname, '..', 'resources', 'bridge-preload.cjs');
+const fallbackPrefix = '__GEEK_TRANSLATION_REQUEST__:';
 let server = null;
 let win = null;
 
@@ -19,29 +20,46 @@ function startServer() {
       if (req.url === '/host') {
         const port = server.address().port;
         res.end(page(`
-          <webview id="guest" src="http://127.0.0.1:${port}/guest" style="width:400px;height:300px"></webview>
+          <webview id="bridgeGuest" src="http://127.0.0.1:${port}/guest-bridge" style="width:400px;height:200px"></webview>
+          <webview id="consoleGuest" src="http://127.0.0.1:${port}/guest-console" style="width:400px;height:200px"></webview>
           <script>
-            window.__bridgeSmokeResult = '';
-            const guest = document.getElementById('guest');
-            guest.addEventListener('ipc-message', (event) => {
+            window.__bridgeSmokeState = { bridge: false, console: false, error: '' };
+            const bridgeGuest = document.getElementById('bridgeGuest');
+            const consoleGuest = document.getElementById('consoleGuest');
+            function failed(event) {
+              window.__bridgeSmokeState.error = 'FAIL_LOAD_' + String(event.errorCode || 'unknown');
+            }
+            bridgeGuest.addEventListener('ipc-message', (event) => {
               const payload = event.args && event.args[0];
               if (event.channel === 'geek-bridge' && payload && payload.type === 'probe' && payload.value === 'electron43') {
-                window.__bridgeSmokeResult = 'PASS';
+                window.__bridgeSmokeState.bridge = true;
               }
             });
-            guest.addEventListener('did-fail-load', (event) => {
-              window.__bridgeSmokeResult = 'FAIL_LOAD_' + String(event.errorCode || 'unknown');
+            consoleGuest.addEventListener('console-message', (event) => {
+              if (String(event.message || '') === '${fallbackPrefix}probe:token') {
+                window.__bridgeSmokeState.console = true;
+              }
             });
+            bridgeGuest.addEventListener('did-fail-load', failed);
+            consoleGuest.addEventListener('did-fail-load', failed);
           <\/script>
         `));
         return;
       }
-      if (req.url === '/guest') {
+      if (req.url === '/guest-bridge') {
         res.end(page(`
           <script>
             setTimeout(() => {
               window.postMessage({ __geekBridge: true, payload: { type: 'probe', value: 'electron43' } }, window.location.origin);
             }, 150);
+          <\/script>
+        `));
+        return;
+      }
+      if (req.url === '/guest-console') {
+        res.end(page(`
+          <script>
+            setTimeout(() => console.log('${fallbackPrefix}probe:token'), 150);
           <\/script>
         `));
         return;
@@ -57,11 +75,13 @@ function startServer() {
 async function waitForResult(timeoutMs = 12000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const result = await win.webContents.executeJavaScript('window.__bridgeSmokeResult || ""', true).catch(() => '');
-    if (result) return String(result);
+    const state = await win.webContents.executeJavaScript('window.__bridgeSmokeState || null', true).catch(() => null);
+    if (state?.error) return { ok: false, state };
+    if (state?.bridge && state?.console) return { ok: true, state };
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  return 'TIMEOUT';
+  const state = await win.webContents.executeJavaScript('window.__bridgeSmokeState || null', true).catch(() => null);
+  return { ok: false, state: state || { bridge: false, console: false, error: 'TIMEOUT' } };
 }
 
 async function run() {
@@ -80,7 +100,8 @@ async function run() {
   });
 
   win.webContents.on('will-attach-webview', (_event, webPreferences, params) => {
-    webPreferences.preload = bridgePreload;
+    const isConsoleFallback = String(params.src || '').includes('/guest-console');
+    if (!isConsoleFallback) webPreferences.preload = bridgePreload;
     webPreferences.contextIsolation = false;
     webPreferences.nodeIntegration = false;
     webPreferences.nodeIntegrationInSubFrames = false;
@@ -92,8 +113,10 @@ async function run() {
 
   await win.loadURL(`http://127.0.0.1:${port}/host`);
   const result = await waitForResult();
-  if (result !== 'PASS') throw new Error(`webview bridge smoke failed: ${result}`);
-  console.log(`WEBVIEW_BRIDGE_ELECTRON43_SMOKE_OK electron=${process.versions.electron} chromium=${process.versions.chrome}`);
+  if (!result.ok) {
+    throw new Error(`webview transports failed bridge=${String(result.state?.bridge)} console=${String(result.state?.console)} error=${String(result.state?.error || '')}`);
+  }
+  console.log(`WEBVIEW_BRIDGE_ELECTRON43_SMOKE_OK electron=${process.versions.electron} chromium=${process.versions.chrome} bridge=ok console=ok`);
 }
 
 app.whenReady()
