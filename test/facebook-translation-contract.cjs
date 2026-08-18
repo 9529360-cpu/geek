@@ -1,5 +1,6 @@
 'use strict';
 
+// 静态契约用于守住平台接入与安全边界；真实 Facebook 登录页面的 DOM 兼容仍需发布前人工冒烟。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
