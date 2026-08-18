@@ -35,9 +35,9 @@ jobs:
       - name: Run tests
         run: npm test
 
-  windows-pack:
+  windows-release-candidate:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,19 +51,25 @@ jobs:
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
 
-      - name: Run tests
-        run: npm test
+      - name: Build release candidate
+        run: npm run dist
 
-      - name: Package Windows directory
-        run: npm run pack
-
-      - name: Verify Electron runtime and unpacked executable
+      - name: Verify Electron runtime and release artifacts
         shell: pwsh
         run: |
-          $electron = Join-Path $PWD 'node_modules\electron\dist\electron.exe'
-          if (-not (Test-Path $electron)) { throw 'Electron runtime was not installed before packaging' }
-          $version = (& $electron --version).Trim()
-          if ($version -ne 'v43.4.0') { throw "Unexpected Electron runtime: $version" }
-          $exe = Get-ChildItem -Path dist-release -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { throw 'No packaged Windows executable found' }
-          Write-Host "electron=$version packaged=$($exe.FullName)"
+          $electronExe = Join-Path $PWD 'node_modules\electron\dist\electron.exe'
+          if (-not (Test-Path $electronExe)) { throw 'Electron runtime was not installed before packaging' }
+          $electronPackage = Get-Content (Join-Path $PWD 'node_modules\electron\package.json') -Raw | ConvertFrom-Json
+          if ($electronPackage.version -ne '43.4.0') { throw "Unexpected Electron runtime package: $($electronPackage.version)" }
+          $pkg = Get-Content (Join-Path $PWD 'package.json') -Raw | ConvertFrom-Json
+          $base = "geek-setup-$($pkg.version).exe"
+          $exe = Join-Path $PWD "dist-release\$base"
+          $blockmap = "$exe.blockmap"
+          $latest = Join-Path $PWD 'dist-release\latest.yml'
+          $manifest = Join-Path $PWD 'dist-release\release-manifest.json'
+          foreach ($file in @($exe, $blockmap, $latest, $manifest)) {
+            if (-not (Test-Path $file)) { throw "Missing release artifact: $file" }
+          }
+          $latestText = Get-Content $latest -Raw
+          if ($latestText -notmatch "(?m)^version:\s*$([regex]::Escape($pkg.version))\s*$") { throw 'latest.yml version mismatch' }
+          Write-Host "electron=$($electronPackage.version) release=$($pkg.version)"
