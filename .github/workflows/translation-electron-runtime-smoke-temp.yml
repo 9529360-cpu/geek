@@ -35,5 +35,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           $env:ELECTRON_RUN_AS_NODE = '1'
-          & '.\node_modules\electron\dist\electron.exe' 'scripts\translation-electron-runtime-smoke-temp.mjs'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $output = & '.\node_modules\electron\dist\electron.exe' 'scripts\translation-electron-runtime-smoke-temp.mjs' 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($exitCode -ne 0) { exit $exitCode }
+          $joined = ($output | Out-String)
+          if ($joined -notmatch 'ELECTRON_TRANSLATION_RUNTIME_SMOKE_OK') {
+            throw 'Electron translation smoke exited without completion marker'
+          }
