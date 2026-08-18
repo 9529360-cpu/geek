@@ -32,8 +32,15 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Apply restore guard patch
-        run: node scripts/patch-facebook-restore-guard.mjs
+      - name: Apply restore guard patch if needed
+        shell: pwsh
+        run: |
+          $source = Get-Content 'ui/facebook-translation-adapter.js' -Raw
+          if ($source -match 'const hasBlockingDialog') {
+            Write-Host 'Restore guard already present.'
+          } else {
+            node scripts/patch-facebook-restore-guard.mjs
+          }
 
       - name: Install dependencies
         run: npm ci
@@ -41,15 +48,21 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Commit guarded Facebook adapter
+      - name: Commit guarded Facebook adapter if needed
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ui/facebook-translation-adapter.js test/facebook-translation-contract.cjs
           git diff --cached --check
-          git commit -m "fix(facebook): stay passive during encrypted-chat restore"
-          git push origin HEAD:agent/facebook-translation-clean
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "fix(facebook): stay passive during encrypted-chat restore"
+            git pull --rebase origin agent/facebook-translation-clean
+            git push origin HEAD:agent/facebook-translation-clean
+          } else {
+            Write-Host 'No source commit needed.'
+          }
 
       - name: Build unpacked Windows app
         run: npm run pack
