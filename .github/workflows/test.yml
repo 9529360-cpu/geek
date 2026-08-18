@@ -8,7 +8,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -30,65 +30,19 @@ jobs:
       - name: Run tests
         run: npm test
 
-  patch-window-visibility:
-    if: github.head_ref == 'agent/facebook-translation' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout Facebook branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/facebook-translation
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Apply visibility recovery
-        run: node scripts/apply-window-visibility-fix.cjs
-
-      - name: Syntax check
-        run: node --check src/main.cjs
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Run full tests
-        run: npm test
-
-      - name: Commit permanent fix and clean temporary files
-        shell: bash
-        run: |
-          rm scripts/apply-window-visibility-fix.cjs
-          git checkout origin/master -- .github/workflows/test.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "fix: recover hidden login window from tray"
-          git push origin HEAD:agent/facebook-translation
-
   facebook-windows-smoke:
-    if: github.head_ref == 'agent/facebook-translation' && github.actor != 'github-actions[bot]'
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/facebook-translation'
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
-      - name: Checkout Facebook branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: agent/facebook-translation
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-
-      - name: Apply visibility recovery
-        run: node scripts/apply-window-visibility-fix.cjs
 
       - name: Install dependencies
         run: npm ci
