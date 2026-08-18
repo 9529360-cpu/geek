@@ -1,6 +1,6 @@
 # 极客订阅体系 Worker 配置
 name = "geek-subscription"
-main = "scripts/geek-subscription-worker.js"
+main = "scripts/geek-subscription-entry.js"
 compatibility_date = "2026-08-16"
 workers_dev = true
 
