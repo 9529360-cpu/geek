@@ -193,7 +193,7 @@ jobs:
           'use strict';
           const fs = require('node:fs/promises');
           const path = require('node:path');
-          const { verifyRuntimeIntegrity } = require('./src/unpacked-integrity.cjs');
+          const { verifyRuntimeIntegrity } = require(path.join(process.cwd(), 'src', 'unpacked-integrity.cjs'));
 
           (async () => {
             const manifestPath = path.join(process.cwd(), 'src', 'unpacked-integrity.generated.json');
