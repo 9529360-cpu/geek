@@ -18,6 +18,7 @@ const { createSubscriptionStore } = require('./subscription.cjs');
 const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
+const { sanitizeUrlForLog } = require('./log-url.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -1805,12 +1806,13 @@ function configureWebviewSecurity(window) {
     }
     // 诊断：记录 webview 导航与失败（Line 扩展页面排查用）
     webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-      console.log(`[wv] did-fail-load code=${errorCode} desc=${errorDescription} url=${validatedURL}`);
+      const safeUrl = sanitizeUrlForLog(validatedURL);
+      console.log(`[wv] did-fail-load code=${errorCode} desc=${errorDescription} url=${safeUrl}`);
       diagnostics.log('webview-load-failed', {
         partition: part,
         errorCode,
         errorDescription,
-        url: validatedURL
+        url: safeUrl
       });
     });
     webContents.on('render-process-gone', (_event, details) => {
@@ -1822,10 +1824,10 @@ function configureWebviewSecurity(window) {
     });
     webContents.on('did-navigate', (event, url) => {
       wppInjected.delete(part); // 主框架导航后需要重新注入 WPP（刷新/重载）
-      console.log(`[wv] did-navigate url=${url}`);
+      console.log(`[wv] did-navigate url=${sanitizeUrlForLog(url)}`);
     });
     webContents.on('did-navigate-in-page', (event, url) => {
-      console.log(`[wv] did-navigate-in-page url=${url}`);
+      console.log(`[wv] did-navigate-in-page url=${sanitizeUrlForLog(url)}`);
     });
 
     // WhatsApp：页面加载完成后注入 WPP（内部 API 直发，对齐原版/HelloWorld）
