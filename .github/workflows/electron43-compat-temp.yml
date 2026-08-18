@@ -6,15 +6,18 @@ on:
       - master
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   lockfile:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Checkout PR branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -42,6 +45,19 @@ jobs:
           path: package-lock.json
           if-no-files-found: error
           retention-days: 3
+
+      - name: Commit regenerated lockfile to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "deps: refresh Electron 43 lockfile"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
 
   linux-test:
     runs-on: ubuntu-latest
