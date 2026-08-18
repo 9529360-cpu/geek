@@ -65,6 +65,15 @@ assert.ok(adapterScriptPos >= 0 && appScriptPos > adapterScriptPos,
 assert.match(styleSource, /\.p-icon-facebook\s*\{\s*background:\s*#1877F2;/,
   'Facebook 图标必须使用独立品牌色');
 
+assert.match(adapterSource, /const hasBlockingDialog[\s\S]*?aria-modal=\"true\"[\s\S]*?role=\"dialog\"/,
+  'Facebook PIN/安全存储恢复弹窗存在时必须识别阻塞式模态框');
+assert.match(adapterSource, /const scan = \(scope, mode = 'new'\) => \{[\s\S]{0,220}hasBlockingDialog\(\)/,
+  '阻塞式恢复弹窗存在时不得扫描或改写消息 DOM');
+assert.match(adapterSource, /translateAndSend = async[\s\S]{0,180}hasBlockingDialog\(\)/,
+  '阻塞式恢复弹窗存在时不得拦截发送动作');
+assert.doesNotMatch(adapterSource, /hasBlockingDialog[\s\S]{0,800}(?:innerText|textContent)/,
+  '阻塞检测不得读取 PIN/验证码或聊天文本内容');
+
 assert.match(adapterSource, /MutationObserver/,
   'Facebook 动态消息列表必须由 MutationObserver 跟踪');
 assert.match(adapterSource, /setTimeout\(\(\) => \{ if \(currentChatId\(\) === chatId\) scan\(document, 'new'\); \}, 2400\);/,

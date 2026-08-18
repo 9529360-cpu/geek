@@ -129,6 +129,21 @@
       return rect.width > 1 && rect.height > 1 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
     };
 
+    // Facebook 的 PIN/一次性代码/安全存储恢复属于 Messenger 自己的阻塞式流程。
+    // 这类弹窗存在时，翻译层必须完全静默：不扫描消息、不改 DOM、不拦截发送。
+    // 只判断可见模态框的几何特征，不读取、记录或上传 PIN/验证码/聊天内容。
+    const hasBlockingDialog = () => {
+      const candidates = document.querySelectorAll('[aria-modal="true"],[role="dialog"]');
+      for (const node of candidates) {
+        if (!(node instanceof Element) || !isVisible(node)) continue;
+        const rect = node.getBoundingClientRect();
+        const minWidth = Math.min(320, innerWidth * 0.35);
+        const minHeight = Math.min(180, innerHeight * 0.20);
+        if (rect.width >= minWidth && rect.height >= minHeight) return true;
+      }
+      return false;
+    };
+
     const currentChatId = () => {
       try {
         const path = decodeURIComponent(String(location.pathname || ''));
@@ -448,7 +463,7 @@
     };
 
     const scan = (scope, mode = 'new') => {
-      if (generation !== window.__geekFacebookTranslationGeneration || !currentChatId()) return;
+      if (generation !== window.__geekFacebookTranslationGeneration || !currentChatId() || hasBlockingDialog()) return;
       let nodes = messageTextNodes(scope || document);
       if (mode === 'initial' && nodes.length > 12) nodes = nodes.slice(-12);
       const isHistory = mode === 'history';
@@ -477,12 +492,19 @@
     };
 
     window.__geekFacebookTranslationObserver = new MutationObserver(records => {
+      // Messenger 恢复加密聊天时 React 会高频重建 DOM。此时只让 Facebook 自己工作，
+      // 避免翻译扫描触发布局读取或插入译文，干扰 PIN/一次性代码恢复流程。
+      if (hasBlockingDialog()) return;
       const mode = Date.now() < settleUntil ? 'history' : 'new';
+      let sawRemoval = false;
       for (const record of records) {
+        if (record.removedNodes?.length) sawRemoval = true;
         for (const added of record.addedNodes) {
           if (added.nodeType === 1) scan(added, mode);
         }
       }
+      // 模态框关闭本身通常只有 removedNodes；补扫一次当前聊天即可恢复翻译。
+      if (sawRemoval) scheduleScan(mode);
     });
     window.__geekFacebookTranslationObserver.observe(document.body, { childList: true, subtree: true });
 
@@ -499,7 +521,7 @@
     window.__geekFacebookSendAbort = new AbortController();
     window.__geekFacebookSendLock = false;
     const translateAndSend = async (event, editor, button) => {
-      if (window.__geekFacebookSendLock) return;
+      if (window.__geekFacebookSendLock || hasBlockingDialog()) return;
       const cid = currentChatId();
       if (!cid) return;
       const setting = settingFor(cid);
