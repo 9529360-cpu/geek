@@ -1,10 +1,12 @@
 name: temporary telegram k patch
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/fix-telegram-k-normalization
+      - master
     paths:
+      - src/main.cjs
+      - test/telegram-k-account-type-contract.cjs
       - .github/workflows/patch-telegram-k.yml
 
 permissions:
@@ -12,6 +14,7 @@ permissions:
 
 jobs:
   patch-and-test:
+    if: github.head_ref == 'agent/fix-telegram-k-normalization'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -53,10 +56,10 @@ jobs:
           },
           line: {
           """
-          if source.count(old) != 1:
-              raise SystemExit(f'expected exactly one APP_TYPES anchor, found {source.count(old)}')
-          updated = source.replace(old, new, 1)
-          path.write_text(updated, encoding='utf-8')
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one APP_TYPES anchor, found {count}')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
 
       - name: Verify patch scope before tests
         run: |
