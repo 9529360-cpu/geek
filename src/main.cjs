@@ -1689,7 +1689,7 @@ function configureWebviewSecurity(window) {
       // WA/TG：桥 preload（翻译/原生输入 sendToHost）由主进程直接设置，
       // 避免 params.webpreferences 覆盖 renderer 属性时把 preload 丢弃。
       webPreferences.preload = path.join(RESOURCES_DIR, 'bridge-preload.cjs');
-      webPreferences.contextIsolation = false;
+      webPreferences.contextIsolation = true;
     }
 
     webPreferences.nodeIntegration = false;
@@ -1711,7 +1711,7 @@ function configureWebviewSecurity(window) {
     webPreferences.sandbox = true;
     params.webpreferences = isLine
       ? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'
-      : 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
+      : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
 
     // 按账号配置（账号优先，否则全局）应用代理。
     const accountProxy = account.openProxy
