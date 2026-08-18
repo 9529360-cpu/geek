@@ -1,0 +1,91 @@
+name: electron43-compat-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Regenerate lockfile for Electron 43
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Verify lockfile Electron version
+        shell: node {0}
+        run: |
+          const lock = require('./package-lock.json');
+          const electron = lock.packages && lock.packages['node_modules/electron'];
+          if (!electron || electron.version !== '43.3.0') {
+            throw new Error(`expected Electron 43.3.0 in lockfile, got ${electron && electron.version}`);
+          }
+
+      - name: Upload regenerated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron43-package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 3
+
+  linux-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install branch dependencies
+        run: npm install --ignore-scripts
+
+      - name: Run tests
+        run: npm test
+
+  windows-pack:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Electron 43 dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package Windows directory
+        run: npm run pack
+
+      - name: Verify unpacked executable
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path dist-release -Filter *.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw 'No packaged Windows executable found' }
+          Write-Host "packaged=$($exe.FullName)"
