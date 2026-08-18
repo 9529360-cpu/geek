@@ -1,0 +1,73 @@
+name: facebook-windows-smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/facebook-translation-clean
+    paths:
+      - 'src/main.cjs'
+      - 'ui/app.js'
+      - 'ui/facebook-translation-adapter.js'
+      - 'ui/index.html'
+      - 'ui/style.css'
+      - 'ui/translation-core.js'
+      - 'test/facebook-translation-contract.cjs'
+      - '.github/workflows/facebook-windows-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build unpacked Windows app
+        run: npm run pack
+
+      - name: Prepare isolated smoke package
+        shell: pwsh
+        run: |
+          $root = Resolve-Path 'dist-release\win-unpacked'
+          $exe = Get-ChildItem $root -Filter '*.exe' | Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $exe) { throw 'Windows executable was not found' }
+          $updateConfig = Join-Path $root 'resources\app-update.yml'
+          if (Test-Path $updateConfig) { Remove-Item $updateConfig -Force }
+          $launcher = @'
+          @echo off
+          setlocal
+          set "GEEK_USER_DATA_DIR=%~dp0test-user-data"
+          for %%F in ("%~dp0*.exe") do (
+            start "" "%%~fF" --disable-gpu-sandbox
+            exit /b 0
+          )
+          echo Test executable not found.
+          pause
+          '@
+          Set-Content -Path (Join-Path $root 'START-FB-TEST.cmd') -Value $launcher -Encoding ascii
+          if (Test-Path $updateConfig) { throw 'Smoke build must not contain app-update.yml' }
+          Compress-Archive -Path (Join-Path $root '*') -DestinationPath 'geek-facebook-clean-win.zip' -Force
+
+      - name: Upload smoke package
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-facebook-clean-win
+          path: geek-facebook-clean-win.zip
+          retention-days: 3
+          if-no-files-found: error
