@@ -212,6 +212,10 @@ function createSubscriptionStore({ userDataDir }) {
   // 默认有本地缓存直接返回；否则请求远程。
   // 传 { network: false } 时只读本地缓存，绝不发网络请求（翻译热路径用，额度固定由服务端扣减）。
   async function getQuota(force = false, opts = {}) {
+    if (force && typeof force === 'object' && !Array.isArray(force)) {
+      opts = force;
+      force = false;
+    }
     const state = await load();
     const identity = normalizeUserIdentity(state);
     const now = Date.now();
