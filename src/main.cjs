@@ -172,6 +172,13 @@ const APP_TYPES = {
     hostnames: ['web.telegram.org'],
     allowSuffix: '.telegram.org'
   },
+  'telegram-k': {
+    name: 'TelegramK',
+    short: 'TGK',
+    url: 'https://web.telegram.org/k/',
+    hostnames: ['web.telegram.org'],
+    allowSuffix: '.telegram.org'
+  },
   line: {
     name: 'Line',
     short: 'LN',
