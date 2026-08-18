@@ -21,6 +21,16 @@ asarUnpack:
   - resources/bridge-preload.cjs
 icon: build/icon.ico
 
+# 生产二进制安全熔断：阻止运行时环境变量/调试参数把 Electron 当通用 Node 入口，
+# 并要求主应用只能从带嵌入完整性元数据的 app.asar 启动。
+# Cookie 加密等会改变既有登录态磁盘格式的 fuse 单独评估，不在此处启用。
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
 # 自动更新渠道：Cloudflare R2（公开读，源码仍私有）
 # 发布后需将 dist-release/{latest.yml, 极客 Setup X.exe, *.blockmap} 上传到 R2 桶 geek-release
 # （S3 凭证在 scripts/.r2-creds.json；上传命令见 geek-release-workflow 技能）
