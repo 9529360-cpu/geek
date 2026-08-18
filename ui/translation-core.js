@@ -8,6 +8,8 @@
     telegram: new Set(['telegram', 'telegram-z', 'telegram-pure', 'telegram-k']),
     line: new Set(['line', 'line-business', 'linebusiness'])
   });
+  const VALID_PROVIDERS = new Set(['auto', 'local']);
+  const VALID_ROUTES = new Set(['default', 'primary', 'backup']);
   const adapters = new Map();
 
   function platformOf(type) {
@@ -37,10 +39,21 @@
       fontSize: g.fontSize || '13',
       fontColor: g.fontColor || '#667eea'
     };
-    return { ...base, ...c,
+    const merged = {
+      ...base,
+      ...c,
       source: c.source || base.source,
       messageTarget: c.messageTarget || base.messageTarget
     };
+    // 旧版/损坏的本地配置不能把请求送成 Worker 不接受的 provider/route。
+    // 服务端仍做最终校验，这里只把客户端状态收敛到公开协议值。
+    merged.provider = VALID_PROVIDERS.has(String(merged.provider || '').toLowerCase())
+      ? String(merged.provider).toLowerCase()
+      : 'auto';
+    merged.route = VALID_ROUTES.has(String(merged.route || '').toLowerCase())
+      ? String(merged.route).toLowerCase()
+      : 'default';
+    return merged;
   }
 
   function registerAdapter(platform, adapter) {
