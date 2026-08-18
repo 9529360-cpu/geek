@@ -1,0 +1,214 @@
+name: webview-context-isolation-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  harden-and-verify:
+    if: github.event.pull_request.head.ref == 'agent/webview-context-isolation-wa-tg'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply WA/TG context isolation hardening
+        shell: pwsh
+        run: |
+          $mainPath = 'src/main.cjs'
+          $text = [System.IO.File]::ReadAllText($mainPath)
+
+          $pattern = "(?s)(webPreferences\.preload = path\.join\(RESOURCES_DIR, 'bridge-preload\.cjs'\);\s*)webPreferences\.contextIsolation = false;"
+          if ($text -notmatch $pattern -and $text -notmatch "(?s)webPreferences\.preload = path\.join\(RESOURCES_DIR, 'bridge-preload\.cjs'\);\s*webPreferences\.contextIsolation = true;") {
+            throw 'WA/TG bridge contextIsolation assignment not found'
+          }
+          $text = [regex]::Replace($text, $pattern, '${1}webPreferences.contextIsolation = true;', 1)
+
+          $oldPrefs = ": 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no';"
+          $newPrefs = ": 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';"
+          if (-not $text.Contains($oldPrefs) -and -not $text.Contains($newPrefs)) {
+            throw 'WA/TG webpreferences string not found'
+          }
+          $text = $text.Replace($oldPrefs, $newPrefs)
+
+          [System.IO.File]::WriteAllText($mainPath, $text, [System.Text.UTF8Encoding]::new($false))
+
+          @'
+          'use strict';
+
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const root = path.join(__dirname, '..');
+          const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
+          const preload = fs.readFileSync(path.join(root, 'resources', 'bridge-preload.cjs'), 'utf8');
+          const app = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
+
+          assert.match(
+            main,
+            /webPreferences\.preload = path\.join\(RESOURCES_DIR, 'bridge-preload\.cjs'\);\s*webPreferences\.contextIsolation = true;/,
+            'WA/TG bridge preload must run with contextIsolation enabled'
+          );
+          assert.match(
+            main,
+            /webPreferences\.preload = path\.join\(__dirname, '\.\.', 'resources', 's3loYR\.js'\);\s*webPreferences\.contextIsolation = false;/,
+            'LINE compatibility preload remains explicitly scoped to contextIsolation=false'
+          );
+          assert.match(main, /: 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';/, 'WA/TG webpreferences must preserve context isolation');
+          assert.match(main, /\? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'/, 'LINE webpreferences compatibility setting must remain scoped to LINE');
+          assert.match(main, /webPreferences\.nodeIntegration = false;/, 'remote webviews must keep Node integration disabled');
+          assert.match(main, /webPreferences\.sandbox = true;/, 'remote webviews must keep renderer sandbox enabled');
+          assert.match(main, /webPreferences\.webSecurity = true;/, 'remote webviews must keep webSecurity enabled');
+          assert.match(preload, /event\.origin !== window\.location\.origin/, 'isolated bridge must validate same-origin window messages');
+          assert.match(preload, /ipcRenderer\.sendToHost\(HOST_CHANNEL, data\.payload\)/, 'isolated bridge must use sendToHost rather than exposing ipcRenderer');
+          assert.match(app, /data-geek-bridge/, 'page-side translation bridge must detect readiness through shared DOM state');
+          assert.match(app, /window\.postMessage\(\{ __geekBridge: true/, 'page-side translation bridge must cross the isolated world through postMessage');
+
+          console.log('WEBVIEW_REMOTE_ISOLATION_CONTRACT_OK');
+          '@ | Set-Content -LiteralPath 'test/webview-remote-isolation-contract.cjs' -Encoding utf8
+
+          node --check src/main.cjs
+          node test/webview-remote-isolation-contract.cjs
+
+      - name: Install dependencies and Electron runtime
+        shell: pwsh
+        run: |
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run electron:install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run repository tests
+        run: npm test
+
+      - name: Smoke isolated webview bridge on Electron 43
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const { app, BrowserWindow } = require('electron');
+          const http = require('node:http');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const bridgePreload = path.join(process.cwd(), 'resources', 'bridge-preload.cjs');
+          const tempRoot = path.join(process.env.RUNNER_TEMP, 'geek-webview-isolation-smoke');
+          fs.mkdirSync(tempRoot, { recursive: true });
+          app.setPath('userData', path.join(tempRoot, 'user-data'));
+
+          const guestHtml = `<!doctype html><meta charset="utf-8"><script>
+          addEventListener('DOMContentLoaded', () => {
+            let attempt = 0;
+            const send = () => {
+              const ready = document.documentElement.getAttribute('data-geek-bridge') === '1';
+              if (!ready && attempt++ < 40) return setTimeout(send, 100);
+              window.postMessage({ __geekBridge: true, payload: { type: 'isolation-smoke', pageHasRequire: typeof require !== 'undefined' } }, location.origin);
+            };
+            send();
+          });
+          </script>`;
+
+          const server = http.createServer((_req, res) => {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(guestHtml);
+          });
+
+          function listen() {
+            return new Promise((resolve, reject) => {
+              server.once('error', reject);
+              server.listen(0, '127.0.0.1', () => resolve(server.address().port));
+            });
+          }
+
+          app.whenReady().then(async () => {
+            const port = await listen();
+            const guestUrl = `http://127.0.0.1:${port}/guest`;
+            const hostPath = path.join(tempRoot, 'host.html');
+            fs.writeFileSync(hostPath, `<!doctype html><meta charset="utf-8"><webview id="guest" src="${guestUrl}" partition="persist:geek-isolation-smoke" webpreferences="contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no"></webview><script>
+              const guest = document.getElementById('guest');
+              guest.addEventListener('ipc-message', (event) => {
+                const payload = event.args && event.args[0];
+                if (event.channel === 'geek-bridge' && payload && payload.type === 'isolation-smoke' && payload.pageHasRequire === false) {
+                  document.title = 'GEEK_ISOLATION_PASS';
+                }
+              });
+            </script>`, 'utf8');
+
+            const win = new BrowserWindow({
+              show: false,
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true,
+                webSecurity: true,
+                webviewTag: true
+              }
+            });
+
+            win.webContents.on('will-attach-webview', (_event, prefs, params) => {
+              prefs.preload = bridgePreload;
+              prefs.contextIsolation = true;
+              prefs.nodeIntegration = false;
+              prefs.nodeIntegrationInSubFrames = false;
+              prefs.sandbox = true;
+              prefs.webSecurity = true;
+              params.webpreferences = 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
+            });
+
+            const passed = new Promise((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error('isolated webview bridge timeout')), 15000);
+              win.on('page-title-updated', (_event, title) => {
+                if (title !== 'GEEK_ISOLATION_PASS') return;
+                clearTimeout(timer);
+                resolve();
+              });
+            });
+
+            await win.loadFile(hostPath);
+            await passed;
+            console.log(`WEBVIEW_CONTEXT_ISOLATION_BRIDGE_OK electron=${process.versions.electron} chromium=${process.versions.chrome}`);
+            win.destroy();
+          }).then(() => {
+            server.close(() => app.quit());
+          }).catch((error) => {
+            console.error(`WEBVIEW_CONTEXT_ISOLATION_BRIDGE_FAIL ${String(error && error.message || error)}`);
+            try { server.close(); } catch {}
+            app.exit(1);
+          });
+          '@ | Set-Content -LiteralPath "$env:RUNNER_TEMP/webview-isolation-smoke.cjs" -Encoding utf8
+
+          $output = & '.\node_modules\electron\dist\electron.exe' "$env:RUNNER_TEMP/webview-isolation-smoke.cjs" 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($exitCode -ne 0) { exit $exitCode }
+          if (($output | Out-String) -notmatch 'WEBVIEW_CONTEXT_ISOLATION_BRIDGE_OK') {
+            throw 'isolated webview bridge smoke exited without success marker'
+          }
+
+      - name: Commit verified hardening
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main.cjs test/webview-remote-isolation-contract.cjs
+          if git diff --cached --quiet; then
+            echo 'No verified hardening changes to commit'
+            exit 0
+          fi
+          git commit -m 'security: isolate WA and TG webview preloads'
+          git push origin HEAD:agent/webview-context-isolation-wa-tg
