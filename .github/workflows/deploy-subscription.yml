@@ -53,30 +53,23 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Live account smoke
-        id: account_smoke
-        continue-on-error: true
-        run: node scripts/account-live-smoke.mjs
+      - name: Live account smoke and publish non-sensitive status
         env:
           CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Publish non-sensitive account status
-        if: always()
-        env:
           GH_TOKEN: ${{ github.token }}
-          SMOKE_OUTCOME: ${{ steps.account_smoke.outcome }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ "$SMOKE_OUTCOME" = "success" ]; then
+          set +e
+          node scripts/account-live-smoke.mjs
+          SMOKE_RC=$?
+          set -e
+          if [ "$SMOKE_RC" -eq 0 ]; then
             RESULT="OK"
           else
             RESULT="FAIL"
           fi
-          printf 'Run: %s\n\n### Production account live smoke\n\n- Registration: %s\n- Login: %s\n- Authenticated status/me: %s\n- Transient test account cleanup: %s\n\nNo passwords, login tokens, cookies, D1 row contents, or API credentials are included in this report.\n' \
-            "$RUN_URL" "$RESULT" "$RESULT" "$RESULT" "$RESULT" > /tmp/account-smoke-status.md
+          printf 'Run: %s\n\n### Production account live smoke\n\n- Registration/login/authenticated API/cleanup: %s\n\nNo passwords, login tokens, cookies, D1 row contents, or API credentials are included in this report.\n' \
+            "$RUN_URL" "$RESULT" > /tmp/account-smoke-status.md
           gh issue comment 23 --body-file /tmp/account-smoke-status.md
-
-      - name: Fail if account smoke failed
-        if: steps.account_smoke.outcome != 'success'
-        run: exit 1
+          exit "$SMOKE_RC"
