@@ -17,6 +17,7 @@ const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
 const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
+const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -2283,14 +2284,16 @@ app.whenReady().then(async () => {
     }
   });
 
-  // 退出时兜底清理：删除账号后因文件锁未删掉的分区目录
+  // 退出时兜底清理：删除账号后因文件锁未删掉的分区目录。
+  // will-quit 不能等待异步 Promise，因此这里必须使用同步文件系统删除。
   app.on('will-quit', () => {
     diagnostics.log('app-will-quit', {});
-    for (const dir of pendingPartitionDeletions) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch (e) { /* ignore */ }
-    }
+    const cleanup = cleanupPendingPartitions(pendingPartitionDeletions);
+    diagnostics.log('pending-partition-exit-cleanup', {
+      attempted: cleanup.attempted,
+      removed: cleanup.removed,
+      failed: cleanup.failed
+    });
   });
 });
 
