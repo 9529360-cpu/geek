@@ -2,8 +2,8 @@ import fs from 'node:fs';
 
 const adapterPath = 'ui/facebook-translation-adapter.js';
 const testPath = 'test/facebook-translation-contract.cjs';
-let adapter = fs.readFileSync(adapterPath, 'utf8');
-let test = fs.readFileSync(testPath, 'utf8');
+let adapter = fs.readFileSync(adapterPath, 'utf8').replace(/\r\n/g, '\n');
+let test = fs.readFileSync(testPath, 'utf8').replace(/\r\n/g, '\n');
 
 function replaceOnce(source, from, to, label) {
   if (!source.includes(from)) throw new Error(`missing patch anchor: ${label}`);
@@ -33,7 +33,7 @@ adapter = replaceOnce(adapter,
 const insertBefore = `assert.match(adapterSource, /MutationObserver/,\n  'Facebook 动态消息列表必须由 MutationObserver 跟踪');`;
 if (!test.includes(insertBefore)) throw new Error('missing test insertion anchor');
 test = test.replace(insertBefore,
-`assert.match(adapterSource, /function|const hasBlockingDialog[\\s\\S]*?aria-modal=\\"true\\"[\\s\\S]*?role=\\"dialog\\"/,\n  'Facebook PIN/安全存储恢复弹窗存在时必须识别阻塞式模态框');\nassert.match(adapterSource, /const scan = \\(scope, mode = 'new'\\) => \\{[\\s\\S]{0,220}hasBlockingDialog\\(\\)/,\n  '阻塞式恢复弹窗存在时不得扫描或改写消息 DOM');\nassert.match(adapterSource, /translateAndSend = async[\\s\\S]{0,180}hasBlockingDialog\\(\\)/,\n  '阻塞式恢复弹窗存在时不得拦截发送动作');\nassert.doesNotMatch(adapterSource, /hasBlockingDialog[\\s\\S]{0,800}(?:innerText|textContent)/,\n  '阻塞检测不得读取 PIN/验证码或聊天文本内容');\n\n${insertBefore}`);
+`assert.match(adapterSource, /const hasBlockingDialog[\\s\\S]*?aria-modal=\\"true\\"[\\s\\S]*?role=\\"dialog\\"/,\n  'Facebook PIN/安全存储恢复弹窗存在时必须识别阻塞式模态框');\nassert.match(adapterSource, /const scan = \\(scope, mode = 'new'\\) => \\{[\\s\\S]{0,220}hasBlockingDialog\\(\\)/,\n  '阻塞式恢复弹窗存在时不得扫描或改写消息 DOM');\nassert.match(adapterSource, /translateAndSend = async[\\s\\S]{0,180}hasBlockingDialog\\(\\)/,\n  '阻塞式恢复弹窗存在时不得拦截发送动作');\nassert.doesNotMatch(adapterSource, /hasBlockingDialog[\\s\\S]{0,800}(?:innerText|textContent)/,\n  '阻塞检测不得读取 PIN/验证码或聊天文本内容');\n\n${insertBefore}`);
 
 fs.writeFileSync(adapterPath, adapter);
 fs.writeFileSync(testPath, test);
