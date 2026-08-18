@@ -1,3 +1,4 @@
+# Temporary workflow used only to produce a GPU-safe Facebook smoke-test package.
 name: facebook-gpu-safe-build-temp
 
 on:
