@@ -1,0 +1,57 @@
+name: facebook-polish-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/facebook-translation
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply settle fix
+        run: node scripts/patch-facebook-settle.cjs
+
+      - name: Syntax and Facebook contract
+        run: |
+          node --check ui/facebook-translation-adapter.js
+          node --check test/facebook-translation-contract.cjs
+          node test/facebook-translation-contract.cjs
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Remove temporary files
+        run: |
+          rm scripts/patch-facebook-settle.cjs
+          rm .github/workflows/facebook-polish-temp.yml
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: rescan Facebook messages after chat settle"
+          git push origin HEAD:agent/facebook-translation
