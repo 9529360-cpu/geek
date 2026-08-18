@@ -1,0 +1,109 @@
+name: electron-fuses-temp
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  verify-windows-fuses:
+    if: github.event.pull_request.head.ref == 'agent/electron-fuses-asar-integrity'
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run repository tests
+        run: npm test
+
+      - name: Build full Windows candidate
+        run: npm run dist
+
+      - name: Read packaged fuse state
+        shell: pwsh
+        run: |
+          $appDir = 'dist-release\win-unpacked'
+          $exe = Get-ChildItem -LiteralPath $appDir -Filter '*.exe' -File |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          if (-not $exe) { throw 'Packaged main executable not found' }
+          Write-Host "main-exe=$($exe.Name)"
+          $fuses = (& npx --yes @electron/fuses read --app $exe.FullName 2>&1 | Out-String)
+          Write-Host $fuses
+          $expect = @(
+            @{ Name = 'RunAsNode'; State = 'Disabled' },
+            @{ Name = 'EnableNodeOptionsEnvironmentVariable'; State = 'Disabled' },
+            @{ Name = 'EnableNodeCliInspectArguments'; State = 'Disabled' },
+            @{ Name = 'EnableEmbeddedAsarIntegrityValidation'; State = 'Enabled' },
+            @{ Name = 'OnlyLoadAppFromAsar'; State = 'Enabled' }
+          )
+          foreach ($item in $expect) {
+            if ($fuses -notmatch "(?is)$([regex]::Escape($item.Name)).{0,120}$([regex]::Escape($item.State))") {
+              throw "Fuse $($item.Name) is not $($item.State)"
+            }
+          }
+          'PACKAGED_FUSES_OK' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      - name: Launch packaged app and reject tampered ASAR
+        shell: pwsh
+        run: |
+          $sourceDir = (Resolve-Path 'dist-release\win-unpacked').Path
+          $mainExe = Get-ChildItem -LiteralPath $sourceDir -Filter '*.exe' -File |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          if (-not $mainExe) { throw 'Packaged main executable not found' }
+
+          $env:GEEK_USER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'geek-fuse-smoke-userdata'
+          $baseline = Start-Process -FilePath $mainExe.FullName -ArgumentList '--disable-gpu-sandbox' -PassThru
+          Start-Sleep -Seconds 8
+          if ($baseline.HasExited) {
+            throw "Hardened packaged app exited during baseline launch with code $($baseline.ExitCode)"
+          }
+          Stop-Process -Id $baseline.Id -Force -ErrorAction SilentlyContinue
+          Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($sourceDir, [System.StringComparison]::OrdinalIgnoreCase) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Write-Host 'PACKAGED_FUSE_BASELINE_LAUNCH_OK'
+
+          $tamperedDir = Join-Path $env:RUNNER_TEMP 'geek-fuse-tampered'
+          Copy-Item -LiteralPath $sourceDir -Destination $tamperedDir -Recurse
+          $asar = Join-Path $tamperedDir 'resources\app.asar'
+          if (-not (Test-Path -LiteralPath $asar)) { throw 'Tamper copy is missing app.asar' }
+          $stream = [System.IO.File]::Open($asar, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+          try {
+            if ($stream.Length -lt 4096) { throw 'app.asar unexpectedly small' }
+            $position = [Math]::Floor($stream.Length / 2)
+            $stream.Position = $position
+            $value = $stream.ReadByte()
+            if ($value -lt 0) { throw 'Unable to read app.asar tamper byte' }
+            $stream.Position = $position
+            $stream.WriteByte($value -bxor 1)
+          } finally {
+            $stream.Dispose()
+          }
+
+          $tamperedExe = Join-Path $tamperedDir $mainExe.Name
+          $env:GEEK_USER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'geek-fuse-tampered-userdata'
+          $bad = Start-Process -FilePath $tamperedExe -ArgumentList '--disable-gpu-sandbox' -PassThru
+          $deadline = (Get-Date).AddSeconds(10)
+          while (-not $bad.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+          if (-not $bad.HasExited) {
+            Stop-Process -Id $bad.Id -Force -ErrorAction SilentlyContinue
+            Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($tamperedDir, [System.StringComparison]::OrdinalIgnoreCase) } |
+              Stop-Process -Force -ErrorAction SilentlyContinue
+            throw 'Tampered app.asar was accepted by the packaged application'
+          }
+          Write-Host "PACKAGED_ASAR_TAMPER_REJECTED exit=$($bad.ExitCode)"
+          'PACKAGED_ASAR_INTEGRITY_OK' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
