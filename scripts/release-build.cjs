@@ -22,6 +22,15 @@ const tests = spawnSync(process.execPath, [testRunner], {
 if (tests.error) fail(`无法启动发布前测试: ${tests.error.message}`);
 if (tests.status !== 0) fail(`发布前测试失败 (${tests.status})`);
 
+// Electron 42+ 不再通过 npm postinstall 下载运行时二进制。
+// electron-builder 仍需要 node_modules/electron/dist，因此正式构建前显式安装官方运行时。
+const electronInstall = require.resolve('electron/install.js');
+const installElectron = spawnSync(process.execPath, [electronInstall, '--no'], {
+  cwd: root, stdio: 'inherit', env: process.env,
+});
+if (installElectron.error) fail(`无法启动 Electron 运行时安装: ${installElectron.error.message}`);
+if (installElectron.status !== 0) fail(`Electron 运行时安装失败 (${installElectron.status})`);
+
 const builderCli = require.resolve('electron-builder/out/cli/cli.js');
 const build = spawnSync(process.execPath, [builderCli, '--win', '--publish', 'never'], {
   cwd: root, stdio: 'inherit', env: process.env,
