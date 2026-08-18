@@ -11,7 +11,7 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -34,12 +34,14 @@ jobs:
         run: npm test
 
   facebook-windows-smoke:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/agent/facebook-translation') || (github.event_name == 'pull_request' && github.head_ref == 'agent/facebook-translation')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/agent/facebook-translation' && github.actor != 'github-actions[bot]'
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -86,3 +88,14 @@ pause
           path: geek-facebook-test-win-fixed.zip
           retention-days: 3
           if-no-files-found: error
+
+      - name: Record smoke success
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'test' -Force | Out-Null
+          Set-Content -Path 'test/facebook-windows-smoke-result.txt' -Value "run_id=${env:GITHUB_RUN_ID}`nhead_sha=${env:GITHUB_SHA}`nresult=success`nartifact=geek-facebook-test-win-fixed" -Encoding ascii
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test/facebook-windows-smoke-result.txt
+          git commit -m "test: record Facebook Windows smoke success"
+          git push origin HEAD:agent/facebook-translation
