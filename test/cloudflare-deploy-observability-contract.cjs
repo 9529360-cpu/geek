@@ -26,7 +26,7 @@ for (const workflow of [
 ]) {
   assert.match(
     observer,
-    new RegExp(`^      - ${workflow.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'm'),
+    new RegExp(`^      - ${workflow}$`, 'm'),
     `必须监听 ${workflow}`
   );
 }
