@@ -1,3 +1,4 @@
+# final independent verification for master 3f035c0b52999b00eaec985c83d31d3db05a528d
 name: verify-release-1.2.9
 
 on:
@@ -18,7 +19,9 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
+    env:
+      TARGET_RELEASE_SHA: 3f035c0b52999b00eaec985c83d31d3db05a528d
     steps:
       - name: Verify public updater artifacts
         id: verify
@@ -39,7 +42,7 @@ jobs:
           blockmap_bytes='0'
           hash_match='no'
 
-          for attempt in $(seq 1 80); do
+          for attempt in $(seq 1 120); do
             cache_bust="$(date +%s)-${attempt}"
             latest_status="$(curl --silent --show-error --location --output "$work/latest.yml" --write-out '%{http_code}' "$base/latest.yml?verify=$cache_bust" || true)"
             if [ "$latest_status" = '200' ]; then
@@ -47,8 +50,8 @@ jobs:
               artifact_path="$(awk '/^path:[[:space:]]*/ { sub(/^path:[[:space:]]*/, ""); print; exit }' "$work/latest.yml")"
               expected_sha512="$(awk '/^sha512:[[:space:]]*/ { print $2; exit }' "$work/latest.yml")"
               if [ "$version" = "$expected_version" ] && [ "$artifact_path" = "$expected_path" ] && [ -n "$expected_sha512" ]; then
-                installer_status="$(curl --silent --show-error --location --output "$work/installer.exe" --write-out '%{http_code}' "$base/$expected_path" || true)"
-                blockmap_status="$(curl --silent --show-error --location --output "$work/installer.exe.blockmap" --write-out '%{http_code}' "$base/$expected_path.blockmap" || true)"
+                installer_status="$(curl --silent --show-error --location --output "$work/installer.exe" --write-out '%{http_code}' "$base/$expected_path?verify=$cache_bust" || true)"
+                blockmap_status="$(curl --silent --show-error --location --output "$work/installer.exe.blockmap" --write-out '%{http_code}' "$base/$expected_path.blockmap?verify=$cache_bust" || true)"
                 if [ "$installer_status" = '200' ] && [ "$blockmap_status" = '200' ] && [ -s "$work/installer.exe" ] && [ -s "$work/installer.exe.blockmap" ]; then
                   actual_sha512="$(openssl dgst -sha512 -binary "$work/installer.exe" | base64 -w0)"
                   if [ "$actual_sha512" = "$expected_sha512" ]; then
@@ -88,20 +91,21 @@ jobs:
           BLOCKMAP_BYTES: ${{ steps.verify.outputs.blockmap_bytes }}
           HASH_MATCH: ${{ steps.verify.outputs.hash_match }}
           VERIFIED_AT: ${{ steps.verify.outputs.verified_at }}
+          TARGET_RELEASE_SHA: ${{ env.TARGET_RELEASE_SHA }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const success = process.env.VERIFY_RESULT === 'success';
             const body = [
-              '## Public release verification — Geek 1.2.9',
+              '## Final public release verification — Geek 1.2.9',
               '',
               `- Result: **${success ? 'success' : 'failure'}**`,
               `- Public latest.yml: HTTP ${process.env.LATEST_STATUS || '000'}${success ? ', version 1.2.9' : ''}`,
               `- Public installer: HTTP ${process.env.INSTALLER_STATUS || '000'}${success ? `, ${process.env.INSTALLER_BYTES} bytes` : ''}`,
               `- Installer SHA-512 matches latest.yml: ${process.env.HASH_MATCH || 'no'}`,
               `- Public blockmap: HTTP ${process.env.BLOCKMAP_STATUS || '000'}${success ? `, ${process.env.BLOCKMAP_BYTES} bytes` : ''}`,
-              `- Commit: ${context.sha}`,
-              `- Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `- Release commit: ${process.env.TARGET_RELEASE_SHA}`,
+              `- Verification run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               `- Verified at: ${process.env.VERIFIED_AT || new Date().toISOString()}`,
               '',
               'No response bodies, credentials, account data or provider secrets are included in this report.',
