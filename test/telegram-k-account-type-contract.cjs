@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+const normalizeLineEndings = (value) => String(value).replace(/\r\n?/g, '\n');
+const main = normalizeLineEndings(fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8'));
+assert.equal(normalizeLineEndings('a\r\nb\rc\n'), 'a\nb\nc\n');
 
 const appTypes = main.match(/const APP_TYPES = \{[\s\S]*?\n\};\n\nfunction appTypeConfig/)?.[0] || '';
 assert.ok(appTypes, '必须能定位主进程 APP_TYPES');

@@ -4,10 +4,12 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
-const mainSource = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
-const coreSource = fs.readFileSync(path.join(root, 'ui', 'translation-core.js'), 'utf8');
-const appSource = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
-const adapterSource = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8');
+const normalizeLineEndings = (value) => String(value).replace(/\r\n?/g, '\n');
+const mainSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8'));
+const coreSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'ui', 'translation-core.js'), 'utf8'));
+const appSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8'));
+const adapterSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8'));
+assert.equal(normalizeLineEndings('a\r\nb\rc\n'), 'a\nb\nc\n');
 
 const context = { window: {} };
 vm.createContext(context);
