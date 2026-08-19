@@ -1,0 +1,44 @@
+name: windows-real-client-regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Evidence phase on the dedicated real Windows client machine'
+        required: true
+        type: choice
+        default: probe
+        options:
+          - probe
+          - pre-update
+          - post-update
+
+permissions:
+  contents: read
+
+concurrency:
+  group: geek-real-client-regression
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: [self-hosted, windows, x64, geek-real-client]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact workflow revision
+        uses: actions/checkout@v4
+
+      - name: Collect non-sensitive real-client evidence
+        shell: pwsh
+        run: |
+          ./scripts/windows-real-client-evidence.ps1 `
+            -Phase '${{ inputs.phase }}' `
+            -OutputDir "$env:RUNNER_TEMP\geek-real-client-evidence"
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-real-client-${{ inputs.phase }}-${{ github.run_id }}
+          path: ${{ runner.temp }}\geek-real-client-evidence\*.json
+          if-no-files-found: error
+          retention-days: 7
