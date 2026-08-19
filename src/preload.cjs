@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const APP_VERSION = String(require('../package.json').version || '').trim();
 
 const channels = Object.freeze({
   accounts: Object.freeze({
@@ -75,6 +76,7 @@ function toFileTokenPayload(payload) {
 contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
+    app: Object.freeze({ version: APP_VERSION }),
     accounts: Object.freeze({
       list: () => ipcRenderer.invoke(channels.accounts.list),
 
