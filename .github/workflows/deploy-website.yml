@@ -7,6 +7,7 @@ on:
       - master
     paths:
       - 'scripts/geek-website-worker.js'
+      - 'scripts/website-payment-qr.mjs'
       - 'wrangler-website.toml'
       - 'test/website-*.cjs'
       - '.github/workflows/deploy-website.yml'

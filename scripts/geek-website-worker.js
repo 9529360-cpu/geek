@@ -1,3 +1,5 @@
+import { isTronAddress, renderTronAddressQrSvg } from './website-payment-qr.mjs';
+
 // geek-website Worker —— 极客官网（现代深色科技风落地页）
 // 部署在 geek.bbnba.com；动态功能（登录/注册/余额/下单）调用 geek-subscription API
 // 设计语言：Linear/Vercel 风格——深色 + 霓虹渐变 + 毛玻璃 + SVG 线性图标 + 微动效
@@ -579,14 +581,15 @@ const ACCOUNT = layout(`
       if (status !== 200) { er.textContent = data.error || '下单失败'; return; }
       const pay = data.pay || {};
       if (pay.method === 'usdt' && pay.usdt_address) {
-        // USDT 支付：显示收款码（静态图）+ 唯一金额 + 自动检测到账
+        // USDT 支付：显示当前订单地址二维码 + 唯一金额 + 自动检测到账
         document.getElementById('order-box').innerHTML =
           '<div style="background:rgba(0,229,160,.05);border:1px solid rgba(0,229,160,.25);border-radius:16px;padding:24px;margin-top:18px;text-align:center">' +
           '<div style="font-weight:700;font-size:16px;margin-bottom:4px">' + esc(names[data.order.plan] || data.order.plan) + '</div>' +
           '<div style="color:var(--text-dim);font-size:13px;margin-bottom:16px">订单号 <b style="color:var(--text)">#' + data.order.id + '</b> · USDT (TRC20)</div>' +
           '<div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">' +
             '<div style="background:#fff;border-radius:12px;padding:12px;width:176px;height:176px;flex-shrink:0">' +
-              '<img src="https://geek-release.9529360.workers.dev/usdt-qr.png" width="152" height="152" style="width:152px;height:152px;display:block" alt="USDT收款二维码">' +
+              '<img id="usdt-qr" src="/payment-qr?address=' + encodeURIComponent(pay.usdt_address) + '" width="152" height="152" style="width:152px;height:152px;display:block" alt="USDT TRC20 收款地址二维码">' +
+              '<div id="usdt-qr-fallback" style="display:none;width:152px;height:152px;align-items:center;justify-content:center;color:#111827;font-size:12px;line-height:1.5">二维码不可用<br>请复制地址</div>' +
             '</div>' +
             '<div style="text-align:left;min-width:200px">' +
               '<div style="color:var(--text-dim);font-size:12.5px;margin-bottom:4px">请转账以下精确金额</div>' +
@@ -601,6 +604,12 @@ const ACCOUNT = layout(`
             '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.3)">⏳ 等待链上确认…</span>' +
           '</div>' +
           '</div>';
+        const qrImage = document.getElementById('usdt-qr');
+        qrImage?.addEventListener('error', () => {
+          qrImage.style.display = 'none';
+          const fallback = document.getElementById('usdt-qr-fallback');
+          if (fallback) fallback.style.display = 'flex';
+        }, { once: true });
         ok.textContent = '订单已生成，扫码转账后自动到账';
         startUsdtPoll(data.order.id);
       } else {
@@ -653,6 +662,30 @@ const ACCOUNT = layout(`
   </script>
 `, 'account');
 
+function paymentQrResponse(address) {
+  const value = String(address || '').trim();
+  if (!isTronAddress(value)) {
+    return new Response('invalid payment address', {
+      status: 400,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+  return new Response(renderTronAddressQrSvg(value), {
+    headers: {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+      'Cache-Control': 'private, max-age=300',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
 function html(content, status = 200) {
   return new Response(content, { status, headers: {
     'Content-Type': 'text/html; charset=utf-8',
@@ -690,6 +723,8 @@ export default {
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (request.method === 'GET' && path === '/payment-qr') return paymentQrResponse(url.searchParams.get('address'));
 
     if (path.startsWith('/api/')) return proxyApi(request, path + url.search);
 
