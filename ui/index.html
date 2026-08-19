@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./style-mac.css">
+  <link rel="stylesheet" href="./translation-settings.css">
   <link rel="stylesheet" href="./broadcast-original.css">
   <link rel="stylesheet" href="./group-tools-original.css">
 </head>
@@ -82,37 +83,117 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 4.2 6.2 4.2 9S15 17.8 12 21M12 3c-3 3.2-4.2 6.2-4.2 9S9 17.8 12 21"/></svg>
             <span>翻译</span>
           </button>
-          <div id="translation-popover" class="translation-popover hidden" role="dialog" aria-label="翻译通道设置">
-            <div class="translation-popover-head"><strong>翻译通道</strong><button type="button" id="translation-close" class="translation-close">×</button></div>
-            <div class="translation-tabs"><button type="button" class="translation-tab active" data-translation-tab="global">全局设置</button><button type="button" class="translation-tab" data-translation-tab="channel">当前聊天</button><button type="button" class="translation-tab" data-translation-tab="gateway">服务状态</button></div>
+          <div id="translation-popover" class="translation-popover hidden" role="dialog" aria-label="翻译设置">
+            <div class="translation-popover-head">
+              <div class="translation-head-copy"><strong>翻译设置</strong><small>当前账号独立保存，修改后自动生效</small></div>
+              <span id="translation-service-state" class="translation-service-state" data-state="idle">服务状态</span>
+              <button type="button" id="translation-close" class="translation-close" aria-label="关闭翻译设置">×</button>
+            </div>
+            <div class="translation-tabs">
+              <button type="button" class="translation-tab active" data-translation-tab="global">常用设置</button>
+              <button type="button" class="translation-tab" data-translation-tab="channel">当前聊天</button>
+              <button type="button" class="translation-tab" data-translation-tab="advanced">高级设置</button>
+            </div>
             <section id="translation-tab-global" class="translation-tab-panel translation-tab-panel--scroll">
-              <label class="translation-row"><span>翻译平台</span><select id="translation-source"><option value="auto">极客智能翻译</option></select></label>
-              <label class="translation-row"><span>翻译线路</span><select id="translation-server"><option value="default">默认线路</option><option value="primary">主线路</option><option value="backup">备用线路</option></select></label>
-              <label class="translation-row"><span>发送翻译</span><select id="translation-send"><option value="true">启用发送翻译</option><option value="false">禁用发送翻译</option></select></label>
-              <label class="translation-row"><span>你的语种</span><select id="translation-send-from"></select></label>
-              <label class="translation-row"><span>翻译语种</span><select id="translation-send-to"></select></label>
-              <label class="translation-row"><span>翻译中文</span><select id="translation-include-zh"><option value="true">翻译包含中文消息</option><option value="false">屏蔽包含中文消息</option></select></label>
-              <label class="translation-row"><span>显示译文</span><select id="translation-display"><option value="true">显示译文（默认）</option><option value="false">隐藏译文</option></select></label>
-              <label class="translation-row"><span>手动翻译</span><select id="translation-manual"><option value="true">启用右键翻译</option><option value="false">禁用右键翻译</option></select></label>
-              <label class="translation-row"><span>翻译方式</span><select id="translation-message"><option value="auto">自动翻译</option><option value="click">点击翻译</option></select></label>
-              <label class="translation-row"><span>消息语种</span><select id="translation-message-from"></select></label>
-              <label class="translation-row"><span>译文语种</span><select id="translation-message-to"></select></label>
-              <label class="translation-row"><span>群组翻译</span><select id="translation-group"><option value="true">自动翻译群组消息</option><option value="false">手动翻译群组消息</option></select></label>
-              <label class="translation-row"><span>字体大小</span><select id="translation-font-size"><option value="11">小</option><option value="13">标准</option><option value="15">大</option></select></label>
-              <label class="translation-row"><span>字体颜色</span><input id="translation-font-color" type="color" value="#667eea"></label>
-              <div id="translation-global-status" class="translation-hint"></div>
+              <div class="translation-intro">按聊天习惯设置即可：收到的消息翻成你看的语言，发送时翻成对方看的语言。线路等低频选项已放到“高级设置”。</div>
+              <div class="translation-card">
+                <div class="translation-card-title">收到的消息</div>
+                <div class="translation-card-sub">自动把对方发来的消息显示成你熟悉的语言。</div>
+                <label class="translation-switch-row">
+                  <span class="translation-switch-copy"><strong>自动翻译收到的消息</strong><small>关闭后仍可按需手动翻译</small></span>
+                  <input id="translation-receive-auto" class="translation-switch-input" type="checkbox">
+                </label>
+                <label class="translation-row"><span>翻译成</span><select id="translation-message-to"></select></label>
+                <label class="translation-switch-row">
+                  <span class="translation-switch-copy"><strong>群聊也自动翻译</strong><small>只在自动翻译开启时生效</small></span>
+                  <input id="translation-group" class="translation-switch-input" type="checkbox">
+                </label>
+              </div>
+              <div class="translation-card">
+                <div class="translation-card-title">发送消息</div>
+                <div class="translation-card-sub">发送前自动翻译，不改变你输入原文的习惯。</div>
+                <label class="translation-switch-row">
+                  <span class="translation-switch-copy"><strong>发送前自动翻译</strong><small>关闭后按原文直接发送</small></span>
+                  <input id="translation-send" class="translation-switch-input" type="checkbox">
+                </label>
+                <label class="translation-row"><span>我通常使用</span><select id="translation-send-from"></select></label>
+                <label class="translation-row"><span>发送为</span><select id="translation-send-to"></select></label>
+              </div>
+              <div id="translation-global-status" class="translation-save-status" aria-live="polite"></div>
             </section>
             <section id="translation-tab-channel" class="translation-tab-panel hidden">
-              <label class="translation-row"><span>启用当前聊天翻译</span><input id="translation-enabled" type="checkbox"></label>
-              <label class="translation-row"><span>目标语言</span><select id="translation-target"></select></label>
-              <label class="translation-row"><span>发送时自动翻译</span><input id="translation-auto-send" type="checkbox"></label>
-              <label class="translation-row"><span>当前聊天手动翻译</span><input id="translation-message-action" type="checkbox"></label>
+              <div class="translation-chat-summary">
+                <div><strong>当前聊天</strong><span id="translation-chat-mode" class="translation-chat-mode" data-state="idle">未检测到聊天</span></div>
+                <label class="translation-switch-row" style="min-height:auto;padding:0">
+                  <span class="translation-switch-copy"><strong>单独设置</strong><small>关闭时跟随全局</small></span>
+                  <input id="translation-chat-override" class="translation-switch-input" type="checkbox">
+                </label>
+              </div>
+              <div id="translation-chat-custom" class="hidden">
+                <div class="translation-card">
+                  <div class="translation-card-title">这个聊天的接收设置</div>
+                  <label class="translation-switch-row">
+                    <span class="translation-switch-copy"><strong>自动翻译收到的消息</strong><small>关闭后改为按需翻译</small></span>
+                    <input id="translation-channel-receive-auto" class="translation-switch-input" type="checkbox">
+                  </label>
+                  <label class="translation-row"><span>翻译成</span><select id="translation-channel-message-to"></select></label>
+                </div>
+                <div class="translation-card">
+                  <div class="translation-card-title">这个聊天的发送设置</div>
+                  <label class="translation-switch-row">
+                    <span class="translation-switch-copy"><strong>发送前自动翻译</strong><small>只影响当前聊天</small></span>
+                    <input id="translation-enabled" class="translation-switch-input" type="checkbox">
+                  </label>
+                  <label class="translation-row"><span>发送为</span><select id="translation-target"></select></label>
+                  <label class="translation-switch-row">
+                    <span class="translation-switch-copy"><strong>允许手动翻译</strong><small>保留右键/按需翻译能力</small></span>
+                    <input id="translation-message-action" class="translation-switch-input" type="checkbox">
+                  </label>
+                </div>
+                <button type="button" id="translation-chat-reset" class="translation-save translation-save--secondary translation-reset">恢复为全局设置</button>
+              </div>
+              <input id="translation-auto-send" type="checkbox" hidden>
               <div id="translation-chat-hint" class="translation-hint">请先在当前平台打开一个聊天</div>
+              <div id="translation-chat-status" class="translation-save-status" aria-live="polite"></div>
             </section>
-            <section id="translation-tab-gateway" class="translation-tab-panel hidden">
-              <div class="translation-service-card"><span>翻译服务</span><strong id="translation-service-label">极客翻译服务</strong></div>
-              <button type="button" id="translation-gateway-test" class="translation-save translation-save--secondary">检测服务状态</button>
-              <div id="translation-gateway-status" class="translation-hint"></div>
+            <section id="translation-tab-advanced" class="translation-tab-panel translation-tab-panel--scroll hidden">
+              <input id="translation-source" type="hidden" value="auto">
+              <input id="translation-message" type="hidden" value="auto">
+              <details class="translation-advanced" open>
+                <summary>翻译行为</summary>
+                <div class="translation-advanced-body">
+                  <label class="translation-row"><span>翻译线路</span><select id="translation-server"><option value="default">自动选择（推荐）</option><option value="primary">主线路</option><option value="backup">备用线路</option></select></label>
+                  <label class="translation-row"><span>收到消息原语言</span><select id="translation-message-from"></select></label>
+                  <label class="translation-switch-row">
+                    <span class="translation-switch-copy"><strong>包含中文消息</strong><small>发送翻译时也处理包含中文的内容</small></span>
+                    <input id="translation-include-zh" class="translation-switch-input" type="checkbox">
+                  </label>
+                  <label class="translation-switch-row">
+                    <span class="translation-switch-copy"><strong>允许显示译文</strong><small>关闭后聊天里不挂载译文</small></span>
+                    <input id="translation-display" class="translation-switch-input" type="checkbox">
+                  </label>
+                  <label class="translation-switch-row">
+                    <span class="translation-switch-copy"><strong>允许手动翻译</strong><small>保留右键翻译入口</small></span>
+                    <input id="translation-manual" class="translation-switch-input" type="checkbox">
+                  </label>
+                </div>
+              </details>
+              <details class="translation-advanced">
+                <summary>译文外观</summary>
+                <div class="translation-advanced-body">
+                  <label class="translation-row"><span>字体大小</span><select id="translation-font-size"><option value="11">小</option><option value="13">标准</option><option value="15">大</option></select></label>
+                  <label class="translation-row"><span>字体颜色</span><input id="translation-font-color" type="color" value="#667eea"></label>
+                </div>
+              </details>
+              <details class="translation-advanced">
+                <summary>服务状态</summary>
+                <div class="translation-advanced-body">
+                  <div class="translation-service-actions">
+                    <button type="button" id="translation-gateway-test" class="translation-save translation-save--secondary">重新检测</button>
+                    <div id="translation-gateway-status" class="translation-hint"></div>
+                  </div>
+                </div>
+              </details>
             </section>
           </div>
           <button class="quick-btn" id="btn-broadcast" title="群发">
@@ -763,6 +844,7 @@
 <script src="broadcast-safety.js"></script>
 <script src="webview-bridge-security.js"></script>
 <script src="translation-adapters.js"></script>
+<script src="translation-settings.js"></script>
 <script src="log-url.js"></script>
 <script src="app.js"></script>
 </body>
