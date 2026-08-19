@@ -1,5 +1,5 @@
 name: deploy-website
-# Completion and public health are reported to #21 by observe-cloudflare-deployments.yml.
+# Completion and public endpoint verification are reported to #21 by observe-cloudflare-deployments.yml.
 
 on:
   workflow_dispatch:
