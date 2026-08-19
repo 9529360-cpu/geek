@@ -7,12 +7,15 @@ on:
       - master
     paths:
       - 'scripts/geek-translate-worker.js'
+      - 'scripts/cloudflare-deploy-report.cjs'
       - 'wrangler-translate.toml'
       - 'test/translation-*.cjs'
+      - 'test/cloudflare-deploy-observability-contract.cjs'
       - '.github/workflows/deploy-translate.yml'
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: deploy-translate-production
@@ -22,6 +25,9 @@ jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment:
+      name: cloudflare-translation-production
+      url: https://geek-translate.9529360.workers.dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,10 +45,25 @@ jobs:
         run: npm test
 
       - name: Validate Worker syntax
-        run: node --check scripts/geek-translate-worker.js
+        run: |
+          node --check scripts/geek-translate-worker.js
+          node --check scripts/cloudflare-deploy-report.cjs
 
       - name: Deploy translation Worker
+        id: deploy
         run: npx --yes wrangler@4.36.0 deploy --config wrangler-translate.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify and publish non-sensitive deployment status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          CLOUDFLARE_SERVICE: translation
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: node scripts/cloudflare-deploy-report.cjs

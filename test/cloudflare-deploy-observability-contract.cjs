@@ -3,64 +3,212 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  TARGETS,
+  resolveTarget,
+  normalizeOutcome,
+  verifyEndpoint,
+  buildReport,
+  postIssueComment
+} = require('../scripts/cloudflare-deploy-report.cjs');
 
 const root = path.join(__dirname, '..');
-const workflowPath = path.join(root, '.github', 'workflows', 'deploy-website.yml');
-const observerPath = path.join(root, '.github', 'workflows', 'observe-cloudflare-deployments.yml');
-const workflow = fs.readFileSync(workflowPath, 'utf8');
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const helperSource = read('scripts/cloudflare-deploy-report.cjs');
+const website = read('.github/workflows/deploy-website.yml');
 
-assert.equal(
-  fs.existsSync(observerPath),
-  false,
-  '部署状态应由部署工作流直接回写，不再依赖旁路 workflow_run 观察器'
-);
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-assert.match(workflow, /^name: deploy-website$/m);
-assert.match(workflow, /^  workflow_dispatch:$/m);
-assert.match(workflow, /^  push:$/m);
-assert.match(workflow, /^  contents: read$/m);
-assert.match(workflow, /^  issues: write$/m, '官网部署必须能写入 #21 状态通道');
-assert.match(workflow, /^    environment:$/m);
-assert.match(workflow, /^      name: cloudflare-website-production$/m);
-assert.match(workflow, /^      url: https:\/\/geek\.bbnba\.com$/m);
+assert.match(website, /^name: deploy-website$/m);
+assert.match(website, /^  issues: write$/m);
+assert.match(website, /^      name: cloudflare-website-production$/m);
+assert.match(website, /- name: Deploy website Worker\n        id: deploy/);
+assert.match(website, /- name: Verify public website\n        id: verify/);
+assert.match(website, /'https:\/\/geek\.bbnba\.com\/health'/);
+assert.match(website, /if: always\(\)/);
+assert.match(website, /gh issue comment 21 --body-file "\$REPORT"/);
+assert.match(website, /--output \/dev\/null --write-out '%\{http_code\}'/);
 
-const testIndex = workflow.indexOf('      - name: Run tests');
-const deployIndex = workflow.indexOf('      - name: Deploy website Worker');
-const verifyIndex = workflow.indexOf('      - name: Verify public website');
-const reportIndex = workflow.indexOf('      - name: Publish non-sensitive deployment status');
-assert.ok(testIndex >= 0 && deployIndex > testIndex, '必须先完成测试再部署');
-assert.ok(verifyIndex > deployIndex, '必须在 Wrangler 部署后检查公开官网');
-assert.ok(reportIndex > verifyIndex, '状态回写必须位于部署和线上检查之后');
+const serviceWorkflows = [
+  {
+    service: 'translation',
+    name: 'deploy-translate',
+    file: '.github/workflows/deploy-translate.yml',
+    deployStep: 'Deploy translation Worker',
+    environment: 'cloudflare-translation-production',
+    environmentUrl: 'https://geek-translate.9529360.workers.dev'
+  },
+  {
+    service: 'release',
+    name: 'deploy-release-worker',
+    file: '.github/workflows/deploy-release-worker.yml',
+    deployStep: 'Deploy release Worker',
+    environment: 'cloudflare-release-production',
+    environmentUrl: 'https://geek-release.9529360.workers.dev'
+  },
+  {
+    service: 'subscription',
+    name: 'deploy-subscription',
+    file: '.github/workflows/deploy-subscription.yml',
+    deployStep: 'Deploy subscription Worker',
+    environment: 'cloudflare-subscription-production',
+    environmentUrl: 'https://admin.bbnba.com'
+  }
+];
 
-assert.match(workflow, /- name: Deploy website Worker\n        id: deploy/);
-assert.match(workflow, /- name: Verify public website\n        id: verify/);
-assert.match(workflow, /curl --proto '=https' --tlsv1\.2/, '公开验证必须限制为 HTTPS');
-assert.match(workflow, /--output \/dev\/null --write-out '%\{http_code\}'/, '只允许记录 HTTP 状态，不得采集响应正文');
-assert.match(workflow, /'https:\/\/geek\.bbnba\.com\/health'/);
-assert.match(workflow, /test "\$HTTP_CODE" -ge 200/);
-assert.match(workflow, /test "\$HTTP_CODE" -lt 400/);
+for (const config of serviceWorkflows) {
+  const workflow = read(config.file);
+  assert.match(workflow, new RegExp(`^name: ${escapeRegex(config.name)}$`, 'm'));
+  assert.match(workflow, /^  workflow_dispatch:$/m);
+  assert.match(workflow, /^  push:$/m);
+  assert.match(workflow, /^  contents: read$/m);
+  assert.match(workflow, /^  issues: write$/m, `${config.name} 必须能写入 #21`);
+  assert.match(
+    workflow,
+    /- 'scripts\/cloudflare-deploy-report\.cjs'/,
+    `${config.name} 必须在共用报告脚本变更时重新验证`
+  );
+  assert.match(
+    workflow,
+    /- 'test\/cloudflare-deploy-observability-contract\.cjs'/,
+    `${config.name} 必须在部署契约变更时重新验证`
+  );
+  assert.match(workflow, new RegExp(`^      name: ${escapeRegex(config.environment)}$`, 'm'));
+  assert.match(workflow, new RegExp(`^      url: ${escapeRegex(config.environmentUrl)}$`, 'm'));
+  assert.match(
+    workflow,
+    new RegExp(`- name: ${escapeRegex(config.deployStep)}\\n        id: deploy`),
+    `${config.name} 必须暴露 Wrangler 部署结果`
+  );
+  const reportIndex = workflow.indexOf('      - name: Verify and publish non-sensitive deployment status');
+  assert.ok(reportIndex >= 0, `${config.name} 必须包含直接状态回写步骤`);
+  const report = workflow.slice(reportIndex);
+  assert.match(report, /if: always\(\)/, `${config.name} 失败时仍必须回写状态`);
+  assert.match(report, new RegExp(`CLOUDFLARE_SERVICE: ${escapeRegex(config.service)}`));
+  assert.match(report, /DEPLOY_OUTCOME: \$\{\{ steps\.deploy\.outcome \}\}/);
+  assert.match(report, /run: node scripts\/cloudflare-deploy-report\.cjs/);
+  assert.doesNotMatch(report, /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_INFRA_API_TOKEN/);
+  assert.doesNotMatch(report, /TARGET_URL|ENDPOINT_URL/, '公开地址必须来自 helper 静态映射');
+}
 
-const report = workflow.slice(reportIndex);
-assert.match(report, /if: always\(\)/, '部署失败或线上验证失败时仍必须回写状态');
-assert.match(report, /GH_TOKEN: \$\{\{ github\.token \}\}/);
-assert.match(report, /JOB_STATUS: \$\{\{ job\.status \}\}/);
-assert.match(report, /DEPLOY_OUTCOME: \$\{\{ steps\.deploy\.outcome \}\}/);
-assert.match(report, /VERIFY_OUTCOME: \$\{\{ steps\.verify\.outcome \}\}/);
-assert.match(report, /gh issue comment 21 --body-file "\$REPORT"/);
-assert.match(report, /cat "\$REPORT" >> "\$GITHUB_STEP_SUMMARY"/);
-assert.match(report, /No tokens, Authorization headers, cookies, DNS values/);
-assert.doesNotMatch(
-  report,
-  /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_INFRA_API_TOKEN/,
-  '状态回写步骤不得读取或输出 Cloudflare secrets'
-);
+const subscription = read('.github/workflows/deploy-subscription.yml');
+assert.match(subscription, /- name: Live account smoke and publish non-sensitive status\n        id: smoke/);
+assert.doesNotMatch(subscription, /continue-on-error:\s*true/, '生产账号 smoke 不得通过 continue-on-error 吞掉失败');
+assert.match(subscription, /gh issue comment 23 --body-file \/tmp\/account-smoke-status\.md/);
+assert.match(subscription, /echo "outcome=success" >> "\$GITHUB_OUTPUT"/);
+assert.match(subscription, /echo "outcome=failure" >> "\$GITHUB_OUTPUT"/);
+assert.match(subscription, /ACCOUNT_SMOKE_OUTCOME: \$\{\{ steps\.smoke\.outputs\.outcome \}\}/);
 
-assert.match(workflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
-assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
-assert.match(
-  workflow,
-  /- '\.github\/workflows\/deploy-website\.yml'/,
-  '工作流自身变更合入 master 后必须触发一次端到端部署验证'
-);
+assert.deepEqual(Object.keys(TARGETS).sort(), ['release', 'subscription', 'translation']);
+assert.equal(resolveTarget('translation').endpoint, 'https://geek-translate.9529360.workers.dev/health');
+assert.equal(resolveTarget('release').endpoint, 'https://geek-release.9529360.workers.dev/latest.yml');
+assert.equal(resolveTarget('subscription').endpoint, 'https://admin.bbnba.com/health');
+assert.throws(() => resolveTarget('https://attacker.example'), /Unsupported Cloudflare deployment service/);
+assert.equal(normalizeOutcome('success'), 'success');
+assert.equal(normalizeOutcome('unexpected', 'skipped'), 'skipped');
 
-console.log('CLOUDFLARE_DEPLOY_OBSERVABILITY_CONTRACT_OK');
+assert.match(helperSource, /issues\/21\/comments/);
+assert.match(helperSource, /response\.body\.cancel/);
+assert.match(helperSource, /No tokens, Authorization headers, cookies, DNS values/);
+assert.doesNotMatch(helperSource, /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_INFRA_API_TOKEN/);
+assert.doesNotMatch(helperSource, /process\.env\.(?:TARGET_URL|ENDPOINT_URL)/);
+
+(async () => {
+  for (const service of ['translation', 'release', 'subscription']) {
+    let requestedUrl = '';
+    let cancelled = false;
+    const result = await verifyEndpoint(service, {
+      attempts: 1,
+      timeoutMs: 1000,
+      retryDelayMs: 0,
+      fetchImpl: async (url, options) => {
+        requestedUrl = url;
+        assert.equal(options.method, 'GET');
+        assert.equal(options.redirect, 'follow');
+        return {
+          status: 200,
+          body: {
+            cancel: async () => {
+              cancelled = true;
+            }
+          }
+        };
+      }
+    });
+    assert.equal(requestedUrl, TARGETS[service].endpoint);
+    assert.equal(cancelled, true, '公开检查响应正文必须主动丢弃');
+    assert.deepEqual(
+      { outcome: result.outcome, httpCode: result.httpCode },
+      { outcome: 'success', httpCode: '200' }
+    );
+  }
+
+  const failed = await verifyEndpoint('translation', {
+    attempts: 1,
+    timeoutMs: 1000,
+    retryDelayMs: 0,
+    fetchImpl: async () => ({ status: 503, body: { cancel: async () => {} } })
+  });
+  assert.equal(failed.outcome, 'failure');
+  assert.equal(failed.httpCode, '503');
+
+  const successReport = buildReport({
+    service: 'release',
+    deployOutcome: 'success',
+    verificationOutcome: 'success',
+    httpCode: '200',
+    runUrl: 'https://github.com/9529360-cpu/geek/actions/runs/123',
+    commitSha: 'a'.repeat(40),
+    triggerEvent: 'push'
+  });
+  assert.equal(successReport.overall, 'success');
+  assert.match(successReport.text, /Workflow: `deploy-release-worker`/);
+  assert.match(successReport.text, /Overall: \*\*success\*\*/);
+  assert.doesNotMatch(successReport.text, /Authorization:|Bearer |Cookie:/);
+
+  const smokeFailureReport = buildReport({
+    service: 'subscription',
+    deployOutcome: 'success',
+    verificationOutcome: 'success',
+    httpCode: '200',
+    accountSmokeOutcome: 'failure',
+    runUrl: 'https://github.com/9529360-cpu/geek/actions/runs/124',
+    commitSha: 'b'.repeat(40),
+    triggerEvent: 'workflow_dispatch'
+  });
+  assert.equal(smokeFailureReport.overall, 'failure');
+  assert.match(smokeFailureReport.text, /Production account smoke: `failure`/);
+
+  let commentUrl = '';
+  let commentPayload = null;
+  let commentBodyCancelled = false;
+  await postIssueComment({
+    repository: '9529360-cpu/geek',
+    token: 'test-token-not-a-secret',
+    report: successReport.text,
+    fetchImpl: async (url, options) => {
+      commentUrl = url;
+      commentPayload = JSON.parse(options.body);
+      assert.equal(options.method, 'POST');
+      assert.equal(options.headers.Authorization, 'Bearer test-token-not-a-secret');
+      return {
+        status: 201,
+        body: {
+          cancel: async () => {
+            commentBodyCancelled = true;
+          }
+        }
+      };
+    }
+  });
+  assert.equal(commentUrl, 'https://api.github.com/repos/9529360-cpu/geek/issues/21/comments');
+  assert.equal(commentPayload.body, successReport.text);
+  assert.equal(commentBodyCancelled, true);
+
+  console.log('CLOUDFLARE_DEPLOY_OBSERVABILITY_CONTRACT_OK');
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
