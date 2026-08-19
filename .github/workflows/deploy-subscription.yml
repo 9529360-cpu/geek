@@ -9,8 +9,10 @@ on:
       - 'scripts/geek-subscription-worker.js'
       - 'scripts/geek-subscription-entry.js'
       - 'scripts/account-live-smoke.mjs'
+      - 'scripts/cloudflare-deploy-report.cjs'
       - 'wrangler-subscription.toml'
       - 'test/account-*.cjs'
+      - 'test/cloudflare-deploy-observability-contract.cjs'
       - '.github/workflows/deploy-subscription.yml'
 
 permissions:
@@ -25,6 +27,9 @@ jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment:
+      name: cloudflare-subscription-production
+      url: https://admin.bbnba.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,19 +51,24 @@ jobs:
           node --check scripts/geek-subscription-worker.js
           node --check scripts/geek-subscription-entry.js
           node --check scripts/account-live-smoke.mjs
+          node --check scripts/cloudflare-deploy-report.cjs
 
       - name: Deploy subscription Worker
+        id: deploy
         run: npx --yes wrangler@4.36.0 deploy --config wrangler-subscription.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Live account smoke and publish non-sensitive status
+        id: smoke
+        if: steps.deploy.outcome == 'success'
+        continue-on-error: true
         env:
           CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set +e
           node scripts/account-live-smoke.mjs
@@ -73,3 +83,16 @@ jobs:
             "$RUN_URL" "$RESULT" > /tmp/account-smoke-status.md
           gh issue comment 23 --body-file /tmp/account-smoke-status.md
           exit "$SMOKE_RC"
+
+      - name: Verify and publish non-sensitive deployment status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          CLOUDFLARE_SERVICE: subscription
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          ACCOUNT_SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: node scripts/cloudflare-deploy-report.cjs
