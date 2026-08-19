@@ -13,8 +13,8 @@ const css = fs.readFileSync(path.join(root, 'ui', 'translation-settings.css'), '
 assert.match(html, /translation-settings\.css/, '翻译设置必须加载独立 UX 样式层');
 assert.match(html, /translation-settings\.js/, '翻译设置必须加载独立 controller，而不是继续膨胀 app.js');
 assert.match(html, /data-translation-tab="global">常用设置</, '翻译面板首屏必须是用户任务导向的常用设置');
-assert.match(html, /id="translation-receive-auto" type="checkbox"/, '收到消息自动翻译必须使用直接开关');
-assert.match(html, /id="translation-send" type="checkbox"/, '发送前自动翻译必须使用直接开关');
+assert.match(html, /id="translation-receive-auto"[^>]*type="checkbox"|type="checkbox"[^>]*id="translation-receive-auto"/, '收到消息自动翻译必须使用直接开关');
+assert.match(html, /id="translation-send"[^>]*type="checkbox"|type="checkbox"[^>]*id="translation-send"/, '发送前自动翻译必须使用直接开关');
 assert.match(html, /id="translation-chat-override"[^>]*type="checkbox"|type="checkbox"[^>]*id="translation-chat-override"/, '当前聊天必须明确提供单独设置开关');
 assert.match(html, /id="translation-chat-reset"/, '当前聊天必须可以一键恢复全局设置');
 assert.match(html, /data-translation-tab="advanced">高级设置</, '低频参数必须收进高级设置');
