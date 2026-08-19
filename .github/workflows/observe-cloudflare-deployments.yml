@@ -1,0 +1,122 @@
+name: observe-cloudflare-deployments
+
+on:
+  workflow_run:
+    workflows:
+      - deploy-website
+      - deploy-subscription
+      - deploy-translate
+      - deploy-release-worker
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: observe-cloudflare-deployment-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve public endpoint
+        id: target
+        env:
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+        run: |
+          case "$WORKFLOW_NAME" in
+            deploy-website)
+              SERVICE="website"
+              TARGET_URL="https://geek.bbnba.com/health"
+              ;;
+            deploy-subscription)
+              SERVICE="subscription"
+              TARGET_URL="https://admin.bbnba.com/health"
+              ;;
+            deploy-translate)
+              SERVICE="translation"
+              TARGET_URL="https://geek-translate.9529360.workers.dev/health"
+              ;;
+            deploy-release-worker)
+              SERVICE="release"
+              TARGET_URL="https://geek-release.9529360.workers.dev/latest.yml"
+              ;;
+            *)
+              echo "Unsupported deployment workflow" >&2
+              exit 2
+              ;;
+          esac
+          echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
+          echo "url=$TARGET_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify public endpoint
+        id: verify
+        if: github.event.workflow_run.conclusion == 'success'
+        continue-on-error: true
+        env:
+          TARGET_URL: ${{ steps.target.outputs.url }}
+        run: |
+          HTTP_CODE="$(
+            curl --proto '=https' --tlsv1.2 --location --silent --show-error \
+              --output /dev/null --write-out '%{http_code}' \
+              --retry 3 --retry-delay 2 --retry-connrefused --max-time 20 \
+              "$TARGET_URL"
+          )"
+          echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          test "$HTTP_CODE" -ge 200
+          test "$HTTP_CODE" -lt 400
+
+      - name: Publish non-sensitive deployment status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SERVICE: ${{ steps.target.outputs.service }}
+          TARGET_URL: ${{ steps.target.outputs.url }}
+          DEPLOY_WORKFLOW: ${{ github.event.workflow_run.name }}
+          DEPLOY_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          HTTP_CODE: ${{ steps.verify.outputs.http_code }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          case "$DEPLOY_CONCLUSION" in
+            success|failure|cancelled|timed_out|action_required|neutral|skipped|stale|startup_failure) ;;
+            *) DEPLOY_CONCLUSION="unknown" ;;
+          esac
+
+          VERIFY_RESULT="SKIPPED"
+          if [ "$DEPLOY_CONCLUSION" = "success" ]; then
+            if [ "$VERIFY_OUTCOME" = "success" ]; then
+              VERIFY_RESULT="OK"
+            else
+              VERIFY_RESULT="FAIL"
+            fi
+          fi
+
+          if [ -z "$HTTP_CODE" ]; then HTTP_CODE="unavailable"; fi
+          SHORT_SHA="$(printf '%s' "$HEAD_SHA" | cut -c1-12)"
+          REPORT="$RUNNER_TEMP/cloudflare-deployment-status.md"
+          {
+            printf 'Run: %s\n\n' "$RUN_URL"
+            printf '### Cloudflare deployment\n\n'
+            printf -- '- Service: `%s`\n' "$SERVICE"
+            printf -- '- Workflow: `%s`\n' "$DEPLOY_WORKFLOW"
+            printf -- '- Trigger: `%s`\n' "$TRIGGER_EVENT"
+            printf -- '- Deployment: **%s**\n' "$DEPLOY_CONCLUSION"
+            printf -- '- Public verification: **%s** (`HTTP %s`)\n' "$VERIFY_RESULT" "$HTTP_CODE"
+            printf -- '- Commit: `%s`\n' "$SHORT_SHA"
+            printf -- '- Endpoint: `%s`\n\n' "$TARGET_URL"
+            printf 'No tokens, Authorization headers, cookies, DNS values, database contents, Cloudflare response bodies, or user data are included in this report.\n'
+          } > "$REPORT"
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          gh issue comment 21 --body-file "$REPORT"
+
+      - name: Fail if public verification failed
+        if: github.event.workflow_run.conclusion == 'success' && steps.verify.outcome != 'success'
+        run: exit 1
