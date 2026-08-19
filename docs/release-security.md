@@ -1,6 +1,6 @@
 # Windows 客户端发布与安全边界
 
-当前正式客户端版本为 `1.2.9`，`package.json.version` 与 `.github/release-client-version` 均为 `1.2.9`。
+当前正式客户端版本为 `1.2.10`，`package.json.version` 与 `.github/release-client-version` 均为 `1.2.10`。
 
 正式客户端发布不是普通维护动作。正常发布新版本时，必须同步更新包版本和发布标记，并单独验证发布范围。普通源码、Worker 或文档修改不得改动 `.github/release-client-version`。已授权的发布若失败，只有在记录失败证据和恢复范围后，才可对同一版本执行显式重试；同版本重试不得再次改写版本或发布标记。
 

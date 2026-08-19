@@ -7,7 +7,7 @@
 1. 先读 Issue #50 的最新评论，再读 `README.md`、`docs/README.md` 和本次任务对应的当前运维文档。历史事故、研究、旧发布交接和 UI 原型只用于理解背景，不是生产配置。
 2. 核对实时 `master` HEAD、`package.json.version`、`.github/release-client-version`、开放 PR/Issue，以及 Issue #21/#23 的最新生产状态。若 HEAD 与 #50 最新 checkpoint 不同，先检查全部新增提交和合并，再开始修改。
 3. 使用本地 checkout 时先运行 `git status -sb`，保留用户已有改动，不得擅自回滚或清理。使用 GitHub connector 时，从已确认的实时 `master` 建分支；不得因为本地没有 `gh` CLI 就错误判断仓库无法维护。
-4. 修改账户、官网、发布或 Cloudflare Worker 前，先运行 `npm test`；仅使用 connector 时，至少让标准 PR CI 在最终合并树上执行并核对结果。当前自动入口执行 62 项 contract。
+4. 修改账户、官网、发布或 Cloudflare Worker 前，先运行 `npm test`；仅使用 connector 时，至少让标准 PR CI 在最终合并树上执行并核对结果。自动入口动态发现 contract，当前数量以 CI 输出为准。
 5. 一个根因对应一个 Issue、分支和 PR。合并后立即更新 Issue #50；涉及生产部署时，以对应 Actions run 和 #21/#23 为证据，不以本地临时环境能否解析域名为准。
 6. 不要把 API Key、JWT 密钥、管理员密码、邮箱密码、重置令牌、Cookie、LINE auth header、聊天正文或真实用户数据写进代码、日志、提交信息和文档。
 
