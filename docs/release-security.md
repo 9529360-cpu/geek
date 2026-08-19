@@ -1,9 +1,99 @@
-# Windows 发布流程
+# Windows 客户端发布与安全边界
 
-正式发布使用 `npm run dist`。未配置证书时沿用 v1.2.3 的免费发布方式，安装时 Windows 会显示“未知发布者”；以后配置 `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` 后会自动签名并验证签名。
+当前正式客户端版本为 `1.2.8`，`package.json.version` 与 `.github/release-client-version` 均为 `1.2.8`。
 
-`npm run dist:test` 仅供本机功能测试，不得上传 R2、更新官网或创建 tag。
+正式客户端发布不是普通维护动作。普通源码、Worker 或文档修改不得改动 `.github/release-client-version`；只有明确决定发布新客户端版本时，才同步更新包版本和发布标记，并单独验证发布范围。
 
-正式构建完成后脚本会核对 `latest.yml` 版本、要求 blockmap 存在，并生成包含 SHA-256 的 `release-manifest.json`；配置证书时还会验证所有 EXE 的 Authenticode 状态。
+## 触发边界
 
-证书和密码只能放在 CI secret/受保护环境变量中，不得写入仓库、日志或构建产物。
+`.github/workflows/release-client.yml` 只监听 `master` 上 `.github/release-client-version` 的变更。工作流首先要求发布标记与 `package.json.version` 完全一致，不一致则拒绝构建和发布。
+
+因此：
+
+- 普通 `master` 提交不会自动发布客户端；
+- 部署 `geek-release` Worker 不等于发布新客户端；
+- 仅修改 README、运维文档、网站、翻译、账号或订阅源码时，不得顺手修改发布标记；
+- 正式发布、版本回退、证书/Secrets 变更需要独立决策和记录。
+
+## 本地构建命令
+
+正式发布构建脚本：
+
+```powershell
+npm run dist
+```
+
+该命令用于生成经过测试和完整性处理的 Windows 发布候选。它本身不应被理解为已经完成生产发布；生产上传与公开传播由受控 GitHub Actions 工作流完成。
+
+本地功能测试构建：
+
+```powershell
+npm run dist:test
+```
+
+`dist:test` 仅供本机验证，不得上传 R2、修改公开 `latest.yml`、更新官网版本或创建 release tag。
+
+目录构建：
+
+```powershell
+npm run pack
+```
+
+`pack` 用于生成 unpacked Windows 应用目录，不是正式发布流程。
+
+## 发布顺序
+
+正式工作流按以下安全顺序执行：
+
+1. 安装依赖并验证发布标记与包版本一致；
+2. 运行 `npm run dist`，完成 contract、完整性清单、Windows 构建和发布产物生成；
+3. 检查版本化安装包、blockmap、`latest.yml` 和 `release-manifest.json` 均存在且版本一致；
+4. 从公开更新源读取并验证上一稳定版本及其安装包/blockmap，建立可回滚基线；
+5. 先上传不可变的版本化安装包和 blockmap；
+6. 保存上一稳定版 `latest.yml` 的回滚快照；
+7. 最后上传新的 `latest.yml`，使客户端看到新版本；
+8. 从公开更新源反复验证新 `latest.yml`、安装包和 blockmap 均可访问；
+9. 若传播验证失败，恢复上一稳定版元数据并验证回滚结果。
+
+不得先发布 `latest.yml` 再补传安装包，也不得覆盖旧版本化安装包来模拟回滚。上一稳定元数据和旧版本产物应保留，供自动回滚和人工处置使用。
+
+## 产物验证
+
+正式构建至少要求：
+
+- `geek-setup-<version>.exe`
+- `geek-setup-<version>.exe.blockmap`
+- `latest.yml`
+- `release-manifest.json`
+
+构建脚本会核对 `latest.yml` 版本、要求 blockmap 存在，并生成包含 SHA-256 的发布清单。发布工作流还会从公开更新端点验证元数据与版本化产物，而不是仅相信 R2 上传命令成功。
+
+Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe` 和 `.blockmap`。不得借客户端发布把它扩大为通用静态文件服务。
+
+## Authenticode
+
+当前未配置正式 Windows Authenticode 证书时，安装包会显示“未知发布者”。这是当前运营约束，不应通过关闭安全检查、伪造签名或把证书写入仓库来绕过。
+
+以后配置 `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` 后，构建脚本会自动签名并验证 EXE 的 Authenticode 状态。证书、私钥和密码只能存在于受保护的 CI secret 或受控环境变量中，不得写入：
+
+- 仓库源码或文档；
+- commit message、Issue、PR 评论或 Actions summary；
+- 构建产物旁的明文文件；
+- shell 历史、聊天记录或诊断日志。
+
+证书采购、Secrets 配置、轮换和吊销属于单独的高影响运营决策。
+
+## 发布前检查
+
+正式发布前至少确认：
+
+- 发布版本、变更范围和用户影响已明确；
+- `package.json.version` 与发布标记一致；
+- 完整 contract suite 通过；
+- Electron/LINE/WA/TG 等受影响平台完成必要的真实兼容回归；
+- 没有真实运行数据、凭据、临时日志或测试账号进入产物；
+- 更新 Worker 仍保持 updater-only allowlist；
+- 上一稳定版本和公开产物可访问，回滚路径可用；
+- 发布后公开传播检查通过。
+
+没有这些证据时，不通过修改发布标记“试运行”正式发布。

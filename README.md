@@ -1,111 +1,116 @@
-# WhatsApp Multi Phase1 — Hello-GPT 复刻版
+# 极客 Geek
 
-Electron 多平台多账号客户端（复刻 Hello-GPT v1.4.39 的架构与行为）。
+Electron 多平台多账号聊天客户端，当前支持 WhatsApp、Telegram 和 LINE 六类账号形态，并提供独立账号沙箱、群发能力和统一翻译桥。
 
-> AI/自动化代理接手前请先阅读 [`AGENTS.md`](AGENTS.md)。账户、忘记密码、Resend 与 Cloudflare 的生产交接见 [`docs/account-password-reset-operations.md`](docs/account-password-reset-operations.md)。
+> 自动化代理接手前先阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/README.md`](docs/README.md)。跨会话维护基线见 [Issue #50](https://github.com/9529360-cpu/geek/issues/50)，Cloudflare 生产部署状态见 [Issue #21](https://github.com/9529360-cpu/geek/issues/21)，账号生产 smoke 见 [Issue #23](https://github.com/9529360-cpu/geek/issues/23)。
+>
+> 当前维护基线（2026-08-19）：客户端与 `package.json` 版本为 **1.2.8**，`.github/release-client-version` 为 **1.2.8**，Electron 锁定为 **43.4.0**。`npm test` 当前自动执行 **62** 项 contract；测试入口会动态发现 `test/*.cjs`，仅排除两个 CDP 开发工具。
 
-> 当前范围：WhatsApp / Telegram / LINE 三平台共 6 类型（WA=普通+纯净版、TG=Z版+K版、LINE=普通+商业版），支持多账号沙箱、群发和统一翻译桥。
-> 2026-08-16 非破坏性回归：极客主页面和 5 个账号 WebView 正常恢复；两路 WA 与 TG 已登录，TG 翻译适配器已注入；两路 LINE token、聊天页和认证实时事件流均恢复，“网络不稳定”已消失。
-> TG 翻译策略：缓存命中优先；未命中才进入主进程 20 并发队列；旧历史消息默认不自动翻译；历史 DOM 延迟重试仍保留 `isHistory`。
+## 当前来源优先级
+
+当前行为以 `master` 上的源码、配置、测试和 GitHub Actions 工作流为准。README、运维手册和 Issue #50 用于解释这些实现；历史事故记录、逆向研究、旧发布交接和 UI 原型只提供当时背景，不是生产配置。详细分类见 [`docs/README.md`](docs/README.md)。
+
+生产部署是否成功，应以对应 GitHub Actions run 及 Issue #21/#23 的非敏感状态记录为证据，不以本地临时环境能否解析域名为准。
 
 ## 技术架构
 
-```
-main.cjs (主进程)
- ├── 每账号一个常驻 webview（独立 partition: persist:webview-page-<id>）
- ├── session.loadExtension(扩展目录)  → MV3 Chrome 扩展
- ├── webRequest 日志/拦截（[line-api] 全量）
- └── electron-updater（自动更新框架）
-ui/ (渲染层：Linear 深色外壳，webview 白底)
+```text
+src/main.cjs（主进程）
+ ├── 每账号一个常驻 WebView，使用独立持久化 partition
+ ├── session.fromPartition(...) 获取账号 Session
+ ├── ses.extensions.loadExtension(...) 加载内置 LINE MV3 扩展
+ ├── electron-updater 处理受控更新检查
+ └── 诊断日志默认脱敏，不保留聊天正文或 URL query/hash
+ui/（渲染层）
+ ├── Linear 深色外壳
+ ├── WebView 白底兜底
+ └── 仅通过受控 IPC/WebView 桥调用主进程能力
 resources/
- ├── extensions/line-3.5.1/  → 原版 LINE 扩展（+2 patch：明文 token 存/读）
- └── s3loYR.js              → 原版 preload（+4 全局补全：_pluginKD/_PluginT/_PluginVT/hS）
-data/                        → 仅作为本机旧版首启迁移来源（真实文件被 Git 忽略）
-├── accounts.example.json   → 脱敏账号结构示例
-└── config.example.json     → 脱敏全局配置示例
+ ├── extensions/line-3.5.1/  当前内置 LINE 扩展及兼容补丁
+ ├── s3loYR.js               LINE 兼容 preload
+ └── bridge-preload.cjs      WA/TG 隔离桥
+data/
+ ├── accounts.example.json   脱敏账号结构示例
+ └── config.example.json     脱敏全局配置示例
 ```
 
-## 核心机制（破解要点）
+真实运行数据固定写入 Electron `userData`。仓库不跟踪真实 `accounts.json`、`config.json`、登录凭据、聊天正文或会话数据；`data/` 仅保留脱敏示例和旧版首启迁移入口。
 
-### 1. 扩展加载
-- 每账号独立 partition（多开隔离），`session.fromPartition(partition).loadExtension(EXT_PATH)`
-- MV3 service worker 在 Electron 注册失败（Status 15）是历史兼容现象；LINE 页面功能依赖扩展页面与现有补丁，Electron 大版本升级必须重新回归
-- webview 加载扩展页面本身 `chrome-extension://<id>/index.html?lw-key=...`（LINE 聊天应用打包在扩展里）
+## WebView 与扩展安全边界
 
-### 2. webview 对齐（照抄原版 DOM）
+所有远程 WebView 都必须保持：
+
+- `sandbox=true`
+- `nodeIntegration=false`
+- `nodeIntegrationInSubFrames=false`
+- `webSecurity=true`
+- 仅使用已登记的账号 partition 和允许的页面来源
+
+隔离策略按平台区分：
+
+| 平台 | `contextIsolation` | 当前状态 |
+|---|---:|---|
+| WhatsApp | `true` | 使用完整性校验后的 `bridge-preload.cjs` |
+| Telegram Z / K | `true` | 使用同一受控隔离桥 |
+| LINE 普通 / 商业版 | `false` | 有意保留的兼容例外，等待认证后完整回归或 preload 重构 |
+
+不得把 LINE 的例外扩散成全局 `contextIsolation=false`，也不得以 `--no-sandbox`、开启 Node 集成或关闭 `webSecurity` 作为兼容方案。没有 LINE 登录后 token、HMAC、authenticated EventSource、消息收发和重启恢复证据前，不修改该例外。
+
+LINE 扩展当前使用 Electron 43 的 `Extensions.loadExtension` API：
+
+```js
+const ses = session.fromPartition(partition, { cache: true });
+await ses.extensions.loadExtension(LINE_EXTENSION_PATH);
 ```
-webpreferences="contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no"
-style="background-color: rgb(255,255,255)"   ← 白底兜底（深色外壳会让手机扫不了二维码）
-useragent="Mozilla/5.0 ... Chrome/124"        ← 标签属性（webPreferences.userAgent 对 webview 无效）
-```
 
-安全边界以当前 Geek 主进程配置为准：远程 WebView 保持 `sandbox=true`、`nodeIntegration=false`、`webSecurity=true`，不得为兼容某个平台改成全局 `--no-sandbox`。
+旧文档中的 `Session.loadExtension` 属于 Electron 43 升级前写法，不应重新引入。
 
-### 3. 缺失全局补全（不补则崩）
-| 全局 | 缺失表现 | 补全 |
-|---|---|---|
-| `_pluginKD` | 点好友进聊天 → 崩溃空白 | 输入框按键包装透传 |
-| `_PluginT` | 发消息 → 崩溃空白 | 消息原样返回 |
-| `_PluginVT` | 消息渲染 → 崩 | no-op |
-| `hS()` | 初始化崩 → 恢复流程不跑 | setDevConfigs 配置对象 |
+## LINE 兼容背景
 
-### 4. 重启自动恢复（本项目的核心突破）
-- **原版机制**：Hello-GPT 把 LINE accessToken（JWT, HS256）**明文保存**到
-  `AppData/Roaming/Hello-GPT/line.json`（`partition名 → JWT`），重启注入页面 → getProfile 200 → 恢复
-- **为什么需要它**：LINE 扩展的本地凭据（lcs_secure_*）加密密钥 wrappedNonce 依赖 SW 持久化，
-  Electron 不支持扩展 SW → 密钥不持久 → 重启必退。这是死循环：getEncryptedIdentityV3 需要有效 token、
-  token 解密又需要它
-- **复刻方案（patch 扩展 main.js 仅 2 处）**：
-  1. `setTokenV3IssueResult`：登录成功 → token JSON 存入扩展 localStorage（`__stardust_line_token`）
-  2. `getAccessToken`：内存 token 为空 → 读 fallback（绕过解密死循环）
-- **Geek 当前安全补强**：主进程备份的 LINE token 使用 Electron `safeStorage` 加密后落盘；日志只记录认证头是否存在，不输出值
-- **铁律**：恢复链路不能在 createSession 前清空 fallback；登录成功后内存 token 优先
-- 登录成功表现：localStorage 出现 `__stardust_line_token`；重启后页面 `#/friends` / `#/chats` 而非登录首页
+LINE 页面由项目内置 3.5.1 MV3 扩展提供。其旧式 preload 依赖 `_pluginKD`、`_PluginT`、`_PluginVT`、`hS` 等页面全局，并依赖登录 token、HMAC 和认证实时事件流完成登录后消息路径。
 
-### 5. 运行时与安全基线
-- **Electron 43.4.0**：从 35.7.5 升级后的当前目标运行时；依赖锁文件固定实际安装版本，升级必须通过 Linux/Windows contract 与 Windows 完整打包
-- Electron 42+ 不再依赖 npm postinstall 自动下载运行时；`pack` / `dist:test` / 正式 `dist` 会显式运行官方 `install-electron` 下载步骤
-- 远程页面保持 Chromium sandbox、`nodeIntegration=false`、`webSecurity=true`
-- 仅保留已验证且不降低网页安全边界的进程参数；禁止把 `--no-sandbox` 作为兼容性方案
-- LINE 扩展和 WhatsApp WPP/CDP 对 Electron/Chromium 版本敏感，因此跨大版本升级必须独立分支、自动测试和发布候选构建通过后再进入主线
+扩展 service worker 在 Electron 中无法承担原浏览器环境的全部持久化职责，因此项目保留了受限的 token 恢复兼容链。主进程侧备份使用 Electron `safeStorage` 加密；日志只记录认证能力是否存在，不记录 token、Authorization header 或 URL query/hash。打包版还会根据受 ASAR integrity 保护的清单校验解包扩展、LINE preload 和 WA/TG bridge 文件。
 
-### 6. 跨平台翻译
-- WA / TG / LINE 只通过受保护的 WebView 桥向主进程提交文本和语种；客户端页面不持有翻译服务地址或供应商密钥。
-- 开发环境默认使用 `http://127.0.0.1:18991`，正式打包版使用受控 HTTPS 翻译网关。
-- 翻译缓存按账号 partition 隔离，缓存键不保存原文明文，译文使用 Electron `safeStorage` 加密持久化。
-- Telegram Z/K 与 LINE 普通/商业版使用同一平台适配器；回归测试锁定平台映射和注入分支。
-- 服务端负责认证、额度与限流；客户端上报不能作为计费安全边界。
+2026-08-16 的真实账号恢复记录证明当时两路 WA、TG 和两路 LINE 会话可以恢复，并且 LINE 认证实时流进入可用状态。该记录是历史验证，不替代 Electron、扩展或认证逻辑变更后的重新回归。
 
-### 7. LINE 重启后的实时流认证
-- LINE 普通 API 使用 `X-Line-Access` 与 `X-Hmac`，重启后可由持久化 token 恢复；实时收消息走原生 `EventSource`，标准实现不能携带这两个认证头，表现为普通 API 200、`/api/operation/receive` 401、页面显示“网络不稳定”。
-- 当前扩展增加 `GeekAuthenticatedEventSource`：仍调用 LINE 自带 token manager 和 HMAC sandbox，只替换实时流传输层为带认证头的 Fetch SSE，不修改消息业务协议。
-- 历史真实验证：两路 LINE 页面恢复到 `#/chats`，token 有效；认证事件流进入 `OPEN`，页面不再显示“网络不稳定”。Electron 大版本升级后仍需重新验证真实 LINE 会话。
+## 跨平台翻译
 
-## 运行
+- WA、TG、LINE 页面只通过受保护的 WebView 桥提交文本和语种，不持有翻译供应商密钥。
+- 开发环境默认使用本机网关；正式打包版使用受控 HTTPS 翻译 Worker。
+- 服务端负责认证、限流、额度检查和权威扣减；客户端检查仅用于交互与延迟优化。
+- 翻译缓存按账号 partition 隔离，缓存键不保存原文明文，持久化译文使用 Electron `safeStorage`。
+- 诊断、Worker 日志和生产状态记录不得包含聊天正文、译文、JWT、Cookie、token、API key 或真实运行数据。
+
+## 运行与验证
 
 ```bash
 npm install
 npm start
 ```
 
-首次启动 Electron 43 时运行时二进制可能按 Electron 官方机制下载；Windows 打包使用 `npm run pack`，正式候选构建使用 `npm run dist`，两者都会显式准备 Electron 运行时。
-
-需要 CDP 调试时可使用远程调试端口，但只对本机测试实例开放。结束调试进程时先核对端口对应 PID，不按进程名误杀其他 Electron 应用。
-
-## 验证
+完整 contract：
 
 ```bash
 npm test
+```
+
+Windows 本地目录构建：
+
+```bash
 npm run pack
 ```
 
-正式发布前至少要求完整 contract suite 和 Windows release candidate 构建通过；涉及 Electron 大版本、LINE 扩展、WhatsApp WPP/CDP 的改动还应保留独立兼容性记录。
+`npm run dist:test` 只生成本地测试安装包，不发布 R2、官网元数据或 tag。正式客户端发布由 `.github/release-client-version` 单独触发；普通源码或文档合并不得修改该文件。发布边界见 [`docs/release-security.md`](docs/release-security.md)。
 
-## 目录
+涉及 Electron 大版本、LINE 扩展、WhatsApp WPP/CDP、账号认证、支付、额度、更新或 WebView 安全边界的改动，除自动 contract 外还需要对应平台或生产路径的聚焦验证。
 
-- `src/main.cjs` — 主进程（窗口/webview/扩展加载/日志）
-- `ui/` — 外壳 UI（深色 Linear 风；webview 白底）
-- `resources/extensions/` — 原版扩展（仅保留当前 LINE 兼容所需补丁）
-- `resources/s3loYR.js` — 原版 preload + 全局补全
-- `data/` — 本机旧版首启迁移来源；真实 `accounts.json`/`config.json` 被 Git 忽略，仓库只保留脱敏示例；运行期固定写入 Electron `userData`
-- `ISSUES.md` — 完整逆向过程与坑记录
+## 目录导航
+
+- `src/main.cjs`：主进程编排；避免继续膨胀，优先提取单一职责模块。
+- `src/`：运行路径、安全存储、诊断、恢复、更新和平台辅助模块。
+- `ui/`：桌面外壳、账号管理、订阅窗口和 WebView 调度。
+- `scripts/`：Cloudflare Workers、发布构建、生产 smoke 和运维脚本。
+- `resources/`：LINE 扩展、兼容 preload、WA/TG bridge 及完整性清单。
+- `test/`：契约与集成测试；`cdp-eval.cjs`、`cdp-reload.cjs` 是手动开发工具。
+- `docs/README.md`：当前运维文档与历史资料索引。
+- `ISSUES.md`：按发生时间保留的历史事故与修复记录，不是当前状态清单。

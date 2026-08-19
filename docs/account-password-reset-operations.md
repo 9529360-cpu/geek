@@ -1,23 +1,24 @@
 # 账户与忘记密码系统交接/运维手册
 
-更新时间：2026-08-17
+更新时间：2026-08-19
 
-这份文档记录极客官网账户系统、忘记密码邮件、Resend、Cloudflare Worker 和 D1 的当前生产实现，供后续维护代理直接接手。
+这份文档记录极客官网账户系统、忘记密码邮件、Resend、Cloudflare Worker 和 D1 的当前生产实现。生产结果以对应 GitHub Actions run、Issue #21 和 Issue #23 为准；历史维护记录按当时状态保留。
 
-## 1. 已完成内容
+## 1. 当前实现
 
 - 官网登录页提供“忘记密码”。
 - `/forgot-password` 提交邮箱，调用 `POST /api/password-reset/request`。
 - `/reset-password?token=...` 设置新密码，调用 `POST /api/password-reset/complete`。
 - 邮件由 Resend 自动发送，生产发件人为 `极客 Geek <no-reply@send.bbnba.com>`。
 - 重置令牌为 32 字节安全随机值；D1 只保存 SHA-256 哈希，不保存原始令牌。
-- 链接 30 分钟过期、只能使用一次。
+- 链接 30 分钟过期且只能使用一次。
 - 请求响应统一，防止通过接口枚举已注册邮箱。
 - 请求按 IP 限制为每小时 3 次，完成接口按 IP 限制为每小时 10 次。
 - 改密后递增 `users.token_version`，此前签发的登录 JWT 自动失效。
 - 邮件发送失败时，请求回退到 `requested`，不会伪装成已发送；发送成功状态为 `issued`。
+- Workers Free 的注册、登录和重置完成热路径使用以 `JWT_SECRET` 为机密根、用途隔离的 HMAC-SHA-256 `v4$` 校验，不得重新引入 PBKDF2、Argon2 或 bcrypt。
 
-对应提交：
+最初实现对应提交：
 
 - `2dc1a24 feat(account): add secure email password reset`
 - `204326f chore(account): log password email delivery failures`
@@ -36,11 +37,11 @@
 
 Resend 自动配置产生的 DNS 记录采用子域名嵌套，这是正常的：
 
-- DKIM TXT：`resend._domainkey.send.bbnba.com`
-- SPF TXT：`send.send.bbnba.com`
-- MX：`send.send.bbnba.com`
+- DKIM TXT 名称：`resend._domainkey.send.bbnba.com`
+- SPF TXT 名称：`send.send.bbnba.com`
+- MX 名称：`send.send.bbnba.com`
 
-不要误把 SPF/MX 查询成 `send.bbnba.com`。权威 DNS 已确认以上记录存在。
+不要误把 SPF/MX 查询成 `send.bbnba.com`。只在受控诊断中检查公开记录是否存在，不把 Cloudflare DNS 响应内容复制到 Issue、Actions summary 或仓库文档。
 
 ## 3. Secret 管理
 
@@ -71,7 +72,9 @@ npx wrangler secret put RESEND_API_KEY --config wrangler-subscription.toml
 npx wrangler secret put RESET_FROM_EMAIL --config wrangler-subscription.toml
 ```
 
-交互输入：`极客 Geek <no-reply@send.bbnba.com>`。不得把实际 Key 写入 shell 历史、仓库文件或聊天记录。旧 Key 曾经在聊天中暴露，后续应在 Resend 控制台创建新 Key、更新 Worker secret，然后撤销旧 Key。
+交互输入正式发件人地址。不得把实际 key、密码或 secret 值写入 shell 历史、仓库文件、Actions 输出、Issue 或聊天记录。
+
+`JWT_SECRET` 同时用于 JWT 和当前 `v4$` 密码校验。轮换会使现有 v4 密码无法验证，除非同步安排迁移或密码重置，因此不属于普通维护授权范围。任何凭据轮换都必须单独计划、验证并记录结果，但不得记录新旧值。
 
 ## 4. 数据库与迁移
 
@@ -82,7 +85,7 @@ npx wrangler secret put RESET_FROM_EMAIL --config wrangler-subscription.toml
 - `users.token_version`
 - `password_reset_requests` 表及索引
 
-不要重复执行该迁移，因为 SQLite/D1 的 `ALTER TABLE ... ADD COLUMN` 不是幂等操作。新环境初始化使用 `scripts/geek-subscription-schema.sql`；已有旧环境才按迁移顺序执行未执行的迁移。
+不要重复执行该迁移，因为 SQLite/D1 的 `ALTER TABLE ... ADD COLUMN` 不是幂等操作。新环境初始化使用 `scripts/geek-subscription-schema.sql`；已有环境只按迁移顺序执行尚未应用的迁移。
 
 只读检查最近请求：
 
@@ -90,36 +93,62 @@ npx wrangler secret put RESET_FROM_EMAIL --config wrangler-subscription.toml
 npx wrangler d1 execute geek-subscriptions --remote --command "SELECT id, email, status, created_at, expires_at FROM password_reset_requests ORDER BY id DESC LIMIT 10" --config wrangler-subscription.toml
 ```
 
+查询结果不得粘贴真实邮箱、令牌、密码哈希或其他用户数据到日志、Issue 或文档。
+
 状态含义：
 
-- `requested`：已记录但邮件未成功发送，可由后台/后续流程处理。
+- `requested`：已记录但邮件未成功发送，可由后台或后续流程处理。
 - `issued`：Resend 已接受邮件，令牌有效。
 - `processing`：重置提交正在处理。
 - `used`：密码已成功修改，令牌作废。
 - `expired`：旧请求或过期请求已作废。
 
-## 5. 修改后的验证流程
+## 5. 修改后的验证与部署
 
-本地必须运行：
+### 本地/PR 前检查
 
 ```powershell
 npm test
 node --check scripts/geek-subscription-worker.js
+node --check scripts/geek-subscription-entry.js
 node --check scripts/geek-website-worker.js
 git diff --check
 ```
 
-当前基线为 37 项测试全部通过。账户改动至少要保持
-`test/account-security-contract.cjs` 通过。
+当前自动测试入口执行 62 项 contract。`scripts/run-tests.cjs` 动态发现 `test/*.cjs`，仅排除 `cdp-eval.cjs` 和 `cdp-reload.cjs` 两个手动 CDP 工具；不要把历史维护记录里的 37 项测试当作当前基线。
 
-部署：
+账户改动至少要保持以下聚焦 contract 通过：
+
+- `test/account-security-contract.cjs`
+- `test/account-free-worker-kdf-contract.cjs`
+- `test/account-live-smoke-contract.cjs`
+- 与具体根因对应的其他 account/website contract
+
+### 正常生产路径
+
+1. 一个根因建立一个 Issue、分支和 PR。
+2. PR 的标准 `test` 工作流通过后再合并到 `master`。
+3. 合并内容命中路径过滤时，仓库自动运行受影响的生产工作流：
+   - `deploy-subscription`：完整测试、订阅 Worker/入口/smoke/reporter 语法检查、Wrangler 部署、账号 smoke、公网 `/health` 验证；
+   - `deploy-website`：完整测试、网站 Worker 语法检查、Wrangler 部署、官网 `/health` 验证。
+4. `deploy-subscription` 将注册、登录、鉴权和测试账号清理结果写入 Issue #23，并把整体部署结果写入 Issue #21。
+5. `deploy-website` 将非敏感部署与公网检查结果写入 Issue #21。
+6. 对应 Actions run 和 #21/#23 评论共同构成生产证据；不得用本地临时容器的 DNS 结果替代。
+
+两个 Worker 相互独立。只修改其中一个服务时，不为形式重复部署另一个服务；跨两个服务的同一根因仍需分别通过各自工作流。
+
+### 手工 Wrangler 仅作受控回退
+
+仅在自动化不可用、已明确记录原因且具备生产变更授权时，才使用手工部署：
 
 ```powershell
 npx wrangler deploy --config wrangler-subscription.toml
 npx wrangler deploy --config wrangler-website.toml
 ```
 
-线上只读检查：
+手工回退不得跳过完整测试、语法检查、公网验证和非敏感状态记录。不得为诊断读取或打印 Worker secrets、D1 数据内容、Cloudflare 响应正文或 DNS 值。
+
+### 只读页面检查
 
 ```powershell
 curl.exe -sS https://admin.bbnba.com/health
@@ -127,11 +156,11 @@ curl.exe -sS https://geek.bbnba.com/forgot-password
 curl.exe -sS "https://geek.bbnba.com/reset-password?token=invalid"
 ```
 
-健康接口应返回 `{"ok":true,"service":"geek-subscription"}`，两个官网页面应包含对应表单。不要在生产环境批量创建重置请求。
+健康接口应返回成功状态，两个官网页面应包含对应表单。上述命令适合受控诊断，不替代 GitHub-hosted 工作流的正式部署证据。不要在生产环境批量创建重置请求。
 
 ## 6. 真实邮件测试
 
-使用一个确实注册的测试邮箱，在官网点一次“忘记密码”。随后只读查询最新记录：
+使用一个确实注册的受控测试邮箱，在官网点一次“忘记密码”。随后只读查询最新记录：
 
 ```sql
 SELECT id, status, created_at, expires_at
@@ -142,15 +171,19 @@ LIMIT 3;
 
 看到 `issued` 代表 Resend 已接受发送；再检查收件箱和垃圾邮件。若为 `requested`：
 
-1. 查看 Worker 日志中的 `password reset email rejected`，日志只记录 HTTP 状态、错误类型和截断消息，不记录 Key 或重置链接。
-2. 检查 `RESEND_API_KEY` 和 `RESET_FROM_EMAIL` secret 名称是否存在。
-3. 检查 Resend 域名状态和上述三条 DNS 记录。
-4. 检查发件地址是否属于已经验证的 `send.bbnba.com`。
+1. 查看 Worker 日志中的 `password reset email rejected`；日志只能记录 HTTP 状态、错误类型和截断消息，不记录 key、邮箱、重置 token 或完整链接。
+2. 只确认 `RESEND_API_KEY` 和 `RESET_FROM_EMAIL` secret 名称存在。
+3. 检查 Resend 域名状态和必要的公开 DNS 记录。
+4. 检查发件地址是否属于已验证的 `send.bbnba.com`。
 
 连续测试可能返回 `{"error":"rate_limited"}`。这是安全功能，不是发信故障。不要为了方便删除或放宽生产限流；只有明确的受控诊断才能清理精准的测试 bucket，禁止清空整个 `rate_limits` 表。
 
 ## 7. 代码导航
 
+- `scripts/geek-subscription-entry.js`：账户/订阅生产入口。
+- `scripts/geek-subscription-worker.js`：账户、订阅和重置基础 Worker。
+- `scripts/geek-website-worker.js`：官网页面与代理。
+- `scripts/account-live-smoke.mjs`：生产注册、登录、鉴权和清理 smoke。
 - `sendResetEmail`：调用 Resend API。
 - `issuePasswordReset`：生成令牌、保存哈希、建立 30 分钟链接并发信。
 - `handlePasswordResetRequest`：统一响应、防枚举、过期旧请求。
@@ -160,48 +193,53 @@ LIMIT 3;
 
 ## 8. 维护铁律
 
-- 不允许把重置链接、令牌或用户密码写进日志。
+- 不允许把重置链接、令牌、用户密码、JWT、Cookie 或真实邮箱写进日志。
 - 不允许在数据库中保存原始重置令牌。
 - 不允许根据邮箱是否存在返回不同文案或状态。
 - 不允许跳过 `token_version` 会话撤销。
+- 不允许绕过限流、HttpOnly Cookie、同源/CORS 边界和支付确认校验。
 - 不允许覆盖生产 secrets 或重复跑迁移后不验证。
-- 修改后必须提交明确 commit、推送 `master`，再分别部署两个 Worker，并报告 Worker Version ID 和测试结果。
+- 不允许在 Workers Free 认证热路径重新引入高 CPU KDF。
+- 修改后必须通过分支/PR、聚焦 contract 和完整测试；合并后核对对应生产工作流及 #21/#23 状态。
+- 失败时优先回滚到上一个已知正常 Worker 版本，不在生产上连续盲改。
 
-## 9. BUG 维护流程（Hermes 必须执行）
+## 9. BUG 维护流程
 
-任何账户、邮件、官网或发布 BUG 都按下面的小块处理，不要一边排查一边进行无关重构。
+任何账户、邮件或官网 BUG 都按下面的小块处理，不要一边排查一边进行无关重构。
 
 ### Block 0：建立现场
 
 - 记录用户看到的页面、准确时间、URL、操作顺序和是否为正式安装包。
-- 执行 `git status -sb`、`git log -5 --oneline`，确认当前分支和生产对应提交。
-- 只读检查 Worker 健康、最新部署版本和相关 D1 状态。
+- 确认当前 `master`、生产对应提交、开放 PR 和相关 Actions run。
+- 只读检查 Worker 健康、最新 #21/#23 状态和必要的 D1 元数据。
 - 不得删除用户数据、清空表、重跑迁移或覆盖 secret 来“试试看”。
 
 ### Block 1：最小复现与定位
 
 - 先确认故障属于官网 UI、网站 Worker 代理、订阅 Worker、D1、Resend/DNS 还是客户端。
-- 使用一个受控测试账号复现一次，保存 HTTP 状态和不含敏感信息的日志。
+- 使用一个受控测试账号复现一次，只保存 HTTP 状态和不含敏感信息的日志。
 - 为已确认的根因新增或更新契约测试；测试在修复前应能捕获问题。
 - 只修改与根因直接相关的最少文件。
 
-### Block 2：修复与本地回归
+### Block 2：修复与回归
 
 - 运行本手册第 5 节的全部检查和 `npm test`。
-- 检查 `git diff`，确认没有账号数据、密钥、构建产物或 Playwright 临时文件进入提交。
-- 对安全边界做人工复核：防枚举、令牌哈希、过期/单次使用、限流、旧会话撤销。
+- 检查 diff，确认没有账号数据、密钥、构建产物或临时诊断文件进入提交。
+- 人工复核防枚举、令牌哈希、过期/单次使用、限流、旧会话撤销和 Free Worker CPU 边界。
 
 ### Block 3：提交、部署和线上验证
 
-- 一个根因对应一个清晰提交，禁止把多个无关修复塞进同一 commit。
-- 推送后分别部署受影响的 Worker；没改的 Worker 不必为了形式重复部署。
+- 一个根因对应一个 Issue、分支、PR 和清晰提交。
+- PR CI 通过后合并，由命中路径过滤的受影响工作流部署；没改的 Worker 不重复部署。
 - 线上先做只读检查，再做一次最小真实流程验证。
-- 记录 commit、Worker Version ID、验证时间、测试邮箱（可脱敏）和最终状态。
+- 记录 commit、Actions run、公开 HTTP 状态和最终结果；测试邮箱仅可脱敏，不记录凭据。
+- 自动化不可用时，只有在明确授权和回退计划下才执行手工 Wrangler 部署。
 
 ### Block 4：关闭与回滚准备
 
 - 在本文件“维护记录”增加一行，说明症状、根因、修复提交和验证结果。
-- 若线上验证失败，优先回滚到上一个已知正常 Worker 版本；不要在生产上连续盲改。
+- 合并后立即更新 Issue #50；生产账号 smoke 由 #23 留档，整体部署由 #21 留档。
+- 若线上验证失败，优先回滚到上一个已知正常 Worker 版本。
 - 回滚代码不能回滚 D1 用户数据。涉及 schema 时必须先评估向后兼容，禁止直接删除列或表。
 
 ## 10. 常见 BUG 快速对照
@@ -214,15 +252,17 @@ LIMIT 3;
 | 改密后旧设备仍登录 | JWT `ver` 与 `users.token_version` | 改密必须递增版本，旧 JWT 应失效 |
 | 所有人都收不到邮件 | Worker secret 名称、Resend 状态、DNS | 检查 DKIM 与 `send.send.bbnba.com` 的 SPF/MX |
 | 只有部分邮箱收不到 | Resend 投递日志、退信/垃圾邮件 | 不要把单个邮箱退信误判为全局故障 |
-| 官网页面有表单但 API 404 | 网站 Worker 路由/代理和订阅 Worker 路由 | 两个 Worker 可能版本不一致 |
-| 部署后官网仍是旧内容 | `wrangler deploy` 输出的 Version ID、域名路由、缓存 | GitHub 推送不等于 Worker 已部署 |
+| 官网页面有表单但 API 404 | 网站 Worker路由/代理和订阅 Worker 路由 | 两个 Worker 可能版本不一致 |
+| 合并后未触发部署 | PR 文件范围、工作流 paths、Actions 状态 | 普通文档/无关路径不会触发生产部署 |
 | D1 报重复列 | 是否误跑 `002-password-resets.sql` | 生产迁移已经执行，禁止重复执行 |
 
 ## 11. 维护记录
 
+以下记录保留当时的版本和测试数量，不代表当前基线。
+
 | 日期 | 症状/任务 | 根因 | 修复/配置 | 验证 |
 |---|---|---|---|---|
-| 2026-08-17 | 增加忘记密码邮件 | 原系统缺少安全重置流程 | `2dc1a24` | 37 项测试通过；生产请求为 `issued` |
-| 2026-08-17 | 正式发件域名接入 | 初始只能使用 Resend 测试发件人 | 验证 `send.bbnba.com`，Worker `RESET_FROM_EMAIL` 切换为正式地址 | DKIM/SPF/MX 存在；Gmail 实收成功 |
+| 2026-08-17 | 增加忘记密码邮件 | 原系统缺少安全重置流程 | `2dc1a24` | 当时 37 项测试通过；生产请求为 `issued` |
+| 2026-08-17 | 正式发件域名接入 | 初始只能使用 Resend 测试发件人 | 验证 `send.bbnba.com`，Worker `RESET_FROM_EMAIL` 切换为正式地址 | 当时 DKIM/SPF/MX 存在；Gmail 实收成功 |
 
-后续代理每修复一个相关 BUG，都必须追加一行；不要改写已有历史。
+后续每修复一个相关 BUG，追加一行并保留已有历史；不要用当前状态覆盖过去的事实。
