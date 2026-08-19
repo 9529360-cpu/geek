@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/geek-website-worker.js
       - scripts/website-payment-qr.mjs
+      - scripts/temporary-patch-website-payment-qr.py
       - test/website-payment-qr-contract.cjs
       - .github/workflows/deploy-website.yml
       - .github/workflows/patch-website-payment-qr.yml
@@ -27,90 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply exact website payment QR patch
-        shell: python
-        run: |
-          from pathlib import Path
-
-          worker_path = Path('scripts/geek-website-worker.js')
-          worker = worker_path.read_text(encoding='utf-8')
-
-          first_line = '// geek-website Worker —— 极客官网（现代深色科技风落地页）\n'
-          import_line = "import { isTronAddress, renderTronAddressQrSvg } from './website-payment-qr.mjs';\n\n"
-          if worker.count(first_line) != 1 or 'website-payment-qr.mjs' in worker:
-              raise SystemExit('website Worker import anchor mismatch')
-          worker = worker.replace(first_line, import_line + first_line, 1)
-
-          old_comment = '        // USDT 支付：显示收款码（静态图）+ 唯一金额 + 自动检测到账'
-          new_comment = '        // USDT 支付：显示当前订单地址二维码 + 唯一金额 + 自动检测到账'
-          if worker.count(old_comment) != 1:
-              raise SystemExit('payment QR comment anchor mismatch')
-          worker = worker.replace(old_comment, new_comment, 1)
-
-          old_image = r'''              '<img src=\"https://geek-release.9529360.workers.dev/usdt-qr.png\" width=\"152\" height=\"152\" style=\"width:152px;height:152px;display:block\" alt=\"USDT收款二维码\">' +'''
-          new_image = r'''              '<img id=\"usdt-qr\" src=\"/payment-qr?address=' + encodeURIComponent(pay.usdt_address) + '\" width=\"152\" height=\"152\" style=\"width:152px;height:152px;display:block\" alt=\"USDT TRC20 收款地址二维码\">' +
-              '<div id=\"usdt-qr-fallback\" style=\"display:none;width:152px;height:152px;align-items:center;justify-content:center;color:#111827;font-size:12px;line-height:1.5\">二维码不可用<br>请复制地址</div>' +'''
-          if worker.count(old_image) != 1:
-              raise SystemExit('payment QR image anchor mismatch')
-          worker = worker.replace(old_image, new_image, 1)
-
-          old_listener = """          '</div>';
-        ok.textContent = '订单已生成，扫码转账后自动到账';"""
-          new_listener = """          '</div>';
-        const qrImage = document.getElementById('usdt-qr');
-        qrImage?.addEventListener('error', () => {
-          qrImage.style.display = 'none';
-          const fallback = document.getElementById('usdt-qr-fallback');
-          if (fallback) fallback.style.display = 'flex';
-        }, { once: true });
-        ok.textContent = '订单已生成，扫码转账后自动到账';"""
-          if worker.count(old_listener) != 1:
-              raise SystemExit('payment QR fallback listener anchor mismatch')
-          worker = worker.replace(old_listener, new_listener, 1)
-
-          html_anchor = 'function html(content, status = 200) {'
-          qr_response = """function paymentQrResponse(address) {
-  const value = String(address || '').trim();
-  if (!isTronAddress(value)) {
-    return new Response('invalid payment address', {
-      status: 400,
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff',
-      },
-    });
-  }
-  return new Response(renderTronAddressQrSvg(value), {
-    headers: {
-      'Content-Type': 'image/svg+xml; charset=utf-8',
-      'Cache-Control': 'private, max-age=300',
-      'Content-Security-Policy': \"default-src 'none'; sandbox\",
-      'Cross-Origin-Resource-Policy': 'same-origin',
-      'Referrer-Policy': 'no-referrer',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
-}
-
-"""
-          if worker.count(html_anchor) != 1 or 'function paymentQrResponse' in worker:
-              raise SystemExit('payment QR response anchor mismatch')
-          worker = worker.replace(html_anchor, qr_response + html_anchor, 1)
-
-          api_anchor = "    if (path.startsWith('/api/')) return proxyApi(request, path + url.search);"
-          route = "    if (request.method === 'GET' && path === '/payment-qr') return paymentQrResponse(url.searchParams.get('address'));\n\n"
-          if worker.count(api_anchor) != 1 or "path === '/payment-qr'" in worker:
-              raise SystemExit('payment QR route anchor mismatch')
-          worker = worker.replace(api_anchor, route + api_anchor, 1)
-          worker_path.write_text(worker, encoding='utf-8')
-
-          workflow_path = Path('.github/workflows/deploy-website.yml')
-          workflow = workflow_path.read_text(encoding='utf-8')
-          deploy_anchor = "      - 'scripts/geek-website-worker.js'\n      - 'wrangler-website.toml'"
-          deploy_replacement = "      - 'scripts/geek-website-worker.js'\n      - 'scripts/website-payment-qr.mjs'\n      - 'wrangler-website.toml'"
-          if workflow.count(deploy_anchor) != 1:
-              raise SystemExit('website deploy path anchor mismatch')
-          workflow_path.write_text(workflow.replace(deploy_anchor, deploy_replacement, 1), encoding='utf-8')
+        run: python scripts/temporary-patch-website-payment-qr.py
 
       - name: Verify patch scope before tests
         run: |
@@ -138,10 +56,11 @@ jobs:
       - name: Run complete contract suite
         run: npm test
 
-      - name: Commit exact patch and remove temporary workflow
+      - name: Commit exact patch and remove temporary files
         run: |
           rm .github/workflows/patch-website-payment-qr.yml
-          git add scripts/geek-website-worker.js .github/workflows/deploy-website.yml .github/workflows/patch-website-payment-qr.yml
+          rm scripts/temporary-patch-website-payment-qr.py
+          git add scripts/geek-website-worker.js .github/workflows/deploy-website.yml .github/workflows/patch-website-payment-qr.yml scripts/temporary-patch-website-payment-qr.py
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
