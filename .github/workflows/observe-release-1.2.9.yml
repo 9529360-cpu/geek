@@ -1,0 +1,111 @@
+name: observe-release-1.2.9
+
+on:
+  push:
+    branches:
+      - release/1.2.9
+    paths:
+      - '.github/workflows/observe-release-1.2.9.yml'
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: observe-release-1.2.9
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TARGET_SHA: 054bd34bd676b7b123b1b1e1c54145cc5f7a1e78
+    steps:
+      - name: Locate and observe release-client run
+        id: release
+        shell: bash
+        run: |
+          set -uo pipefail
+          run_id=''
+          run_url=''
+          for attempt in $(seq 1 90); do
+            runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-client.yml --branch master --event push --limit 20 --json databaseId,headSha,status,conclusion,url,createdAt 2>/dev/null || echo '[]')"
+            run_id="$(printf '%s' "$runs" | jq -r --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha) | .databaseId' | head -n 1)"
+            run_url="$(printf '%s' "$runs" | jq -r --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha) | .url' | head -n 1)"
+            if [ -n "$run_id" ] && [ "$run_id" != 'null' ]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [ -z "$run_id" ] || [ "$run_id" = 'null' ]; then
+            {
+              echo 'result=failure'
+              echo 'run_id=not-found'
+              echo 'run_url='
+              echo 'status=not-found'
+              echo 'conclusion=not-found'
+              echo "observed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status >/dev/null 2>&1 || true
+          details="$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json status,conclusion,url,headSha,createdAt,updatedAt)"
+          status="$(printf '%s' "$details" | jq -r '.status // "unknown"')"
+          conclusion="$(printf '%s' "$details" | jq -r '.conclusion // "unknown"')"
+          run_url="$(printf '%s' "$details" | jq -r '.url // ""')"
+          result='failure'
+          if [ "$status" = 'completed' ] && [ "$conclusion" = 'success' ]; then result='success'; fi
+          {
+            echo "result=$result"
+            echo "run_id=$run_id"
+            echo "run_url=$run_url"
+            echo "status=$status"
+            echo "conclusion=$conclusion"
+            echo "observed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish non-sensitive Actions result
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          OBSERVE_RESULT: ${{ steps.release.outputs.result }}
+          RELEASE_RUN_ID: ${{ steps.release.outputs.run_id }}
+          RELEASE_RUN_URL: ${{ steps.release.outputs.run_url }}
+          RELEASE_STATUS: ${{ steps.release.outputs.status }}
+          RELEASE_CONCLUSION: ${{ steps.release.outputs.conclusion }}
+          OBSERVED_AT: ${{ steps.release.outputs.observed_at }}
+          TARGET_SHA: ${{ env.TARGET_SHA }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const success = process.env.OBSERVE_RESULT === 'success';
+            const body = [
+              '## Windows client release workflow — Geek 1.2.9',
+              '',
+              `- Result: **${success ? 'success' : 'failure'}**`,
+              `- Workflow: release-client`,
+              `- Run ID: ${process.env.RELEASE_RUN_ID || 'not-found'}`,
+              `- Status: ${process.env.RELEASE_STATUS || 'unknown'}`,
+              `- Conclusion: ${process.env.RELEASE_CONCLUSION || 'unknown'}`,
+              `- Commit: ${process.env.TARGET_SHA}`,
+              `- Run: ${process.env.RELEASE_RUN_URL || 'not-found'}`,
+              `- Observed at: ${process.env.OBSERVED_AT || new Date().toISOString()}`,
+              '',
+              'No logs, response bodies, credentials or provider secrets are included in this report.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 77,
+              body,
+            });
+
+      - name: Fail if release workflow did not succeed
+        if: steps.release.outputs.result != 'success'
+        shell: bash
+        run: exit 1
