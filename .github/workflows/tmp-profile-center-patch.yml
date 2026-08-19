@@ -25,7 +25,9 @@ jobs:
           cache: npm
 
       - name: Apply exact profile-center patch
-        run: node scripts/tmp-profile-center-patch.cjs
+        run: |
+          node scripts/tmp-profile-center-patch.cjs
+          node scripts/tmp-profile-center-contract-patch.cjs
 
       - name: Validate exact product scope
         shell: bash
@@ -36,6 +38,7 @@ jobs:
           node --check src/preload.cjs
           node --check ui/profile-center.js
           node --check test/profile-center-ux-contract.cjs
+          node --check test/account-identity-contract.cjs
           node - <<'NODE'
           const { execFileSync } = require('node:child_process');
           const allowed = new Set([
@@ -45,7 +48,8 @@ jobs:
             'ui/subscription.html',
             'ui/profile-center.js',
             'ui/profile-center.css',
-            'test/profile-center-ux-contract.cjs'
+            'test/profile-center-ux-contract.cjs',
+            'test/account-identity-contract.cjs'
           ]);
           const lines = (value) => value.trim().split(/\r?\n/).filter(Boolean);
           const modified = lines(execFileSync('git', ['diff', '--name-only'], { encoding: 'utf8' }));
@@ -72,6 +76,6 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/main.cjs src/preload.cjs ui/index.html ui/subscription.html ui/profile-center.js ui/profile-center.css test/profile-center-ux-contract.cjs
+          git add src/main.cjs src/preload.cjs ui/index.html ui/subscription.html ui/profile-center.js ui/profile-center.css test/profile-center-ux-contract.cjs test/account-identity-contract.cjs
           git commit -m 'ux: add personal center'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
