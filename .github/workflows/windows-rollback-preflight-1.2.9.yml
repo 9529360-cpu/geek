@@ -1,3 +1,4 @@
+# rerun with ranged GET artifact verification
 name: windows-rollback-preflight-1.2.9
 
 on:
@@ -41,7 +42,6 @@ jobs:
 
           function Invoke-PublicRequestWithRetry(
             [string]$Uri,
-            [string]$Method = 'Get',
             [int]$Attempts = 6
           ) {
             $lastFailure = 'unknown failure'
@@ -49,16 +49,37 @@ jobs:
               $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
               $attemptUri = "$Uri$separator" + "attempt=$attempt"
               try {
-                $response = Invoke-WebRequest -Uri $attemptUri -Method $Method -UseBasicParsing -TimeoutSec 20
+                $response = Invoke-WebRequest -Uri $attemptUri -Method Get -UseBasicParsing -TimeoutSec 20
                 if ($response.StatusCode -eq 200) { return $response }
                 $lastFailure = "HTTP $($response.StatusCode)"
               } catch {
                 $lastFailure = $_.Exception.Message
               }
-              Write-Host "Rollback preflight $Method attempt $attempt failed: $lastFailure"
+              Write-Host "Rollback metadata GET attempt $attempt failed: $lastFailure"
               if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
             }
-            throw "public request failed after $Attempts attempts: $lastFailure"
+            throw "public metadata request failed after $Attempts attempts: $lastFailure"
+          }
+
+          function Test-PublicArtifactWithRetry(
+            [string]$Uri,
+            [int]$Attempts = 6
+          ) {
+            $lastStatus = '000'
+            $lastExitCode = -1
+            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+              $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
+              $attemptUri = "$Uri$separator" + "attempt=$attempt"
+              $statusOutput = & curl.exe --silent --show-error --location --range 0-0 --output NUL --write-out '%{http_code}' --max-time 90 $attemptUri
+              $lastExitCode = $LASTEXITCODE
+              $lastStatus = ($statusOutput | Out-String).Trim()
+              if ($lastExitCode -eq 0 -and ($lastStatus -eq '200' -or $lastStatus -eq '206')) {
+                return $true
+              }
+              Write-Host "Rollback artifact ranged GET attempt $attempt failed: HTTP $lastStatus curl=$lastExitCode"
+              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
+            }
+            throw "public artifact ranged GET failed after $Attempts attempts: HTTP $lastStatus curl=$lastExitCode"
           }
 
           $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -70,8 +91,8 @@ jobs:
           $previousVersion = $versionMatch.Groups[1].Value
           $previousPath = $pathMatch.Groups[1].Value
           if ($previousPath -ne "geek-setup-$previousVersion.exe") { throw 'previous latest.yml path/version mismatch' }
-          $null = Invoke-PublicRequestWithRetry "$root/$previousPath?before=$nonce" 'Head'
-          $null = Invoke-PublicRequestWithRetry "$root/$previousPath.blockmap?before=$nonce" 'Head'
+          $null = Test-PublicArtifactWithRetry "$root/$previousPath?before=$nonce"
+          $null = Test-PublicArtifactWithRetry "$root/$previousPath.blockmap?before=$nonce"
           "previous_version=$previousVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "previous_path=$previousPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
@@ -91,6 +112,7 @@ jobs:
               '',
               `- Result: **${success ? 'success' : 'failure'}**`,
               '- Full command suite: `npm test` on `windows-latest`',
+              '- Artifact verification: bounded ranged GET with response body discarded',
               `- Verified previous version: ${process.env.PREVIOUS_VERSION || 'unknown'}`,
               `- Verified declared installer path: ${process.env.PREVIOUS_PATH || 'unknown'}`,
               `- Commit: ${context.sha}`,
