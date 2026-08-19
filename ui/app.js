@@ -578,14 +578,22 @@
     // 对齐原版：webview 强制白色背景（LINE 二维码扫码需要浅色背景，外壳深色不影响）
     wv.style.backgroundColor = 'rgb(255, 255, 255)';
     window.__wvLog = window.__wvLog || [];
+    const safeWebviewLogUrl = (value) => {
+      try {
+        const sanitize = window.GeekLogUrl && window.GeekLogUrl.sanitizeUrlForLog;
+        return typeof sanitize === 'function' ? sanitize(value) : '';
+      } catch {
+        return '';
+      }
+    };
     ['dom-ready', 'did-finish-load', 'did-fail-load', 'did-start-loading', 'did-stop-loading'].forEach((evt) => {
       wv.addEventListener(evt, (e) => {
         let detail = '';
         if (evt === 'did-fail-load') {
-          detail = ` code=${e.errorCode} desc=${e.errorDescription} url=${e.validatedURL}`;
+          detail = ` code=${e.errorCode} desc=${e.errorDescription} url=${safeWebviewLogUrl(e.validatedURL)}`;
         }
         window.__wvLog.push(`${evt}${detail}`);
-        try { window.__wvLog.push(`url=${wv.getURL && wv.getURL()}`); } catch (err) {}
+        try { window.__wvLog.push(`url=${safeWebviewLogUrl(wv.getURL && wv.getURL())}`); } catch (err) {}
       });
     });
     wv.addEventListener('dom-ready', () => {
