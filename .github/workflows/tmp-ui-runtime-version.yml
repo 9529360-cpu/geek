@@ -1,0 +1,48 @@
+name: Temporary UI runtime version validation
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/ui-runtime-version'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/ui-runtime-version
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply bounded UI version patch
+        run: node scripts/patch-ui-runtime-version.cjs
+      - name: Verify scope and syntax
+        shell: bash
+        run: |
+          node --check scripts/patch-ui-runtime-version.cjs
+          node --check src/preload.cjs
+          node --check ui/version-label.js
+          node --check test/ui-runtime-version-contract.cjs
+          git diff --check
+          git diff --exit-code -- package.json package-lock.json .github/release-client-version src/main.cjs ui/app.js scripts/geek-website-worker.js
+      - name: Run contracts
+        run: npm test
+      - name: Commit bounded UI version fix
+        shell: bash
+        run: |
+          if git diff --quiet -- src/preload.cjs ui/index.html ui/version-label.js test/ui-runtime-version-contract.cjs; then
+            echo "No bounded UI version changes found" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/preload.cjs ui/index.html ui/version-label.js test/ui-runtime-version-contract.cjs
+          git commit -m "fix: show runtime client version in navigation"
+          git push origin HEAD:agent/ui-runtime-version
