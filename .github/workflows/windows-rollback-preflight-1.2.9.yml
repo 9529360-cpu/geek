@@ -1,4 +1,4 @@
-# rerun with ranged GET artifact verification
+# diagnose Windows public artifact checks with Node fetch
 name: windows-rollback-preflight-1.2.9
 
 on:
@@ -34,67 +34,51 @@ jobs:
       - name: Run all contracts
         run: npm test
 
-      - name: Execute rollback preflight without promotion
+      - name: Execute Node rollback preflight without promotion
         id: preflight
         shell: pwsh
         run: |
-          $root = 'https://geek-release.9529360.workers.dev'
+          @'
+          'use strict';
+          const fs = require('node:fs');
+          const root = 'https://geek-release.9529360.workers.dev';
 
-          function Invoke-PublicRequestWithRetry(
-            [string]$Uri,
-            [int]$Attempts = 6
-          ) {
-            $lastFailure = 'unknown failure'
-            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-              $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
-              $attemptUri = "$Uri$separator" + "attempt=$attempt"
-              try {
-                $response = Invoke-WebRequest -Uri $attemptUri -Method Get -UseBasicParsing -TimeoutSec 20
-                if ($response.StatusCode -eq 200) { return $response }
-                $lastFailure = "HTTP $($response.StatusCode)"
-              } catch {
-                $lastFailure = $_.Exception.Message
-              }
-              Write-Host "Rollback metadata GET attempt $attempt failed: $lastFailure"
-              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
+          async function getText(url) {
+            const response = await fetch(url, { method: 'GET', redirect: 'follow' });
+            if (response.status !== 200) {
+              await response.body?.cancel().catch(() => {});
+              throw new Error(`metadata HTTP ${response.status}`);
             }
-            throw "public metadata request failed after $Attempts attempts: $lastFailure"
+            return response.text();
           }
 
-          function Test-PublicArtifactWithRetry(
-            [string]$Uri,
-            [int]$Attempts = 6
-          ) {
-            $lastStatus = '000'
-            $lastExitCode = -1
-            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-              $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
-              $attemptUri = "$Uri$separator" + "attempt=$attempt"
-              $statusOutput = & curl.exe --silent --show-error --location --range 0-0 --output NUL --write-out '%{http_code}' --max-time 90 $attemptUri
-              $lastExitCode = $LASTEXITCODE
-              $lastStatus = ($statusOutput | Out-String).Trim()
-              if ($lastExitCode -eq 0 -and ($lastStatus -eq '200' -or $lastStatus -eq '206')) {
-                return $true
-              }
-              Write-Host "Rollback artifact ranged GET attempt $attempt failed: HTTP $lastStatus curl=$lastExitCode"
-              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
-            }
-            throw "public artifact ranged GET failed after $Attempts attempts: HTTP $lastStatus curl=$lastExitCode"
+          async function verifyArtifact(url) {
+            const response = await fetch(url, {
+              method: 'GET',
+              redirect: 'follow',
+              headers: { Range: 'bytes=0-0' },
+            });
+            const status = response.status;
+            await response.body?.cancel().catch(() => {});
+            if (status !== 200 && status !== 206) throw new Error(`artifact HTTP ${status}`);
           }
 
-          $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-          $response = Invoke-PublicRequestWithRetry "$root/latest.yml?before=$nonce"
-          $versionMatch = [regex]::Match($response.Content, '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$')
-          if (-not $versionMatch.Success) { throw 'previous latest.yml has no valid version' }
-          $pathMatch = [regex]::Match($response.Content, '(?m)^path:\s*(geek-setup-[0-9]+\.[0-9]+\.[0-9]+\.exe)\s*$')
-          if (-not $pathMatch.Success) { throw 'previous latest.yml has no valid installer path' }
-          $previousVersion = $versionMatch.Groups[1].Value
-          $previousPath = $pathMatch.Groups[1].Value
-          if ($previousPath -ne "geek-setup-$previousVersion.exe") { throw 'previous latest.yml path/version mismatch' }
-          $null = Test-PublicArtifactWithRetry "$root/$previousPath?before=$nonce"
-          $null = Test-PublicArtifactWithRetry "$root/$previousPath.blockmap?before=$nonce"
-          "previous_version=$previousVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "previous_path=$previousPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          (async () => {
+            const nonce = Date.now();
+            const metadata = await getText(`${root}/latest.yml?before=${nonce}`);
+            const version = metadata.match(/^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$/m)?.[1];
+            const artifactPath = metadata.match(/^path:\s*(geek-setup-[0-9]+\.[0-9]+\.[0-9]+\.exe)\s*$/m)?.[1];
+            if (!version || !artifactPath) throw new Error('invalid public latest.yml');
+            if (artifactPath !== `geek-setup-${version}.exe`) throw new Error('path/version mismatch');
+            await verifyArtifact(`${root}/${artifactPath}?before=${nonce}`);
+            await verifyArtifact(`${root}/${artifactPath}.blockmap?before=${nonce}`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `previous_version=${version}\nprevious_path=${artifactPath}\n`, 'utf8');
+          })().catch((error) => {
+            console.error(String(error?.message || error));
+            process.exitCode = 1;
+          });
+          '@ | Set-Content -LiteralPath node-public-preflight.cjs -Encoding utf8
+          node node-public-preflight.cjs
 
       - name: Publish non-sensitive result
         if: always()
@@ -108,11 +92,11 @@ jobs:
           script: |
             const success = process.env.PREFLIGHT_OUTCOME === 'success';
             const body = [
-              '## Windows rollback preflight validation',
+              '## Windows Node rollback preflight validation',
               '',
               `- Result: **${success ? 'success' : 'failure'}**`,
               '- Full command suite: `npm test` on `windows-latest`',
-              '- Artifact verification: bounded ranged GET with response body discarded',
+              '- Artifact verification: Node GET with Range header and immediate body cancellation',
               `- Verified previous version: ${process.env.PREVIOUS_VERSION || 'unknown'}`,
               `- Verified declared installer path: ${process.env.PREVIOUS_PATH || 'unknown'}`,
               `- Commit: ${context.sha}`,
