@@ -7,7 +7,10 @@ const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
 const workerSource = fs.readFileSync(path.join(root, 'scripts/geek-translate-worker.js'), 'utf8');
-const subscriptionSource = fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker.js'), 'utf8');
+const subscriptionSource = [
+  fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker-core.js'), 'utf8'),
+].join('\n');
 const mainSource = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
 const schema = fs.readFileSync(path.join(root, 'scripts/geek-subscription-schema.sql'), 'utf8');
 

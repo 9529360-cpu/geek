@@ -4,7 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.join(__dirname, '..');
-const api = fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker.js'), 'utf8');
+const api = [
+  fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker.js'), 'utf8'),
+  fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker-core.js'), 'utf8'),
+].join('\n');
 const site = fs.readFileSync(path.join(root, 'scripts/geek-website-worker.js'), 'utf8');
 
 assert.match(api, /HttpOnly; Secure; SameSite=Strict/, '登录会话必须使用安全 HttpOnly Cookie');
