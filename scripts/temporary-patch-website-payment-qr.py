@@ -16,17 +16,17 @@ if worker.count(old_comment) != 1:
 worker = worker.replace(old_comment, new_comment, 1)
 
 old_image = (
-    "              '<img src=\\\"https://geek-release.9529360.workers.dev/usdt-qr.png\\\" "
-    "width=\\\"152\\\" height=\\\"152\\\" style=\\\"width:152px;height:152px;display:block\\\" "
-    "alt=\\\"USDT收款二维码\\\">' +"
+    "              '<img src=\"https://geek-release.9529360.workers.dev/usdt-qr.png\" "
+    "width=\"152\" height=\"152\" style=\"width:152px;height:152px;display:block\" "
+    "alt=\"USDT收款二维码\">' +"
 )
 new_image = (
-    "              '<img id=\\\"usdt-qr\\\" src=\\\"/payment-qr?address=' + "
-    "encodeURIComponent(pay.usdt_address) + '\\\" width=\\\"152\\\" height=\\\"152\\\" "
-    "style=\\\"width:152px;height:152px;display:block\\\" alt=\\\"USDT TRC20 收款地址二维码\\\">' +\n"
-    "              '<div id=\\\"usdt-qr-fallback\\\" "
-    "style=\\\"display:none;width:152px;height:152px;align-items:center;justify-content:center;"
-    "color:#111827;font-size:12px;line-height:1.5\\\">二维码不可用<br>请复制地址</div>' +"
+    "              '<img id=\"usdt-qr\" src=\"/payment-qr?address=' + "
+    "encodeURIComponent(pay.usdt_address) + '\" width=\"152\" height=\"152\" "
+    "style=\"width:152px;height:152px;display:block\" alt=\"USDT TRC20 收款地址二维码\">' +\n"
+    "              '<div id=\"usdt-qr-fallback\" "
+    "style=\"display:none;width:152px;height:152px;align-items:center;justify-content:center;"
+    "color:#111827;font-size:12px;line-height:1.5\">二维码不可用<br>请复制地址</div>' +"
 )
 if worker.count(old_image) != 1:
     raise SystemExit('payment QR image anchor mismatch')
