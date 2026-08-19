@@ -7,11 +7,14 @@ on:
       - master
     paths:
       - 'scripts/geek-subscription-worker.js'
+      - 'scripts/geek-subscription-worker-core.js'
+      - 'scripts/subscription-order-pay-method.mjs'
       - 'scripts/geek-subscription-entry.js'
       - 'scripts/account-live-smoke.mjs'
       - 'scripts/cloudflare-deploy-report.cjs'
       - 'wrangler-subscription.toml'
       - 'test/account-*.cjs'
+      - 'test/subscription-order-pay-method-contract.cjs'
       - 'test/cloudflare-deploy-observability-contract.cjs'
       - '.github/workflows/deploy-subscription.yml'
 
@@ -49,6 +52,8 @@ jobs:
       - name: Validate Worker syntax
         run: |
           node --check scripts/geek-subscription-worker.js
+          node --check scripts/geek-subscription-worker-core.js
+          node --check scripts/subscription-order-pay-method.mjs
           node --check scripts/geek-subscription-entry.js
           node --check scripts/account-live-smoke.mjs
           node --check scripts/cloudflare-deploy-report.cjs
