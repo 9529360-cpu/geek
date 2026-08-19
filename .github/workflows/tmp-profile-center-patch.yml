@@ -47,7 +47,10 @@ jobs:
             'ui/profile-center.css',
             'test/profile-center-ux-contract.cjs'
           ]);
-          const changed = execFileSync('git', ['diff', '--name-only'], { encoding: 'utf8' }).trim().split(/\r?\n/).filter(Boolean);
+          const lines = (value) => value.trim().split(/\r?\n/).filter(Boolean);
+          const modified = lines(execFileSync('git', ['diff', '--name-only'], { encoding: 'utf8' }));
+          const untracked = lines(execFileSync('git', ['ls-files', '--others', '--exclude-standard'], { encoding: 'utf8' }));
+          const changed = [...new Set([...modified, ...untracked])];
           const unexpected = changed.filter((name) => !allowed.has(name));
           if (unexpected.length) throw new Error('Unexpected changed files: ' + unexpected.join(', '));
           for (const required of allowed) if (!changed.includes(required)) throw new Error('Missing expected change: ' + required);
