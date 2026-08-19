@@ -168,7 +168,7 @@
 
     <div class="card view" id="view-plans">
       <h2>选择字符套餐</h2>
-      <div class="hint">买断不限时，用完再买 · 付款后由客服手动开通</div>
+      <div class="hint">买断不限时，用完再买 · 收款确认后字符余额自动更新</div>
       <div class="plans" id="plans">
         <div class="plan sel" data-plan="basic"><div class="p-name">基础包</div><div class="p-price">$25<span></span></div><div class="p-per">100 万字符 · 入门</div></div>
         <div class="plan" data-plan="standard"><div class="p-name">标准包</div><div class="p-price">$48<span></span></div><div class="p-per">150 万字符 · 推荐</div><div class="p-tag">推荐</div></div>
@@ -185,7 +185,7 @@
       <div class="order-box">
         <div class="o-title" id="order-plan-name"></div>
         <div class="o-amount"><span>应付</span> $<span id="order-amount"></span></div>
-        <div class="o-line">1. 添加客服联系方式，转账对应金额<br>2. 转账时备注你的订单号 <b id="order-id"></b><br>3. 客服确认收款后自动到账，<br>&nbsp;&nbsp;&nbsp;&nbsp;刷新状态即可使用</div>
+        <div class="o-line">1. 添加客服联系方式，转账对应金额<br>2. 转账时备注你的订单号 <b id="order-id"></b><br>3. 客服确认收款后，系统自动增加字符余额，<br>&nbsp;&nbsp;&nbsp;&nbsp;刷新状态即可使用</div>
       </div>
       <button class="btn-ghost no-drag" id="btn-refresh-status">我已完成付款，刷新状态</button>
       <div class="ok" id="order-ok"></div><div class="err" id="order-err"></div>
@@ -297,10 +297,10 @@
       btn.textContent = '刷新中…';
       const state = await window.api.subscription.refresh();
       if (state.valid && state.remaining_chars > 0) {
-        err('order-ok', '✅ 已到账！剩余 ' + state.remaining_chars.toLocaleString() + ' 字符');
+        err('order-ok', '✅ 字符余额已更新！剩余 ' + state.remaining_chars.toLocaleString() + ' 字符');
         setTimeout(() => { location.reload(); }, 1200);
       } else {
-        err('order-err', '尚未到账，请稍后再试或联系客服');
+        err('order-err', '订单状态尚未更新，请稍后再试；如长时间未更新，请联系客服');
       }
     } catch (e) {
       err('order-err', '网络错误，请稍后再试');
