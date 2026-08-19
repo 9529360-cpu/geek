@@ -2,6 +2,13 @@
 
 const { EventEmitter } = require('node:events');
 
+function storagePathLeaf(storagePath) {
+  const value = String(storagePath || '').replace(/[\\/]+$/, '');
+  if (!value) return '';
+  const parts = value.split(/[\\/]/);
+  return parts.at(-1) || '';
+}
+
 function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebugging = false }) {
   const manager = new EventEmitter();
 
@@ -22,7 +29,7 @@ function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebug
     const partitionLeaf = partition.split(':').pop();
     const guests = getAllWebContents();
     return guests.find(g => {
-      const gPartition = g.session.storagePath.split('Partitions/').pop();
+      const gPartition = storagePathLeaf(g?.session?.storagePath);
       return gPartition === partitionLeaf && isPlatformUrl(g.getURL(), platform);
     }) || null;
   }
@@ -81,4 +88,4 @@ function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebug
   return manager;
 }
 
-module.exports = { createInternalCdp };
+module.exports = { createInternalCdp, storagePathLeaf };
