@@ -2,7 +2,7 @@
   width: 100%;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--card-bg);
+  background: var(--bg-surface);
   color: var(--text-primary);
   display: flex;
   align-items: center;
@@ -14,7 +14,7 @@
   flex-shrink: 0;
   transition: background .12s ease, border-color .12s ease;
 }
-.profile-entry:hover { background: var(--hover-bg); border-color: var(--border-standard); }
+.profile-entry:hover { background: var(--bg-elevated); border-color: var(--border-standard); }
 .profile-entry-avatar {
   width: 30px; height: 30px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
@@ -45,9 +45,9 @@
 .profile-center-head-copy h2 { font-size: 18px; font-weight: 620; margin: 0; }
 .profile-center-head-copy p { font-size: 12px; color: var(--text-tertiary); margin-top: 5px; }
 .profile-center-close { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--text-tertiary); font-size: 22px; line-height: 1; cursor: pointer; }
-.profile-center-close:hover { background: var(--hover-bg); color: var(--text-primary); }
+.profile-center-close:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .profile-center-body { display: grid; gap: 12px; padding: 16px 22px; }
-.profile-center-card { padding: 16px; border-radius: 12px; border: 1px solid var(--border-subtle); background: var(--card-bg); }
+.profile-center-card { padding: 16px; border-radius: 12px; border: 1px solid var(--border-subtle); background: var(--bg-surface); }
 .profile-center-card-title { color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .4px; margin-bottom: 12px; }
 .profile-center-grid { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 10px 14px; align-items: baseline; }
 .profile-center-label { color: var(--text-tertiary); font-size: 12px; }
@@ -59,7 +59,7 @@
 .profile-center-btn { border-radius: 8px; padding: 8px 13px; font-size: 12px; font-weight: 580; cursor: pointer; }
 .profile-center-btn:disabled { opacity: .55; cursor: default; }
 .profile-center-btn--primary { border: 1px solid var(--accent-border); background: var(--accent); color: #06230f; }
-.profile-center-btn--secondary { border: 1px solid var(--border-standard); background: var(--btn-bg); color: var(--text-secondary); }
+.profile-center-btn--secondary { border: 1px solid var(--border-standard); background: var(--bg-elevated); color: var(--text-secondary); }
 .profile-center-status { min-height: 18px; font-size: 11px; color: var(--text-tertiary); padding: 0 2px; }
 .profile-center-status[data-state='error'] { color: var(--danger); }
 .profile-center-status[data-state='success'] { color: var(--accent); }
