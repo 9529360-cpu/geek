@@ -4,7 +4,7 @@ Electron 多平台多账号聊天客户端，当前支持 WhatsApp、Telegram �
 
 > 自动化代理接手前先阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/README.md`](docs/README.md)。跨会话维护基线见 [Issue #50](https://github.com/9529360-cpu/geek/issues/50)，Cloudflare 生产部署状态见 [Issue #21](https://github.com/9529360-cpu/geek/issues/21)，账号生产 smoke 见 [Issue #23](https://github.com/9529360-cpu/geek/issues/23)。
 >
-> 当前维护基线（2026-08-19）：客户端与 `package.json` 版本为 **1.2.8**，`.github/release-client-version` 为 **1.2.8**，Electron 锁定为 **43.4.0**。`npm test` 当前自动执行 **62** 项 contract；测试入口会动态发现 `test/*.cjs`，仅排除两个 CDP 开发工具。
+> 当前维护基线（2026-08-19）：客户端与 `package.json` 版本为 **1.2.9**，`.github/release-client-version` 为 **1.2.9**，Electron 锁定为 **43.4.0**。`npm test` 当前自动执行 **62** 项 contract；测试入口会动态发现 `test/*.cjs`，仅排除两个 CDP 开发工具。
 
 ## 当前来源优先级
 
