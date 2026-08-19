@@ -5,7 +5,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-client.yml'), 'utf8');
+const workflow = fs
+  .readFileSync(path.join(root, '.github', 'workflows', 'release-client.yml'), 'utf8')
+  .replace(/\r\n?/g, '\n');
 
 const capture = workflow.indexOf('- name: Capture previous stable metadata');
 const upload = workflow.indexOf('- name: Upload installer and blockmap to R2');
@@ -30,6 +32,7 @@ assert.match(workflow, /ROLLBACK_AVAILABLE=true/, 'rollback may only be enabled 
 assert.match(workflow, /previous stable artifacts are not reachable/, 'rollback target must require reachable installer and blockmap');
 assert.match(workflow, /Refusing promotion without a verified previous stable release/, 'new promotions must fail closed when no rollback target can be verified');
 assert.match(workflow, /Production already reports \$previousVersion; treating this as an idempotent rerun/, 'same-version reruns may proceed without requiring an older rollback target');
+assert.match(workflow, /^  workflow_dispatch:$/m, 'failed releases must have a deliberate same-version retry entrypoint');
 assert.match(workflow, /paths:\s*\n\s*- '\.github\/release-client-version'/, 'normal master pushes must not publish a client release');
 
 console.log('release-rollback-contract: ok');
