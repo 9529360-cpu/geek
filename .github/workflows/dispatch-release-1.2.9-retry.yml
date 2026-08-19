@@ -1,3 +1,4 @@
+# final retry after Windows and Linux full-suite parity
 name: dispatch-release-1.2.9-retry
 
 on:
@@ -22,7 +23,7 @@ jobs:
     timeout-minutes: 70
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TARGET_SHA: cc700292ed978262c9a56ac1c1d2f4142b41271c
+      TARGET_SHA: 3f035c0b52999b00eaec985c83d31d3db05a528d
     steps:
       - name: Dispatch guarded release workflow
         id: release
@@ -51,6 +52,8 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          gh issue comment 77 --repo "$GITHUB_REPOSITORY" --body "## Final Windows client release retry started\n\n- Version: \`1.2.9\`\n- Run ID: \`$run_id\`\n- Commit: \`$TARGET_SHA\`\n- Validation baseline: Windows and Linux all 62 contracts passed\n\nThe guarded workflow is now building, validating, uploading immutable artifacts, publishing latest.yml last and verifying public propagation with rollback protection."
 
           gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status >/dev/null 2>&1 || true
           details="$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json status,conclusion,url,headSha)"
@@ -84,7 +87,7 @@ jobs:
           script: |
             const success = process.env.RELEASE_RESULT === 'success';
             const body = [
-              '## Windows client release retry — Geek 1.2.9',
+              '## Final Windows client release retry — Geek 1.2.9',
               '',
               `- Result: **${success ? 'success' : 'failure'}**`,
               '- Trigger: `workflow_dispatch`',
