@@ -1964,7 +1964,7 @@ function isTrustedSubscriptionSender(event) {
   return isTrustedSender(event) || isSubscriptionSender(event);
 }
 
-function createSubscriptionWindow() {
+function createSubscriptionWindow(initialView = '') {
   if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
     subscriptionWindow.show();
     subscriptionWindow.focus();
@@ -1995,7 +1995,9 @@ function createSubscriptionWindow() {
   });
   subscriptionWindow.once('ready-to-show', () => subscriptionWindow.show());
   subscriptionWindow.on('closed', () => { subscriptionWindow = null; });
-  subscriptionWindow.loadFile(path.join(__dirname, '../ui/subscription.html'));
+  const subscriptionFile = path.join(__dirname, '../ui/subscription.html');
+  if (initialView) subscriptionWindow.loadFile(subscriptionFile, { query: { view: initialView } });
+  else subscriptionWindow.loadFile(subscriptionFile);
   return subscriptionWindow;
 }
 
@@ -2027,6 +2029,12 @@ function registerSubscriptionIpcHandlers() {
   ipcMain.handle('subscription:report-usage', async (event, chars) => {
     if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
     return initSubscriptionStore().reportUsage(Number(chars) || 0);
+  });
+  ipcMain.handle('subscription:open-plans', async (event) => {
+    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    const state = await initSubscriptionStore().getState();
+    createSubscriptionWindow(state.loggedIn ? 'plans' : '');
+    return { ok: true, loggedIn: state.loggedIn === true };
   });
   ipcMain.handle('subscription:logout', async (event) => {
     if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
@@ -2346,6 +2354,7 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('subscription:login');
   ipcMain.removeHandler('subscription:register');
   ipcMain.removeHandler('subscription:create-order');
+  ipcMain.removeHandler('subscription:open-plans');
   ipcMain.removeHandler('subscription:logout');
   ipcMain.removeHandler('subscription:enter-app');
   ipcMain.removeHandler('subscription:close-window');
