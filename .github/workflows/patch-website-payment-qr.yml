@@ -30,11 +30,11 @@ jobs:
       - name: Apply exact website payment QR patch
         run: python scripts/temporary-patch-website-payment-qr.py
 
-      - name: Verify patch scope before tests
+      - name: Verify product patch scope before tests
         run: |
           git diff --check
-          git diff -- scripts/geek-website-worker.js .github/workflows/deploy-website.yml
-          test "$(git diff --name-only | sort | tr '\n' ' ')" = ".github/workflows/deploy-website.yml scripts/geek-website-worker.js "
+          git diff -- scripts/geek-website-worker.js
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "scripts/geek-website-worker.js "
           grep -Fq "path === '/payment-qr'" scripts/geek-website-worker.js
           grep -Fq "encodeURIComponent(pay.usdt_address)" scripts/geek-website-worker.js
           ! grep -Fq "usdt-qr.png" scripts/geek-website-worker.js
@@ -56,11 +56,9 @@ jobs:
       - name: Run complete contract suite
         run: npm test
 
-      - name: Commit exact patch and remove temporary files
+      - name: Commit verified website Worker patch
         run: |
-          rm .github/workflows/patch-website-payment-qr.yml
-          rm scripts/temporary-patch-website-payment-qr.py
-          git add scripts/geek-website-worker.js .github/workflows/deploy-website.yml .github/workflows/patch-website-payment-qr.yml scripts/temporary-patch-website-payment-qr.py
+          git add scripts/geek-website-worker.js
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
