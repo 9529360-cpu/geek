@@ -67,79 +67,15 @@ jobs:
       - name: Capture previous stable metadata
         shell: pwsh
         run: |
-          $root = 'https://geek-release.9529360.workers.dev'
-
-          function Invoke-PublicRequestWithRetry(
-            [string]$Uri,
-            [int]$Attempts = 6
-          ) {
-            $lastFailure = 'unknown failure'
-            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-              $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
-              $attemptUri = "$Uri$separator" + "attempt=$attempt"
-              try {
-                $response = Invoke-WebRequest -Uri $attemptUri -Method Get -UseBasicParsing -TimeoutSec 20
-                if ($response.StatusCode -eq 200) { return $response }
-                $lastFailure = "HTTP $($response.StatusCode)"
-              } catch {
-                $lastFailure = $_.Exception.Message
-              }
-              Write-Host "Rollback metadata GET attempt $attempt failed: $lastFailure"
-              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
-            }
-            throw "public metadata request failed after $Attempts attempts: $lastFailure"
-          }
-
-          function Test-PublicArtifactWithRetry(
-            [string]$Uri,
-            [int]$Attempts = 6
-          ) {
-            $lastStatus = '000'
-            $lastExitCode = -1
-            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-              $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
-              $attemptUri = "$Uri$separator" + "attempt=$attempt"
-              $statusOutput = & curl.exe --silent --show-error --location --range 0-0 --output NUL --write-out '%{http_code}' --max-time 90 $attemptUri
-              $lastExitCode = $LASTEXITCODE
-              $lastStatus = ($statusOutput | Out-String).Trim()
-              if ($lastExitCode -eq 0 -and ($lastStatus -eq '200' -or $lastStatus -eq '206')) {
-                return $true
-              }
-              Write-Host "Rollback artifact ranged GET attempt $attempt failed: HTTP $lastStatus curl=$lastExitCode"
-              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
-            }
-            throw "public artifact ranged GET failed after $Attempts attempts: HTTP $lastStatus curl=$lastExitCode"
-          }
-
-          $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-          try {
-            $response = Invoke-PublicRequestWithRetry "$root/latest.yml?before=$nonce"
-            $versionMatch = [regex]::Match($response.Content, '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$')
-            if (-not $versionMatch.Success) { throw 'previous latest.yml has no valid version' }
-            $pathMatch = [regex]::Match($response.Content, '(?m)^path:\s*(geek-setup-[0-9]+\.[0-9]+\.[0-9]+\.exe)\s*$')
-            if (-not $pathMatch.Success) { throw 'previous latest.yml has no valid installer path' }
-            $previousVersion = $versionMatch.Groups[1].Value
-            $previousPath = $pathMatch.Groups[1].Value
-            if ($previousPath -ne "geek-setup-$previousVersion.exe") {
-              throw 'previous latest.yml path/version mismatch'
-            }
-            if ($previousVersion -eq $env:RELEASE_VERSION) {
-              Write-Host "Production already reports $previousVersion; treating this as an idempotent rerun."
-              "ROLLBACK_AVAILABLE=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-              exit 0
-            }
-            try {
-              $null = Test-PublicArtifactWithRetry "$root/$previousPath?before=$nonce"
-              $null = Test-PublicArtifactWithRetry "$root/$previousPath.blockmap?before=$nonce"
-            } catch {
-              throw "previous stable artifacts are not reachable: $($_.Exception.Message)"
-            }
-            Set-Content -LiteralPath 'dist-release\previous-latest.yml' -Value $response.Content -NoNewline -Encoding utf8
-            "PREVIOUS_RELEASE_VERSION=$previousVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "ROLLBACK_AVAILABLE=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            Write-Host "rollback-target=$previousVersion"
-          } catch {
-            throw "Refusing promotion without a verified previous stable release: $($_.Exception.Message)"
+          node scripts/release-public-check.cjs capture `
+            --root 'https://geek-release.9529360.workers.dev' `
+            --release-version $env:RELEASE_VERSION `
+            --metadata-out 'dist-release\previous-latest.yml' `
+            --github-env $env:GITHUB_ENV `
+            --attempts 6 `
+            --delay-ms 10000
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Refusing promotion without a verified previous stable release'
           }
 
       - name: Upload installer and blockmap to R2
@@ -186,37 +122,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           $root = 'https://geek-release.9529360.workers.dev'
-
-          function Test-PublicArtifact([string]$Uri) {
-            $statusOutput = & curl.exe --silent --show-error --location --range 0-0 --output NUL --write-out '%{http_code}' --max-time 90 $Uri
-            $exitCode = $LASTEXITCODE
-            $status = ($statusOutput | Out-String).Trim()
-            return $exitCode -eq 0 -and ($status -eq '200' -or $status -eq '206')
-          }
-
-          function Test-PublicRelease([string]$Version, [int]$Attempts = 18) {
-            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-              try {
-                $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-                $latestResponse = Invoke-WebRequest -Uri "$root/latest.yml?release=$nonce" -Method Get -UseBasicParsing -TimeoutSec 20
-                $pattern = "(?m)^version:\s*$([regex]::Escape($Version))\s*$"
-                if ($latestResponse.StatusCode -eq 200 -and $latestResponse.Content -match $pattern) {
-                  $base = "geek-setup-$Version.exe"
-                  $exeOk = Test-PublicArtifact "$root/$base?release=$nonce"
-                  $mapOk = Test-PublicArtifact "$root/$base.blockmap?release=$nonce"
-                  if ($exeOk -and $mapOk) {
-                    return $true
-                  }
-                }
-              } catch {
-                Write-Host "Verification attempt $attempt for $Version failed: $($_.Exception.Message)"
-              }
-              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
-            }
-            return $false
-          }
-
-          if (Test-PublicRelease $env:RELEASE_VERSION) {
+          node scripts/release-public-check.cjs verify `
+            --root $root `
+            --version $env:RELEASE_VERSION `
+            --attempts 18 `
+            --delay-ms 10000
+          if ($LASTEXITCODE -eq 0) {
             "Published Geek $env:RELEASE_VERSION to the production update source." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             exit 0
           }
@@ -225,9 +136,16 @@ jobs:
           if ($env:ROLLBACK_AVAILABLE -eq 'true' -and (Test-Path 'dist-release\previous-latest.yml')) {
             npx --yes wrangler@4.36.0 r2 object put 'geek-release/latest.yml' --file 'dist-release/previous-latest.yml' --remote
             if ($LASTEXITCODE -ne 0) { throw 'Release verification failed and rollback upload also failed' }
-            if ($env:PREVIOUS_RELEASE_VERSION -and (Test-PublicRelease $env:PREVIOUS_RELEASE_VERSION)) {
-              "Release $env:RELEASE_VERSION failed verification. Restored previous stable $env:PREVIOUS_RELEASE_VERSION." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-              throw "Release $env:RELEASE_VERSION failed verification; previous stable $env:PREVIOUS_RELEASE_VERSION was restored"
+            if ($env:PREVIOUS_RELEASE_VERSION) {
+              node scripts/release-public-check.cjs verify `
+                --root $root `
+                --version $env:PREVIOUS_RELEASE_VERSION `
+                --attempts 18 `
+                --delay-ms 10000
+              if ($LASTEXITCODE -eq 0) {
+                "Release $env:RELEASE_VERSION failed verification. Restored previous stable $env:PREVIOUS_RELEASE_VERSION." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+                throw "Release $env:RELEASE_VERSION failed verification; previous stable $env:PREVIOUS_RELEASE_VERSION was restored"
+              }
             }
             throw 'Release verification failed; rollback metadata was uploaded but public rollback could not be verified'
           }
