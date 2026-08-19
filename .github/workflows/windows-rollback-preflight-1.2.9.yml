@@ -1,0 +1,106 @@
+name: windows-rollback-preflight-1.2.9
+
+on:
+  push:
+    branches:
+      - fix/release-rollback-preflight-retry
+    paths:
+      - '.github/workflows/windows-rollback-preflight-1.2.9.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/release-rollback-preflight-retry
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run all contracts
+        run: npm test
+
+      - name: Execute rollback preflight without promotion
+        id: preflight
+        shell: pwsh
+        run: |
+          $root = 'https://geek-release.9529360.workers.dev'
+
+          function Invoke-PublicRequestWithRetry(
+            [string]$Uri,
+            [string]$Method = 'Get',
+            [int]$Attempts = 6
+          ) {
+            $lastFailure = 'unknown failure'
+            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+              $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
+              $attemptUri = "$Uri$separator" + "attempt=$attempt"
+              try {
+                $response = Invoke-WebRequest -Uri $attemptUri -Method $Method -UseBasicParsing -TimeoutSec 20
+                if ($response.StatusCode -eq 200) { return $response }
+                $lastFailure = "HTTP $($response.StatusCode)"
+              } catch {
+                $lastFailure = $_.Exception.Message
+              }
+              Write-Host "Rollback preflight $Method attempt $attempt failed: $lastFailure"
+              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
+            }
+            throw "public request failed after $Attempts attempts: $lastFailure"
+          }
+
+          $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          $response = Invoke-PublicRequestWithRetry "$root/latest.yml?before=$nonce"
+          $versionMatch = [regex]::Match($response.Content, '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$')
+          if (-not $versionMatch.Success) { throw 'previous latest.yml has no valid version' }
+          $pathMatch = [regex]::Match($response.Content, '(?m)^path:\s*(geek-setup-[0-9]+\.[0-9]+\.[0-9]+\.exe)\s*$')
+          if (-not $pathMatch.Success) { throw 'previous latest.yml has no valid installer path' }
+          $previousVersion = $versionMatch.Groups[1].Value
+          $previousPath = $pathMatch.Groups[1].Value
+          if ($previousPath -ne "geek-setup-$previousVersion.exe") { throw 'previous latest.yml path/version mismatch' }
+          $null = Invoke-PublicRequestWithRetry "$root/$previousPath?before=$nonce" 'Head'
+          $null = Invoke-PublicRequestWithRetry "$root/$previousPath.blockmap?before=$nonce" 'Head'
+          "previous_version=$previousVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "previous_path=$previousPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Publish non-sensitive result
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PREVIOUS_VERSION: ${{ steps.preflight.outputs.previous_version }}
+          PREVIOUS_PATH: ${{ steps.preflight.outputs.previous_path }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const success = process.env.PREFLIGHT_OUTCOME === 'success';
+            const body = [
+              '## Windows rollback preflight validation',
+              '',
+              `- Result: **${success ? 'success' : 'failure'}**`,
+              '- Full command suite: `npm test` on `windows-latest`',
+              `- Verified previous version: ${process.env.PREVIOUS_VERSION || 'unknown'}`,
+              `- Verified declared installer path: ${process.env.PREVIOUS_PATH || 'unknown'}`,
+              `- Commit: ${context.sha}`,
+              `- Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'No R2 write permission, response body, credential or storage content was used or reported.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 87,
+              body,
+            });
