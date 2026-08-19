@@ -252,7 +252,7 @@ LIMIT 3;
 | 改密后旧设备仍登录 | JWT `ver` 与 `users.token_version` | 改密必须递增版本，旧 JWT 应失效 |
 | 所有人都收不到邮件 | Worker secret 名称、Resend 状态、DNS | 检查 DKIM 与 `send.send.bbnba.com` 的 SPF/MX |
 | 只有部分邮箱收不到 | Resend 投递日志、退信/垃圾邮件 | 不要把单个邮箱退信误判为全局故障 |
-| 官网页面有表单但 API 404 | 网站 Worker路由/代理和订阅 Worker 路由 | 两个 Worker 可能版本不一致 |
+| 官网页面有表单但 API 404 | 网站 Worker 路由/代理和订阅 Worker 路由 | 两个 Worker 可能版本不一致 |
 | 合并后未触发部署 | PR 文件范围、工作流 paths、Actions 状态 | 普通文档/无关路径不会触发生产部署 |
 | D1 报重复列 | 是否误跑 `002-password-resets.sql` | 生产迁移已经执行，禁止重复执行 |
 
