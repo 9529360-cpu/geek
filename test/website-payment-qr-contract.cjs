@@ -49,7 +49,7 @@ const releaseWorker = fs.readFileSync(path.join(root, 'scripts', 'geek-release-w
   );
   assert.match(workerSource, /encodeURIComponent\(pay\.usdt_address\)/, '二维码 URL 必须来自当前订单地址');
   assert.match(workerSource, /path === '\/payment-qr'/, '官网必须提供同源支付二维码路由');
-  assert.match(workerSource, /id=\\"usdt-qr-fallback\\"/, '二维码加载失败时必须保留复制地址提示');
+  assert.match(workerSource, /id="usdt-qr-fallback"/, '二维码加载失败时必须保留复制地址提示');
   assert.doesNotMatch(releaseWorker, /usdt-qr\.png/, 'release Worker 不得扩展为支付静态资源服务');
 
   const executable = workerSource
