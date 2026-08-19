@@ -6,12 +6,17 @@ on:
       - ux-translation-settings-humanized
     paths:
       - .github/workflows/tmp-translation-settings-patch.yml
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.head_ref == 'ux-translation-settings-humanized' || github.ref_name == 'ux-translation-settings-humanized'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
