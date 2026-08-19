@@ -26,6 +26,7 @@
 .translation-card .translation-row > span { color: var(--text-secondary); font-size: 11.5px; }
 .translation-card select { max-width: 190px; }
 .translation-save-status { min-height: 18px; padding: 7px 2px 0; color: var(--text-tertiary); font-size: 11px; text-align: right; }
+.translation-save-status[data-state='working'] { color: var(--text-secondary); }
 .translation-save-status[data-state='ok'] { color: var(--accent); }
 .translation-save-status[data-state='error'] { color: var(--danger); }
 .translation-chat-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; padding: 10px 11px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--card-bg); }

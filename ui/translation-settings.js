@@ -32,6 +32,8 @@
     let healthCheckedAt = 0;
     let healthPromise = null;
     const statusTimers = new Map();
+    const saveQueues = new Map();
+    const saveRevisions = new Map();
 
     const el = id => document.getElementById(id);
     const value = (id, fallback = '') => el(id)?.value || fallback;
@@ -50,8 +52,38 @@
       if (kind === 'ok') {
         statusTimers.set(id, setTimeout(() => {
           if (node.dataset.state === 'ok') { node.textContent = ''; node.dataset.state = ''; }
-        }, 1800));
+        }, 2200));
       }
+    }
+
+    function enqueueSave(scope, task) {
+      const previous = saveQueues.get(scope) || Promise.resolve();
+      const next = previous.catch(() => {}).then(task);
+      saveQueues.set(scope, next);
+      return next;
+    }
+
+    async function persistStorage({ scope, statusId, key, payload, workingText = '正在保存…', successText = '已保存 ✓', failureText = '保存失败，请重试', onLatestSuccess, onLatestFailure }) {
+      const revision = (saveRevisions.get(scope) || 0) + 1;
+      saveRevisions.set(scope, revision);
+      setStatus(statusId, workingText, 'working');
+      let ok = false;
+      try {
+        const result = await enqueueSave(scope, () => deps.setStorage(key, payload));
+        ok = result !== false;
+      } catch {
+        ok = false;
+      }
+      if (ok) deps.sync();
+      if (saveRevisions.get(scope) !== revision) return ok;
+      if (!ok) {
+        if (typeof onLatestFailure === 'function') await onLatestFailure();
+        setStatus(statusId, failureText, 'error');
+        return false;
+      }
+      if (typeof onLatestSuccess === 'function') await onLatestSuccess();
+      setStatus(statusId, successText, 'ok');
+      return true;
     }
 
     function populateLanguages() {
@@ -170,16 +202,14 @@
       const cfg = collectGlobal();
       setValue('translation-message', cfg.translationMode);
       syncDependencies(cfg);
-      const result = await deps.setStorage('translationGlobal', JSON.stringify(cfg));
-      if (result === false) {
-        refreshGlobal();
-        setStatus('translation-global-status', '保存失败，请重试', 'error');
-        return false;
-      }
-      deps.sync();
-      setStatus('translation-global-status', '已保存 ✓', 'ok');
-      await refreshChat();
-      return true;
+      return persistStorage({
+        scope: 'global',
+        statusId: 'translation-global-status',
+        key: 'translationGlobal',
+        payload: JSON.stringify(cfg),
+        onLatestFailure: () => { refreshGlobal(); },
+        onLatestSuccess: () => refreshChat()
+      });
     }
 
     function setChatUi(effective, hasOverride) {
@@ -222,16 +252,15 @@
     }
 
     async function persistChats(store, successText) {
-      const result = await deps.setStorage('translationChats', JSON.stringify(store));
-      if (result === false) {
-        setStatus('translation-chat-status', '保存失败，请重试', 'error');
-        await refreshChat();
-        return false;
-      }
-      deps.sync();
-      setStatus('translation-chat-status', successText || '已保存 ✓', 'ok');
-      await refreshChat();
-      return true;
+      return persistStorage({
+        scope: 'chat',
+        statusId: 'translation-chat-status',
+        key: 'translationChats',
+        payload: JSON.stringify(store),
+        successText: successText || '已保存 ✓',
+        onLatestFailure: () => refreshChat(),
+        onLatestSuccess: () => refreshChat()
+      });
     }
 
     async function setChatOverride(enabled) {
@@ -302,18 +331,17 @@
       if (!deps.getActiveId()) return false;
       const ask = typeof deps.confirm === 'function' ? deps.confirm : window.confirm.bind(window);
       if (!ask('恢复全局翻译推荐设置？当前聊天的单独设置会保留。')) return false;
-      setStatus('translation-global-status', '正在恢复…', 'working');
-      const result = await deps.setStorage('translationGlobal', JSON.stringify(DEFAULTS));
-      if (result === false) {
-        setStatus('translation-global-status', '恢复失败，请重试', 'error');
-        refreshGlobal();
-        return false;
-      }
-      deps.sync();
-      refreshGlobal();
-      await refreshChat();
-      setStatus('translation-global-status', '翻译设置已恢复默认 ✓', 'ok');
-      return true;
+      return persistStorage({
+        scope: 'global',
+        statusId: 'translation-global-status',
+        key: 'translationGlobal',
+        payload: JSON.stringify(DEFAULTS),
+        workingText: '正在恢复…',
+        successText: '翻译设置已恢复默认 ✓',
+        failureText: '恢复失败，请重试',
+        onLatestFailure: () => { refreshGlobal(); },
+        onLatestSuccess: async () => { refreshGlobal(); await refreshChat(); }
+      });
     }
 
     async function checkHealth(force = false) {
