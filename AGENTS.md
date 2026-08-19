@@ -1,13 +1,23 @@
 # 极客项目代理工作说明
 
-本文件供 Hermes、Codex 及其他自动化开发代理进入仓库后优先阅读。
+本文件供 Hermes、Codex 及其他自动化开发代理进入仓库后优先阅读。当前项目状态不能只从对话记忆或历史文档恢复，必须先核对 GitHub 上的实时来源。
 
 ## 开始工作前
 
-1. 先读 `README.md` 和 `docs/account-password-reset-operations.md`。
-2. 运行 `git status -sb`，保留用户已有改动，不得擅自回滚或清理。
-3. 修改账户、官网、发布或 Cloudflare Worker 前，先运行 `npm test`。
-4. 不要把 API Key、JWT 密钥、管理员密码、邮箱密码、重置令牌或真实用户数据写进代码、日志、提交信息和文档。
+1. 先读 Issue #50 的最新评论，再读 `README.md`、`docs/README.md` 和本次任务对应的当前运维文档。历史事故、研究、旧发布交接和 UI 原型只用于理解背景，不是生产配置。
+2. 核对实时 `master` HEAD、`package.json.version`、`.github/release-client-version`、开放 PR/Issue，以及 Issue #21/#23 的最新生产状态。若 HEAD 与 #50 最新 checkpoint 不同，先检查全部新增提交和合并，再开始修改。
+3. 使用本地 checkout 时先运行 `git status -sb`，保留用户已有改动，不得擅自回滚或清理。使用 GitHub connector 时，从已确认的实时 `master` 建分支；不得因为本地没有 `gh` CLI 就错误判断仓库无法维护。
+4. 修改账户、官网、发布或 Cloudflare Worker 前，先运行 `npm test`；仅使用 connector 时，至少让标准 PR CI 在最终合并树上执行并核对结果。当前自动入口执行 62 项 contract。
+5. 一个根因对应一个 Issue、分支和 PR。合并后立即更新 Issue #50；涉及生产部署时，以对应 Actions run 和 #21/#23 为证据，不以本地临时环境能否解析域名为准。
+6. 不要把 API Key、JWT 密钥、管理员密码、邮箱密码、重置令牌、Cookie、LINE auth header、聊天正文或真实用户数据写进代码、日志、提交信息和文档。
+
+## 仓库操作与发布边界
+
+- GitHub connector-native 的 Issue、分支、文件、PR、CI 检查和合并路径是正式可用的维护方式；本地 `git`/`gh` 仅在当前环境具备且确有需要时使用。
+- `src/main.cjs`、`ui/app.js` 等大文件兼容敏感。优先提取单一职责模块；使用整文件 contents API 时必须基于准确 blob SHA 和完整 diff 核对，禁止顺手重写无关内容。
+- 普通源码、Worker 或文档维护不得修改 `.github/release-client-version`，也不得手动启动正式客户端发布。
+- 正常新版本发布由 release marker 变更触发；同版本 `workflow_dispatch` 只用于已有独立发布授权和失败证据的恢复重试，且不能绕过完整测试、回滚和公网验证。
+- force-push、Git 历史重写、凭据轮换、正式客户端发布和高影响生产变更不属于普通维护授权。
 
 ## 账户与官网关键位置
 
@@ -45,6 +55,8 @@
 
 ## 提交与部署最低流程
 
+有本地 checkout 时运行：
+
 ```powershell
 npm test
 node --check scripts/geek-subscription-worker.js
@@ -53,6 +65,6 @@ node --check scripts/geek-website-worker.js
 git diff --check
 ```
 
-测试通过后才可提交、推送和部署。完整部署与线上验证步骤见
-`docs/account-password-reset-operations.md`。
+只修改其中一个服务时，仅执行与该根因相关的额外语法检查和部署验证；完整账户、官网部署与线上验证步骤见 `docs/account-password-reset-operations.md`，Cloudflare 控制面与状态通道见 `docs/github-control-plane.md`，客户端发布边界见 `docs/release-security.md`。
 
+测试、diff 和 PR CI 通过后才可合并。生产部署结果必须由执行部署的 GitHub-hosted job 验证并写入 #21；账号注册、登录、鉴权和清理 smoke 写入 #23。普通维护合并不得被描述为发布了新客户端。
