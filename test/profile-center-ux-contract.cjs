@@ -20,6 +20,9 @@ assert.match(index, /profile-center\.css/, '主窗口必须加载个人中心样
 assert.match(index, /profile-center\.js/, '主窗口必须加载个人中心模块');
 assert.match(profile, /profile-center-entry/, '左侧栏必须有个人中心入口');
 assert.match(profile, /字符余量/, '个人中心入口与面板必须保留字符余量展示');
+assert.match(profile, /entryTitle\.textContent = '个人中心'/, '侧栏应保持稳定的个人中心标题而不是常驻暴露邮箱');
+assert.match(profile, /remainingValue == null \|\| remainingValue === '' \? NaN : Number\(remainingValue\)/,
+  '缺失的字符余量不得被 Number(null) 误判为 0');
 assert.match(profile, /subscription\.getState\(\)/, '个人中心必须读取当前账号状态');
 assert.match(profile, /subscription\.getQuota\(force === true\)/, '个人中心刷新必须复用现有 quota API');
 assert.match(profile, /subscription\.openPlans\(\)/, '购买按钮必须复用现有套餐窗口');
