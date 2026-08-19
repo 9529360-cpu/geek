@@ -22,7 +22,9 @@ jobs:
         with:
           node-version: 22
       - name: Apply bounded translation feedback patch
-        run: node scripts/patch-translation-save-feedback.cjs
+        run: |
+          node scripts/patch-translation-save-feedback.cjs
+          node scripts/patch-translation-save-feedback-legacy-contract.cjs
       - name: Verify syntax and release boundary
         shell: bash
         run: |
