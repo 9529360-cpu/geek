@@ -1,4 +1,4 @@
-# final independent verification for master 3f035c0b52999b00eaec985c83d31d3db05a528d
+# independent public verification for master ab5038ed0c718676268acae9546de648919ef5fe
 name: verify-release-1.2.9
 
 on:
@@ -19,9 +19,9 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     env:
-      TARGET_RELEASE_SHA: 3f035c0b52999b00eaec985c83d31d3db05a528d
+      TARGET_RELEASE_SHA: ab5038ed0c718676268acae9546de648919ef5fe
     steps:
       - name: Verify public updater artifacts
         id: verify
@@ -42,7 +42,7 @@ jobs:
           blockmap_bytes='0'
           hash_match='no'
 
-          for attempt in $(seq 1 120); do
+          for attempt in $(seq 1 20); do
             cache_bust="$(date +%s)-${attempt}"
             latest_status="$(curl --silent --show-error --location --output "$work/latest.yml" --write-out '%{http_code}' "$base/latest.yml?verify=$cache_bust" || true)"
             if [ "$latest_status" = '200' ]; then
@@ -65,7 +65,7 @@ jobs:
               fi
             fi
             rm -f "$work/installer.exe" "$work/installer.exe.blockmap"
-            sleep 15
+            sleep 5
           done
 
           {
@@ -97,7 +97,7 @@ jobs:
           script: |
             const success = process.env.VERIFY_RESULT === 'success';
             const body = [
-              '## Final public release verification — Geek 1.2.9',
+              '## Independent public release verification — Geek 1.2.9',
               '',
               `- Result: **${success ? 'success' : 'failure'}**`,
               `- Public latest.yml: HTTP ${process.env.LATEST_STATUS || '000'}${success ? ', version 1.2.9' : ''}`,
