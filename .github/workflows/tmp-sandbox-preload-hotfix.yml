@@ -1,0 +1,67 @@
+name: Temporary sandbox preload hotfix
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.head_ref == 'agent/fix-sandbox-preload-version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-sandbox-preload-version
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply bounded hotfix
+        run: node scripts/patch-sandbox-preload-version.cjs
+      - name: Verify exact hotfix scope
+        shell: bash
+        run: |
+          node --check src/preload.cjs
+          node --check ui/version-label.js
+          node --check test/ui-runtime-version-contract.cjs
+          node --check src/main.cjs
+          git diff --check
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'src/main.cjs' \
+            'src/preload.cjs' \
+            'test/ui-runtime-version-contract.cjs' \
+            'ui/version-label.js' | sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo 'Unexpected hotfix diff scope:' >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = require('./package.json');
+          const marker = fs.readFileSync('.github/release-client-version', 'utf8').trim();
+          if (pkg.version !== '1.2.11') throw new Error(`package version changed: ${pkg.version}`);
+          if (marker !== '1.2.11') throw new Error(`release marker changed: ${marker}`);
+          const preload = fs.readFileSync('src/preload.cjs', 'utf8');
+          if (/require\(['"]\.\.?\//.test(preload)) throw new Error('relative require remains in sandbox preload');
+          NODE
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Run full contracts
+        run: npm test
+      - name: Commit focused hotfix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.cjs src/preload.cjs ui/version-label.js test/ui-runtime-version-contract.cjs
+          git commit -m "fix: restore sandbox preload bridge"
+          git push origin HEAD:agent/fix-sandbox-preload-version
