@@ -3432,113 +3432,28 @@
   document.getElementById('btn-win-max').onclick = () => window.api.window.maximize();
   document.getElementById('btn-win-close').onclick = () => window.api.window.close();
 
-  // ---------- 设置面板 ----------
+  // ---------- 设置面板（体验层独立模块；沿用既有 config/accounts IPC） ----------
+  const settingsController = window.GeekSettingsController.create({
+    getConfig: () => window.api.config.get(),
+    setConfig: patch => window.api.config.set(patch),
+    getAccounts: () => window.api.accounts.list(),
+    updateAccount: (accountId, patch) => window.api.accounts.update(accountId, patch),
+    applyTheme,
+    getActiveId: () => activeId,
+    familyLabel: type => familyOf(type).label,
+    afterSave: async () => { await loadAccounts(); },
+  });
   function openSettings() {
-    loadSettingsForm();
-    settingsOverlay.classList.remove('hidden');
+    const preferred = accSelect.value || activeId || '';
+    return settingsController.open(preferred);
   }
   function closeSettings() {
-    settingsOverlay.classList.add('hidden');
+    settingsController.close();
   }
-
-  document.getElementById('settings-close').onclick = closeSettings;
-  document.getElementById('settings-cancel').onclick = closeSettings;
-  settingsOverlay.onclick = (e) => {
-    if (e.target === settingsOverlay) closeSettings();
-  };
-
-  settingsTabs.forEach((tab) => {
-    tab.onclick = () => {
-      settingsTabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const which = tab.dataset.tab;
-      settingsGlobal.classList.toggle('hidden', which !== 'global');
-      settingsAccount.classList.toggle('hidden', which !== 'account');
-    };
-  });
-
-  accSelect.onchange = loadAccountSettingsForm;
-
-  async function loadSettingsForm() {
-    config = await window.api.config.get();
-    applyTheme(config.theme, config.accent);
-    document.getElementById('cfg-theme').value = config.theme || 'dark';
-    document.getElementById('cfg-accent').value = config.accent || 'green';
-    document.getElementById('cfg-autoLaunch').checked = !!config.autoLaunch;
-    document.getElementById('cfg-isStartupMinimize').checked = !!config.isStartupMinimize;
-    document.getElementById('cfg-messageSound').checked = !!config.messageSound;
-    document.getElementById('cfg-lockPassword').value = config.lockPassword || '';
-    document.getElementById('cfg-openProxy').checked = !!config.openProxy;
-    document.getElementById('cfg-protocal').value = config.protocal || 'http';
-    document.getElementById('cfg-host').value = config.host || '';
-    document.getElementById('cfg-port').value = config.port || '';
-    document.getElementById('cfg-login').value = config.login || '';
-    document.getElementById('cfg-password').value = config.password || '';
-
-    accSelect.innerHTML = '';
-    accounts.forEach(a => {
-      const opt = document.createElement('option');
-      opt.value = a.id;
-      opt.textContent = `${a.name} (${(a.type === 'telegram-z' || a.type === 'telegram-k') ? 'TG' : 'WA'})`;
-      accSelect.appendChild(opt);
-    });
-    if (activeId) accSelect.value = activeId;
-    loadAccountSettingsForm();
-  }
-
   function loadAccountSettingsForm() {
-    const account = accounts.find(a => a.id === accSelect.value);
-    if (!account) return;
-    document.getElementById('acc-name').value = account.name || '';
-    document.getElementById('acc-fontSize').value = account.fontSize || 16;
-    document.getElementById('acc-fontColor').value = account.fontColor || '#18A058';
-    document.getElementById('acc-openProxy').checked = !!account.openProxy;
-    document.getElementById('acc-host').value = account.host || '';
-    document.getElementById('acc-port').value = account.port || '';
-    document.getElementById('acc-huser').value = account.huser || '';
-    document.getElementById('acc-hpwd').value = account.hpwd || '';
+    settingsController.loadAccount();
   }
-
-  document.getElementById('settings-save').onclick = async () => {
-    try {
-      const configPatch = {
-        theme: document.getElementById('cfg-theme').value,
-        accent: document.getElementById('cfg-accent').value,
-        autoLaunch: document.getElementById('cfg-autoLaunch').checked,
-        isStartupMinimize: document.getElementById('cfg-isStartupMinimize').checked,
-        messageSound: document.getElementById('cfg-messageSound').checked,
-        lockPassword: document.getElementById('cfg-lockPassword').value,
-        openProxy: document.getElementById('cfg-openProxy').checked,
-        protocal: document.getElementById('cfg-protocal').value,
-        host: document.getElementById('cfg-host').value.trim(),
-        port: document.getElementById('cfg-port').value.trim(),
-        login: document.getElementById('cfg-login').value.trim(),
-        password: document.getElementById('cfg-password').value
-      };
-      await window.api.config.set(configPatch);
-
-      const accountId = accSelect.value;
-      if (accountId) {
-        const accountPatch = {
-          name: document.getElementById('acc-name').value.trim(),
-          fontSize: parseInt(document.getElementById('acc-fontSize').value, 10),
-          fontColor: document.getElementById('acc-fontColor').value,
-          openProxy: document.getElementById('acc-openProxy').checked,
-          host: document.getElementById('acc-host').value.trim(),
-          port: document.getElementById('acc-port').value.trim(),
-          huser: document.getElementById('acc-huser').value.trim(),
-          hpwd: document.getElementById('acc-hpwd').value
-        };
-        await window.api.accounts.update(accountId, accountPatch);
-      }
-
-      await loadAccounts();
-      applyTheme(configPatch.theme, configPatch.accent); // 保存后立即换主题
-      closeSettings();
-    } catch (e) {
-      alert('保存失败: ' + e.message);
-    }
-  };
+  settingsController.bind();
 
   function reloadAccountScopedUiState() {
     const parse = (key, fallback) => { try { return JSON.parse(accountStorageGetItem(key) || JSON.stringify(fallback)); } catch { return fallback; } };
