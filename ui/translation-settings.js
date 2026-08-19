@@ -344,6 +344,28 @@
       return healthPromise;
     }
 
+    function panelVisible(id) {
+      const node = el(id);
+      return !!node && !node.classList.contains('hidden');
+    }
+
+    function closePopover({ restoreFocus = true } = {}) {
+      const popover = el('translation-popover');
+      const button = el('btn-translation');
+      popover?.classList.add('hidden');
+      button?.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) button?.focus();
+    }
+
+    function handleKeydown(event) {
+      if (event.defaultPrevented || event.repeat || event.key !== 'Escape') return;
+      if (!panelVisible('translation-popover')) return;
+      if (panelVisible('settings-overlay')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closePopover({ restoreFocus: true });
+    }
+
     function activateTab(name) {
       document.querySelectorAll('[data-translation-tab]').forEach(node => node.classList.toggle('active', node.dataset.translationTab === name));
       document.querySelectorAll('.translation-tab-panel').forEach(node => node.classList.toggle('hidden', node.id !== `translation-tab-${name}`));
@@ -369,10 +391,8 @@
           checkHealth(false);
         }
       });
-      el('translation-close')?.addEventListener('click', () => {
-        popover?.classList.add('hidden');
-        button?.setAttribute('aria-expanded', 'false');
-      });
+      el('translation-close')?.addEventListener('click', () => closePopover({ restoreFocus: true }));
+      document.addEventListener('keydown', handleKeydown);
       document.querySelectorAll('[data-translation-tab]').forEach(tab => tab.addEventListener('click', async () => {
         activateTab(tab.dataset.translationTab);
         if (tab.dataset.translationTab === 'channel') await refreshChat();

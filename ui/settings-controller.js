@@ -17,12 +17,24 @@
     let accounts = [];
     let previewSnapshot = null;
     let statusTimer = null;
+    let returnFocus = null;
 
     const el = id => document.getElementById(id);
     const checked = id => !!el(id)?.checked;
     const value = (id, fallback = '') => String(el(id)?.value ?? fallback);
     const setChecked = (id, next) => { const node = el(id); if (node) node.checked = !!next; };
     const setValue = (id, next) => { const node = el(id); if (node) node.value = String(next ?? ''); };
+
+    function overlayVisible(id) {
+      const node = el(id);
+      return !!node && !node.classList.contains('hidden');
+    }
+
+    function restoreFocus() {
+      const target = returnFocus;
+      returnFocus = null;
+      if (target && target.isConnected !== false && typeof target.focus === 'function') target.focus();
+    }
 
     function setStatus(text, kind = '') {
       const node = el('settings-status');
@@ -230,19 +242,28 @@
     }
 
     async function open(preferredAccountId = '') {
+      if (overlayVisible('settings-overlay')) {
+        el('settings-close')?.focus();
+        return;
+      }
       const activeTab = document.querySelector('.settings-tab.active')?.dataset.tab || 'global';
+      const active = document.activeElement;
+      returnFocus = active && typeof active.focus === 'function' ? active : null;
       const before = await deps.getConfig() || {};
       previewSnapshot = { theme: before.theme || 'dark', accent: before.accent || 'green' };
       await load(preferredAccountId);
       activateTab(activeTab);
       el('settings-overlay')?.classList.remove('hidden');
+      el('settings-close')?.focus();
     }
 
     function close({ restorePreview = false } = {}) {
+      if (!overlayVisible('settings-overlay')) return;
       if (restorePreview && previewSnapshot) deps.applyTheme(previewSnapshot.theme, previewSnapshot.accent);
       previewSnapshot = null;
       el('settings-overlay')?.classList.add('hidden');
       setStatus('');
+      restoreFocus();
     }
 
     function configPatch() {
@@ -309,6 +330,28 @@
       }
     }
 
+    function handleKeydown(event) {
+      if (event.defaultPrevented || event.repeat) return;
+      const settingsShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key === ',';
+      if (settingsShortcut) {
+        if (overlayVisible('lock-overlay')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (overlayVisible('settings-overlay')) {
+          el('settings-close')?.focus();
+          return;
+        }
+        const preferredId = typeof deps.getActiveId === 'function' ? deps.getActiveId() : '';
+        void open(preferredId);
+        return;
+      }
+      if (event.key === 'Escape' && overlayVisible('settings-overlay')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        close({ restorePreview: true });
+      }
+    }
+
     function bind() {
       if (bound) return;
       bound = true;
@@ -326,6 +369,7 @@
       el('acc-openProxy')?.addEventListener('change', refreshProxyUi);
       for (const id of ['cfg-theme','cfg-accent']) el(id)?.addEventListener('change', () => deps.applyTheme(value('cfg-theme', 'dark'), value('cfg-accent', 'green')));
       el('settings-save')?.addEventListener('click', save);
+      document.addEventListener('keydown', handleKeydown);
     }
 
     return Object.freeze({ bind, open, close, load, loadAccount, save, validate, refreshProxyUi, resetAppearance, resetAccountDisplay });
