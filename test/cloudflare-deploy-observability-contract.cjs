@@ -13,7 +13,11 @@ const {
 } = require('../scripts/cloudflare-deploy-report.cjs');
 
 const root = path.join(__dirname, '..');
-const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const normalizeLineEndings = (value) => String(value).replace(/\r\n?/g, '\n');
+const read = (relativePath) => normalizeLineEndings(
+  fs.readFileSync(path.join(root, relativePath), 'utf8')
+);
+assert.equal(normalizeLineEndings('a\r\nb\rc\n'), 'a\nb\nc\n');
 const helperSource = read('scripts/cloudflare-deploy-report.cjs');
 const website = read('.github/workflows/deploy-website.yml');
 
