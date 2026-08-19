@@ -1114,6 +1114,10 @@ function registerIpcHandlers() {
     assertTrustedSender(event); if (!/^[a-zA-Z0-9_-]{1,64}$/.test(String(key || ''))) throw new Error('账号数据键不合法');
     const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); cache.delete(key); await appendAccountData(partition, key, '', true); return true;
   });
+  ipcMain.handle('app:get-version', async (event) => {
+    assertTrustedSender(event);
+    return app.getVersion();
+  });
   ipcMain.handle('platforms:list', async (event) => {
     assertTrustedSender(event);
     return Object.entries(APP_TYPES).map(([type, cfg]) => ({
