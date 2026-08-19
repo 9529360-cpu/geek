@@ -71,7 +71,6 @@ jobs:
 
           function Invoke-PublicRequestWithRetry(
             [string]$Uri,
-            [string]$Method = 'Get',
             [int]$Attempts = 6
           ) {
             $lastFailure = 'unknown failure'
@@ -79,16 +78,37 @@ jobs:
               $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
               $attemptUri = "$Uri$separator" + "attempt=$attempt"
               try {
-                $response = Invoke-WebRequest -Uri $attemptUri -Method $Method -UseBasicParsing -TimeoutSec 20
+                $response = Invoke-WebRequest -Uri $attemptUri -Method Get -UseBasicParsing -TimeoutSec 20
                 if ($response.StatusCode -eq 200) { return $response }
                 $lastFailure = "HTTP $($response.StatusCode)"
               } catch {
                 $lastFailure = $_.Exception.Message
               }
-              Write-Host "Rollback preflight $Method attempt $attempt failed: $lastFailure"
+              Write-Host "Rollback metadata GET attempt $attempt failed: $lastFailure"
               if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
             }
-            throw "public request failed after $Attempts attempts: $lastFailure"
+            throw "public metadata request failed after $Attempts attempts: $lastFailure"
+          }
+
+          function Test-PublicArtifactWithRetry(
+            [string]$Uri,
+            [int]$Attempts = 6
+          ) {
+            $lastStatus = '000'
+            $lastExitCode = -1
+            for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+              $separator = if ($Uri.Contains('?')) { '&' } else { '?' }
+              $attemptUri = "$Uri$separator" + "attempt=$attempt"
+              $statusOutput = & curl.exe --silent --show-error --location --range 0-0 --output NUL --write-out '%{http_code}' --max-time 90 $attemptUri
+              $lastExitCode = $LASTEXITCODE
+              $lastStatus = ($statusOutput | Out-String).Trim()
+              if ($lastExitCode -eq 0 -and ($lastStatus -eq '200' -or $lastStatus -eq '206')) {
+                return $true
+              }
+              Write-Host "Rollback artifact ranged GET attempt $attempt failed: HTTP $lastStatus curl=$lastExitCode"
+              if ($attempt -lt $Attempts) { Start-Sleep -Seconds 10 }
+            }
+            throw "public artifact ranged GET failed after $Attempts attempts: HTTP $lastStatus curl=$lastExitCode"
           }
 
           $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -109,8 +129,8 @@ jobs:
               exit 0
             }
             try {
-              $null = Invoke-PublicRequestWithRetry "$root/$previousPath?before=$nonce" 'Head'
-              $null = Invoke-PublicRequestWithRetry "$root/$previousPath.blockmap?before=$nonce" 'Head'
+              $null = Test-PublicArtifactWithRetry "$root/$previousPath?before=$nonce"
+              $null = Test-PublicArtifactWithRetry "$root/$previousPath.blockmap?before=$nonce"
             } catch {
               throw "previous stable artifacts are not reachable: $($_.Exception.Message)"
             }
@@ -167,17 +187,24 @@ jobs:
         run: |
           $root = 'https://geek-release.9529360.workers.dev'
 
+          function Test-PublicArtifact([string]$Uri) {
+            $statusOutput = & curl.exe --silent --show-error --location --range 0-0 --output NUL --write-out '%{http_code}' --max-time 90 $Uri
+            $exitCode = $LASTEXITCODE
+            $status = ($statusOutput | Out-String).Trim()
+            return $exitCode -eq 0 -and ($status -eq '200' -or $status -eq '206')
+          }
+
           function Test-PublicRelease([string]$Version, [int]$Attempts = 18) {
             for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
               try {
                 $nonce = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-                $latestResponse = Invoke-WebRequest -Uri "$root/latest.yml?release=$nonce" -UseBasicParsing -TimeoutSec 20
+                $latestResponse = Invoke-WebRequest -Uri "$root/latest.yml?release=$nonce" -Method Get -UseBasicParsing -TimeoutSec 20
                 $pattern = "(?m)^version:\s*$([regex]::Escape($Version))\s*$"
                 if ($latestResponse.StatusCode -eq 200 -and $latestResponse.Content -match $pattern) {
                   $base = "geek-setup-$Version.exe"
-                  $exeResponse = Invoke-WebRequest -Uri "$root/$base?release=$nonce" -Method Head -UseBasicParsing -TimeoutSec 20
-                  $mapResponse = Invoke-WebRequest -Uri "$root/$base.blockmap?release=$nonce" -Method Head -UseBasicParsing -TimeoutSec 20
-                  if ($exeResponse.StatusCode -eq 200 -and $mapResponse.StatusCode -eq 200) {
+                  $exeOk = Test-PublicArtifact "$root/$base?release=$nonce"
+                  $mapOk = Test-PublicArtifact "$root/$base.blockmap?release=$nonce"
+                  if ($exeOk -and $mapOk) {
                     return $true
                   }
                 }
