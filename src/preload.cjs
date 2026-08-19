@@ -48,6 +48,30 @@ async function invokeSubscription(channel, ...args) {
   }
 }
 
+// ui/app.js historically calls the selected-file capability `filePath`.
+// Keep that renderer-only shape for compatibility, but the value is now an opaque token.
+function mapSelectedFile(file) {
+  if (!file || typeof file !== 'object' || typeof file.token !== 'string') return null;
+  return Object.freeze({
+    name: String(file.name || ''),
+    size: Number(file.size) || 0,
+    mime: String(file.mime || 'application/octet-stream'),
+    filePath: file.token,
+  });
+}
+
+function mapSelectedFiles(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(mapSelectedFile).filter(Boolean));
+  return mapSelectedFile(value);
+}
+
+function toFileTokenPayload(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const result = { ...source, fileToken: String(source.fileToken || source.filePath || '') };
+  delete result.filePath;
+  return result;
+}
+
 contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
@@ -121,14 +145,14 @@ contextBridge.exposeInMainWorld(
       },
     }),
     file: Object.freeze({
-      pick: () => ipcRenderer.invoke('file:pick'),
-      pickCsv: () => ipcRenderer.invoke('file:pick-csv'),
+      pick: async () => mapSelectedFiles(await ipcRenderer.invoke('file:pick-token')),
+      pickCsv: () => ipcRenderer.invoke('file:pick-csv-limited'),
       save: (payload) => ipcRenderer.invoke('file:save', payload),
     }),
     broadcast: Object.freeze({
-      dropFile: (payload) => ipcRenderer.invoke('broadcast:drop-file', payload),
-      attachFile: (payload) => ipcRenderer.invoke('broadcast:attach-file', payload),
-      sendFile: (payload) => ipcRenderer.invoke('broadcast:send-file', payload),
+      dropFile: (payload) => ipcRenderer.invoke('broadcast:drop-file-token', toFileTokenPayload(payload)),
+      attachFile: (payload) => ipcRenderer.invoke('broadcast:attach-file-token', toFileTokenPayload(payload)),
+      sendFile: (payload) => ipcRenderer.invoke('broadcast:send-file-token', toFileTokenPayload(payload)),
     }),
     tray: Object.freeze({
       onLock: (callback) => {
