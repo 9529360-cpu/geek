@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const fsp = fs.promises;
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const {
   ACCOUNT_DATA_KEYS,
   createAccountDataStore,
@@ -91,7 +92,6 @@ async function runAccountDataStoreCases() {
     const repaired = fs.readFileSync(file, 'utf8').trim().split(/\r?\n/);
     assert.equal(repaired.length, 1, 'corrupt final record must be compacted away');
   }
-
 
   {
     const dir = tempDir('geek-account-tail-rename-fail');
@@ -273,8 +273,9 @@ async function runAccountDataStoreCases() {
     };
     const originalHandle = ipcMain.handle;
     const sender = { id: 17 };
+    const uiEntryPath = path.join(__dirname, '../ui/index.html');
     const window = {
-      webContents: { id: 17, getURL: () => 'file:///app/ui/index.html' },
+      webContents: { id: 17, getURL: () => pathToFileURL(uiEntryPath).href },
       isDestroyed: () => false,
     };
     const BrowserWindow = { fromWebContents: (candidate) => candidate === sender ? window : null };
@@ -282,7 +283,7 @@ async function runAccountDataStoreCases() {
     installAccountDataBoundary({
       ipcMain,
       BrowserWindow,
-      uiEntryPath: '/app/ui/index.html',
+      uiEntryPath,
       fs: fsp,
       createReadStream: fs.createReadStream,
       getUserDataDir: () => dir,
