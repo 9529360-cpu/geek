@@ -29,6 +29,13 @@ assert.match(ux, /translation-appearance-preview/, '译文外观必须提供固�
 assert.match(ux, /不读取聊天内容/, '预览必须明确不读取真实聊天内容');
 assert.match(ux, /refreshAppearancePreview/, '字号与颜色变化必须即时刷新预览');
 assert.match(css, /translation-appearance-preview-text/, '预览必须有独立聚焦样式');
+assert.match(ux, /translation-reset-global/, '翻译设置必须提供独立恢复推荐设置入口');
+assert.match(ux, /setStorage\('translationGlobal', JSON\.stringify\(DEFAULTS\)\)/, '翻译恢复默认必须只复用现有 translationGlobal 与 DEFAULTS');
+const resetStart = ux.indexOf('async function resetGlobalDefaults()');
+const resetEnd = ux.indexOf('async function checkHealth', resetStart);
+assert.ok(resetStart >= 0 && resetEnd > resetStart, '翻译恢复默认函数必须保持聚焦');
+assert.ok(!ux.slice(resetStart, resetEnd).includes('translationChats'), '翻译全局恢复默认不得修改当前聊天 override');
+assert.match(ux.slice(resetStart, resetEnd), /当前聊天的单独设置会保留/, '恢复前必须明确当前聊天单独设置会保留');
 assert.match(app, /GeekTranslationSettings\.create\(/, 'app.js 只负责向独立翻译设置 controller 注入运行时依赖');
 assert.match(app, /function refreshTranslationGlobalPanel\(\) \{[\s\S]*translationSettings\.refreshGlobal\(\);/, '旧的账号切换刷新入口必须保持兼容');
 

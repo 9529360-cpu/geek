@@ -4,6 +4,8 @@
 
   const PROXY_GLOBAL_IDS = ['cfg-protocal','cfg-host','cfg-port','cfg-login','cfg-password'];
   const PROXY_ACCOUNT_IDS = ['acc-host','acc-port','acc-huser','acc-hpwd'];
+  const APPEARANCE_DEFAULTS = Object.freeze({ theme: 'dark', accent: 'green' });
+  const ACCOUNT_DISPLAY_DEFAULTS = Object.freeze({ fontSize: 16, fontColor: '#18A058' });
 
   function create(deps = {}) {
     for (const name of ['getConfig','setConfig','getAccounts','updateAccount','applyTheme']) {
@@ -67,6 +69,69 @@
       const detail = el('settings-proxy-strategy-detail');
       if (badge) { badge.textContent = strategy.title; badge.dataset.state = strategy.state; }
       if (detail) detail.textContent = strategy.detail;
+    }
+
+    function confirmReset(message) {
+      const ask = typeof deps.confirm === 'function' ? deps.confirm : window.confirm.bind(window);
+      return ask(message);
+    }
+
+    function appendResetButton(anchorId, id, label) {
+      if (el(id)) return;
+      const host = el(anchorId)?.closest('.settings-card');
+      if (!host) return;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.id = id;
+      button.className = 'btn-plain';
+      button.textContent = label;
+      host.appendChild(button);
+    }
+
+    function ensureResetButtons() {
+      appendResetButton('cfg-theme', 'settings-reset-appearance', '恢复外观默认');
+      appendResetButton('acc-fontSize', 'settings-reset-account-display', '恢复显示默认');
+    }
+
+    async function resetAppearance() {
+      if (!confirmReset('仅恢复主题和强调色为默认值？代理、锁屏和其他设置不会改变。')) return false;
+      setStatus('正在恢复外观…', 'working');
+      try {
+        await deps.setConfig({ ...APPEARANCE_DEFAULTS });
+        config = { ...config, ...APPEARANCE_DEFAULTS };
+        setValue('cfg-theme', APPEARANCE_DEFAULTS.theme);
+        setValue('cfg-accent', APPEARANCE_DEFAULTS.accent);
+        deps.applyTheme(APPEARANCE_DEFAULTS.theme, APPEARANCE_DEFAULTS.accent);
+        previewSnapshot = { ...APPEARANCE_DEFAULTS };
+        setStatus('外观已恢复默认 ✓', 'ok');
+        return true;
+      } catch (error) {
+        setStatus(`恢复失败：${String(error?.message || error).slice(0, 120)}`, 'error');
+        return false;
+      }
+    }
+
+    async function resetAccountDisplay() {
+      const accountId = value('acc-select');
+      if (!accountId) return false;
+      if (!confirmReset('仅恢复当前账号的字体大小和字体颜色？账号名称、代理和登录状态不会改变。')) return false;
+      setStatus('正在恢复当前账号显示…', 'working');
+      try {
+        await deps.updateAccount(accountId, { ...ACCOUNT_DISPLAY_DEFAULTS });
+        accounts = accounts.map(item => item.id === accountId ? { ...item, ...ACCOUNT_DISPLAY_DEFAULTS } : item);
+        setValue('acc-fontSize', ACCOUNT_DISPLAY_DEFAULTS.fontSize);
+        setValue('acc-fontColor', ACCOUNT_DISPLAY_DEFAULTS.fontColor);
+        if (typeof deps.afterSave === 'function') await deps.afterSave();
+        const refreshed = await deps.getAccounts();
+        accounts = refreshed?.accounts || refreshed || accounts;
+        fillAccountSelect(accountId);
+        loadAccount();
+        setStatus('当前账号显示已恢复默认 ✓', 'ok');
+        return true;
+      } catch (error) {
+        setStatus(`恢复失败：${String(error?.message || error).slice(0, 120)}`, 'error');
+        return false;
+      }
     }
 
     function validateProxy(enabled, host, port, label) {
@@ -253,6 +318,9 @@
         if (event.target === el('settings-overlay')) close({ restorePreview: true });
       });
       document.querySelectorAll('.settings-tab').forEach(tab => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
+      ensureResetButtons();
+      el('settings-reset-appearance')?.addEventListener('click', resetAppearance);
+      el('settings-reset-account-display')?.addEventListener('click', resetAccountDisplay);
       el('acc-select')?.addEventListener('change', loadAccount);
       el('cfg-openProxy')?.addEventListener('change', refreshProxyUi);
       el('acc-openProxy')?.addEventListener('change', refreshProxyUi);
@@ -260,7 +328,7 @@
       el('settings-save')?.addEventListener('click', save);
     }
 
-    return Object.freeze({ bind, open, close, load, loadAccount, save, validate, refreshProxyUi });
+    return Object.freeze({ bind, open, close, load, loadAccount, save, validate, refreshProxyUi, resetAppearance, resetAccountDisplay });
   }
 
   window.GeekSettingsController = Object.freeze({ create });

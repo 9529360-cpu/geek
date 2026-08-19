@@ -286,6 +286,36 @@
       return persistChats(store, '当前聊天已保存 ✓');
     }
 
+    function ensureGlobalResetButton() {
+      if (el('translation-reset-global')) return;
+      const host = el('translation-server')?.closest('.translation-advanced-body');
+      if (!host) return;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.id = 'translation-reset-global';
+      button.className = 'translation-save translation-save--secondary translation-reset';
+      button.textContent = '恢复翻译推荐设置';
+      host.appendChild(button);
+    }
+
+    async function resetGlobalDefaults() {
+      if (!deps.getActiveId()) return false;
+      const ask = typeof deps.confirm === 'function' ? deps.confirm : window.confirm.bind(window);
+      if (!ask('恢复全局翻译推荐设置？当前聊天的单独设置会保留。')) return false;
+      setStatus('translation-global-status', '正在恢复…', 'working');
+      const result = await deps.setStorage('translationGlobal', JSON.stringify(DEFAULTS));
+      if (result === false) {
+        setStatus('translation-global-status', '恢复失败，请重试', 'error');
+        refreshGlobal();
+        return false;
+      }
+      deps.sync();
+      refreshGlobal();
+      await refreshChat();
+      setStatus('translation-global-status', '翻译设置已恢复默认 ✓', 'ok');
+      return true;
+    }
+
     async function checkHealth(force = false) {
       const state = el('translation-service-state');
       const detail = el('translation-gateway-status');
@@ -325,6 +355,7 @@
       populateLanguages();
       ensureAppearancePreview();
       refreshAppearancePreview();
+      ensureGlobalResetButton();
       try { localStorage.removeItem('geekTranslationGateway'); } catch {}
 
       const popover = el('translation-popover');
@@ -366,12 +397,13 @@
         el(id)?.addEventListener('change', () => saveChatField(id));
       }
       el('translation-gateway-test')?.addEventListener('click', () => checkHealth(true));
+      el('translation-reset-global')?.addEventListener('click', resetGlobalDefaults);
 
       refreshGlobal();
       activateTab('global');
     }
 
-    return Object.freeze({ bind, refreshGlobal, refreshChat, checkHealth });
+    return Object.freeze({ bind, refreshGlobal, refreshChat, checkHealth, resetGlobalDefaults });
   }
 
   window.GeekTranslationSettings = Object.freeze({ LANGUAGES, DEFAULTS, create });
