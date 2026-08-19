@@ -99,7 +99,8 @@
   }
 
   function applySummary(state, quota) {
-    const remainingRaw = Number(quota?.remaining_chars);
+    const remainingValue = quota?.remaining_chars;
+    const remainingRaw = remainingValue == null || remainingValue === '' ? NaN : Number(remainingValue);
     latestRemaining = Number.isFinite(remainingRaw) ? Math.max(0, remainingRaw) : null;
     const accountNumber = quota?.account_ref || state?.account_ref || '';
     const emailValue = state?.email || '';
@@ -109,9 +110,9 @@
     quotaValue.textContent = formatRemaining(latestRemaining);
     quotaCard.dataset.state = latestRemaining === 0 ? 'empty' : 'ready';
 
-    entryTitle.textContent = emailValue || '个人中心';
+    entryTitle.textContent = '个人中心';
     entryQuota.textContent = latestRemaining == null ? '字符余量 —' : '剩余 ' + formatRemaining(latestRemaining);
-    entry.title = (emailValue || '个人中心') + (latestRemaining == null ? '' : ' · 剩余 ' + formatRemaining(latestRemaining));
+    entry.title = '个人中心' + (latestRemaining == null ? '' : ' · 剩余 ' + formatRemaining(latestRemaining));
     avatar.textContent = emailValue ? emailValue.trim().charAt(0).toUpperCase() || 'G' : 'G';
   }
 
