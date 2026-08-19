@@ -21,7 +21,7 @@ assert.match(html, /data-translation-tab="advanced">高级设置</, '低频参�
 
 assert.match(ux, /delete store\[chatId\]/, '恢复全局必须删除当前聊天 override，而不是复制一份全局值');
 assert.match(ux, /core\.normalizeConfig\(globalConfig\(\),/, '当前聊天显示必须复用公共配置合并语义');
-assert.match(ux, /result === false/, '设置持久化失败必须有显式失败分支，不能静默吞掉');
+assert.match(ux, /result !== false/, '设置持久化失败必须显式区分 false，不能静默吞掉');
 assert.match(ux, /translationGlobal/, '必须继续复用既有 translationGlobal 数据键');
 assert.match(ux, /translationChats/, '必须继续复用既有 translationChats 数据键');
 assert.match(ux, /translationMode: receiveAuto \? 'auto' : 'click'/, '关闭自动接收翻译应退化为按需翻译而不是破坏手动能力');
@@ -30,7 +30,7 @@ assert.match(ux, /不读取聊天内容/, '预览必须明确不读取真实聊�
 assert.match(ux, /refreshAppearancePreview/, '字号与颜色变化必须即时刷新预览');
 assert.match(css, /translation-appearance-preview-text/, '预览必须有独立聚焦样式');
 assert.match(ux, /translation-reset-global/, '翻译设置必须提供独立恢复推荐设置入口');
-assert.match(ux, /setStorage\('translationGlobal', JSON\.stringify\(DEFAULTS\)\)/, '翻译恢复默认必须只复用现有 translationGlobal 与 DEFAULTS');
+assert.match(ux, /payload: JSON\.stringify\(DEFAULTS\)/, '翻译恢复默认必须继续使用既有 DEFAULTS；精确作用域由 focused contract 锁定');
 const resetStart = ux.indexOf('async function resetGlobalDefaults()');
 const resetEnd = ux.indexOf('async function checkHealth', resetStart);
 assert.ok(resetStart >= 0 && resetEnd > resetStart, '翻译恢复默认函数必须保持聚焦');
