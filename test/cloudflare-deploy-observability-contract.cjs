@@ -95,9 +95,11 @@ for (const config of serviceWorkflows) {
 
 const subscription = read('.github/workflows/deploy-subscription.yml');
 assert.match(subscription, /- name: Live account smoke and publish non-sensitive status\n        id: smoke/);
-assert.match(subscription, /continue-on-error: true/);
+assert.doesNotMatch(subscription, /continue-on-error:\s*true/, '生产账号 smoke 不得通过 continue-on-error 吞掉失败');
 assert.match(subscription, /gh issue comment 23 --body-file \/tmp\/account-smoke-status\.md/);
-assert.match(subscription, /ACCOUNT_SMOKE_OUTCOME: \$\{\{ steps\.smoke\.outcome \}\}/);
+assert.match(subscription, /echo "outcome=success" >> "\$GITHUB_OUTPUT"/);
+assert.match(subscription, /echo "outcome=failure" >> "\$GITHUB_OUTPUT"/);
+assert.match(subscription, /ACCOUNT_SMOKE_OUTCOME: \$\{\{ steps\.smoke\.outputs\.outcome \}\}/);
 
 assert.deepEqual(Object.keys(TARGETS).sort(), ['release', 'subscription', 'translation']);
 assert.equal(resolveTarget('translation').endpoint, 'https://geek-translate.9529360.workers.dev/health');
