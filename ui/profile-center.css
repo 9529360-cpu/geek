@@ -1,0 +1,68 @@
+.profile-entry {
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  margin-top: 10px;
+  cursor: pointer;
+  text-align: left;
+  flex-shrink: 0;
+  transition: background .12s ease, border-color .12s ease;
+}
+.profile-entry:hover { background: var(--hover-bg); border-color: var(--border-standard); }
+.profile-entry-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  background: var(--accent-soft); border: 1px solid var(--accent-border);
+  color: var(--accent); font-size: 12px; font-weight: 700;
+}
+.profile-entry-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.profile-entry-copy strong { font-size: 12px; font-weight: 590; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-entry-copy small { font-size: 10px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-nav.collapsed .profile-entry { width: 40px; padding: 4px; justify-content: center; align-self: center; }
+.side-nav.collapsed .profile-entry-copy { display: none; }
+
+.profile-center-overlay {
+  position: fixed; inset: 0; z-index: 5000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(0,0,0,.55);
+  backdrop-filter: blur(5px);
+}
+.profile-center-overlay[hidden] { display: none; }
+.profile-center-dialog {
+  width: min(520px, calc(100vw - 48px)); max-height: min(720px, calc(100vh - 48px));
+  overflow: auto; background: var(--bg-panel); color: var(--text-primary);
+  border: 1px solid var(--border-standard); border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0,0,0,.45);
+}
+.profile-center-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border-subtle); }
+.profile-center-head-copy h2 { font-size: 18px; font-weight: 620; margin: 0; }
+.profile-center-head-copy p { font-size: 12px; color: var(--text-tertiary); margin-top: 5px; }
+.profile-center-close { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--text-tertiary); font-size: 22px; line-height: 1; cursor: pointer; }
+.profile-center-close:hover { background: var(--hover-bg); color: var(--text-primary); }
+.profile-center-body { display: grid; gap: 12px; padding: 16px 22px; }
+.profile-center-card { padding: 16px; border-radius: 12px; border: 1px solid var(--border-subtle); background: var(--card-bg); }
+.profile-center-card-title { color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .4px; margin-bottom: 12px; }
+.profile-center-grid { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 10px 14px; align-items: baseline; }
+.profile-center-label { color: var(--text-tertiary); font-size: 12px; }
+.profile-center-value { min-width: 0; color: var(--text-primary); font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+.profile-center-quota-value { font-size: 30px; line-height: 1.15; font-weight: 680; letter-spacing: -.8px; margin: 2px 0 8px; }
+.profile-center-quota-card[data-state='empty'] .profile-center-quota-value { color: var(--danger); }
+.profile-center-quota-hint { font-size: 12px; line-height: 1.6; color: var(--text-tertiary); }
+.profile-center-actions { display: flex; gap: 8px; margin-top: 14px; }
+.profile-center-btn { border-radius: 8px; padding: 8px 13px; font-size: 12px; font-weight: 580; cursor: pointer; }
+.profile-center-btn:disabled { opacity: .55; cursor: default; }
+.profile-center-btn--primary { border: 1px solid var(--accent-border); background: var(--accent); color: #06230f; }
+.profile-center-btn--secondary { border: 1px solid var(--border-standard); background: var(--btn-bg); color: var(--text-secondary); }
+.profile-center-status { min-height: 18px; font-size: 11px; color: var(--text-tertiary); padding: 0 2px; }
+.profile-center-status[data-state='error'] { color: var(--danger); }
+.profile-center-status[data-state='success'] { color: var(--accent); }
+.profile-center-footer { display: flex; justify-content: flex-end; padding: 12px 22px 18px; border-top: 1px solid var(--border-subtle); }
+.profile-center-link { border: 0; background: transparent; color: var(--text-tertiary); font-size: 12px; cursor: pointer; padding: 6px 0; }
+.profile-center-link:hover { color: var(--danger); }
