@@ -1,4 +1,4 @@
-# diagnose Windows public artifact checks with Node fetch
+# final no-write validation of the production public release checker
 name: windows-rollback-preflight-1.2.9
 
 on:
@@ -34,51 +34,26 @@ jobs:
       - name: Run all contracts
         run: npm test
 
-      - name: Execute Node rollback preflight without promotion
+      - name: Execute production rollback capture without promotion
         id: preflight
         shell: pwsh
         run: |
-          @'
-          'use strict';
-          const fs = require('node:fs');
-          const root = 'https://geek-release.9529360.workers.dev';
-
-          async function getText(url) {
-            const response = await fetch(url, { method: 'GET', redirect: 'follow' });
-            if (response.status !== 200) {
-              await response.body?.cancel().catch(() => {});
-              throw new Error(`metadata HTTP ${response.status}`);
-            }
-            return response.text();
-          }
-
-          async function verifyArtifact(url) {
-            const response = await fetch(url, {
-              method: 'GET',
-              redirect: 'follow',
-              headers: { Range: 'bytes=0-0' },
-            });
-            const status = response.status;
-            await response.body?.cancel().catch(() => {});
-            if (status !== 200 && status !== 206) throw new Error(`artifact HTTP ${status}`);
-          }
-
-          (async () => {
-            const nonce = Date.now();
-            const metadata = await getText(`${root}/latest.yml?before=${nonce}`);
-            const version = metadata.match(/^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$/m)?.[1];
-            const artifactPath = metadata.match(/^path:\s*(geek-setup-[0-9]+\.[0-9]+\.[0-9]+\.exe)\s*$/m)?.[1];
-            if (!version || !artifactPath) throw new Error('invalid public latest.yml');
-            if (artifactPath !== `geek-setup-${version}.exe`) throw new Error('path/version mismatch');
-            await verifyArtifact(`${root}/${artifactPath}?before=${nonce}`);
-            await verifyArtifact(`${root}/${artifactPath}.blockmap?before=${nonce}`);
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `previous_version=${version}\nprevious_path=${artifactPath}\n`, 'utf8');
-          })().catch((error) => {
-            console.error(String(error?.message || error));
-            process.exitCode = 1;
-          });
-          '@ | Set-Content -LiteralPath node-public-preflight.cjs -Encoding utf8
-          node node-public-preflight.cjs
+          $metadataOut = Join-Path $env:RUNNER_TEMP 'previous-latest.yml'
+          $captureEnv = Join-Path $env:RUNNER_TEMP 'capture-env.txt'
+          node scripts/release-public-check.cjs capture `
+            --root 'https://geek-release.9529360.workers.dev' `
+            --release-version '1.2.9' `
+            --metadata-out $metadataOut `
+            --github-env $captureEnv `
+            --attempts 6 `
+            --delay-ms 10000
+          if ($LASTEXITCODE -ne 0) { throw 'production rollback capture failed' }
+          $metadata = Get-Content $metadataOut -Raw
+          $version = [regex]::Match($metadata, '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$').Groups[1].Value
+          $artifactPath = [regex]::Match($metadata, '(?m)^path:\s*(geek-setup-[0-9]+\.[0-9]+\.[0-9]+\.exe)\s*$').Groups[1].Value
+          if (-not $version -or -not $artifactPath) { throw 'captured metadata output is invalid' }
+          "previous_version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "previous_path=$artifactPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Publish non-sensitive result
         if: always()
@@ -92,10 +67,11 @@ jobs:
           script: |
             const success = process.env.PREFLIGHT_OUTCOME === 'success';
             const body = [
-              '## Windows Node rollback preflight validation',
+              '## Production public checker Windows validation',
               '',
               `- Result: **${success ? 'success' : 'failure'}**`,
               '- Full command suite: `npm test` on `windows-latest`',
+              '- Command under test: `release-public-check.cjs capture`',
               '- Artifact verification: Node GET with Range header and immediate body cancellation',
               `- Verified previous version: ${process.env.PREVIOUS_VERSION || 'unknown'}`,
               `- Verified declared installer path: ${process.env.PREVIOUS_PATH || 'unknown'}`,
