@@ -1,0 +1,157 @@
+name: prepare-release-1.2.9
+
+on:
+  push:
+    branches:
+      - release/1.2.9
+    paths:
+      - '.github/workflows/prepare-release-1.2.9.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-release-1.2.9
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/1.2.9
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Prepare exact version surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+
+          const previous = '1.2.8';
+          const version = '1.2.9';
+
+          function read(file) {
+            return fs.readFileSync(file, 'utf8');
+          }
+
+          function write(file, value) {
+            fs.writeFileSync(file, value, 'utf8');
+          }
+
+          function replaceExact(file, from, to) {
+            const source = read(file);
+            const first = source.indexOf(from);
+            if (first < 0 || source.indexOf(from, first + from.length) >= 0) {
+              throw new Error(`${file}: expected exactly one release-version anchor`);
+            }
+            write(file, source.slice(0, first) + to + source.slice(first + from.length));
+          }
+
+          const pkg = JSON.parse(read('package.json'));
+          if (pkg.version !== previous) throw new Error(`package.json version is ${pkg.version}, expected ${previous}`);
+          pkg.version = version;
+          write('package.json', JSON.stringify(pkg, null, 2) + '\n');
+
+          const lock = JSON.parse(read('package-lock.json'));
+          if (lock.version !== previous || lock.packages?.['']?.version !== previous) {
+            throw new Error('package-lock root versions do not match the expected previous release');
+          }
+          lock.version = version;
+          lock.packages[''].version = version;
+          write('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+
+          const marker = read('.github/release-client-version');
+          if (marker !== previous + '\n') throw new Error('release marker is not the expected previous release');
+          write('.github/release-client-version', version + '\n');
+
+          replaceExact(
+            'scripts/geek-website-worker.js',
+            `const FALLBACK_VERSION = '${previous}';`,
+            `const FALLBACK_VERSION = '${version}';`
+          );
+
+          replaceExact(
+            'README.md',
+            `客户端与 \`package.json\` 版本为 **${previous}**，\`.github/release-client-version\` 为 **${previous}**`,
+            `客户端与 \`package.json\` 版本为 **${version}**，\`.github/release-client-version\` 为 **${version}**`
+          );
+
+          replaceExact(
+            'docs/release-security.md',
+            `当前正式客户端版本为 \`${previous}\`，\`package.json.version\` 与 \`.github/release-client-version\` 均为 \`${previous}\`。`,
+            `当前正式客户端版本为 \`${version}\`，\`package.json.version\` 与 \`.github/release-client-version\` 均为 \`${version}\`。`
+          );
+
+          replaceExact(
+            'docs/github-control-plane.md',
+            `Current client/package version and \`.github/release-client-version\` are both \`${previous}\`.`,
+            `Current client/package version and \`.github/release-client-version\` are both \`${version}\`.`
+          );
+          NODE
+
+      - name: Validate release preparation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npm test
+          git diff --check
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const version = '1.2.9';
+          const expected = [
+            '.github/release-client-version',
+            'README.md',
+            'docs/github-control-plane.md',
+            'docs/release-security.md',
+            'package-lock.json',
+            'package.json',
+            'scripts/geek-website-worker.js',
+          ].sort();
+          const changed = execFileSync('git', ['diff', '--name-only'], { encoding: 'utf8' })
+            .trim().split(/\r?\n/).filter(Boolean).sort();
+          if (JSON.stringify(changed) !== JSON.stringify(expected)) {
+            throw new Error(`unexpected release diff: ${changed.join(', ')}`);
+          }
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const marker = fs.readFileSync('.github/release-client-version', 'utf8').trim();
+          const worker = fs.readFileSync('scripts/geek-website-worker.js', 'utf8');
+          if (pkg.version !== version || lock.version !== version || lock.packages?.['']?.version !== version || marker !== version) {
+            throw new Error('release version surfaces are inconsistent');
+          }
+          if (!worker.includes(`const FALLBACK_VERSION = '${version}';`)) {
+            throw new Error('website fallback version is inconsistent');
+          }
+          NODE
+
+      - name: Commit release preparation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            .github/release-client-version \
+            README.md \
+            docs/github-control-plane.md \
+            docs/release-security.md \
+            package-lock.json \
+            package.json \
+            scripts/geek-website-worker.js
+          git commit -m 'release: prepare Geek 1.2.9' -m 'Synchronize the package, lockfile, release marker, website fallback and current release documentation for the authorized 1.2.9 Windows client release.\n\nRefs #77.'
+          git push origin HEAD:release/1.2.9
