@@ -1,0 +1,128 @@
+name: Temporary Geek 1.3.0 candidate validation
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, reopened]
+
+concurrency:
+  group: geek-130-candidate-validation
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/release-1.3.0-candidate'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/release-1.3.0-candidate
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply bounded candidate version patch
+        run: node scripts/patch-release-130-candidate.cjs
+      - name: Verify candidate version scope
+        shell: bash
+        run: |
+          node --check scripts/patch-release-130-candidate.cjs
+          node -e "const fs=require('fs'); const p=require('./package.json'); const l=require('./package-lock.json'); const m=fs.readFileSync('.github/release-client-version','utf8').trim(); if(p.version!=='1.3.0'||l.version!=='1.3.0'||l.packages[''].version!=='1.3.0'||m!=='1.3.0') process.exit(1)"
+          git diff --check
+          git diff --exit-code -- ui src resources electron-builder.yml scripts/release-build.cjs .github/workflows/release-client.yml
+      - name: Run candidate contracts
+        run: npm test
+      - name: Commit candidate versions
+        shell: bash
+        run: |
+          if git diff --quiet -- package.json package-lock.json .github/release-client-version; then
+            echo "No candidate version changes found" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json .github/release-client-version
+          git commit -m "release: stage Geek 1.3.0 candidate"
+          git push origin HEAD:agent/release-1.3.0-candidate
+
+  windows-candidate:
+    needs: patch
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Checkout latest candidate branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/release-1.3.0-candidate
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Validate candidate version sources
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $lock = Get-Content package-lock.json -Raw | ConvertFrom-Json
+          $marker = (Get-Content .github/release-client-version -Raw).Trim()
+          if ($pkg.version -ne '1.3.0') { throw "package version is $($pkg.version)" }
+          if ($lock.version -ne '1.3.0' -or $lock.packages.''.version -ne '1.3.0') { throw 'package-lock version mismatch' }
+          if ($marker -ne '1.3.0') { throw "release marker is $marker" }
+      - name: Build tested Windows candidate without publishing
+        run: npm run dist
+      - name: Validate candidate artifacts
+        shell: pwsh
+        run: |
+          $base = 'geek-setup-1.3.0.exe'
+          $required = @(
+            "dist-release\$base",
+            "dist-release\$base.blockmap",
+            'dist-release\latest.yml',
+            'dist-release\release-manifest.json'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) { throw "Missing candidate artifact: $file" }
+          }
+          $latest = Get-Content 'dist-release\latest.yml' -Raw
+          if ($latest -notmatch '(?m)^version:\s*1\.3\.0\s*$') { throw 'candidate latest.yml version mismatch' }
+          $manifest = Get-Content 'dist-release\release-manifest.json' -Raw | ConvertFrom-Json
+          if ($manifest.version -ne '1.3.0') { throw 'candidate manifest version mismatch' }
+          $names = @($manifest.files | ForEach-Object { $_.name })
+          foreach ($name in @($base, "$base.blockmap", 'latest.yml')) {
+            if ($names -notcontains $name) { throw "candidate manifest missing $name" }
+          }
+      - name: Verify current public rollback baseline read-only
+        shell: pwsh
+        run: |
+          node scripts/release-public-check.cjs capture `
+            --root 'https://geek-release.9529360.workers.dev' `
+            --release-version '1.3.0' `
+            --metadata-out 'dist-release\previous-latest.yml' `
+            --github-env $env:GITHUB_ENV `
+            --attempts 6 `
+            --delay-ms 10000
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate refused: previous stable release could not be verified' }
+      - name: Require expected previous stable
+        shell: pwsh
+        run: |
+          if ($env:ROLLBACK_AVAILABLE -ne 'true') { throw 'Candidate refused: rollback baseline unavailable' }
+          if ($env:PREVIOUS_RELEASE_VERSION -ne '1.2.10') { throw "Candidate refused: expected previous stable 1.2.10, got $env:PREVIOUS_RELEASE_VERSION" }
+      - name: Upload short-lived candidate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-1.3.0-candidate-${{ github.run_id }}
+          path: |
+            dist-release/geek-setup-1.3.0.exe
+            dist-release/geek-setup-1.3.0.exe.blockmap
+            dist-release/latest.yml
+            dist-release/release-manifest.json
+          if-no-files-found: error
+          retention-days: 7
