@@ -1,0 +1,68 @@
+name: temporary renderer WebView URL redaction patch
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - ui/app.js
+      - ui/index.html
+      - ui/log-url.js
+      - test/renderer-webview-log-url-redaction-contract.cjs
+      - scripts/temporary-patch-renderer-log-url.py
+      - .github/workflows/patch-renderer-log-url.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.head_ref == 'agent/redact-renderer-webview-log-urls' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout patch branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/redact-renderer-webview-log-urls
+          fetch-depth: 0
+
+      - name: Apply exact renderer URL redaction patch
+        run: python scripts/temporary-patch-renderer-log-url.py
+
+      - name: Verify product patch scope before tests
+        run: |
+          git diff --check
+          git diff -- ui/app.js ui/index.html
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "ui/app.js ui/index.html "
+          grep -Fq 'safeWebviewLogUrl(e.validatedURL)' ui/app.js
+          grep -Fq 'safeWebviewLogUrl(wv.getURL && wv.getURL())' ui/app.js
+          grep -Fq '<script src="log-url.js"></script>' ui/index.html
+          ! grep -Fq 'url=${e.validatedURL}' ui/app.js
+          ! grep -Fq 'url=${wv.getURL && wv.getURL()}' ui/app.js
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate renderer syntax
+        run: |
+          node --check ui/log-url.js
+          node --check ui/app.js
+
+      - name: Run complete contract suite
+        run: npm test
+
+      - name: Commit verified renderer patch
+        run: |
+          git add ui/app.js ui/index.html
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: redact renderer WebView log URLs"
+          git push origin HEAD:agent/redact-renderer-webview-log-urls
