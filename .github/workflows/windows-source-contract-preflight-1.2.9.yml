@@ -1,3 +1,4 @@
+# rerun after structural source normalization audit
 name: windows-source-contract-preflight-1.2.9
 
 on:
