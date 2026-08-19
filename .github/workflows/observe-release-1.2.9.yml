@@ -19,26 +19,24 @@ concurrency:
 jobs:
   observe:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 70
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TARGET_SHA: 054bd34bd676b7b123b1b1e1c54145cc5f7a1e78
+      TARGET_SHA: cc700292ed978262c9a56ac1c1d2f4142b41271c
     steps:
-      - name: Locate and observe release-client run
+      - name: Locate and observe release-client retry
         id: release
         shell: bash
         run: |
           set -uo pipefail
           run_id=''
           run_url=''
-          for attempt in $(seq 1 90); do
-            runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-client.yml --branch master --event push --limit 20 --json databaseId,headSha,status,conclusion,url,createdAt 2>/dev/null || echo '[]')"
+          for attempt in $(seq 1 120); do
+            runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-client.yml --branch master --event workflow_dispatch --limit 20 --json databaseId,headSha,status,conclusion,url,createdAt 2>/dev/null || echo '[]')"
             run_id="$(printf '%s' "$runs" | jq -r --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha) | .databaseId' | head -n 1)"
             run_url="$(printf '%s' "$runs" | jq -r --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha) | .url' | head -n 1)"
-            if [ -n "$run_id" ] && [ "$run_id" != 'null' ]; then
-              break
-            fi
-            sleep 10
+            if [ -n "$run_id" ] && [ "$run_id" != 'null' ]; then break; fi
+            sleep 5
           done
 
           if [ -z "$run_id" ] || [ "$run_id" = 'null' ]; then
@@ -52,6 +50,8 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          gh issue comment 77 --repo "$GITHUB_REPOSITORY" --body "## Windows client release retry started\n\n- Version: \`1.2.9\`\n- Run ID: \`$run_id\`\n- Commit: \`$TARGET_SHA\`\n- Run: $run_url\n\nThe run is executing the full guarded Windows test, build, upload, public verification and rollback workflow."
 
           gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status >/dev/null 2>&1 || true
           details="$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --json status,conclusion,url,headSha,createdAt,updatedAt)"
@@ -85,10 +85,11 @@ jobs:
           script: |
             const success = process.env.OBSERVE_RESULT === 'success';
             const body = [
-              '## Windows client release workflow — Geek 1.2.9',
+              '## Windows client release retry observed — Geek 1.2.9',
               '',
               `- Result: **${success ? 'success' : 'failure'}**`,
-              `- Workflow: release-client`,
+              '- Workflow: `release-client`',
+              '- Trigger: `workflow_dispatch`',
               `- Run ID: ${process.env.RELEASE_RUN_ID || 'not-found'}`,
               `- Status: ${process.env.RELEASE_STATUS || 'unknown'}`,
               `- Conclusion: ${process.env.RELEASE_CONCLUSION || 'unknown'}`,
