@@ -25,6 +25,10 @@ assert.match(ux, /result === false/, '设置持久化失败必须有显式失败
 assert.match(ux, /translationGlobal/, '必须继续复用既有 translationGlobal 数据键');
 assert.match(ux, /translationChats/, '必须继续复用既有 translationChats 数据键');
 assert.match(ux, /translationMode: receiveAuto \? 'auto' : 'click'/, '关闭自动接收翻译应退化为按需翻译而不是破坏手动能力');
+assert.match(ux, /translation-appearance-preview/, '译文外观必须提供固定示例预览');
+assert.match(ux, /不读取聊天内容/, '预览必须明确不读取真实聊天内容');
+assert.match(ux, /refreshAppearancePreview/, '字号与颜色变化必须即时刷新预览');
+assert.match(css, /translation-appearance-preview-text/, '预览必须有独立聚焦样式');
 assert.match(app, /GeekTranslationSettings\.create\(/, 'app.js 只负责向独立翻译设置 controller 注入运行时依赖');
 assert.match(app, /function refreshTranslationGlobalPanel\(\) \{[\s\S]*translationSettings\.refreshGlobal\(\);/, '旧的账号切换刷新入口必须保持兼容');
 

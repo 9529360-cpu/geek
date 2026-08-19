@@ -88,6 +88,40 @@
       const group = el('translation-group'); if (group) group.disabled = !receiveAuto;
     }
 
+    function ensureAppearancePreview() {
+      if (el('translation-appearance-preview')) return;
+      const host = el('translation-font-size')?.closest('.translation-advanced-body');
+      if (!host) return;
+      const preview = document.createElement('div');
+      preview.id = 'translation-appearance-preview';
+      preview.className = 'translation-appearance-preview';
+      const label = document.createElement('div');
+      label.className = 'translation-appearance-preview-label';
+      label.textContent = '效果预览 · 示例内容';
+      const original = document.createElement('div');
+      original.className = 'translation-appearance-preview-original';
+      original.textContent = 'See you tomorrow at 10:00.';
+      const translated = document.createElement('div');
+      translated.id = 'translation-appearance-preview-text';
+      translated.className = 'translation-appearance-preview-text';
+      translated.textContent = '明天 10:00 见。';
+      const note = document.createElement('div');
+      note.className = 'translation-appearance-preview-note';
+      note.textContent = '仅为固定示例，不读取聊天内容，也不会请求翻译服务。';
+      preview.append(label, original, translated, note);
+      host.appendChild(preview);
+    }
+
+    function refreshAppearancePreview(cfg = null) {
+      ensureAppearancePreview();
+      const preview = el('translation-appearance-preview-text');
+      if (!preview) return;
+      const fontSize = String(cfg?.fontSize || value('translation-font-size', '13'));
+      const fontColor = String(cfg?.fontColor || value('translation-font-color', '#667eea'));
+      preview.style.fontSize = /^\d{1,2}$/.test(fontSize) ? fontSize + 'px' : '13px';
+      preview.style.color = /^#[0-9a-fA-F]{6}$/.test(fontColor) ? fontColor : '#667eea';
+    }
+
     function refreshGlobal() {
       populateLanguages();
       const cfg = globalConfig();
@@ -106,6 +140,7 @@
       setChecked('translation-group', cfg.group === true);
       setValue('translation-font-size', cfg.fontSize || '13');
       setValue('translation-font-color', cfg.fontColor || '#667eea');
+      refreshAppearancePreview(cfg);
       syncDependencies(cfg);
     }
 
@@ -288,6 +323,8 @@
       if (bound) return;
       bound = true;
       populateLanguages();
+      ensureAppearancePreview();
+      refreshAppearancePreview();
       try { localStorage.removeItem('geekTranslationGateway'); } catch {}
 
       const popover = el('translation-popover');
@@ -318,6 +355,7 @@
       for (const id of globalIds) {
         el(id)?.addEventListener('change', () => {
           if (id === 'translation-receive-auto' && checked(id)) setChecked('translation-display', true);
+          if (id === 'translation-font-size' || id === 'translation-font-color') refreshAppearancePreview();
           saveGlobal();
         });
       }
