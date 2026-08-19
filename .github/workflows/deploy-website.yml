@@ -1,5 +1,4 @@
 name: deploy-website
-# Completion and public endpoint verification are reported to #21 by observe-cloudflare-deployments.yml.
 
 on:
   workflow_dispatch:
@@ -15,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: deploy-website-production
@@ -24,6 +24,9 @@ jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment:
+      name: cloudflare-website-production
+      url: https://geek.bbnba.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,7 +47,52 @@ jobs:
         run: node --check scripts/geek-website-worker.js
 
       - name: Deploy website Worker
+        id: deploy
         run: npx --yes wrangler@4.36.0 deploy --config wrangler-website.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify public website
+        id: verify
+        run: |
+          HTTP_CODE="$(
+            curl --proto '=https' --tlsv1.2 --location --silent --show-error \
+              --output /dev/null --write-out '%{http_code}' \
+              --retry 3 --retry-delay 2 --retry-connrefused --max-time 20 \
+              'https://geek.bbnba.com/health'
+          )"
+          echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          test "$HTTP_CODE" -ge 200
+          test "$HTTP_CODE" -lt 400
+
+      - name: Publish non-sensitive deployment status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          HTTP_CODE: ${{ steps.verify.outputs.http_code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: |
+          if [ -z "$HTTP_CODE" ]; then HTTP_CODE="unavailable"; fi
+          SHORT_SHA="$(printf '%s' "$COMMIT_SHA" | cut -c1-12)"
+          REPORT="$RUNNER_TEMP/cloudflare-website-deployment-status.md"
+          {
+            printf 'Run: %s\n\n' "$RUN_URL"
+            printf '### Cloudflare deployment\n\n'
+            printf -- '- Service: `website`\n'
+            printf -- '- Workflow: `deploy-website`\n'
+            printf -- '- Trigger: `%s`\n' "$TRIGGER_EVENT"
+            printf -- '- Job: **%s**\n' "$JOB_STATUS"
+            printf -- '- Wrangler deploy: `%s`\n' "$DEPLOY_OUTCOME"
+            printf -- '- Public verification: `%s` (`HTTP %s`)\n' "$VERIFY_OUTCOME" "$HTTP_CODE"
+            printf -- '- Commit: `%s`\n' "$SHORT_SHA"
+            printf -- '- Endpoint: `https://geek.bbnba.com/health`\n\n'
+            printf 'No tokens, Authorization headers, cookies, DNS values, database contents, Cloudflare response bodies, or user data are included in this report.\n'
+          } > "$REPORT"
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          gh issue comment 21 --body-file "$REPORT"
