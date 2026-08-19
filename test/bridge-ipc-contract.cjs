@@ -2,9 +2,13 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { ACCOUNT_DATA_KEYS, DEFAULT_LIMITS } = require('../src/account-data-store.cjs');
 
 const bridge = fs.readFileSync(path.join(__dirname, '../resources/bridge-preload.cjs'), 'utf8');
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+const mainEntry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
+const accountBoundary = fs.readFileSync(path.join(__dirname, '../src/account-data-boundary.cjs'), 'utf8');
+const accountStore = fs.readFileSync(path.join(__dirname, '../src/account-data-store.cjs'), 'utf8');
 const preload = fs.readFileSync(path.join(__dirname, '../src/preload.cjs'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '../ui/app.js'), 'utf8');
 const adapters = fs.readFileSync(path.join(__dirname, '../ui/translation-adapters.js'), 'utf8');
@@ -39,5 +43,26 @@ assert.match(main, /translation:translate/, '主进程翻译 IPC 必须保留');
 assert.match(main, /concurrency|并发|MAX_CONCURRENT|Semaphore|queue/i, '20并发队列必须保留');
 assert.match(adapters, /translateHistory|transOldHistory|history/, '历史消息策略必须保留');
 assert.doesNotMatch(adapters + main + app, /快捷话术|quickPhrase|quick-phrase/i, '不得恢复快捷话术');
+
+// 6. 账号沙箱数据：bootstrap 先安装持久化边界；renderer key 必须与主进程 allowlist 对齐。
+assert.match(mainEntry, /installAccountDataBoundary\(/, '启动入口必须安装账号数据持久化边界');
+assert.ok(
+  mainEntry.indexOf('installAccountDataBoundary(') < mainEntry.indexOf("require('./main.cjs')"),
+  '账号数据边界必须先于 main.cjs IPC 注册安装',
+);
+assert.match(accountBoundary, /ACCOUNT_DATA_CHANNELS/, '账号数据 IPC 必须由独立边界接管');
+assert.match(accountBoundary, /REMOVE_ACCOUNT_CHANNEL/, '删除账号必须先排空账号数据写队列');
+assert.match(accountBoundary, /ACCOUNT_DATA_SENDER_INVALID/, '账号数据 IPC 必须验证主 renderer');
+assert.match(accountStore, /ACCOUNT_DATA_KEY_NOT_ALLOWED/, '未知账号数据 key 必须 fail closed');
+assert.match(accountStore, /ACCOUNT_DATA_LOG_CORRUPT/, '日志中段损坏必须显式失败');
+assert.match(accountStore, /\.compact\.tmp/, 'compaction 必须使用同目录临时文件');
+assert.equal(DEFAULT_LIMITS.maxValueBytes, 2 * 1024 * 1024, '单个账号数据值上限必须保持 2 MiB');
+assert.equal(DEFAULT_LIMITS.compactRecordCount, 512, '账号数据日志必须在 512 条记录触发 compaction');
+assert.equal(DEFAULT_LIMITS.compactFileBytes, 64 * 1024 * 1024, '账号数据日志必须在 64 MiB 触发 compaction');
+const sandboxKeysMatch = app.match(/const ACCOUNT_SANDBOX_KEYS = \[([^\]]+)\]/);
+assert.ok(sandboxKeysMatch, 'renderer 必须显式列出账号沙箱 key');
+const rendererKeys = [...sandboxKeysMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1]).sort();
+const mainKeys = ACCOUNT_DATA_KEYS.filter((key) => key !== '__schema').sort();
+assert.deepEqual(rendererKeys, mainKeys, 'renderer 账号沙箱 key 必须与主进程 allowlist 完全一致');
 
 console.log('BRIDGE_IPC_CONTRACT_OK');

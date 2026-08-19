@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createSubscriptionStore } = require('../src/subscription.cjs');
+const { runAccountDataStoreCases } = require('../test-support/account-data-store-cases.cjs');
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-secure-storage-'));
@@ -34,6 +35,8 @@ const { createSubscriptionStore } = require('../src/subscription.cjs');
   assert.doesNotMatch(main, /lineTokenEncrypt[\s\S]{0,300}catch\s*\{\s*return text/, 'LINE token 不得降级明文');
   assert.match(main, /配置敏感字段迁移失败，保留原文件/, '配置迁移失败必须保留原文件');
   assert.match(main, /账号敏感字段迁移失败，保留原文件/, '账号迁移失败必须保留原文件');
+
+  await runAccountDataStoreCases();
 
   console.log('SECURE_STORAGE_FAIL_CLOSED_OK');
 })().catch((error) => {
