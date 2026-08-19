@@ -29,6 +29,11 @@ assert.match(controller, /跟随全局代理/, '必须区分跟随全局代理�
 assert.match(controller, /当前为直连/, '必须区分直连策略');
 assert.match(controller, /保存失败/, '保存失败必须内联反馈');
 assert.match(controller, /已保存 ✓/, '保存成功必须内联反馈');
+assert.match(controller, /settings-reset-appearance/, '外观分区必须提供独立恢复默认入口');
+assert.match(controller, /settings-reset-account-display/, '当前账号显示分区必须提供独立恢复默认入口');
+assert.match(controller, /APPEARANCE_DEFAULTS = Object\.freeze\(\{ theme: 'dark', accent: 'green' \}\)/, '外观默认值必须明确且只包含主题与强调色');
+assert.match(controller, /ACCOUNT_DISPLAY_DEFAULTS = Object\.freeze\(\{ fontSize: 16, fontColor: '#18A058' \}\)/, '账号显示默认值必须只包含字号与颜色');
+assert.match(controller, /账号名称、代理和登录状态不会改变/, '账号显示恢复必须明确安全边界');
 assert.match(app, /GeekSettingsController\.create\(/, 'app.js 应只注入设置 controller 运行时依赖');
 assert.match(app, /function openSettings\(\)/, '必须保留现有 openSettings 兼容入口');
 assert.match(app, /function loadAccountSettingsForm\(\)/, '必须保留现有账号设置刷新入口');
