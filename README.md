@@ -100,7 +100,7 @@ Windows 本地目录构建：
 npm run pack
 ```
 
-`npm run dist:test` 只生成本地测试安装包，不发布 R2、官网元数据或 tag。正式客户端发布由 `.github/release-client-version` 单独触发；普通源码或文档合并不得修改该文件。发布边界见 [`docs/release-security.md`](docs/release-security.md)。
+`npm run dist:test` 只生成本地测试安装包，不发布 R2、官网元数据或 tag。正常的新版本发布由 `master` 上 `.github/release-client-version` 的版本变更触发；失败后的同版本重试只能在已有独立发布授权和失败证据时，通过 `release-client` 的显式 `workflow_dispatch` 启动。普通源码或文档合并不得修改发布标记，也不得把手动 dispatch 当作日常验证入口。发布边界见 [`docs/release-security.md`](docs/release-security.md)。
 
 涉及 Electron 大版本、LINE 扩展、WhatsApp WPP/CDP、账号认证、支付、额度、更新或 WebView 安全边界的改动，除自动 contract 外还需要对应平台或生产路径的聚焦验证。
 

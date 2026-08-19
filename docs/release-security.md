@@ -2,17 +2,24 @@
 
 当前正式客户端版本为 `1.2.9`，`package.json.version` 与 `.github/release-client-version` 均为 `1.2.9`。
 
-正式客户端发布不是普通维护动作。普通源码、Worker 或文档修改不得改动 `.github/release-client-version`；只有明确决定发布新客户端版本时，才同步更新包版本和发布标记，并单独验证发布范围。
+正式客户端发布不是普通维护动作。正常发布新版本时，必须同步更新包版本和发布标记，并单独验证发布范围。普通源码、Worker 或文档修改不得改动 `.github/release-client-version`。已授权的发布若失败，只有在记录失败证据和恢复范围后，才可对同一版本执行显式重试；同版本重试不得再次改写版本或发布标记。
 
 ## 触发边界
 
-`.github/workflows/release-client.yml` 只监听 `master` 上 `.github/release-client-version` 的变更。工作流首先要求发布标记与 `package.json.version` 完全一致，不一致则拒绝构建和发布。
+`.github/workflows/release-client.yml` 有两个受控入口：
+
+- `master` 上 `.github/release-client-version` 发生变更时，通过 path-filtered `push` 启动正常的新版本发布；
+- 已授权发布失败后，通过显式 `workflow_dispatch` 启动同版本恢复重试。
+
+两个入口都会要求发布标记与 `package.json.version` 完全一致，并执行相同的测试、构建、回滚基线、上传顺序和公开验证；不一致或任一安全步骤失败时都会拒绝发布。
 
 因此：
 
-- 普通 `master` 提交不会自动发布客户端；
-- 部署 `geek-release` Worker 不等于发布新客户端；
-- 仅修改 README、运维文档、网站、翻译、账号或订阅源码时，不得顺手修改发布标记；
+- 未修改发布标记的普通 `master` 提交不会自动发布客户端；
+- `workflow_dispatch` 不是日常构建按钮，只能用于已有独立发布授权、明确目标版本和失败证据的恢复重试；
+- 手动 dispatch 不得绕过完整 contract、产物校验、上一稳定版本验证、`latest.yml` 最后发布或失败回滚；
+- 部署 `geek-release` Worker 不等于发布或重试客户端版本；
+- 仅修改 README、运维文档、网站、翻译、账号或订阅源码时，不得顺手修改发布标记或手动启动正式发布；
 - 正式发布、版本回退、证书/Secrets 变更需要独立决策和记录。
 
 ## 本地构建命令
@@ -85,9 +92,10 @@ Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe`
 
 ## 发布前检查
 
-正式发布前至少确认：
+正式发布或同版本恢复重试前至少确认：
 
 - 发布版本、变更范围和用户影响已明确；
+- 同版本重试具有对应失败 run、根因记录和已有发布授权；
 - `package.json.version` 与发布标记一致；
 - 完整 contract suite 通过；
 - Electron/LINE/WA/TG 等受影响平台完成必要的真实兼容回归；
@@ -96,4 +104,4 @@ Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe`
 - 上一稳定版本和公开产物可访问，回滚路径可用；
 - 发布后公开传播检查通过。
 
-没有这些证据时，不通过修改发布标记“试运行”正式发布。
+没有这些证据时，不得通过修改发布标记“试运行”正式发布，也不得把 `workflow_dispatch` 当作绕过门禁的替代入口。
