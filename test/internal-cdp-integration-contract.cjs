@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
 const entry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
@@ -65,8 +66,9 @@ function createFakeFs() {
   };
   const originalHandle = ipcMain.handle;
   const sender = { id: 7 };
+  const uiEntryPath = path.join(__dirname, '../ui/index.html');
   const mainWindow = {
-    webContents: { id: 7, getURL: () => 'file:///app/ui/index.html' },
+    webContents: { id: 7, getURL: () => pathToFileURL(uiEntryPath).href },
     isDestroyed: () => false,
   };
   const dialog = {
@@ -79,7 +81,7 @@ function createFakeFs() {
     ipcMain,
     dialog,
     BrowserWindow,
-    uiEntryPath: '/app/ui/index.html',
+    uiEntryPath,
     fs: createFakeFs(),
     now: () => 1,
     randomBytes: () => Buffer.alloc(24, 4),
