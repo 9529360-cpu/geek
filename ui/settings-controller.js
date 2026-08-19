@@ -47,12 +47,6 @@
       }
     }
 
-    function proxyStrategy(account) {
-      if (account?.openProxy) return { state: 'account', title: '使用账号独立代理', detail: '这个账号使用下面的独立代理，不跟随全局代理。' };
-      if (config?.openProxy) return { state: 'global', title: '跟随全局代理', detail: '当前账号未启用独立代理，将使用全局网络代理。' };
-      return { state: 'direct', title: '当前为直连', detail: '账号和全局代理都未启用。' };
-    }
-
     function refreshProxyUi() {
       const globalEnabled = checked('cfg-openProxy');
       setProxyEnabled(PROXY_GLOBAL_IDS, globalEnabled);
@@ -64,10 +58,11 @@
       const accountCard = el('settings-account-proxy-fields');
       accountCard?.classList.toggle('settings-fields-disabled', !accountEnabled);
 
-      const account = accounts.find(item => item.id === value('acc-select'));
       const strategy = accountEnabled
         ? { state: 'account', title: '使用账号独立代理', detail: '保存后，这个账号将优先使用下面的独立代理。' }
-        : proxyStrategy(account ? { ...account, openProxy: false } : null);
+        : globalEnabled
+          ? { state: 'global', title: '跟随全局代理', detail: '当前账号未启用独立代理，将使用全局网络代理。' }
+          : { state: 'direct', title: '当前为直连', detail: '账号和全局代理都未启用。' };
       const badge = el('settings-proxy-strategy');
       const detail = el('settings-proxy-strategy-detail');
       if (badge) { badge.textContent = strategy.title; badge.dataset.state = strategy.state; }
@@ -113,7 +108,7 @@
       setValue('cfg-accent', config.accent || 'green');
       setChecked('cfg-autoLaunch', !!config.autoLaunch);
       setChecked('cfg-isStartupMinimize', !!config.isStartupMinimize);
-      setChecked('cfg-messageSound', config.messageSound !== false);
+      setChecked('cfg-messageSound', !!config.messageSound);
       setValue('cfg-lockPassword', config.lockPassword || '');
       setChecked('cfg-openProxy', !!config.openProxy);
       setValue('cfg-protocal', config.protocal || 'http');
