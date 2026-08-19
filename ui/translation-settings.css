@@ -45,3 +45,9 @@
 .translation-service-actions .translation-save { flex-shrink: 0; }
 .translation-service-actions .translation-hint { margin: 0; flex: 1; text-align: right; }
 @media (max-width: 700px) { .translation-popover { width: min(430px, calc(100vw - 24px)); right: 12px; } }
+
+.translation-appearance-preview { margin-top: 9px; padding: 10px; border: 1px dashed var(--border-standard); border-radius: 9px; background: var(--bg-surface); }
+.translation-appearance-preview-label { color: var(--text-tertiary); font-size: 10.5px; margin-bottom: 7px; }
+.translation-appearance-preview-original { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.translation-appearance-preview-text { margin-top: 4px; line-height: 1.45; transition: color .12s ease, font-size .12s ease; }
+.translation-appearance-preview-note { margin-top: 8px; color: var(--text-quaternary); font-size: 10px; line-height: 1.4; }
