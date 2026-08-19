@@ -39,7 +39,7 @@
   const headCopy = make('div', 'profile-center-head-copy');
   const title = make('h2', '', '个人中心');
   title.id = 'profile-center-title';
-  headCopy.append(title, make('p', '', '账户、字符余量与购买入口'));
+  headCopy.append(title, make('p', '', '账户、个人用量与购买入口'));
   const closeButton = make('button', 'profile-center-close', '×');
   closeButton.type = 'button';
   closeButton.setAttribute('aria-label', '关闭个人中心');
@@ -59,7 +59,8 @@
   accountCard.append(accountGrid);
 
   const quotaCard = make('section', 'profile-center-card profile-center-quota-card');
-  quotaCard.append(make('div', 'profile-center-card-title', '字符余量'));
+  quotaCard.append(make('div', 'profile-center-card-title', '个人用量'));
+  const quotaLabel = make('div', 'profile-center-quota-label', '剩余字符');
   const quotaValue = make('div', 'profile-center-quota-value', '—');
   quotaValue.id = 'profile-center-quota';
   const quotaHint = make('p', 'profile-center-quota-hint', '字符只用于翻译；用完不会影响 WhatsApp、Telegram 或 LINE 正常聊天。');
@@ -69,7 +70,7 @@
   const buyButton = make('button', 'profile-center-btn profile-center-btn--primary', '购买字符包');
   buyButton.type = 'button';
   quotaActions.append(refreshButton, buyButton);
-  quotaCard.append(quotaValue, quotaHint, quotaActions);
+  quotaCard.append(quotaLabel, quotaValue, quotaHint, quotaActions);
 
   const status = make('div', 'profile-center-status', '');
   status.id = 'profile-center-status';

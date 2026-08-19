@@ -19,7 +19,11 @@ const marker = read('.github/release-client-version').trim();
 assert.match(index, /profile-center\.css/, '主窗口必须加载个人中心样式');
 assert.match(index, /profile-center\.js/, '主窗口必须加载个人中心模块');
 assert.match(profile, /profile-center-entry/, '左侧栏必须有个人中心入口');
-assert.match(profile, /字符余量/, '个人中心入口与面板必须保留字符余量展示');
+assert.match(profile, /字符余量/, '个人中心入口必须保留字符余量展示');
+assert.match(profile, /'个人用量'/, '个人中心字符卡必须明确命名为个人用量');
+assert.match(profile, /profile-center-quota-label', '剩余字符'/, '个人用量必须明确展示剩余字符标签');
+assert.doesNotMatch(profile, /今日|近\s*7\s*天|近\s*30\s*天|7\s*天|30\s*天|按日|按周|按月|趋势图|日期筛选/,
+  '个人用量不得引入日周月时间维度');
 assert.match(profile, /entryTitle\.textContent = '个人中心'/, '侧栏应保持稳定的个人中心标题而不是常驻暴露邮箱');
 assert.match(profile, /remainingValue == null \|\| remainingValue === '' \? NaN : Number\(remainingValue\)/,
   '缺失的字符余量不得被 Number(null) 误判为 0');
@@ -28,6 +32,7 @@ assert.match(profile, /subscription\.getQuota\(force === true\)/, '个人中心�
 assert.match(profile, /subscription\.openPlans\(\)/, '购买按钮必须复用现有套餐窗口');
 assert.match(profile, /subscription\.logout\(\)/, '个人中心必须保留退出登录能力');
 assert.match(profile, /window\.relaunch\(\)/, '退出登录后必须回到登录门禁流程');
+assert.match(css, /profile-center-quota-label/, '个人用量必须提供剩余字符标签样式');
 assert.match(css, /side-nav\.collapsed \.profile-entry-copy/, '折叠侧栏必须保持个人中心入口可访问');
 assert.doesNotMatch(subscription, /id=\"view-home\"/, '登录后不应再存在余额购买中间首页');
 assert.match(subscription, /finishAuthentication/, '登录与注册成功必须统一进入工作区');
