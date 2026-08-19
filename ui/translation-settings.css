@@ -1,0 +1,47 @@
+/* Translation settings UX layer. Uses the existing theme variables only. */
+.translation-popover { width: 430px; max-height: min(680px, calc(100vh - 70px)); }
+.translation-popover-head { align-items: flex-start; gap: 10px; }
+.translation-head-copy { min-width: 0; flex: 1; }
+.translation-head-copy strong { display: block; font-size: 14px; }
+.translation-head-copy small { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: 11px; font-weight: 400; }
+.translation-service-state { flex-shrink: 0; margin-top: 1px; padding: 3px 8px; border: 1px solid var(--border-standard); border-radius: 999px; color: var(--text-tertiary); background: var(--card-bg); font-size: 10.5px; }
+.translation-service-state[data-state='ok'] { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
+.translation-service-state[data-state='error'] { color: var(--danger); border-color: rgba(224,93,93,.35); background: var(--danger-soft); }
+.translation-tabs { padding: 0 12px; gap: 4px; }
+.translation-tab { flex: 1; }
+.translation-tab-panel { padding: 12px; }
+.translation-tab-panel--scroll { overflow-y: auto; }
+.translation-intro { margin-bottom: 10px; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--card-bg); color: var(--text-tertiary); font-size: 11.5px; line-height: 1.5; }
+.translation-card { padding: 10px 11px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--card-bg); }
+.translation-card + .translation-card { margin-top: 9px; }
+.translation-card-title { margin-bottom: 4px; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.translation-card-sub { margin-bottom: 7px; color: var(--text-tertiary); font-size: 11px; line-height: 1.45; }
+.translation-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 38px; padding: 6px 0; cursor: pointer; }
+.translation-switch-copy { min-width: 0; }
+.translation-switch-copy strong { display: block; color: var(--text-secondary); font-size: 12px; font-weight: 520; }
+.translation-switch-copy small { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: 10.5px; line-height: 1.35; }
+.translation-switch-input { width: 34px; height: 18px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+.translation-card .translation-row { min-height: 36px; padding: 5px 0; }
+.translation-card .translation-row + .translation-row { border-top: 1px solid var(--border-subtle); }
+.translation-card .translation-row > span { color: var(--text-secondary); font-size: 11.5px; }
+.translation-card select { max-width: 190px; }
+.translation-save-status { min-height: 18px; padding: 7px 2px 0; color: var(--text-tertiary); font-size: 11px; text-align: right; }
+.translation-save-status[data-state='ok'] { color: var(--accent); }
+.translation-save-status[data-state='error'] { color: var(--danger); }
+.translation-chat-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; padding: 10px 11px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--card-bg); }
+.translation-chat-summary strong { display: block; color: var(--text-primary); font-size: 12px; }
+.translation-chat-mode { display: inline-block; margin-top: 3px; color: var(--text-tertiary); font-size: 10.5px; }
+.translation-chat-mode[data-state='global'] { color: var(--accent); }
+.translation-chat-mode[data-state='custom'] { color: var(--text-secondary); }
+.translation-reset { width: 100%; margin-top: 9px; }
+.translation-advanced { border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--card-bg); overflow: hidden; }
+.translation-advanced + .translation-advanced { margin-top: 9px; }
+.translation-advanced > summary { padding: 10px 11px; cursor: pointer; color: var(--text-secondary); font-size: 12px; font-weight: 550; user-select: none; }
+.translation-advanced-body { padding: 0 11px 10px; }
+.translation-advanced-body .translation-row { min-height: 36px; padding: 5px 0; }
+.translation-advanced-body .translation-row + .translation-row { border-top: 1px solid var(--border-subtle); }
+.translation-advanced-body .translation-switch-row + .translation-switch-row { border-top: 1px solid var(--border-subtle); }
+.translation-service-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.translation-service-actions .translation-save { flex-shrink: 0; }
+.translation-service-actions .translation-hint { margin: 0; flex: 1; text-align: right; }
+@media (max-width: 700px) { .translation-popover { width: min(430px, calc(100vw - 24px)); right: 12px; } }

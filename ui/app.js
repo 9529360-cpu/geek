@@ -1266,109 +1266,31 @@
   };
   document.getElementById('btn-lock').onclick = lockScreen;
   document.getElementById('btn-settings').onclick = openSettings;
-  // ---------- 翻译通道（极客自有入口；原版行为，后端网关可插拔） ----------
-  const translationLanguages = [
-    ['en','英语'],['es','西班牙语'],['fr','法语'],['de','德语'],['it','意大利语'],['pt','葡萄牙语'],['zh','中文'],['ja','日语'],['ko','韩语'],['hi','印地语'],['ar','阿拉伯语'],['ru','俄语'],['id','印尼语'],['pl','波兰语'],['tr','土耳其语'],['vi','越南语'],['nl','荷兰语'],['sv','瑞典语'],['el','希腊语'],['th','泰语']
-  ];
-  const translationPopover = document.getElementById('translation-popover');
-  const translationTarget = document.getElementById('translation-target');
-  const translationHint = document.getElementById('translation-chat-hint');
-  const translationStoreKey = 'geekTranslationChatConfig';
-  localStorage.removeItem('geekTranslationGateway'); // 旧版地址迁移：服务地址不再保存在客户端渲染层。
-  const translationGlobalStoreKey = 'geekTranslationGlobalConfig';
-  const translationGlobalDefaults = { source: 'auto', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en', includeZh: true, displayTranslation: true, manual: true, translationMode: 'auto', messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea' };
-  const globalLanguageSelectIds = ['translation-send-from','translation-send-to','translation-message-from','translation-message-to'];
-  for (const id of globalLanguageSelectIds) {
-    const select = document.getElementById(id);
-    if (!select) continue;
-    const allowAuto = id.endsWith('-from');
-    select.innerHTML = `${allowAuto ? '<option value="auto">自动检测</option>' : ''}${translationLanguages.map(([code, name]) => `<option value="${code}">${name}</option>`).join('')}`;
-  }
-  function translationGlobalStore() { try { return JSON.parse(accountStorageGetItem('translationGlobal') || '{}'); } catch { return {}; } }
-  function activeTranslationGlobalConfig() {
-    const cfg = { ...translationGlobalDefaults, ...translationGlobalStore() };
-    if (cfg.source === 'local' || cfg.source === 'remote') cfg.source = 'auto';
-    return cfg;
-  }
-  function refreshTranslationGlobalPanel() {
-    const cfg = activeTranslationGlobalConfig();
-    const mapping = { 'translation-source':'source','translation-server':'server','translation-send':'send','translation-send-from':'sendFrom','translation-send-to':'sendTo','translation-include-zh':'includeZh','translation-display':'displayTranslation','translation-manual':'manual','translation-message':'translationMode','translation-message-from':'messageFrom','translation-message-to':'messageTo','translation-group':'group','translation-font-size':'fontSize','translation-font-color':'fontColor' };
-    for (const [id, key] of Object.entries(mapping)) {
-      const el = document.getElementById(id);
-      if (el) el.value = typeof cfg[key] === 'boolean' ? String(cfg[key]) : cfg[key];
-    }
-    const sendEnabled = cfg.send === true;
-    const messageEnabled = cfg.displayTranslation !== false;
-    ['translation-send-from','translation-send-to','translation-include-zh'].forEach(id => { const el=document.getElementById(id); if (el) el.disabled=!sendEnabled; });
-    ['translation-message','translation-message-from','translation-message-to','translation-group','translation-font-size','translation-font-color'].forEach(id => { const el=document.getElementById(id); if (el) el.disabled=!messageEnabled; });
-  }
-  function saveTranslationGlobalConfig() {
-    if (!activeId) return;
-    const bool = id => document.getElementById(id)?.value === 'true';
-    const cfg = {
-      source: document.getElementById('translation-source')?.value || 'auto', server: document.getElementById('translation-server')?.value || 'default',
-      send: bool('translation-send'), sendFrom: document.getElementById('translation-send-from')?.value || 'auto', sendTo: document.getElementById('translation-send-to')?.value || 'en', includeZh: bool('translation-include-zh'), displayTranslation: bool('translation-display'), manual: bool('translation-manual'),
-      translationMode: document.getElementById('translation-message')?.value || 'auto', messageFrom: document.getElementById('translation-message-from')?.value || 'auto', messageTo: document.getElementById('translation-message-to')?.value || 'zh', group: bool('translation-group'),
-      fontSize: document.getElementById('translation-font-size')?.value || '13', fontColor: document.getElementById('translation-font-color')?.value || '#667eea'
-    };
-    accountStorageSetItem('translationGlobal', JSON.stringify(cfg)).catch(() => {});
-    refreshTranslationGlobalPanel();
-    const account = accounts.find(a => a.id === activeId); if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
-    const status = document.getElementById('translation-global-status'); if (status) status.textContent = '全局翻译设置已保存';
-  }
-  if (translationTarget) translationTarget.innerHTML = translationLanguages.map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
-  function translationStore() { try { return JSON.parse(accountStorageGetItem('translationChats') || '{}'); } catch { return {}; } }
-  async function currentTranslationChat() {
-    const account = accounts.find(item => item.id === activeId);
-    const wv = wvMap.get(activeId);
-    if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
-    try { return await platformTransportFor(account, wv).getCurrentChat(); }
-    catch { return null; }
-  }
-  async function refreshTranslationPanel() {
-    const chatId = await currentTranslationChat();
-    const store = translationStore();
-    const cfg = chatId ? (store[chatId] || {}) : {};
-    const enabled = document.getElementById('translation-enabled');
-    const auto = document.getElementById('translation-auto-send');
-    const action = document.getElementById('translation-message-action');
-    if (enabled) enabled.checked = !!cfg.enabled;
-    if (auto) auto.checked = !!cfg.autoSend;
-    if (action) action.checked = cfg.messageAction !== false;
-    if (translationTarget) translationTarget.value = cfg.target || 'en';
-    if (translationHint) translationHint.textContent = chatId ? `当前聊天已加载 · ${cfg.enabled ? `目标：${translationLanguages.find(x => x[0] === (cfg.target || 'en'))?.[1] || cfg.target}` : '未启用翻译'}` : '请先在当前平台打开一个聊天';
-  }
-  async function saveTranslationChatConfig() {
-    const chatId = await currentTranslationChat();
-    if (!chatId) { if (translationHint) translationHint.textContent = '请先在当前平台打开一个聊天'; return; }
-    const store = translationStore();
-    store[chatId] = { enabled: !!document.getElementById('translation-enabled')?.checked, target: translationTarget?.value || 'en', autoSend: !!document.getElementById('translation-auto-send')?.checked, messageAction: !!document.getElementById('translation-message-action')?.checked };
-    accountStorageSetItem('translationChats', JSON.stringify(store)).catch(() => {});
-    const account = accounts.find(a => a.id === activeId);
-    if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
-    if (translationHint) translationHint.textContent = '当前聊天翻译设置已保存';
-  }
-  const translationButton = document.getElementById('btn-translation');
-  if (translationButton) translationButton.onclick = async () => {
-    const open = translationPopover?.classList.toggle('hidden') === false;
-    translationButton.setAttribute('aria-expanded', String(open));
-    if (open) { refreshTranslationGlobalPanel(); await refreshTranslationPanel(); }
-  };
-  document.getElementById('translation-close')?.addEventListener('click', () => { translationPopover?.classList.add('hidden'); translationButton?.setAttribute('aria-expanded', 'false'); });
-  document.querySelectorAll('[data-translation-tab]').forEach(tab => tab.addEventListener('click', () => {
-    document.querySelectorAll('[data-translation-tab]').forEach(x => x.classList.toggle('active', x === tab));
-    document.querySelectorAll('.translation-tab-panel').forEach(x => x.classList.toggle('hidden', x.id !== `translation-tab-${tab.dataset.translationTab}`));
-  }));
-  ['translation-enabled','translation-target','translation-auto-send','translation-message-action'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationChatConfig));
-  ['translation-source','translation-server','translation-send','translation-send-from','translation-send-to','translation-include-zh','translation-display','translation-manual','translation-message','translation-message-from','translation-message-to','translation-group','translation-font-size','translation-font-color'].forEach(id => document.getElementById(id)?.addEventListener('change', saveTranslationGlobalConfig));
-  document.getElementById('translation-gateway-test')?.addEventListener('click', async () => {
-    const status = document.getElementById('translation-gateway-status');
-    if (status) status.textContent = '正在检测服务…';
-    try {
-      const result = await window.api.translation.health();
-      if (status) status.textContent = result?.ok ? `翻译服务正常 · ${result.models || 0} 条线路可用` : '翻译服务暂不可用';
-    } catch (error) { if (status) status.textContent = `翻译服务暂不可用 · ${error.message}`; }
+  // ---------- 翻译设置（体验层独立模块；沿用既有账号沙箱与平台同步） ----------
+  const translationSettings = window.GeekTranslationSettings.create({
+    core: window.GeekTranslationCore,
+    getActiveId: () => activeId,
+    getStorage: (key) => accountStorageGetItem(key),
+    setStorage: (key, raw) => accountStorageSetItem(key, raw),
+    getCurrentChat: async () => {
+      const account = accounts.find(item => item.id === activeId);
+      const wv = wvMap.get(activeId);
+      if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
+      try { return await platformTransportFor(account, wv).getCurrentChat(); }
+      catch { return null; }
+    },
+    sync: () => {
+      const account = accounts.find(item => item.id === activeId);
+      if (account) syncTranslationCfgToWebview(wvMap.get(activeId), account);
+    },
+    health: () => window.api.translation.health(),
   });
+  function refreshTranslationGlobalPanel() {
+    translationSettings.refreshGlobal();
+    void translationSettings.refreshChat();
+  }
+  translationSettings.bind();
+
   // 托盘菜单"锁屏" → 触发渲染层锁屏
   try {
     window.api.tray.onLock(() => lockScreen());
