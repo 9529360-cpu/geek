@@ -1,0 +1,60 @@
+name: Temporary release 1.2.12 observer
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, reopened]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  observe:
+    if: github.head_ref == 'agent/release-1.2.12-observer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read production release runs
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_SHA: bbebd6c47dd88d8e61b241019e24fdf3ce768bef
+        run: |
+          node - <<'NODE'
+          const https = require('node:https');
+          const sha = process.env.TARGET_SHA;
+          const options = {
+            hostname: 'api.github.com',
+            path: `/repos/9529360-cpu/geek/actions/runs?head_sha=${sha}&per_page=30`,
+            headers: {
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'geek-release-observer'
+            }
+          };
+          https.get(options, (res) => {
+            let raw = '';
+            res.setEncoding('utf8');
+            res.on('data', chunk => { raw += chunk; });
+            res.on('end', () => {
+              if (res.statusCode !== 200) throw new Error(`Actions API HTTP ${res.statusCode}`);
+              const data = JSON.parse(raw);
+              const runs = (data.workflow_runs || []).map(run => ({
+                id: run.id,
+                name: run.name,
+                status: run.status,
+                conclusion: run.conclusion,
+                event: run.event,
+                head_sha: run.head_sha,
+                created_at: run.created_at,
+                updated_at: run.updated_at
+              }));
+              console.log('RELEASE_OBSERVER_BEGIN');
+              console.log(JSON.stringify(runs, null, 2));
+              console.log('RELEASE_OBSERVER_END');
+            });
+          }).on('error', error => { throw error; });
+          NODE
