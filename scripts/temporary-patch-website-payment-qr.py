@@ -88,11 +88,3 @@ if worker.count(api_anchor) != 1 or "path === '/payment-qr'" in worker:
     raise SystemExit('payment QR route anchor mismatch')
 worker = worker.replace(api_anchor, route + api_anchor, 1)
 worker_path.write_text(worker, encoding='utf-8')
-
-workflow_path = Path('.github/workflows/deploy-website.yml')
-workflow = workflow_path.read_text(encoding='utf-8')
-deploy_anchor = "      - 'scripts/geek-website-worker.js'\n      - 'wrangler-website.toml'"
-deploy_replacement = "      - 'scripts/geek-website-worker.js'\n      - 'scripts/website-payment-qr.mjs'\n      - 'wrangler-website.toml'"
-if workflow.count(deploy_anchor) != 1:
-    raise SystemExit('website deploy path anchor mismatch')
-workflow_path.write_text(workflow.replace(deploy_anchor, deploy_replacement, 1), encoding='utf-8')
