@@ -1571,7 +1571,118 @@ function registerIpcHandlers() {
   });
 
   // 群发附件：真实拖拽文件到账号页面（应用内 CDP；开发模式探测到 9344 时走外部 CDP）
-  async function dropFileViaCdp({ send }, { filePath, mime, pos }) {
+  async function dropFileViaCdp({ send }, { filePath, mime, pos, platform, action }) {
+    if (platform === 'line' && action === 'send') {
+      const point = await send('Runtime.evaluate', {
+        expression: `(() => {
+          const modal = document.querySelector('[class*="sendFileModal-module__modal__"]');
+          const sendButton = modal?.querySelector('[class*="sendFileModal-module__button_send__"]');
+          const itemCount = modal?.querySelectorAll('[class*="sendFilelistItem-module__send_file_item__"]').length || 0;
+          if (!modal || !sendButton) return JSON.stringify({ ok: false, reason: 'NO_FILE_SEND_BUTTON' });
+          if (itemCount <= 0) return JSON.stringify({ ok: false, reason: 'LINE_FILE_ITEM_NOT_READY' });
+          const rect = sendButton.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) return JSON.stringify({ ok: false, reason: 'FILE_SEND_BUTTON_NOT_VISIBLE' });
+          return JSON.stringify({
+            ok: true,
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2)
+          });
+        })()`,
+        returnByValue: true
+      });
+      let state = {};
+      try { state = JSON.parse(point?.result?.value || '{}'); } catch { state = {}; }
+      if (!state.ok) {
+        for (let attempt = 0; attempt < 80; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const retry = await send('Runtime.evaluate', {
+            expression: `(() => {
+              const modal = document.querySelector('[class*="sendFileModal-module__modal__"]');
+              const sendButton = modal?.querySelector('[class*="sendFileModal-module__button_send__"]');
+              const itemCount = modal?.querySelectorAll('[class*="sendFilelistItem-module__send_file_item__"]').length || 0;
+              if (!modal || !sendButton || itemCount <= 0) return JSON.stringify({ ok: false });
+              const rect = sendButton.getBoundingClientRect();
+              return JSON.stringify({ ok: rect.width > 0 && rect.height > 0, x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) });
+            })()`,
+            returnByValue: true
+          });
+          try { state = JSON.parse(retry?.result?.value || '{}'); } catch { state = {}; }
+          if (state.ok) break;
+        }
+      }
+      if (!state.ok) return state.reason || 'LINE_FILE_ITEM_NOT_READY';
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: state.x, y: state.y });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: state.x, y: state.y, button: 'left', buttons: 1, clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: state.x, y: state.y, button: 'left', buttons: 0, clickCount: 1 });
+      await send('Runtime.evaluate', { expression: `document.getElementById('__geek_line_file_input')?.remove(); true`, returnByValue: true });
+      return 'SEND_CLICK_DISPATCHED';
+    }
+    if (platform === 'line') {
+      const before = await send('Runtime.evaluate', {
+        expression: `document.querySelectorAll('[class*="pastedImageList-module__image_list_item__"]').length`,
+        returnByValue: true
+      });
+      const linePastedImageCount = Number(before?.result?.value || 0);
+      const prepared = await send('Runtime.evaluate', {
+        expression: `(() => {
+          let input = document.getElementById('__geek_line_file_input');
+          if (!input) {
+            input = document.createElement('input');
+            input.type = 'file';
+            input.id = '__geek_line_file_input';
+            input.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1px;height:1px;opacity:0;pointer-events:none';
+            document.documentElement.appendChild(input);
+          }
+          input.value = '';
+          return true;
+        })()`,
+        returnByValue: true
+      });
+      if (prepared?.result?.value !== true) return false;
+      const documentNode = await send('DOM.getDocument', { depth: 1, pierce: true });
+      const inputNode = await send('DOM.querySelector', {
+        nodeId: documentNode?.root?.nodeId,
+        selector: '#__geek_line_file_input'
+      });
+      if (!inputNode?.nodeId) return false;
+      await send('DOM.setFileInputFiles', { files: [filePath], nodeId: inputNode.nodeId });
+      const pasted = await send('Runtime.evaluate', {
+        expression: `(() => {
+          const input = document.getElementById('__geek_line_file_input');
+          const file = input?.files?.[0];
+          const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+          const target = host?.shadowRoot?.querySelector('textarea') || host;
+          if (!file || !host || !target) return 'NO_FILE_OR_EDITOR';
+          const event = new Event('paste', { bubbles: true, cancelable: true, composed: true });
+          Object.defineProperty(event, 'clipboardData', {
+            value: { files: input.files, getData: () => '' },
+            configurable: true
+          });
+          target.dispatchEvent(event);
+          return 'PASTE_DISPATCHED';
+        })()`,
+        returnByValue: true
+      });
+      if (pasted?.result?.value !== 'PASTE_DISPATCHED') return false;
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const chk = await send('Runtime.evaluate', {
+          expression: `(() => {
+            const count = document.querySelectorAll('[class*="pastedImageList-module__image_list_item__"]').length;
+            return JSON.stringify({ count });
+          })()`,
+          returnByValue: true
+        });
+        let state = {};
+        try { state = JSON.parse(chk?.result?.value || '{}'); } catch { state = {}; }
+        if (Number(state.count || 0) > linePastedImageCount) {
+          await send('Runtime.evaluate', { expression: `document.getElementById('__geek_line_file_input')?.remove(); true`, returnByValue: true });
+          return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      await send('Runtime.evaluate', { expression: `document.getElementById('__geek_line_file_input')?.remove(); true`, returnByValue: true });
+      return 'LINE_PASTED_IMAGE_NOT_READY';
+    }
     const dragData = {
       items: [{ mimeType: mime || 'application/octet-stream', data: 'file:///' + filePath.replace(/\\/g, '/') }],
       files: [filePath],
@@ -1612,16 +1723,16 @@ function registerIpcHandlers() {
 
   ipcMain.handle('broadcast:drop-file', async (event, payload) => {
     assertTrustedSender(event);
-    const { partition, filePath, mime, platform } = payload || {};
+    const { partition, filePath, mime, platform, action, guestId } = payload || {};
     if (!partition || !filePath) throw new Error('参数错误');
     const targetPlatform = platform || 'whatsapp';
-    const pos = await getDropPos(partition);
+    const pos = targetPlatform === 'line' ? { x: 1, y: 1 } : await getDropPos(partition);
     if (externalDebuggingActive) {
       const targets = await externalTargets();
       const wsUrl = findExternalTarget(targets, targetPlatform);
-      return await withExternalCdpSend(wsUrl, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos }));
+      return await withExternalCdpSend(wsUrl, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos, platform: targetPlatform, action }));
     }
-    return await internalCdp.run(partition, targetPlatform, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos }));
+    return await internalCdp.run(partition, targetPlatform, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos, platform: targetPlatform, action }), targetPlatform === 'line' ? guestId : null);
   });
   // 选择 CSV 联系人文件（群发导入）
   ipcMain.handle('file:pick-csv', async (event) => {
@@ -1964,7 +2075,7 @@ function isTrustedSubscriptionSender(event) {
   return isTrustedSender(event) || isSubscriptionSender(event);
 }
 
-function createSubscriptionWindow(initialView = '') {
+function createSubscriptionWindow() {
   if (subscriptionWindow && !subscriptionWindow.isDestroyed()) {
     subscriptionWindow.show();
     subscriptionWindow.focus();
@@ -1995,9 +2106,7 @@ function createSubscriptionWindow(initialView = '') {
   });
   subscriptionWindow.once('ready-to-show', () => subscriptionWindow.show());
   subscriptionWindow.on('closed', () => { subscriptionWindow = null; });
-  const subscriptionFile = path.join(__dirname, '../ui/subscription.html');
-  if (initialView) subscriptionWindow.loadFile(subscriptionFile, { query: { view: initialView } });
-  else subscriptionWindow.loadFile(subscriptionFile);
+  subscriptionWindow.loadFile(path.join(__dirname, '../ui/subscription.html'));
   return subscriptionWindow;
 }
 
@@ -2029,12 +2138,6 @@ function registerSubscriptionIpcHandlers() {
   ipcMain.handle('subscription:report-usage', async (event, chars) => {
     if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
     return initSubscriptionStore().reportUsage(Number(chars) || 0);
-  });
-  ipcMain.handle('subscription:open-plans', async (event) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    const state = await initSubscriptionStore().getState();
-    createSubscriptionWindow(state.loggedIn ? 'plans' : '');
-    return { ok: true, loggedIn: state.loggedIn === true };
   });
   ipcMain.handle('subscription:logout', async (event) => {
     if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
@@ -2354,7 +2457,6 @@ app.on('before-quit', () => {
   ipcMain.removeHandler('subscription:login');
   ipcMain.removeHandler('subscription:register');
   ipcMain.removeHandler('subscription:create-order');
-  ipcMain.removeHandler('subscription:open-plans');
   ipcMain.removeHandler('subscription:logout');
   ipcMain.removeHandler('subscription:enter-app');
   ipcMain.removeHandler('subscription:close-window');

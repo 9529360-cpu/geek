@@ -167,7 +167,6 @@ contextBridge.exposeInMainWorld(
       register: (email, password) => invokeSubscription('subscription:register', email, password),
       createOrder: (plan) => invokeSubscription('subscription:create-order', plan),
       getQuota: (force) => invokeSubscription('subscription:get-quota', force === true),
-      openPlans: () => invokeSubscription('subscription:open-plans'),
       logout: () => invokeSubscription('subscription:logout'),
       enterApp: () => invokeSubscription('subscription:enter-app'),
       closeWindow: () => invokeSubscription('subscription:close-window'),

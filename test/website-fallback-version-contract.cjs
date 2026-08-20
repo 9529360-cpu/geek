@@ -25,9 +25,12 @@ const fallbackIsPreviousPatch = (
   fallbackMinor === pkgMinor &&
   fallbackPatch + 1 === pkgPatch
 );
+// 1.2.13 曾正式发布但因真实 LINE 白屏回滚；1.2.14 的已验证上一稳定版因此仍是 1.2.12。
+// 这个例外必须精确绑定版本对，不能泛化为允许任意陈旧 fallback。
+const fallbackIsVerifiedRollbackStable = pkg.version === '1.2.14' && fallback === '1.2.12';
 assert.ok(
-  fallbackIsCurrent || fallbackIsPreviousPatch,
-  '官网 fallback 只能是当前客户端版本或同一 minor 的上一稳定 patch，防止长期漂移，也避免待发布版本尚未公开时提前指向不存在的安装包'
+  fallbackIsCurrent || fallbackIsPreviousPatch || fallbackIsVerifiedRollbackStable,
+  '官网 fallback 只能是当前客户端、同一 minor 的上一稳定 patch，或明确记录的回滚后已验证稳定版本'
 );
 
 assert.match(
