@@ -41,7 +41,7 @@ jobs:
       - name: Apply confirmed LINE fixes only in validation workspace
         run: node scripts/line-attachment-static-probe-temp.cjs
 
-      - name: Verify runtime patch scope
+      - name: Verify runtime patch scope and accepted translation parity
         shell: pwsh
         run: |
           $changed = @(git diff --name-only)
@@ -49,6 +49,12 @@ jobs:
           if ($changed.Count -ne $expected.Count) { throw "unexpected runtime patch count: $changed" }
           foreach ($file in $expected) { if ($changed -notcontains $file) { throw "missing runtime patch: $file" } }
           git diff --check
+          $translationStat = @(git diff --numstat -- ui/translation-adapters.js)
+          if ($translationStat.Count -ne 1) { throw "unexpected translation diff stat: $translationStat" }
+          $parts = $translationStat[0] -split '\s+'
+          if ($parts[0] -ne '8' -or $parts[1] -ne '1') { throw "translation patch is not the accepted route-only 8+/1- diff: $translationStat" }
+          if (Select-String -Path src/main.cjs -SimpleMatch 'await sleep(150)' -Quiet) { throw 'undefined main-process sleep helper remains' }
+          if (-not (Select-String -Path src/main.cjs -SimpleMatch 'await new Promise(resolve => setTimeout(resolve, 150))' -Quiet)) { throw 'self-contained main-process wait missing' }
           git diff --stat
 
       - name: Install dependencies
@@ -75,12 +81,13 @@ jobs:
           "sha256=$hash" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
           "baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
           "included=line-translation-route-fix + line-image-group-send-fix" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          Write-Host "LINE_IMAGE_VALIDATION_INSTALLER_OK $hash"
+          "revision=v2-self-contained-main-wait" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          Write-Host "LINE_IMAGE_VALIDATION_V2_INSTALLER_OK $hash"
 
       - name: Upload private validation installer
         uses: actions/upload-artifact@v4
         with:
-          name: geek-1.2.12-line-image-validation
+          name: geek-1.2.12-line-image-validation-v2
           path: |
             dist-release/geek-setup-1.2.12.exe
             dist-release/validation-sha256.txt
