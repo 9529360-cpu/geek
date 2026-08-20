@@ -1,11 +1,15 @@
 name: acl-windows
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/152-telegram-native-attachments
+      - master
     paths:
       - .github/workflows/acl-windows.yml
+      - .github/validation/153-telegram-native-attachments.patch
+      - .github/validation/153-telegram-native-attachments.patch.part1
+      - .github/validation/153-telegram-native-attachments.patch.part2
+      - .github/validation/153-telegram-native-attachments.patch.part3
 
 permissions:
   contents: write
@@ -13,7 +17,7 @@ permissions:
 
 jobs:
   telegram-validation:
-    if: github.event.head_commit.message == 'validation: run #153 via existing Windows workflow'
+    if: github.event.pull_request.head.ref == 'agent/152-telegram-native-attachments'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -27,7 +31,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID started from the existing acl-windows workflow slot."
+        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID started from draft PR validation."
 
       - name: Verify stable baseline markers
         shell: pwsh
