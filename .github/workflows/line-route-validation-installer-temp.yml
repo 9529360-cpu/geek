@@ -20,14 +20,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 2
+          fetch-depth: 4
 
       - name: Verify exact 1.2.12 baseline
         shell: pwsh
         run: |
-          $parent = (git rev-parse HEAD^).Trim()
-          if ($parent -ne "bbebd6c47dd88d8e61b241019e24fdf3ce768bef") { throw "validation branch is not rooted directly on the 1.2.12 release commit: $parent" }
-          $committed = @(git diff --name-only HEAD^ HEAD)
+          $baseline = "bbebd6c47dd88d8e61b241019e24fdf3ce768bef"
+          git cat-file -e "$baseline^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw "1.2.12 baseline commit unavailable" }
+          $committed = @(git diff --name-only $baseline HEAD)
           if ($committed.Count -ne 1 -or $committed[0] -ne '.github/workflows/line-route-validation-installer-temp.yml') { throw "validation branch contains unexpected committed changes: $committed" }
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           if ($pkg.version -ne "1.2.12") { throw "package version is not 1.2.12" }
