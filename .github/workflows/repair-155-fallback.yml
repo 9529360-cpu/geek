@@ -1,0 +1,46 @@
+name: repair-155-fallback
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/repair-155-fallback.yml'
+      - 'scripts/geek-website-worker.js'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'release/155-client-1.2.15'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/155-client-1.2.15
+          fetch-depth: 0
+      - name: Sync website fallback to previous stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const p = 'scripts/geek-website-worker.js';
+          const before = fs.readFileSync(p, 'utf8');
+          const needle = "const FALLBACK_VERSION = '1.2.12';";
+          if (before.split(needle).length !== 2) throw new Error('expected exactly one 1.2.12 fallback');
+          const after = before.replace(needle, "const FALLBACK_VERSION = '1.2.14';");
+          fs.writeFileSync(p, after);
+          NODE
+          git diff --check -- scripts/geek-website-worker.js
+          test "$(git diff --numstat -- scripts/geek-website-worker.js)" = $'1\t1\tscripts/geek-website-worker.js'
+      - name: Commit fallback sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- scripts/geek-website-worker.js
+          git diff --cached --check
+          git commit -m 'release: advance website fallback to 1.2.14 (#155)'
+          git push origin HEAD:release/155-client-1.2.15
