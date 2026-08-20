@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 4
+          fetch-depth: 5
 
       - name: Verify exact 1.2.12 baseline
         shell: pwsh
@@ -34,7 +34,8 @@ jobs:
           if ($pkg.version -ne "1.2.12") { throw "package version is not 1.2.12" }
           $marker = (Get-Content .github/release-client-version -Raw).Trim()
           if ($marker -ne "1.2.12") { throw "release marker is not 1.2.12" }
-          if ((Get-Item resources/s3loYR.js).Length -ne 0) { throw "LINE preload is not the known-good empty 1.2.12 baseline" }
+          $linePreloadBlob = (git hash-object resources/s3loYR.js).Trim()
+          if ($linePreloadBlob -ne "ab3a974c603cb998e34cf221323062ced851e2fb") { throw "LINE preload blob differs from the exact 1.2.12 release baseline: $linePreloadBlob" }
 
       - name: Apply only the confirmed LINE route parser fix
         shell: pwsh
