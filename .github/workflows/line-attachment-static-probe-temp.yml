@@ -1,9 +1,9 @@
-name: LINE image group-send validation (temporary)
+name: LINE image group-send validation V4 (temporary)
 
 on:
   push:
     branches:
-      - diag/148-line-attachment-transport
+      - diag/148-line-attachment-send-click-v4
   pull_request:
     branches:
       - test/148-baseline-1.2.12
@@ -34,12 +34,13 @@ jobs:
           $preloadBlob = (git hash-object resources/s3loYR.js).Trim()
           if ($preloadBlob -ne 'ab3a974c603cb998e34cf221323062ced851e2fb') { throw 'LINE preload differs from exact 1.2.12 baseline' }
           $changed = @(git diff --name-only $baseline HEAD)
-          if ($changed.Count -ne 2) { throw "unexpected committed validation scope: $changed" }
+          if ($changed.Count -ne 3) { throw "unexpected committed validation scope: $changed" }
           if ($changed -notcontains '.github/workflows/line-attachment-static-probe-temp.yml') { throw 'temporary workflow missing from scope' }
-          if ($changed -notcontains 'scripts/line-attachment-static-probe-temp.cjs') { throw 'temporary patch script missing from scope' }
+          if ($changed -notcontains 'scripts/line-attachment-static-probe-temp.cjs') { throw 'V3 temporary patch script missing from scope' }
+          if ($changed -notcontains 'scripts/line-attachment-send-click-v4-temp.cjs') { throw 'V4 temporary patch script missing from scope' }
 
-      - name: Apply LINE paste-path validation patch
-        run: node scripts/line-attachment-static-probe-temp.cjs
+      - name: Apply LINE paste-path and trusted-send-click validation patch
+        run: node scripts/line-attachment-send-click-v4-temp.cjs
 
       - name: Verify runtime patch scope and translation parity
         shell: pwsh
@@ -57,6 +58,10 @@ jobs:
           if (-not (Select-String -Path src/main.cjs -SimpleMatch 'PASTE_DISPATCHED' -Quiet)) { throw 'LINE paste dispatch missing' }
           if (-not (Select-String -Path src/main.cjs -SimpleMatch "targetPlatform === 'line' ? { x: 1, y: 1 }" -Quiet)) { throw 'LINE drag-position bypass missing' }
           if (Select-String -Path src/main.cjs -SimpleMatch 'getDropPos(partition, targetPlatform)' -Quiet) { throw 'old LINE drag-position path remains' }
+          if (-not (Select-String -Path src/main.cjs -SimpleMatch 'Input.dispatchMouseEvent' -Quiet)) { throw 'trusted LINE send click missing' }
+          if (-not (Select-String -Path src/main.cjs -SimpleMatch 'SEND_CLICK_DISPATCHED' -Quiet)) { throw 'trusted LINE send click result missing' }
+          if (-not (Select-String -Path ui/app.js -SimpleMatch "action: 'send'" -Quiet)) { throw 'renderer LINE send action missing' }
+          if (Select-String -Path ui/app.js -SimpleMatch 'sendButton.click();' -Quiet) { throw 'synthetic LINE file send click still present' }
           git diff --stat
 
       - name: Install dependencies
@@ -82,14 +87,14 @@ jobs:
           "file=$($exe.Name)" | Out-File dist-release/validation-sha256.txt -Encoding ascii
           "sha256=$hash" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
           "baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          "included=line-translation-route-fix + line-image-paste-path-fix" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          "revision=v3-line-paste-file-input" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          Write-Host "LINE_IMAGE_VALIDATION_V3_INSTALLER_OK $hash"
+          "included=line-translation-route-fix + line-image-paste-path-fix + line-trusted-send-click" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "revision=v4-line-trusted-send-click" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          Write-Host "LINE_IMAGE_VALIDATION_V4_INSTALLER_OK $hash"
 
       - name: Upload private validation installer
         uses: actions/upload-artifact@v4
         with:
-          name: geek-1.2.12-line-image-validation-v3
+          name: geek-1.2.12-line-image-validation-v4
           path: |
             dist-release/geek-setup-1.2.12.exe
             dist-release/validation-sha256.txt
