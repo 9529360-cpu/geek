@@ -4,70 +4,73 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..', 'resources', 'extensions', 'line-3.5.1');
-const mainPath = path.join(root, 'static', 'js', 'main.js');
-const mapPath = path.join(root, 'static', 'js', 'main.js.map');
-const main = fs.readFileSync(mainPath, 'utf8');
-const map = JSON.parse(fs.readFileSync(mapPath, 'utf8'));
-
 const terms = [
   'icon_send_file',
-  'type="file"',
-  "type='file'",
+  'send_file',
+  'sendFile',
+  'fileInput',
+  'type:"file"',
+  "type:'file'",
   'input[type="file"]',
   'FileReader',
   'DataTransfer',
   'dragover',
-  'drop',
+  'ondrop',
   'upload',
-  'sendFile',
-  'sendImage',
-  'attachment',
-  'attachFile',
+  'accept:"image',
+  'accept:"*',
+  '.files',
 ];
 
-console.log('LINE_ATTACHMENT_STATIC_PROBE');
-console.log(`main_bytes=${Buffer.byteLength(main)}`);
-console.log(`map_sources=${Array.isArray(map.sources) ? map.sources.length : 0}`);
+function walk(dir, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, out);
+    else if (/\.(?:js|css|html)$/i.test(entry.name)) out.push(full);
+  }
+  return out;
+}
 
-for (const term of terms) {
+function countOf(haystack, needle) {
   let count = 0;
   let from = 0;
   while (true) {
-    const at = main.indexOf(term, from);
-    if (at < 0) break;
+    const at = haystack.indexOf(needle, from);
+    if (at < 0) return count;
     count += 1;
-    from = at + term.length;
-  }
-  console.log(`main_term ${JSON.stringify(term)} count=${count}`);
-}
-
-const sourceHits = [];
-const sources = Array.isArray(map.sources) ? map.sources : [];
-const contents = Array.isArray(map.sourcesContent) ? map.sourcesContent : [];
-for (let i = 0; i < Math.min(sources.length, contents.length); i += 1) {
-  const source = String(sources[i] || '');
-  const content = String(contents[i] || '');
-  if (!content) continue;
-  const lower = content.toLowerCase();
-  const matched = terms.filter(term => lower.includes(term.toLowerCase()));
-  if (!matched.length) continue;
-  sourceHits.push({ source, content, matched });
-}
-
-console.log(`source_hits=${sourceHits.length}`);
-for (const hit of sourceHits.slice(0, 80)) {
-  console.log(`SOURCE ${hit.source} TERMS ${hit.matched.join(',')}`);
-  const lines = hit.content.split(/\r?\n/);
-  let emitted = 0;
-  for (let lineNo = 0; lineNo < lines.length && emitted < 16; lineNo += 1) {
-    const line = lines[lineNo];
-    if (!hit.matched.some(term => line.toLowerCase().includes(term.toLowerCase()))) continue;
-    const safe = line.replace(/\s+/g, ' ').trim().slice(0, 500);
-    console.log(`  L${lineNo + 1}: ${safe}`);
-    emitted += 1;
+    from = at + Math.max(1, needle.length);
   }
 }
 
-if (!sourceHits.length) {
-  throw new Error('No attachment-related source-map modules found');
+function contexts(text, needle, max = 8) {
+  const out = [];
+  let from = 0;
+  while (out.length < max) {
+    const at = text.indexOf(needle, from);
+    if (at < 0) break;
+    const start = Math.max(0, at - 320);
+    const end = Math.min(text.length, at + needle.length + 520);
+    out.push(text.slice(start, end).replace(/\s+/g, ' ').trim());
+    from = at + Math.max(1, needle.length);
+  }
+  return out;
 }
+
+console.log('LINE_ATTACHMENT_STATIC_PROBE');
+const files = walk(root);
+console.log(`asset_text_files=${files.length}`);
+let totalHits = 0;
+for (const file of files) {
+  const text = fs.readFileSync(file, 'utf8');
+  const rel = path.relative(root, file).replace(/\\/g, '/');
+  const hits = terms.map(term => [term, countOf(text, term)]).filter(([, count]) => count > 0);
+  if (!hits.length) continue;
+  totalHits += hits.reduce((sum, [, count]) => sum + count, 0);
+  console.log(`FILE ${rel} bytes=${Buffer.byteLength(text)}`);
+  for (const [term, count] of hits) {
+    console.log(`  TERM ${JSON.stringify(term)} count=${count}`);
+    for (const snippet of contexts(text, term, 6)) console.log(`    CTX ${snippet}`);
+  }
+}
+console.log(`total_hits=${totalHits}`);
+if (!totalHits) throw new Error('No attachment-related bundle evidence found');
