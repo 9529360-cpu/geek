@@ -1,0 +1,49 @@
+name: tmp-line-extension-bridge-probe
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.head_ref == 'test/132-line-extension-bridge-probe'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run repository contracts
+        run: npm test
+
+      - name: Install Electron runtime
+        run: npm run electron:install
+
+      - name: Probe actual bundled LINE extension bridge behavior
+        shell: pwsh
+        run: |
+          $output = & '.\node_modules\electron\dist\electron.exe' 'scripts\line-extension-bridge-probe-temp.cjs' 2>&1
+          $exitCode = $LASTEXITCODE
+          $output | ForEach-Object { Write-Host $_ }
+          if ($exitCode -ne 0) { exit $exitCode }
+          $joined = ($output | Out-String)
+          if ($joined -notmatch 'LINE_EXTENSION_BRIDGE_PROBE_OK') {
+            throw 'LINE extension bridge probe exited without completion marker'
+          }
