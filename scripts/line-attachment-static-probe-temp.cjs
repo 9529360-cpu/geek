@@ -4,73 +4,64 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..', 'resources', 'extensions', 'line-3.5.1');
-const terms = [
-  'icon_send_file',
-  'send_file',
-  'sendFile',
-  'fileInput',
-  'type:"file"',
-  "type:'file'",
-  'input[type="file"]',
-  'FileReader',
-  'DataTransfer',
-  'dragover',
-  'ondrop',
-  'upload',
-  'accept:"image',
-  'accept:"*',
-  '.files',
+const mainPath = path.join(root, 'static', 'js', 'main.js');
+const cssPath = path.join(root, 'static', 'css', 'main.bd68b7d9.css');
+const main = fs.readFileSync(mainPath, 'utf8');
+const css = fs.readFileSync(cssPath, 'utf8');
+
+const probes = [
+  'send_file_message',
+  'clipboardData.files',
+  'sendFilelist-module__send_file_list__CIZiJ',
+  'sendFilelistItem-module__send_file_item__fZKNt',
+  'data-file-support',
+  'chat.desc.quit.uploading',
 ];
 
-function walk(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, out);
-    else if (/\.(?:js|css|html)$/i.test(entry.name)) out.push(full);
-  }
-  return out;
-}
-
-function countOf(haystack, needle) {
-  let count = 0;
-  let from = 0;
-  while (true) {
-    const at = haystack.indexOf(needle, from);
-    if (at < 0) return count;
-    count += 1;
-    from = at + Math.max(1, needle.length);
-  }
-}
-
-function contexts(text, needle, max = 8) {
+function positions(text, needle) {
   const out = [];
   let from = 0;
-  while (out.length < max) {
+  while (true) {
     const at = text.indexOf(needle, from);
-    if (at < 0) break;
-    const start = Math.max(0, at - 320);
-    const end = Math.min(text.length, at + needle.length + 520);
-    out.push(text.slice(start, end).replace(/\s+/g, ' ').trim());
+    if (at < 0) return out;
+    out.push(at);
     from = at + Math.max(1, needle.length);
   }
-  return out;
 }
 
-console.log('LINE_ATTACHMENT_STATIC_PROBE');
-const files = walk(root);
-console.log(`asset_text_files=${files.length}`);
-let totalHits = 0;
-for (const file of files) {
-  const text = fs.readFileSync(file, 'utf8');
-  const rel = path.relative(root, file).replace(/\\/g, '/');
-  const hits = terms.map(term => [term, countOf(text, term)]).filter(([, count]) => count > 0);
-  if (!hits.length) continue;
-  totalHits += hits.reduce((sum, [, count]) => sum + count, 0);
-  console.log(`FILE ${rel} bytes=${Buffer.byteLength(text)}`);
-  for (const [term, count] of hits) {
-    console.log(`  TERM ${JSON.stringify(term)} count=${count}`);
-    for (const snippet of contexts(text, term, 6)) console.log(`    CTX ${snippet}`);
+function emitContext(text, at, needle, before = 6500, after = 8500) {
+  const start = Math.max(0, at - before);
+  const end = Math.min(text.length, at + needle.length + after);
+  const snippet = text.slice(start, end).replace(/\s+/g, ' ').trim();
+  console.log(`CTX_START=${start} CTX_END=${end}`);
+  console.log(snippet);
+  console.log('CTX_DONE');
+}
+
+console.log('LINE_ATTACHMENT_FOCUSED_PROBE');
+console.log(`main_bytes=${Buffer.byteLength(main)}`);
+console.log(`css_bytes=${Buffer.byteLength(css)}`);
+
+for (const needle of probes) {
+  const found = positions(main, needle);
+  console.log(`PROBE ${JSON.stringify(needle)} count=${found.length}`);
+  for (const [index, at] of found.slice(0, 4).entries()) {
+    console.log(`MATCH ${index + 1} offset=${at}`);
+    emitContext(main, at, needle);
   }
 }
-console.log(`total_hits=${totalHits}`);
-if (!totalHits) throw new Error('No attachment-related bundle evidence found');
+
+const sendFileClasses = Array.from(new Set(css.match(/[A-Za-z0-9_-]*send[A-Za-z0-9_-]*file[A-Za-z0-9_-]*/gi) || [])).sort();
+console.log(`SEND_FILE_CSS_IDENTIFIERS count=${sendFileClasses.length}`);
+for (const name of sendFileClasses) console.log(name);
+
+const cssNeedles = ['sendFilelist-module__send_file_list__CIZiJ', 'sendFilelistItem-module__send_file_item__fZKNt'];
+for (const needle of cssNeedles) {
+  const at = css.indexOf(needle);
+  console.log(`CSS_PROBE ${JSON.stringify(needle)} offset=${at}`);
+  if (at >= 0) emitContext(css, at, needle, 1200, 4200);
+}
+
+for (const required of ['send_file_message', 'clipboardData.files', 'sendFilelist-module__send_file_list__CIZiJ']) {
+  if (!main.includes(required)) throw new Error(`missing required LINE attachment evidence: ${required}`);
+}
