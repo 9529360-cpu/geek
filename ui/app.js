@@ -2297,7 +2297,23 @@
             continue;
           }
           if (broadcastFiles.length) {
-            // 附件：真实拖拽（主进程 CDP）→ 等 TG 弹出发送确认
+            if (platform.family === 'telegram') {
+              try {
+                sentOk = await window.api.broadcast.sendTelegramAttachments({
+                  partition: account.partition,
+                  guestId: wv.getWebContentsId(),
+                  targetChatId: t.id,
+                  caption: personalMsg,
+                  files: broadcastFiles,
+                });
+              } catch (e) {
+                sentOk = `ERR:${String(e?.message || e || 'TG_NATIVE_ATTACH_FAILED')}`;
+              }
+              if (sentOk !== 'SENT') failReasons.push(`Telegram附件发送未确认: ${sentOk}`);
+              // Native attachment send is not retried automatically: a timeout after submit could otherwise duplicate media.
+              break;
+            }
+            // LINE/other compatibility path remains on the existing main-process drop transport.
             let attachmentReady = true;
             for (const file of broadcastFiles) {
               try {

@@ -3,11 +3,16 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
-const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, webContents } = require('electron');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
+const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 
 const uiEntryPath = path.join(__dirname, '../ui/index.html');
+const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
+  getAllWebContents: () => webContents.getAllWebContents(),
+});
+const externalDebuggingRequested = process.argv.some((arg) => /^--remote-debugging-port(?:=|$)/.test(String(arg || '')));
 
 // Install the selected-file capability boundary before main.cjs registers IPC.
 // The existing main orchestrator keeps the platform-specific CDP delivery logic;
@@ -18,6 +23,14 @@ installBroadcastFileBoundary({
   BrowserWindow,
   fs,
   uiEntryPath,
+  sendTelegramFiles: async ({ payload }) => {
+    if (externalDebuggingRequested) {
+      const error = new Error('TG_NATIVE_ATTACH_EXTERNAL_DEBUG_UNSUPPORTED');
+      error.code = 'TG_NATIVE_ATTACH_EXTERNAL_DEBUG_UNSUPPORTED';
+      throw error;
+    }
+    return telegramNativeAttachments.send(payload);
+  },
 });
 
 // Keep account sandbox persistence outside the main orchestrator. The userData
