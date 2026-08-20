@@ -3,9 +3,11 @@
 const fs = require('node:fs');
 
 function replaceOnce(text, before, after, label) {
-  const count = text.split(before).length - 1;
+  const normalizedText = text.replace(/\r\n/g, '\n');
+  const normalizedBefore = before.replace(/\r\n/g, '\n');
+  const count = normalizedText.split(normalizedBefore).length - 1;
   if (count !== 1) throw new Error(`${label}: expected one anchor, found ${count}`);
-  return text.replace(before, after);
+  return normalizedText.replace(normalizedBefore, after);
 }
 
 const bundle = fs.readFileSync('resources/extensions/line-3.5.1/static/js/main.js', 'utf8');
