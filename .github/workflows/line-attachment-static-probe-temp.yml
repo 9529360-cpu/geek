@@ -1,4 +1,4 @@
-name: LINE attachment static probe (temporary)
+name: LINE image group-send validation (temporary)
 
 on:
   push:
@@ -12,24 +12,77 @@ permissions:
   contents: read
 
 jobs:
-  probe:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 8
-      - name: Verify validation baseline and scope
+          fetch-depth: 0
+
+      - name: Verify exact 1.2.12 validation baseline and temporary scope
+        shell: pwsh
         run: |
-          set -eu
-          baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef
+          $baseline = 'bbebd6c47dd88d8e61b241019e24fdf3ce768bef'
           git cat-file -e "$baseline^{commit}"
-          test "$(node -p "require('./package.json').version")" = "1.2.12"
-          changed="$(git diff --name-only "$baseline" HEAD)"
-          printf '%s\n' "$changed"
-          test "$(printf '%s\n' "$changed" | grep -c .)" -eq 2
-          printf '%s\n' "$changed" | grep -Fx '.github/workflows/line-attachment-static-probe-temp.yml'
-          printf '%s\n' "$changed" | grep -Fx 'scripts/line-attachment-static-probe-temp.cjs'
-      - name: Inspect bundled LINE 3.5.1 attachment flow
+          if ($LASTEXITCODE -ne 0) { throw '1.2.12 baseline commit unavailable' }
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($pkg.version -ne '1.2.12') { throw 'package version is not 1.2.12' }
+          $marker = (Get-Content .github/release-client-version -Raw).Trim()
+          if ($marker -ne '1.2.12') { throw 'release marker is not 1.2.12' }
+          $preloadBlob = (git hash-object resources/s3loYR.js).Trim()
+          if ($preloadBlob -ne 'ab3a974c603cb998e34cf221323062ced851e2fb') { throw 'LINE preload differs from exact 1.2.12 baseline' }
+          $changed = @(git diff --name-only $baseline HEAD)
+          if ($changed.Count -ne 2) { throw "unexpected committed validation scope: $changed" }
+          if ($changed -notcontains '.github/workflows/line-attachment-static-probe-temp.yml') { throw 'temporary workflow missing from scope' }
+          if ($changed -notcontains 'scripts/line-attachment-static-probe-temp.cjs') { throw 'temporary patch script missing from scope' }
+
+      - name: Apply confirmed LINE fixes only in validation workspace
         run: node scripts/line-attachment-static-probe-temp.cjs
+
+      - name: Verify runtime patch scope
+        shell: pwsh
+        run: |
+          $changed = @(git diff --name-only)
+          $expected = @('src/main.cjs', 'ui/app.js', 'ui/translation-adapters.js')
+          if ($changed.Count -ne $expected.Count) { throw "unexpected runtime patch count: $changed" }
+          foreach ($file in $expected) { if ($changed -notcontains $file) { throw "missing runtime patch: $file" } }
+          git diff --check
+          git diff --stat
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax checks
+        run: |
+          node --check src/main.cjs
+          node --check ui/app.js
+          node --check ui/translation-adapters.js
+
+      - name: Run 1.2.12 baseline contracts
+        run: npm test
+
+      - name: Build local validation installer only
+        run: npm run dist:test
+
+      - name: Validate installer and checksum
+        shell: pwsh
+        run: |
+          $exe = Get-Item dist-release/geek-setup-1.2.12.exe -ErrorAction Stop
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "file=$($exe.Name)" | Out-File dist-release/validation-sha256.txt -Encoding ascii
+          "sha256=$hash" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "included=line-translation-route-fix + line-image-group-send-fix" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          Write-Host "LINE_IMAGE_VALIDATION_INSTALLER_OK $hash"
+
+      - name: Upload private validation installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-1.2.12-line-image-validation
+          path: |
+            dist-release/geek-setup-1.2.12.exe
+            dist-release/validation-sha256.txt
+          if-no-files-found: error
+          retention-days: 7
