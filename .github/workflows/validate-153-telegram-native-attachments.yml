@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   windows-validation:
-    if: github.event.head_commit.message == 'validation: trigger #153 Windows build'
+    if: github.event.head_commit.message == 'validation: trigger #153 Windows build v2'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -34,19 +34,24 @@ jobs:
       - name: Reassemble and verify Telegram patch
         shell: pwsh
         run: |
-          $parts = @(
-            '.github/validation/153-telegram-native-attachments.patch',
-            '.github/validation/153-telegram-native-attachments.patch.part1',
-            '.github/validation/153-telegram-native-attachments.patch.part2',
-            '.github/validation/153-telegram-native-attachments.patch.part3'
-          )
-          $target = Join-Path $env:RUNNER_TEMP '153-telegram-native-attachments.patch'
-          $utf8 = New-Object System.Text.UTF8Encoding($false)
-          $builder = New-Object System.Text.StringBuilder
-          foreach ($part in $parts) {
-            [void]$builder.Append([System.IO.File]::ReadAllText((Resolve-Path $part), $utf8))
+          $expectedBlobs = @{
+            '.github/validation/153-telegram-native-attachments.patch' = '261047258796b787d87b81d0c52bc1d778606252'
+            '.github/validation/153-telegram-native-attachments.patch.part1' = 'bd9d2d4e7ffe1123e054dac5b3af8638de2d8301'
+            '.github/validation/153-telegram-native-attachments.patch.part2' = '13d3d40b66a14a574cb23c0c712d94d0c57362ef'
+            '.github/validation/153-telegram-native-attachments.patch.part3' = '9176a35e5f51f26b5b71729416a40f45e1a5868f'
           }
-          [System.IO.File]::WriteAllText($target, $builder.ToString(), $utf8)
+          foreach ($entry in $expectedBlobs.GetEnumerator()) {
+            $actual = (git hash-object $entry.Key).Trim()
+            if ($actual -ne $entry.Value) { throw "validation part blob mismatch" }
+          }
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          $p0 = [System.IO.File]::ReadAllText((Resolve-Path '.github/validation/153-telegram-native-attachments.patch'), $utf8)
+          $p1 = [System.IO.File]::ReadAllLines((Resolve-Path '.github/validation/153-telegram-native-attachments.patch.part1'), $utf8)
+          $p2 = [System.IO.File]::ReadAllText((Resolve-Path '.github/validation/153-telegram-native-attachments.patch.part2'), $utf8)
+          $p3 = [System.IO.File]::ReadAllText((Resolve-Path '.github/validation/153-telegram-native-attachments.patch.part3'), $utf8)
+          $target = Join-Path $env:RUNNER_TEMP '153-telegram-native-attachments.patch'
+          $reassembled = $p0 + "`n" + (($p1 | Select-Object -Skip 3) -join "`n") + "`n" + $p2 + "`n" + $p3 + "`n"
+          [System.IO.File]::WriteAllText($target, $reassembled, $utf8)
           $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne '46e1ba4ce0447ad7a2cfa29e77985adbb56bc58da4be4bb94276d26e2e45bef5') {
             throw "validation patch checksum mismatch: $hash"
@@ -87,7 +92,7 @@ jobs:
             'test/telegram-native-attachments-contract.cjs',
             'ui/app.js'
           )
-          $changed = @(git diff --name-only)
+          $changed = @((git diff --name-only) + (git ls-files --others --exclude-standard)) | Where-Object { $_ } | Sort-Object -Unique
           foreach ($path in $changed) {
             if ($allowed -notcontains $path) { throw "unexpected product change: $path" }
           }
