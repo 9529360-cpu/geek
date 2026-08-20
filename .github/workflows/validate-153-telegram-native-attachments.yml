@@ -52,7 +52,7 @@ jobs:
           $content = $p0 + "`n" + (($p1 | Select-Object -Skip 3) -join "`n") + "`n" + $p2 + "`n" + $p3 + "`n"
           [System.IO.File]::WriteAllText($patch, $content, $utf8)
           $hash = (Get-FileHash $patch -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '46e1ba4ce0447ad7a2cfa29e77985adbb56bc58da4be4bb94276d26e2e45bef5') { throw "patch checksum mismatch: $hash" }
+          if ($hash -ne 'cef8826645b1b457046d5d0552adaacca958fb3dd772e5b9ce4bc8d934bdecab') { throw "patch checksum mismatch: $hash" }
           git apply --check $patch
           if ($LASTEXITCODE -ne 0) { throw 'patch apply check failed' }
           git apply $patch
