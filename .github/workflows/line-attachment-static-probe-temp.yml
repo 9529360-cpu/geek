@@ -1,0 +1,35 @@
+name: LINE attachment static probe (temporary)
+
+on:
+  push:
+    branches:
+      - diag/148-line-attachment-transport
+  pull_request:
+    branches:
+      - test/148-baseline-1.2.12
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 4
+      - name: Verify validation baseline and scope
+        run: |
+          set -eu
+          baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef
+          git cat-file -e "$baseline^{commit}"
+          test "$(node -p "require('./package.json').version")" = "1.2.12"
+          changed="$(git diff --name-only "$baseline" HEAD)"
+          printf '%s\n' "$changed"
+          test "$(printf '%s\n' "$changed" | grep -c .)" -eq 2
+          printf '%s\n' "$changed" | grep -Fx '.github/workflows/line-attachment-static-probe-temp.yml'
+          printf '%s\n' "$changed" | grep -Fx 'scripts/line-attachment-static-probe-temp.cjs'
+      - name: Inspect bundled LINE 3.5.1 attachment flow
+        run: node scripts/line-attachment-static-probe-temp.cjs
