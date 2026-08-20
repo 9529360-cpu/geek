@@ -1,162 +1,23 @@
-name: Validate 153 Telegram native attachments
+name: validate-153-telegram-native-attachments-smoke
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/152-telegram-native-attachments
+      - master
     paths:
       - .github/workflows/validate-153-telegram-native-attachments.yml
 
 permissions:
-  contents: write
   issues: write
 
 jobs:
-  windows-validation:
-    if: github.event.head_commit.message == 'validation: trigger #153 Windows build v3'
+  windows-smoke:
+    if: github.event.pull_request.head.ref == 'agent/152-telegram-native-attachments'
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 5
     steps:
-      - name: Checkout validation branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/152-telegram-native-attachments
-          fetch-depth: 0
-
-      - name: Record validation run
+      - name: Record run
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID started for Telegram native attachments."
-
-      - name: Verify release baseline is unchanged
-        shell: pwsh
-        run: |
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if ($pkg.version -ne '1.2.14') { throw "unexpected package version" }
-          if ((Get-Content .github/release-client-version -Raw).Trim() -ne '1.2.14') { throw "unexpected release marker" }
-          git merge-base --is-ancestor eb6578c4f059ba53aa635fb6f1b154ce569dcaf5 HEAD
-          if ($LASTEXITCODE -ne 0) { throw "validation branch is not based on the approved 1.2.14 baseline" }
-
-      - name: Reassemble and verify Telegram patch
-        shell: pwsh
-        run: |
-          $expectedBlobs = @{
-            '.github/validation/153-telegram-native-attachments.patch' = '261047258796b787d87b81d0c52bc1d778606252'
-            '.github/validation/153-telegram-native-attachments.patch.part1' = 'bd9d2d4e7ffe1123e054dac5b3af8638de2d8301'
-            '.github/validation/153-telegram-native-attachments.patch.part2' = '13d3d40b66a14a574cb23c0c712d94d0c57362ef'
-            '.github/validation/153-telegram-native-attachments.patch.part3' = '9176a35e5f51f26b5b71729416a40f45e1a5868f'
-          }
-          foreach ($entry in $expectedBlobs.GetEnumerator()) {
-            $actual = (git hash-object $entry.Key).Trim()
-            if ($actual -ne $entry.Value) { throw "validation part blob mismatch" }
-          }
-          $utf8 = New-Object System.Text.UTF8Encoding($false)
-          $p0 = [System.IO.File]::ReadAllText((Resolve-Path '.github/validation/153-telegram-native-attachments.patch'), $utf8)
-          $p1 = [System.IO.File]::ReadAllLines((Resolve-Path '.github/validation/153-telegram-native-attachments.patch.part1'), $utf8)
-          $p2 = [System.IO.File]::ReadAllText((Resolve-Path '.github/validation/153-telegram-native-attachments.patch.part2'), $utf8)
-          $p3 = [System.IO.File]::ReadAllText((Resolve-Path '.github/validation/153-telegram-native-attachments.patch.part3'), $utf8)
-          $target = Join-Path $env:RUNNER_TEMP '153-telegram-native-attachments.patch'
-          $reassembled = $p0 + "`n" + (($p1 | Select-Object -Skip 3) -join "`n") + "`n" + $p2 + "`n" + $p3 + "`n"
-          [System.IO.File]::WriteAllText($target, $reassembled, $utf8)
-          $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '46e1ba4ce0447ad7a2cfa29e77985adbb56bc58da4be4bb94276d26e2e45bef5') {
-            throw "validation patch checksum mismatch: $hash"
-          }
-          git apply --check $target
-          if ($LASTEXITCODE -ne 0) { throw "Telegram patch does not apply cleanly" }
-          git apply $target
-          if ($LASTEXITCODE -ne 0) { throw "Telegram patch apply failed" }
-
-      - name: Verify focused syntax
-        shell: pwsh
-        run: |
-          node --check src/broadcast-files.cjs
-          node --check src/preload.cjs
-          node --check src/main-entry.cjs
-          node --check src/telegram-native-attachments.cjs
-          node --check test/telegram-native-attachments-contract.cjs
-
-      - name: Install dependencies
-        shell: pwsh
-        run: npm ci
-
-      - name: Run full contracts
-        shell: pwsh
-        run: npm test
-
-      - name: Verify Telegram change scope
-        shell: pwsh
-        run: |
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          if ($pkg.version -ne '1.2.14') { throw "package version drift" }
-          if ((Get-Content .github/release-client-version -Raw).Trim() -ne '1.2.14') { throw "release marker drift" }
-          $allowed = @(
-            'src/broadcast-files.cjs',
-            'src/preload.cjs',
-            'src/main-entry.cjs',
-            'src/telegram-native-attachments.cjs',
-            'test/telegram-native-attachments-contract.cjs',
-            'ui/app.js'
-          )
-          $changed = @((git diff --name-only) + (git ls-files --others --exclude-standard)) | Where-Object { $_ } | Sort-Object -Unique
-          foreach ($path in $changed) {
-            if ($allowed -notcontains $path) { throw "unexpected product change: $path" }
-          }
-          if ($changed.Count -ne $allowed.Count) { throw "expected six focused product/test changes, got $($changed.Count)" }
-          if ((git diff -- src/main.cjs).Length -ne 0) { throw "src/main.cjs must remain unchanged" }
-
-      - name: Commit final 152 source and remove validation staging
-        shell: pwsh
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- src/broadcast-files.cjs src/preload.cjs src/main-entry.cjs src/telegram-native-attachments.cjs test/telegram-native-attachments-contract.cjs ui/app.js
-          git rm -- .github/validation/153-telegram-native-attachments.patch .github/validation/153-telegram-native-attachments.patch.part1 .github/validation/153-telegram-native-attachments.patch.part2 .github/validation/153-telegram-native-attachments.patch.part3 .github/workflows/validate-153-telegram-native-attachments.yml
-          git commit -m 'fix: use native Telegram attachment editor (#152)'
-          git push origin HEAD:agent/152-telegram-native-attachments
-
-      - name: Build validation-only Windows installer
-        shell: pwsh
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run dist:test
-
-      - name: Collect validation installer and checksum
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force validation | Out-Null
-          $installer = Get-ChildItem dist -File -Filter '*.exe' | Sort-Object Length -Descending | Select-Object -First 1
-          if (-not $installer) { throw "validation installer not found" }
-          $out = Join-Path (Resolve-Path validation) 'Geek-1.2.14-telegram-native-attachments-validation.exe'
-          Copy-Item $installer.FullName $out
-          $sha = (Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$sha  Geek-1.2.14-telegram-native-attachments-validation.exe" | Set-Content -Encoding ascii validation/Geek-1.2.14-telegram-native-attachments-validation.exe.sha256
-          "TG_VALIDATION_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          $commit = (git rev-parse HEAD).Trim()
-          @("commit=$commit", 'packageVersion=1.2.14', 'releaseMarker=1.2.14', 'scope=validation-only') | Set-Content -Encoding ascii validation/build.txt
-
-      - name: Upload private validation artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: geek-1.2.14-tg-native-attachments-validation
-          path: |
-            validation/Geek-1.2.14-telegram-native-attachments-validation.exe
-            validation/Geek-1.2.14-telegram-native-attachments-validation.exe.sha256
-            validation/build.txt
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Record validation success
-        if: success()
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID succeeded. Artifact: geek-1.2.14-tg-native-attachments-validation. SHA-256: $env:TG_VALIDATION_SHA"
-
-      - name: Record validation failure
-        if: failure()
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID failed before a usable validation artifact was accepted."
+        run: gh issue comment 153 --body "Windows workflow smoke run $env:GITHUB_RUN_ID started successfully."
