@@ -36,50 +36,10 @@ jobs:
       - name: Install Electron runtime
         run: npm run electron:install
 
-      - name: Probe actual bundled LINE extension bridge behavior
-        id: probe
+      - name: Probe LINE adapter request round trip
         shell: pwsh
         run: |
-          Remove-Item 'line-extension-bridge-probe-result.txt' -ErrorAction SilentlyContinue
           $output = & '.\node_modules\electron\dist\electron.exe' 'scripts\line-extension-bridge-probe-temp.cjs' 2>&1
           $exitCode = $LASTEXITCODE
           $output | ForEach-Object { Write-Host $_ }
           if ($exitCode -ne 0) { exit $exitCode }
-          if (-not (Test-Path 'line-extension-bridge-probe-result.txt')) {
-            throw 'LINE extension bridge probe did not persist its result'
-          }
-          $result = Get-Content 'line-extension-bridge-probe-result.txt' -Raw
-          if ($result -notmatch 'LINE_EXTENSION_BRIDGE_PROBE_OK') {
-            throw 'LINE extension bridge probe exited without completion marker'
-          }
-          foreach ($key in @('hasElectron', 'hasSend', 'ipcTokenPreserved', 'consoleSeen')) {
-            $match = [regex]::Match($result, "(?:^|\s)$key=(True|False)(?:\s|$)", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-            if (-not $match.Success) { throw "LINE extension bridge probe omitted $key" }
-            $value = $match.Groups[1].Value.ToLowerInvariant()
-            "$key=$value" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
-
-      - name: Evidence route is console fallback
-        if: steps.probe.outputs.hasSend == 'false'
-        shell: pwsh
-        run: Write-Host 'LINE_BRIDGE_EVIDENCE_CONSOLE_ONLY'
-
-      - name: Evidence native send2Host exists
-        if: steps.probe.outputs.hasSend == 'true'
-        shell: pwsh
-        run: Write-Host 'LINE_BRIDGE_EVIDENCE_NATIVE_SEND_PRESENT'
-
-      - name: Evidence native token is preserved
-        if: steps.probe.outputs.hasSend == 'true' && steps.probe.outputs.ipcTokenPreserved == 'true'
-        shell: pwsh
-        run: Write-Host 'LINE_BRIDGE_EVIDENCE_NATIVE_TOKEN_PRESERVED'
-
-      - name: Evidence native token is dropped
-        if: steps.probe.outputs.hasSend == 'true' && steps.probe.outputs.ipcTokenPreserved == 'false'
-        shell: pwsh
-        run: Write-Host 'LINE_BRIDGE_EVIDENCE_NATIVE_TOKEN_DROPPED'
-
-      - name: Evidence console marker reaches embedder
-        if: steps.probe.outputs.consoleSeen == 'true'
-        shell: pwsh
-        run: Write-Host 'LINE_BRIDGE_EVIDENCE_CONSOLE_DELIVERED'
