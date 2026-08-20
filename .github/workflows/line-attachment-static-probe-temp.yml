@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   build:
@@ -100,3 +101,21 @@ jobs:
             dist-release/validation-sha256.txt
           if-no-files-found: error
           retention-days: 7
+
+      - name: Report V4 validation run to issue 148
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_STATUS: ${{ job.status }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          $checksum = 'unavailable'
+          if (Test-Path 'dist-release/validation-sha256.txt') {
+            $line = Get-Content 'dist-release/validation-sha256.txt' | Where-Object { $_ -like 'sha256=*' } | Select-Object -First 1
+            if ($line) { $checksum = $line.Substring(7) }
+          }
+          $body = "V4 validation telemetry: run ``$env:RUN_ID`` status ``$env:RUN_STATUS`` head ``$env:HEAD_SHA`` artifact ``geek-1.2.12-line-image-validation-v4`` installer SHA-256 ``$checksum``. This is validation-only; no master/release/update change."
+          $payload = @{ body = $body } | ConvertTo-Json
+          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/${{ github.repository }}/issues/148/comments" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' } -ContentType 'application/json' -Body $payload
