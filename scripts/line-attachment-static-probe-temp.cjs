@@ -31,7 +31,7 @@ main = replaceOnce(
 main = replaceOnce(
   main,
   `    // 验证弹窗\n    const chk = await send('Runtime.evaluate', { expression: \`(() => {\n      const modalBtn = [...document.querySelectorAll('.modal-dialog button, .modal-container button')].find(b => /primary/.test((b.className || '').toString()));\n      return modalBtn ? 'MODAL_OK' : 'NO_MODAL';\n    })()\`, returnByValue: true });\n    return chk?.result?.value === 'MODAL_OK';`,
-  `    // LINE 使用自己的文件列表/发送面板；Telegram 保持原有确认弹窗。\n    if (platform === 'line') {\n      for (let attempt = 0; attempt < 40; attempt++) {\n        const chk = await send('Runtime.evaluate', { expression: \`(() => {\n          const modal = document.querySelector('[class*="sendFileModal-module__modal__"]');\n          if (!modal) return JSON.stringify({ ok: false, count: 0 });\n          const items = [...modal.querySelectorAll('[class*="sendFilelistItem-module__send_file_item__"]')];\n          const sendBtn = modal.querySelector('[class*="sendFileModal-module__button_send__"]');\n          const unsupported = items.some(item => item.getAttribute('data-file-support') === 'false');\n          return JSON.stringify({ ok: !!sendBtn && !sendBtn.disabled && !unsupported, count: items.length });\n        })()\`, returnByValue: true });\n        let state = {};\n        try { state = JSON.parse(chk?.result?.value || '{}'); } catch { state = {}; }\n        if (state.ok && Number(state.count || 0) > lineFileCount) return true;\n        await sleep(150);\n      }\n      return false;\n    }\n    const chk = await send('Runtime.evaluate', { expression: \`(() => {\n      const modalBtn = [...document.querySelectorAll('.modal-dialog button, .modal-container button')].find(b => /primary/.test((b.className || '').toString()));\n      return modalBtn ? 'MODAL_OK' : 'NO_MODAL';\n    })()\`, returnByValue: true });\n    return chk?.result?.value === 'MODAL_OK';`,
+  `    // LINE 使用自己的文件列表/发送面板；Telegram 保持原有确认弹窗。\n    if (platform === 'line') {\n      for (let attempt = 0; attempt < 40; attempt++) {\n        const chk = await send('Runtime.evaluate', { expression: \`(() => {\n          const modal = document.querySelector('[class*="sendFileModal-module__modal__"]');\n          if (!modal) return JSON.stringify({ ok: false, count: 0 });\n          const items = [...modal.querySelectorAll('[class*="sendFilelistItem-module__send_file_item__"]')];\n          const sendBtn = modal.querySelector('[class*="sendFileModal-module__button_send__"]');\n          const unsupported = items.some(item => item.getAttribute('data-file-support') === 'false');\n          return JSON.stringify({ ok: !!sendBtn && !sendBtn.disabled && !unsupported, count: items.length });\n        })()\`, returnByValue: true });\n        let state = {};\n        try { state = JSON.parse(chk?.result?.value || '{}'); } catch { state = {}; }\n        if (state.ok && Number(state.count || 0) > lineFileCount) return true;\n        await new Promise(resolve => setTimeout(resolve, 150));\n      }\n      return false;\n    }\n    const chk = await send('Runtime.evaluate', { expression: \`(() => {\n      const modalBtn = [...document.querySelectorAll('.modal-dialog button, .modal-container button')].find(b => /primary/.test((b.className || '').toString()));\n      return modalBtn ? 'MODAL_OK' : 'NO_MODAL';\n    })()\`, returnByValue: true });\n    return chk?.result?.value === 'MODAL_OK';`,
   'platform modal verification'
 );
 main = replaceOnce(main, '  async function getDropPos(partition) {', '  async function getDropPos(partition, platform) {', 'getDropPos signature');
@@ -85,16 +85,21 @@ fs.writeFileSync('ui/translation-adapters.js', translation);
 
 const patchedMain = fs.readFileSync('src/main.cjs', 'utf8');
 const patchedUi = fs.readFileSync('ui/app.js', 'utf8');
+const patchedTranslation = fs.readFileSync('ui/translation-adapters.js', 'utf8');
 for (const required of [
   "platform === 'line'",
   'sendFileModal-module__button_send__',
   'getDropPos(partition, targetPlatform)',
+  'await new Promise(resolve => setTimeout(resolve, 150))',
 ]) if (!patchedMain.includes(required)) throw new Error(`main patch missing: ${required}`);
+if (patchedMain.includes('await sleep(150)')) throw new Error('main patch still references renderer-only sleep helper');
 for (const required of [
   'sendAttachment: (msg) =>',
   'FILE_SEND_NOT_CONFIRMED',
   "if (dropped !== true)",
   "platform.family === 'line'",
 ]) if (!patchedUi.includes(required)) throw new Error(`ui patch missing: ${required}`);
+if (!patchedTranslation.includes("pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/)")) throw new Error('accepted LINE route matcher missing');
+if (patchedTranslation.includes("location.hash || '').match(/\\/chats\\/")) throw new Error('legacy LINE route matcher remains');
 
 console.log('LINE_ATTACHMENT_VALIDATION_PATCH_OK');
