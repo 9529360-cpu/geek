@@ -40,6 +40,9 @@ jobs:
       - name: Restore 1.2.12 product tree and apply accepted LINE fixes
         run: node scripts/release-1.2.14-line-stable-run-temp.cjs
 
+      - name: Encode verified rollback-stable website fallback
+        run: node scripts/release-1.2.14-fallback-contract-temp.cjs
+
       - name: Verify bounded final source tree
         shell: pwsh
         run: |
@@ -61,6 +64,7 @@ jobs:
             'test/line-translation-bridge-contract.cjs',
             'test/line-translation-route-contract.cjs',
             'test/profile-center-ux-contract.cjs',
+            'test/website-fallback-version-contract.cjs',
             'ui/app.js',
             'ui/index.html',
             'ui/profile-center.css',
@@ -90,7 +94,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- .github/release-client-version README.md docs/github-control-plane.md docs/release-security.md package-lock.json package.json resources/s3loYR.js scripts/geek-website-worker.js src/internal-cdp.cjs src/main.cjs src/preload.cjs test/account-identity-contract.cjs test/line-image-broadcast-contract.cjs test/line-translation-bridge-contract.cjs test/line-translation-route-contract.cjs test/profile-center-ux-contract.cjs ui/app.js ui/index.html ui/profile-center.css ui/profile-center.js ui/subscription.html ui/translation-adapters.js
+          git add -- .github/release-client-version README.md docs/github-control-plane.md docs/release-security.md package-lock.json package.json resources/s3loYR.js scripts/geek-website-worker.js src/internal-cdp.cjs src/main.cjs src/preload.cjs test/account-identity-contract.cjs test/line-image-broadcast-contract.cjs test/line-translation-bridge-contract.cjs test/line-translation-route-contract.cjs test/profile-center-ux-contract.cjs test/website-fallback-version-contract.cjs ui/app.js ui/index.html ui/profile-center.css ui/profile-center.js ui/subscription.html ui/translation-adapters.js
           git diff --cached --check
           git commit -m "release: prepare 1.2.14 from stable LINE baseline"
           git push origin HEAD:release/1.2.14-line-stable
