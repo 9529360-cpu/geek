@@ -52,7 +52,7 @@ jobs:
           $translationStat = @(git diff --numstat -- ui/translation-adapters.js)
           if ($translationStat.Count -ne 1) { throw "unexpected translation diff stat: $translationStat" }
           $parts = $translationStat[0] -split '\s+'
-          if ($parts[0] -ne '8' -or $parts[1] -ne '1') { throw "translation patch is not the accepted route-only 8+/1- diff: $translationStat" }
+          if ($parts[0] -ne '7' -or $parts[1] -ne '1') { throw "translation patch is not the accepted route-only 7+/1- diff: $translationStat" }
           if (Select-String -Path src/main.cjs -SimpleMatch 'await sleep(150)' -Quiet) { throw 'undefined main-process sleep helper remains' }
           if (-not (Select-String -Path src/main.cjs -SimpleMatch 'await new Promise(resolve => setTimeout(resolve, 150))' -Quiet)) { throw 'self-contained main-process wait missing' }
           git diff --stat
