@@ -1,9 +1,11 @@
 'use strict';
 
 const { app, BrowserWindow, session } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const EXTENSION_PATH = path.join(__dirname, '..', 'resources', 'extensions', 'line-3.5.1');
+const RESULT_PATH = path.join(process.cwd(), 'line-extension-bridge-probe-result.txt');
 const PARTITION = 'persist:geek-line-translation-probe';
 const REQUEST_ID = 'probe_12345678';
 const DUMMY_TOKEN = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -27,6 +29,7 @@ async function waitForResult(timeoutMs = 15000) {
 }
 
 async function run() {
+  try { fs.rmSync(RESULT_PATH, { force: true }); } catch {}
   const ses = session.fromPartition(PARTITION, { cache: true });
   const extension = await ses.extensions.loadExtension(EXTENSION_PATH);
   if (!extension?.id) fail('LINE extension did not return an extension id');
@@ -129,7 +132,7 @@ async function run() {
   if (!result.consoleSeen) fail('LINE extension console-message fallback was not observed');
   if (result.hasSend && !result.ipcSeen) fail('LINE $electron.send2Host existed but no ipc-message reached the embedder');
 
-  console.log([
+  const summary = [
     'LINE_EXTENSION_BRIDGE_PROBE_OK',
     `electron=${process.versions.electron}`,
     `hasElectron=${Boolean(result.hasElectron)}`,
@@ -142,7 +145,9 @@ async function run() {
     `ipcIdPreserved=${Boolean(result.ipcIdPreserved)}`,
     `ipcTokenPreserved=${Boolean(result.ipcTokenPreserved)}`,
     `consoleSeen=${Boolean(result.consoleSeen)}`,
-  ].join(' '));
+  ].join(' ');
+  fs.writeFileSync(RESULT_PATH, summary + '\n', 'utf8');
+  console.log(summary);
 }
 
 app.whenReady()
