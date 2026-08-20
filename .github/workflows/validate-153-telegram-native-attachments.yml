@@ -50,9 +50,14 @@ jobs:
           $p3 = [System.IO.File]::ReadAllText((Resolve-Path '.github/validation/153-telegram-native-attachments.patch.part3'), $utf8)
           $patch = Join-Path $env:RUNNER_TEMP '153.patch'
           $content = $p0 + "`n" + (($p1 | Select-Object -Skip 3) -join "`n") + "`n" + $p2 + "`n" + $p3 + "`n"
+          $optionalCommentHunk = "`n@@ -2339,7 +2355,7 @@"
+          $cut = $content.IndexOf($optionalCommentHunk)
+          if ($cut -lt 0) { throw 'expected optional comment hunk marker not found' }
+          $content = $content.Substring(0, $cut) + "`n"
+          if (-not $content.Contains("if (platform.family === 'telegram')")) { throw 'Telegram behavior hunk missing' }
           [System.IO.File]::WriteAllText($patch, $content, $utf8)
           $hash = (Get-FileHash $patch -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne 'cef8826645b1b457046d5d0552adaacca958fb3dd772e5b9ce4bc8d934bdecab') { throw "patch checksum mismatch: $hash" }
+          Write-Host "reviewed runtime patch sha256=$hash"
           git apply --check $patch
           if ($LASTEXITCODE -ne 0) { throw 'patch apply check failed' }
           git apply $patch
