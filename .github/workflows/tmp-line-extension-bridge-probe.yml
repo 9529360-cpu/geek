@@ -52,3 +52,11 @@ jobs:
           if ($result -notmatch 'LINE_EXTENSION_BRIDGE_PROBE_OK') {
             throw 'LINE extension bridge probe exited without completion marker'
           }
+
+      - name: Upload non-sensitive probe result
+        uses: actions/upload-artifact@v4
+        with:
+          name: line-extension-bridge-probe-result
+          path: line-extension-bridge-probe-result.txt
+          if-no-files-found: error
+          retention-days: 1
