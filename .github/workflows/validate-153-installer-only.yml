@@ -1,0 +1,85 @@
+name: validate-153-installer-only
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - .github/workflows/validate-153-installer-only.yml
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    if: github.event.pull_request.head.ref == 'agent/152-telegram-native-attachments'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout validation branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/152-telegram-native-attachments
+          fetch-depth: 0
+
+      - name: Verify exact product source and release boundary
+        shell: pwsh
+        run: |
+          $source = '9ca491d39ef9407fe3008508311c0c57456fa411'
+          git merge-base --is-ancestor $source HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'final Telegram source commit is not an ancestor' }
+          $unexpected = @(git diff --name-only $source HEAD -- . ':!.github/workflows/validate-153-installer-only.yml')
+          if ($unexpected.Count -ne 0) { throw "unexpected changes after final source commit: $($unexpected -join ', ')" }
+          if ((Get-Content package.json -Raw | ConvertFrom-Json).version -ne '1.2.14') { throw 'package version drift' }
+          if ((Get-Content .github/release-client-version -Raw).Trim() -ne '1.2.14') { throw 'release marker drift' }
+
+      - name: Remove temporary installer workflow from branch
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -- .github/workflows/validate-153-installer-only.yml
+          git commit -m 'validation: remove #153 installer workflow'
+          git push origin HEAD:agent/152-telegram-native-attachments
+
+      - name: Install dependencies
+        shell: pwsh
+        run: npm ci
+
+      - name: Re-run full contracts on installer source
+        shell: pwsh
+        run: npm test
+
+      - name: Build validation-only Windows installer
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:test
+
+      - name: Collect installer and SHA-256
+        shell: pwsh
+        run: |
+          $installer = Get-Item 'dist-release/geek-setup-1.2.14.exe'
+          if (-not $installer.Exists) { throw 'validation installer not found in dist-release' }
+          New-Item -ItemType Directory -Force validation | Out-Null
+          $out = Join-Path (Resolve-Path validation) 'Geek-1.2.14-telegram-native-attachments-validation.exe'
+          Copy-Item $installer.FullName $out
+          $sha = (Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  Geek-1.2.14-telegram-native-attachments-validation.exe" | Set-Content -Encoding ascii validation/Geek-1.2.14-telegram-native-attachments-validation.exe.sha256
+          @(
+            'sourceCommit=9ca491d39ef9407fe3008508311c0c57456fa411',
+            'packageVersion=1.2.14',
+            'releaseMarker=1.2.14',
+            'scope=validation-only'
+          ) | Set-Content -Encoding ascii validation/build.txt
+
+      - name: Upload private validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-1.2.14-tg-native-attachments-validation
+          path: |
+            validation/Geek-1.2.14-telegram-native-attachments-validation.exe
+            validation/Geek-1.2.14-telegram-native-attachments-validation.exe.sha256
+            validation/build.txt
+          if-no-files-found: error
+          retention-days: 7
