@@ -1,0 +1,39 @@
+name: observe-155-release-client
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/observe-155-release-client.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Locate formal release-client run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 841bd70368d051f411d0f8e0a6a6fd135c701eb3
+        shell: bash
+        run: |
+          set -euo pipefail
+          json="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/337275383/runs?branch=master&event=push&per_page=20")"
+          node - "$TARGET_SHA" "$json" <<'NODE'
+          const target = process.argv[2];
+          const payload = JSON.parse(process.argv[3]);
+          const runs = Array.isArray(payload.workflow_runs) ? payload.workflow_runs : [];
+          const run = runs.find((r) => r.head_sha === target);
+          if (!run) {
+            console.error(`RELEASE_CLIENT_RUN_NOT_FOUND target=${target.slice(0, 12)}`);
+            process.exit(2);
+          }
+          console.log(`RELEASE_CLIENT_RUN_ID=${run.id}`);
+          console.log(`RELEASE_CLIENT_STATUS=${run.status}`);
+          console.log(`RELEASE_CLIENT_CONCLUSION=${run.conclusion || 'pending'}`);
+          console.log(`RELEASE_CLIENT_EVENT=${run.event}`);
+          console.log(`RELEASE_CLIENT_HEAD=${run.head_sha}`);
+          NODE
