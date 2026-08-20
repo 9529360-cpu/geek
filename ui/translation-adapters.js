@@ -208,7 +208,13 @@
     window.__geekLineTranslationObserver?.disconnect();
     document.querySelectorAll('.geek-translation-result[data-geek-platform="line"]').forEach(node => node.remove());
     document.querySelectorAll('[data-geek-line-translation-state]').forEach(node => delete node.dataset.geekLineTranslationState);
-    const chatId = () => { try { return decodeURIComponent((String(location.hash || '').match(/\/chats\/([^/?]+)/) || [])[1] || ''); } catch { return ''; } };
+    const chatId = () => {
+      try {
+        const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
+        const match = pathname.match(/^\/[^/]+\/([^/]+)\/?$/);
+        return match ? decodeURIComponent(match[1]) : '';
+      } catch { return ''; }
+    };
     const settingFor = id => {
       const g = window.__geekTranslationConfig.global || {};
       const base = { provider: g.source || 'auto', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, sendFrom: g.sendFrom || 'auto', sendTo: g.sendTo || 'en', includeZh: g.includeZh !== false, displayTranslation: g.displayTranslation !== false, translationMode: g.translationMode || (g.message === false ? 'click' : 'auto'), messageFrom: g.messageFrom || 'auto', messageTarget: g.messageTo || 'zh', fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };
