@@ -25,20 +25,25 @@ function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebug
     return url.includes(platform);
   }
 
-  function findGuest(partition, platform) {
+  function findGuest(partition, platform, preferredGuestId = null) {
     const partitionLeaf = partition.split(':').pop();
     const guests = getAllWebContents();
-    return guests.find(g => {
+    const matches = (g) => {
       const gPartition = storagePathLeaf(g?.session?.storagePath);
       return gPartition === partitionLeaf && isPlatformUrl(g.getURL(), platform);
-    }) || null;
+    };
+    if (preferredGuestId !== null && preferredGuestId !== undefined) {
+      const exact = guests.find(g => Number(g?.id) === Number(preferredGuestId));
+      return exact && matches(exact) ? exact : null;
+    }
+    return guests.find(matches) || null;
   }
 
-  async function run(partition, platform, callback) {
+  async function run(partition, platform, callback, preferredGuestId = null) {
     if (externalDebugging) {
       throw new Error('外部调试端口模式，禁止内部CDP');
     }
-    const guest = findGuest(partition, platform);
+    const guest = findGuest(partition, platform, preferredGuestId);
     if (!guest) {
       throw new Error('未找到匹配的guest');
     }

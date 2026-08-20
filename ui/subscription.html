@@ -191,18 +191,26 @@
       <div class="ok" id="order-ok"></div><div class="err" id="order-err"></div>
     </div>
 
+    <div class="card view" id="view-home">
+      <div class="status-card">
+        <div class="status-icon" id="home-icon">🎁</div>
+        <div class="status-title" id="home-title">已登录</div>
+        <div class="account-ref" id="home-account-ref" title="联系客服时可提供此账号号">账号号加载中…</div>
+        <div class="status-sub" id="home-email"></div>
+        <div class="status-pill" id="home-quota"></div>
+        <div class="status-sub" id="home-sub"></div>
+        <button class="btn-primary no-drag" id="btn-enter">进入极客</button>
+        <button class="btn-ghost no-drag" style="margin-top:10px" id="btn-open-plans">购买字符包</button>
+      </div>
+      <div class="switch-row"><a id="home-logout">退出登录</a></div>
+    </div>
+
     <div class="footer-note win-drag">极客 · Geek · 专业多平台聊天工具</div>
   </main>
 </div>
 
 <script>
   const $ = (s) => document.querySelector(s);
-  const requestedView = new URLSearchParams(location.search).get('view');
-  if (requestedView === 'plans') document.title = '极客 · 字符套餐';
-  async function finishAuthentication() {
-    if (requestedView === 'plans') { location.reload(); return; }
-    await window.api.subscription.enterApp();
-  }
   let currentPlan = 'basic';
 
   function show(id) {
@@ -214,6 +222,7 @@
   $('#go-register').onclick = () => { err('reg-err', ''); show('view-register'); };
   $('#go-login').onclick = () => { err('login-err', ''); show('view-login'); };
   $('#back-login').onclick = async () => { await window.api.subscription.logout(); location.reload(); };
+  $('#home-logout').onclick = async () => { await window.api.subscription.logout(); location.reload(); };
 
   $('#btn-login').onclick = async () => {
     const email = $('#in-email').value.trim();
@@ -224,7 +233,7 @@
     err('login-err', '');
     try {
       await window.api.subscription.login(email, pass);
-      await finishAuthentication();
+      location.reload();
     } catch (e) {
       err('login-err', e.message === 'invalid_credentials' ? '邮箱或密码错误' : (e.message === 'account_disabled' ? '账号已被封禁，请联系客服' : '登录失败，请稍后重试'));
     } finally { btn.disabled = false; btn.textContent = '登 录'; }
@@ -244,7 +253,7 @@
     err('reg-err', '');
     try {
       await window.api.subscription.register(email, pass);
-      await finishAuthentication();
+      location.reload();
     } catch (e) {
       const message = e.message === 'email_exists'
         ? '该邮箱已注册，请直接登录'
@@ -298,14 +307,33 @@
     } finally { btn.disabled = false; btn.textContent = '我已完成付款，刷新状态'; }
   };
 
+  $('#btn-enter').onclick = () => window.api.subscription.enterApp();
+  $('#btn-open-plans').onclick = () => show('view-plans');
   $('#btn-close').onclick = () => window.api.subscription.closeWindow();
 
   (async () => {
     try {
-      const state = await window.api.subscription.getState();
+      let state = await window.api.subscription.getState();
       if (!state.loggedIn) { show('view-login'); return; }
-      if (requestedView === 'plans') { show('view-plans'); return; }
-      await window.api.subscription.enterApp();
+      // 老版本本地状态没有 user_id，首次打开时自动从服务端补齐账号号。
+      if (!state.account_ref) state = await window.api.subscription.refresh();
+      $('#home-account-ref').textContent = state.account_ref ? '账号号 ' + state.account_ref : '账号号暂不可用';
+      $('#home-email').textContent = state.email || '';
+      try {
+        const quota = await window.api.subscription.getQuota(true);
+        const remaining = quota.remaining_chars ?? 0;
+        if (quota.account_ref) $('#home-account-ref').textContent = '账号号 ' + quota.account_ref;
+        $('#home-icon').textContent = remaining > 0 ? '🎁' : '🔋';
+        $('#home-title').textContent = remaining > 0 ? '免费用户' : '字符已用完';
+        $('#home-quota').textContent = '剩余 ' + remaining.toLocaleString() + ' 字符';
+        $('#home-sub').textContent = remaining > 0
+          ? '注册赠送 2 万字符，用完可购买字符包'
+          : '购买字符包即可继续翻译，买断不限时';
+      } catch (e) {
+        $('#home-quota').textContent = '—';
+        $('#home-sub').textContent = '';
+      }
+      show('view-home');
     } catch (e) {
       show('view-login');
     }

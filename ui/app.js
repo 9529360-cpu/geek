@@ -1501,6 +1501,86 @@
         const text = (Array.isArray(host.value) ? host.value : [host.value]).filter(value => typeof value === 'string').join('').trim();
         return text === ${JSON.stringify(msg)}.trim() ? 'OK' : 'EMPTY';
       })()`,
+      sendAttachment: (msg, beforeIds) => `(async () => {
+        const baselineIds = new Set(${JSON.stringify(beforeIds || [])});
+        let fileSent = false;
+        for (let i = 0; i < 80; i++) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const modalGone = !document.querySelector('[class*="sendFileModal-module__modal__"]');
+          const currentIds = [...document.querySelectorAll('[class*="message-module__message__"][data-mid]')].map(el => el.getAttribute('data-mid')).filter(Boolean);
+          const messageAdded = currentIds.some(id => !baselineIds.has(id));
+          if (modalGone && messageAdded) { fileSent = true; break; }
+        }
+        if (!fileSent) return 'FILE_SEND_NOT_CONFIRMED';
+        const text = ${JSON.stringify(msg)};
+        if (!text.trim()) return 'SENT';
+        const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+        const textarea = host?.shadowRoot?.querySelector('textarea');
+        if (!host || !textarea || typeof host.insertValue !== 'function') return 'NO_EDITOR';
+        const textBefore = document.querySelectorAll('[class*="message-module__message__"][data-mid]').length;
+        textarea.focus();
+        document.execCommand('selectAll', false, null);
+        host.insertValue([text]);
+        const actual = (Array.isArray(host.value) ? host.value : [host.value]).filter(value => typeof value === 'string').join('').trim();
+        if (actual !== text.trim()) return 'TEXT_SET_FAILED';
+        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
+        for (let i = 0; i < 60; i++) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const value = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim();
+          if (document.querySelectorAll('[class*="message-module__message__"][data-mid]').length > textBefore && !value) return 'SENT';
+        }
+        return 'TEXT_SEND_NOT_CONFIRMED';
+      })()`,
+      submitPastedImages: (msg, beforeIds, expectedImages) => `(async () => {
+        const expected = Number(${JSON.stringify(expectedImages || 0)});
+        if (!Number.isFinite(expected) || expected < 1) return 'INVALID_IMAGE_COUNT';
+        const pastedSelector = '[class*="pastedImageList-module__image_list_item__"]';
+        const pastedBeforeSubmit = document.querySelectorAll(pastedSelector).length;
+        if (pastedBeforeSubmit < expected) return 'LINE_PASTED_IMAGE_NOT_READY';
+        const text = ${JSON.stringify(msg)};
+        const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+        const textarea = host?.shadowRoot?.querySelector('textarea');
+        if (!host || !textarea || typeof host.insertValue !== 'function') return 'NO_EDITOR';
+        if (text.trim()) {
+          textarea.focus();
+          document.execCommand('selectAll', false, null);
+          host.insertValue([text]);
+          let textStableChecks = 0;
+          for (let i = 0; i < 20; i++) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            const actual = (Array.isArray(host.value) ? host.value : [host.value])
+              .filter(value => typeof value === 'string')
+              .join('')
+              .trim();
+            if (actual === text.trim()) textStableChecks += 1;
+            else textStableChecks = 0;
+            if (textStableChecks >= 3) break;
+          }
+          if (textStableChecks < 3) return 'TEXT_STATE_NOT_READY';
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
+        textarea.focus();
+        textarea.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+          altKey: true, metaKey: true, bubbles: true, cancelable: true, composed: true
+        }));
+        let pastedCleared = false;
+        let textCleared = !text.trim();
+        for (let i = 0; i < 80; i++) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const pastedCount = document.querySelectorAll(pastedSelector).length;
+          pastedCleared = pastedCount === 0;
+          if (!textCleared) {
+            const currentText = (Array.isArray(host.value) ? host.value : [host.value])
+              .filter(value => typeof value === 'string')
+              .join('')
+              .trim();
+            textCleared = currentText.length === 0;
+          }
+          if (pastedCleared && textCleared) return 'SENT';
+        }
+        return pastedCleared ? 'LINE_TEXT_NOT_CLEARED' : 'LINE_SUBMIT_NOT_OBSERVED';
+      })()`,
       send: `(async () => {
         const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
         const textarea = host?.shadowRoot?.querySelector('textarea');
@@ -2218,14 +2298,46 @@
           }
           if (broadcastFiles.length) {
             // 附件：真实拖拽（主进程 CDP）→ 等 TG 弹出发送确认
+            let attachmentReady = true;
             for (const file of broadcastFiles) {
               try {
-                await window.api.broadcast.dropFile({ partition: account.partition, filePath: file.filePath, mime: file.mime, platform: familyOf(account.type).key });
-                await sleep(3000); // 等 TG 弹"Send 1 Files"窗口
-              } catch (e) { failReasons.push(`${t.name}: 文件注入失败 ${e.message}`); }
+                const dropped = await window.api.broadcast.dropFile({ partition: account.partition, filePath: file.filePath, mime: file.mime, platform: familyOf(account.type).key, guestId: platform.family === 'line' ? wv.getWebContentsId() : undefined });
+                if (dropped !== true) {
+                  attachmentReady = false;
+                  const attachmentStage = platform.family === 'line' && typeof dropped === 'string' ? dropped : '文件未进入发送面板';
+                  failReasons.push(`${t.name}: ${attachmentStage}`);
+                  break;
+                }
+                await sleep(platform.family === 'line' ? 500 : 3000);
+              } catch (e) {
+                attachmentReady = false;
+                failReasons.push(`${t.name}: 文件注入失败 ${e.message}`);
+                break;
+              }
             }
-            // 文字消息：由 send 输入到弹窗 caption（弹窗会遮挡主输入框）
-            sentOk = await wv.executeJavaScript(adapter.send(personalMsg)); // 弹窗 caption + Send
+            if (!attachmentReady) {
+              sentOk = 'ERR:附件未进入发送面板';
+              if (platform.family === 'line') break;
+              continue;
+            }
+            if (platform.family === 'line') {
+              if (typeof adapter.submitPastedImages !== 'function') { sentOk = 'ERR:LINE粘贴图片发送适配器缺失'; break; }
+              const lineReadyRaw = await wv.executeJavaScript(`(() => JSON.stringify({
+                pastedCount: document.querySelectorAll('[class*="pastedImageList-module__image_list_item__"]').length,
+                ids: [...document.querySelectorAll('[class*="message-module__message__"][data-mid]')].map(el => el.getAttribute('data-mid')).filter(Boolean)
+              }))()`);
+              let lineReady = {};
+              try { lineReady = JSON.parse(lineReadyRaw || '{}'); } catch { lineReady = {}; }
+              if (Number(lineReady.pastedCount || 0) < broadcastFiles.length) { sentOk = 'LINE_PASTED_IMAGE_NOT_READY'; break; }
+              sentOk = await wv.executeJavaScript(adapter.submitPastedImages(
+                personalMsg,
+                Array.isArray(lineReady.ids) ? lineReady.ids : [],
+                broadcastFiles.length
+              ));
+              break;
+            }
+            // Telegram keeps the existing drag/drop + modal path.
+            sentOk = await wv.executeJavaScript(adapter.send(personalMsg));
           } else {
             // 纯文字：输入失败时禁止继续发送，防止旧草稿误发。
             setOk = await platform.setComposerText(personalMsg);
