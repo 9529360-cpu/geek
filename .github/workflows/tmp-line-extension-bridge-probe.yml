@@ -33,6 +33,9 @@ jobs:
       - name: Run repository contracts
         run: npm test
 
+      - name: Inspect bundled LINE DOM markers
+        run: node scripts/line-extension-dom-static-probe-temp.cjs
+
       - name: Install Electron runtime
         run: npm run electron:install
 
