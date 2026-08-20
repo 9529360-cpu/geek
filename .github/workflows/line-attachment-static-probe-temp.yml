@@ -38,10 +38,10 @@ jobs:
           if ($changed -notcontains '.github/workflows/line-attachment-static-probe-temp.yml') { throw 'temporary workflow missing from scope' }
           if ($changed -notcontains 'scripts/line-attachment-static-probe-temp.cjs') { throw 'temporary patch script missing from scope' }
 
-      - name: Apply confirmed LINE fixes only in validation workspace
+      - name: Apply LINE paste-path validation patch
         run: node scripts/line-attachment-static-probe-temp.cjs
 
-      - name: Verify runtime patch scope and accepted translation parity
+      - name: Verify runtime patch scope and translation parity
         shell: pwsh
         run: |
           $changed = @(git diff --name-only)
@@ -53,8 +53,10 @@ jobs:
           if ($translationStat.Count -ne 1) { throw "unexpected translation diff stat: $translationStat" }
           $parts = $translationStat[0] -split '\s+'
           if ($parts[0] -ne '7' -or $parts[1] -ne '1') { throw "translation patch is not the accepted route-only 7+/1- diff: $translationStat" }
-          if (Select-String -Path src/main.cjs -SimpleMatch 'await sleep(150)' -Quiet) { throw 'undefined main-process sleep helper remains' }
-          if (-not (Select-String -Path src/main.cjs -SimpleMatch 'await new Promise(resolve => setTimeout(resolve, 150))' -Quiet)) { throw 'self-contained main-process wait missing' }
+          if (-not (Select-String -Path src/main.cjs -SimpleMatch 'DOM.setFileInputFiles' -Quiet)) { throw 'LINE CDP file input injection missing' }
+          if (-not (Select-String -Path src/main.cjs -SimpleMatch 'PASTE_DISPATCHED' -Quiet)) { throw 'LINE paste dispatch missing' }
+          if (-not (Select-String -Path src/main.cjs -SimpleMatch "targetPlatform === 'line' ? { x: 1, y: 1 }" -Quiet)) { throw 'LINE drag-position bypass missing' }
+          if (Select-String -Path src/main.cjs -SimpleMatch 'getDropPos(partition, targetPlatform)' -Quiet) { throw 'old LINE drag-position path remains' }
           git diff --stat
 
       - name: Install dependencies
@@ -80,14 +82,14 @@ jobs:
           "file=$($exe.Name)" | Out-File dist-release/validation-sha256.txt -Encoding ascii
           "sha256=$hash" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
           "baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          "included=line-translation-route-fix + line-image-group-send-fix" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          "revision=v2-self-contained-main-wait" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          Write-Host "LINE_IMAGE_VALIDATION_V2_INSTALLER_OK $hash"
+          "included=line-translation-route-fix + line-image-paste-path-fix" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "revision=v3-line-paste-file-input" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          Write-Host "LINE_IMAGE_VALIDATION_V3_INSTALLER_OK $hash"
 
       - name: Upload private validation installer
         uses: actions/upload-artifact@v4
         with:
-          name: geek-1.2.12-line-image-validation-v2
+          name: geek-1.2.12-line-image-validation-v3
           path: |
             dist-release/geek-setup-1.2.12.exe
             dist-release/validation-sha256.txt
