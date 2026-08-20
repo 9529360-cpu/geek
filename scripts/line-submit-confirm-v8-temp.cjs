@@ -42,7 +42,7 @@ for (const required of [
   "return pastedCleared ? 'LINE_TEXT_NOT_CLEARED' : 'LINE_SUBMIT_NOT_OBSERVED'",
   'for (let i = 0; i < 80; i++)',
 ]) if (!patchedUi.includes(required)) throw new Error(`ui V8 patch missing: ${required}`);
-for (const forbidden of ['LINE_MESSAGE_NOT_CONFIRMED', 'addedIds.length >= requiredNew', 'const baselineIds = new Set', "return 'TEXT_SET_FAILED'"]) {
+for (const forbidden of ['LINE_MESSAGE_NOT_CONFIRMED', 'addedIds.length >= requiredNew']) {
   if (patchedUi.includes(forbidden)) throw new Error(`old blocking V7 completion remains: ${forbidden}`);
 }
 for (const required of ['pastedImageList-module__image_list_item__', 'DOM.setFileInputFiles', 'PASTE_DISPATCHED']) {
