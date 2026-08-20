@@ -1,0 +1,98 @@
+name: Prepare Geek 1.2.14 LINE stable tree (temporary)
+
+on:
+  push:
+    branches:
+      - release/1.2.14-line-stable
+    paths:
+      - scripts/release-1.2.14-line-stable-prep-temp.cjs
+      - .github/workflows/release-1.2.14-line-stable-prep-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Materialize authenticated validation patches
+        shell: pwsh
+        run: |
+          git fetch origin "diag/148-line-submit-confirm-v8:refs/remotes/origin/diag/148-line-submit-confirm-v8" "fix/132-line-messagebox-route:refs/remotes/origin/fix/132-line-messagebox-route"
+          New-Item -ItemType Directory -Force .release-tmp | Out-Null
+          foreach ($name in @(
+            'line-attachment-static-probe-temp.cjs',
+            'line-attachment-send-click-v4-temp.cjs',
+            'line-attachment-send-click-v5-temp.cjs',
+            'line-attachment-transaction-v6-temp.cjs',
+            'line-pasted-image-submit-v7-temp.cjs',
+            'line-submit-confirm-v8-temp.cjs'
+          )) {
+            git show "origin/diag/148-line-submit-confirm-v8:scripts/$name" | Out-File ".release-tmp/$name" -Encoding utf8
+          }
+          git show "origin/fix/132-line-messagebox-route:test/line-translation-route-contract.cjs" | Out-File ".release-tmp/line-translation-route-contract.cjs" -Encoding utf8
+
+      - name: Restore 1.2.12 product tree and apply accepted LINE fixes
+        run: node scripts/release-1.2.14-line-stable-prep-temp.cjs
+
+      - name: Verify bounded final source tree
+        shell: pwsh
+        run: |
+          git diff --check
+          $expected = @(
+            '.github/release-client-version',
+            'README.md',
+            'docs/github-control-plane.md',
+            'docs/release-security.md',
+            'package-lock.json',
+            'package.json',
+            'resources/s3loYR.js',
+            'scripts/geek-website-worker.js',
+            'src/internal-cdp.cjs',
+            'src/main.cjs',
+            'src/preload.cjs',
+            'test/account-identity-contract.cjs',
+            'test/line-image-broadcast-contract.cjs',
+            'test/line-translation-bridge-contract.cjs',
+            'test/line-translation-route-contract.cjs',
+            'test/profile-center-ux-contract.cjs',
+            'ui/app.js',
+            'ui/index.html',
+            'ui/profile-center.css',
+            'ui/profile-center.js',
+            'ui/subscription.html',
+            'ui/translation-adapters.js'
+          )
+          $changed = @(git diff --name-only)
+          foreach ($file in $changed) { if ($expected -notcontains $file) { throw "unexpected source change: $file" } }
+          foreach ($file in @('resources/s3loYR.js','src/preload.cjs')) {
+            $current = (git hash-object $file).Trim()
+            $baseline = (git rev-parse "bbebd6c47dd88d8e61b241019e24fdf3ce768bef:$file").Trim()
+            if ($current -ne $baseline) { throw "$file is not exact 1.2.12 baseline" }
+          }
+          if ((Get-Content package.json -Raw | ConvertFrom-Json).version -ne '1.2.14') { throw 'package version is not 1.2.14' }
+          if ((Get-Content .github/release-client-version -Raw).Trim() -ne '1.2.14') { throw 'release marker is not 1.2.14' }
+          git diff --stat
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run full contracts
+        run: npm test
+
+      - name: Commit prepared source tree
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/release-client-version README.md docs/github-control-plane.md docs/release-security.md package-lock.json package.json resources/s3loYR.js scripts/geek-website-worker.js src/internal-cdp.cjs src/main.cjs src/preload.cjs test/account-identity-contract.cjs test/line-image-broadcast-contract.cjs test/line-translation-bridge-contract.cjs test/line-translation-route-contract.cjs test/profile-center-ux-contract.cjs ui/app.js ui/index.html ui/profile-center.css ui/profile-center.js ui/subscription.html ui/translation-adapters.js
+          git diff --cached --check
+          git commit -m "release: prepare 1.2.14 from stable LINE baseline"
+          git push origin HEAD:release/1.2.14-line-stable
