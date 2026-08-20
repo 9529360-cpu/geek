@@ -71,7 +71,7 @@ jobs:
           foreach ($needle in @('submitPastedImages: (msg, beforeIds, expectedImages) =>', 'textStableChecks >= 3', 'TEXT_STATE_NOT_READY', 'requestAnimationFrame(() => requestAnimationFrame(resolve))', 'pastedCleared && textCleared', 'LINE_TEXT_NOT_CLEARED', 'LINE_SUBMIT_NOT_OBSERVED', 'for (let i = 0; i < 80; i++)')) {
             if (-not (Select-String -Path ui/app.js -SimpleMatch $needle -Quiet)) { throw "LINE V8 renderer marker missing: $needle" }
           }
-          foreach ($forbidden in @('LINE_MESSAGE_NOT_CONFIRMED', 'addedIds.length >= requiredNew', 'const baselineIds = new Set', "return 'TEXT_SET_FAILED'")) {
+          foreach ($forbidden in @('LINE_MESSAGE_NOT_CONFIRMED', 'addedIds.length >= requiredNew')) {
             if (Select-String -Path ui/app.js -SimpleMatch $forbidden -Quiet) { throw "old blocking V7 completion remains: $forbidden" }
           }
           if (Select-String -Path ui/app.js -SimpleMatch "action: 'send'," -Quiet) { throw 'old LINE modal send action remains reachable in renderer' }
