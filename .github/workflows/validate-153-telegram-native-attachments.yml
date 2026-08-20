@@ -9,10 +9,11 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   windows-validation:
-    if: github.event.head_commit.message == 'validation: trigger #153 Windows build v2'
+    if: github.event.head_commit.message == 'validation: trigger #153 Windows build v3'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -21,6 +22,12 @@ jobs:
         with:
           ref: agent/152-telegram-native-attachments
           fetch-depth: 0
+
+      - name: Record validation run
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID started for Telegram native attachments."
 
       - name: Verify release baseline is unchanged
         shell: pwsh
@@ -125,6 +132,7 @@ jobs:
           Copy-Item $installer.FullName $out
           $sha = (Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
           "$sha  Geek-1.2.14-telegram-native-attachments-validation.exe" | Set-Content -Encoding ascii validation/Geek-1.2.14-telegram-native-attachments-validation.exe.sha256
+          "TG_VALIDATION_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $commit = (git rev-parse HEAD).Trim()
           @("commit=$commit", 'packageVersion=1.2.14', 'releaseMarker=1.2.14', 'scope=validation-only') | Set-Content -Encoding ascii validation/build.txt
 
@@ -138,3 +146,17 @@ jobs:
             validation/build.txt
           if-no-files-found: error
           retention-days: 7
+
+      - name: Record validation success
+        if: success()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID succeeded. Artifact: geek-1.2.14-tg-native-attachments-validation. SHA-256: $env:TG_VALIDATION_SHA"
+
+      - name: Record validation failure
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 153 --body "Windows validation run $env:GITHUB_RUN_ID failed before a usable validation artifact was accepted."
