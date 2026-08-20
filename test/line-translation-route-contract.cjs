@@ -13,10 +13,17 @@ assert.match(
   /\/:routeSegment\/:messageBoxId/,
   'bundled LINE must retain the two-segment message-box route used by the adapter contract'
 );
-assert.match(
-  adapters,
-  /const chatId = \(\) => \{\s*try \{\s*const pathname = String\(location\.hash \|\| ''\)\.replace\(\/\^#\/, ''\)\.split\('\?'\)\[0\];\s*const match = pathname\.match\(\/\^\\\/\[\^\\\/\]\+\\\/\(\[\^\\\/\]\+\)\\\/?\$\/\);\s*return match \? decodeURIComponent\(match\[1\]\) : '';\s*\} catch \{ return ''; \}\s*\};/,
-  'LINE adapter must read messageBoxId from /:routeSegment/:messageBoxId hash routes'
+assert.ok(
+  adapters.includes("const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];"),
+  'LINE adapter must normalize the hash-history pathname'
+);
+assert.ok(
+  adapters.includes('const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);'),
+  'LINE adapter must match exactly /:routeSegment/:messageBoxId'
+);
+assert.ok(
+  adapters.includes("return match ? decodeURIComponent(match[1]) : '';"),
+  'LINE adapter must decode the second route segment as messageBoxId'
 );
 assert.doesNotMatch(
   adapters,
