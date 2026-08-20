@@ -38,7 +38,7 @@ jobs:
           git show "origin/fix/132-line-messagebox-route:test/line-translation-route-contract.cjs" | Out-File ".release-tmp/line-translation-route-contract.cjs" -Encoding utf8
 
       - name: Restore 1.2.12 product tree and apply accepted LINE fixes
-        run: node scripts/release-1.2.14-line-stable-prep-temp.cjs
+        run: node scripts/release-1.2.14-line-stable-run-temp.cjs
 
       - name: Verify bounded final source tree
         shell: pwsh
