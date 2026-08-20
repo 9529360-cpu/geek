@@ -68,10 +68,10 @@ jobs:
           foreach ($needle in @('DOM.setFileInputFiles', 'PASTE_DISPATCHED', 'pastedImageList-module__image_list_item__', 'linePastedImageCount', 'LINE_PASTED_IMAGE_NOT_READY', "targetPlatform === 'line' ? guestId : null")) {
             if (-not (Select-String -Path src/main.cjs -SimpleMatch $needle -Quiet)) { throw "LINE V8 send marker missing: $needle" }
           }
-          foreach ($needle in @('submitPastedImages: (msg, beforeIds, expectedImages) =>', 'pastedCleared && textCleared', 'LINE_TEXT_NOT_CLEARED', 'LINE_SUBMIT_NOT_OBSERVED', 'for (let i = 0; i < 80; i++)')) {
+          foreach ($needle in @('submitPastedImages: (msg, beforeIds, expectedImages) =>', 'textStableChecks >= 3', 'TEXT_STATE_NOT_READY', 'requestAnimationFrame(() => requestAnimationFrame(resolve))', 'pastedCleared && textCleared', 'LINE_TEXT_NOT_CLEARED', 'LINE_SUBMIT_NOT_OBSERVED', 'for (let i = 0; i < 80; i++)')) {
             if (-not (Select-String -Path ui/app.js -SimpleMatch $needle -Quiet)) { throw "LINE V8 renderer marker missing: $needle" }
           }
-          foreach ($forbidden in @('LINE_MESSAGE_NOT_CONFIRMED', 'addedIds.length >= requiredNew', 'const baselineIds = new Set')) {
+          foreach ($forbidden in @('LINE_MESSAGE_NOT_CONFIRMED', 'addedIds.length >= requiredNew', 'const baselineIds = new Set', "return 'TEXT_SET_FAILED'")) {
             if (Select-String -Path ui/app.js -SimpleMatch $forbidden -Quiet) { throw "old blocking V7 completion remains: $forbidden" }
           }
           if (Select-String -Path ui/app.js -SimpleMatch "action: 'send'," -Quiet) { throw 'old LINE modal send action remains reachable in renderer' }
@@ -102,8 +102,8 @@ jobs:
           "file=$($exe.Name)" | Out-File dist-release/validation-sha256.txt -Encoding ascii
           "sha256=$hash" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
           "baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          "included=line-translation-route-fix + line-image-paste-path-fix + line-exact-guest-lock + line-pasted-image-readiness + line-native-editor-enter-submit + line-consumed-editor-confirmation" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
-          "revision=v8-line-consumed-editor-confirmation" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "included=line-translation-route-fix + line-image-paste-path-fix + line-exact-guest-lock + line-pasted-image-readiness + line-text-state-stabilization + line-native-editor-enter-submit + line-consumed-editor-confirmation" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "revision=v8-line-combined-submit-and-consumed-confirmation" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
           Write-Host "LINE_IMAGE_VALIDATION_V8_INSTALLER_OK $hash"
 
       - name: Upload private validation installer
@@ -130,6 +130,6 @@ jobs:
             $line = Get-Content 'dist-release/validation-sha256.txt' | Where-Object { $_ -like 'sha256=*' } | Select-Object -First 1
             if ($line) { $checksum = $line.Substring(7) }
           }
-          $body = "V8 validation telemetry: run ``$env:RUN_ID`` status ``$env:RUN_STATUS`` head ``$env:HEAD_SHA`` artifact ``geek-1.2.12-line-image-validation-v8`` installer SHA-256 ``$checksum``. Scope: preserve V7 native LINE submit; completion now follows consumed pasted-image/text editor state instead of blocking on message DOM ids. Validation-only; no master/release/update change."
+          $body = "V8 validation telemetry: run ``$env:RUN_ID`` status ``$env:RUN_STATUS`` head ``$env:HEAD_SHA`` artifact ``geek-1.2.12-line-image-validation-v8`` installer SHA-256 ``$checksum``. Scope: preserve V7 native LINE image submit; stabilize combined text+image editor state before Enter; completion follows consumed editor state instead of message DOM ids. Validation-only; no master/release/update change."
           $payload = @{ body = $body } | ConvertTo-Json
           Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/${{ github.repository }}/issues/148/comments" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' } -ContentType 'application/json' -Body $payload
