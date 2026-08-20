@@ -21,6 +21,7 @@ const CHANNELS = Object.freeze({
   sendFileToken: 'broadcast:send-file-token',
   attachFileToken: 'broadcast:attach-file-token',
   dropFileToken: 'broadcast:drop-file-token',
+  telegramFilesToken: 'broadcast:telegram-files-token',
 });
 
 const LEGACY_CHANNELS = Object.freeze({
@@ -305,6 +306,34 @@ function installBroadcastFileBoundary(options = {}) {
       return warnAndReturnNull(win, error);
     }
   });
+
+  const sendTelegramFiles = options.sendTelegramFiles;
+  if (sendTelegramFiles !== undefined && typeof sendTelegramFiles !== 'function') {
+    throw new TypeError('sendTelegramFiles must be a function');
+  }
+
+  if (sendTelegramFiles) {
+    callOriginalHandle(CHANNELS.telegramFilesToken, async (event, payload) => {
+      const { ownerId } = assertMainRenderer(event);
+      const source = payload && typeof payload === 'object' ? payload : {};
+      const tokens = Array.isArray(source.fileTokens) ? source.fileTokens.map((value) => String(value || '')) : [];
+      if (!tokens.length || tokens.length > registry.limits.maxFiles || new Set(tokens).size !== tokens.length) {
+        throw createPolicyError('BROADCAST_FILE_TOKEN_INVALID');
+      }
+      const selectedFiles = [];
+      for (const token of tokens) {
+        selectedFiles.push(await registry.resolve(token, ownerId));
+      }
+      const safePayload = {
+        partition: String(source.partition || ''),
+        guestId: Number.isSafeInteger(Number(source.guestId)) ? Number(source.guestId) : null,
+        targetChatId: String(source.targetChatId || ''),
+        caption: String(source.caption || ''),
+        files: selectedFiles,
+      };
+      return sendTelegramFiles({ event, payload: safePayload });
+    });
+  }
 
   callOriginalHandle(CHANNELS.pickCsvLimited, async (event) => {
     const { win } = assertMainRenderer(event);

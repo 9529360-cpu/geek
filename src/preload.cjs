@@ -72,6 +72,18 @@ function toFileTokenPayload(payload) {
   return result;
 }
 
+function toTelegramFilesTokenPayload(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const files = Array.isArray(source.files) ? source.files : [];
+  return {
+    partition: String(source.partition || ''),
+    guestId: Number(source.guestId),
+    targetChatId: String(source.targetChatId || ''),
+    caption: String(source.caption || ''),
+    fileTokens: files.map((file) => String(file?.fileToken || file?.filePath || '')),
+  };
+}
+
 contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
@@ -154,6 +166,7 @@ contextBridge.exposeInMainWorld(
       dropFile: (payload) => ipcRenderer.invoke('broadcast:drop-file-token', toFileTokenPayload(payload)),
       attachFile: (payload) => ipcRenderer.invoke('broadcast:attach-file-token', toFileTokenPayload(payload)),
       sendFile: (payload) => ipcRenderer.invoke('broadcast:send-file-token', toFileTokenPayload(payload)),
+      sendTelegramAttachments: (payload) => ipcRenderer.invoke('broadcast:telegram-files-token', toTelegramFilesTokenPayload(payload)),
     }),
     tray: Object.freeze({
       onLock: (callback) => {
