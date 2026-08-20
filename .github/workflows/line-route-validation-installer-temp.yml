@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - test/146-line-route-validation-installer
+  pull_request:
+    branches:
+      - test/146-baseline-1.2.12
 
 permissions:
   contents: read
@@ -13,15 +16,19 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout validation baseline
+      - name: Checkout validation head
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
 
       - name: Verify exact 1.2.12 baseline
         shell: pwsh
         run: |
-          if ((git rev-parse HEAD) -ne "${{ github.sha }}") { throw "checkout SHA mismatch" }
+          $parent = (git rev-parse HEAD^).Trim()
+          if ($parent -ne "bbebd6c47dd88d8e61b241019e24fdf3ce768bef") { throw "validation branch is not rooted directly on the 1.2.12 release commit: $parent" }
+          $committed = @(git diff --name-only HEAD^ HEAD)
+          if ($committed.Count -ne 1 -or $committed[0] -ne '.github/workflows/line-route-validation-installer-temp.yml') { throw "validation branch contains unexpected committed changes: $committed" }
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           if ($pkg.version -ne "1.2.12") { throw "package version is not 1.2.12" }
           $marker = (Get-Content .github/release-client-version -Raw).Trim()
@@ -46,10 +53,10 @@ jobs:
           console.log('LINE_ROUTE_PATCH_OK');
           '@ | node
 
-      - name: Verify patch scope
+      - name: Verify build-time patch scope
         shell: pwsh
         run: |
-          $changed = git diff --name-only
+          $changed = @(git diff --name-only)
           if ($changed.Count -ne 1 -or $changed[0] -ne 'ui/translation-adapters.js') { throw "unexpected build-time changes: $changed" }
           git diff --check
           git diff -- ui/translation-adapters.js
@@ -66,8 +73,7 @@ jobs:
       - name: Validate installer and write checksum
         shell: pwsh
         run: |
-          $exe = Get-ChildItem dist-release/geek-setup-1.2.12.exe -ErrorAction Stop
-          if (-not $exe) { throw "validation installer missing" }
+          $exe = Get-Item dist-release/geek-setup-1.2.12.exe -ErrorAction Stop
           $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "file=$($exe.Name)" | Out-File -FilePath dist-release/validation-sha256.txt -Encoding ascii
           "sha256=$hash" | Out-File -FilePath dist-release/validation-sha256.txt -Encoding ascii -Append
