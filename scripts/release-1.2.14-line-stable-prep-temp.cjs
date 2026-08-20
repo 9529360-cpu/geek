@@ -1,5 +1,7 @@
 'use strict';
 
+// Second push intentionally triggers the already-present temporary prep workflow.
+
 const fs = require('node:fs');
 const cp = require('node:child_process');
 const path = require('node:path');
