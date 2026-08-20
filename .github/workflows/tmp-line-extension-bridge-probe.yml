@@ -39,11 +39,16 @@ jobs:
       - name: Probe actual bundled LINE extension bridge behavior
         shell: pwsh
         run: |
+          Remove-Item 'line-extension-bridge-probe-result.txt' -ErrorAction SilentlyContinue
           $output = & '.\node_modules\electron\dist\electron.exe' 'scripts\line-extension-bridge-probe-temp.cjs' 2>&1
           $exitCode = $LASTEXITCODE
           $output | ForEach-Object { Write-Host $_ }
           if ($exitCode -ne 0) { exit $exitCode }
-          $joined = ($output | Out-String)
-          if ($joined -notmatch 'LINE_EXTENSION_BRIDGE_PROBE_OK') {
+          if (-not (Test-Path 'line-extension-bridge-probe-result.txt')) {
+            throw 'LINE extension bridge probe did not persist its result'
+          }
+          $result = Get-Content 'line-extension-bridge-probe-result.txt' -Raw
+          Write-Host $result
+          if ($result -notmatch 'LINE_EXTENSION_BRIDGE_PROBE_OK') {
             throw 'LINE extension bridge probe exited without completion marker'
           }
