@@ -1,0 +1,86 @@
+name: LINE route validation installer (temporary)
+
+on:
+  push:
+    branches:
+      - test/146-line-route-validation-installer
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout validation baseline
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify exact 1.2.12 baseline
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD) -ne "${{ github.sha }}") { throw "checkout SHA mismatch" }
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($pkg.version -ne "1.2.12") { throw "package version is not 1.2.12" }
+          $marker = (Get-Content .github/release-client-version -Raw).Trim()
+          if ($marker -ne "1.2.12") { throw "release marker is not 1.2.12" }
+          if ((Get-Item resources/s3loYR.js).Length -ne 0) { throw "LINE preload is not the known-good empty 1.2.12 baseline" }
+
+      - name: Apply only the confirmed LINE route parser fix
+        shell: pwsh
+        run: |
+          @'
+          const fs = require('fs');
+          const path = 'ui/translation-adapters.js';
+          const src = fs.readFileSync(path, 'utf8');
+          const oldText = "    const chatId = () => { try { return decodeURIComponent((String(location.hash || '').match(/\\/chats\\/([^/?]+)/) || [])[1] || ''); } catch { return ''; } };";
+          const newText = `    const chatId = () => {\n      try {\n        const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];\n        const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);\n        return match ? decodeURIComponent(match[1]) : '';\n      } catch { return ''; }\n    };`;
+          const count = src.split(oldText).length - 1;
+          if (count !== 1) throw new Error(`expected exactly one legacy LINE route parser, found ${count}`);
+          const out = src.replace(oldText, newText);
+          if (out.includes("location.hash || '').match(/\\/chats\\/")) throw new Error('legacy /chats/ parser remains');
+          if (!out.includes("pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/)")) throw new Error('new exact two-segment matcher missing');
+          fs.writeFileSync(path, out);
+          console.log('LINE_ROUTE_PATCH_OK');
+          '@ | node
+
+      - name: Verify patch scope
+        shell: pwsh
+        run: |
+          $changed = git diff --name-only
+          if ($changed.Count -ne 1 -or $changed[0] -ne 'ui/translation-adapters.js') { throw "unexpected build-time changes: $changed" }
+          git diff --check
+          git diff -- ui/translation-adapters.js
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run baseline contracts
+        run: npm test
+
+      - name: Build local validation installer only
+        run: npm run dist:test
+
+      - name: Validate installer and write checksum
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist-release/geek-setup-1.2.12.exe -ErrorAction Stop
+          if (-not $exe) { throw "validation installer missing" }
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "file=$($exe.Name)" | Out-File -FilePath dist-release/validation-sha256.txt -Encoding ascii
+          "sha256=$hash" | Out-File -FilePath dist-release/validation-sha256.txt -Encoding ascii -Append
+          "baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef" | Out-File -FilePath dist-release/validation-sha256.txt -Encoding ascii -Append
+          "fix=LINE messageBoxId hash-route parser only" | Out-File -FilePath dist-release/validation-sha256.txt -Encoding ascii -Append
+          Write-Host "VALIDATION_INSTALLER_OK $hash"
+
+      - name: Upload private validation installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-1.2.12-line-route-validation
+          path: |
+            dist-release/geek-setup-1.2.12.exe
+            dist-release/validation-sha256.txt
+          if-no-files-found: error
+          retention-days: 7
