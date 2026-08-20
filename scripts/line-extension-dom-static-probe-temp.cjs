@@ -4,67 +4,47 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const JS_DIR = path.join(__dirname, '..', 'resources', 'extensions', 'line-3.5.1', 'static', 'js');
-const TOKENS = [
-  '/chats/',
-  'location.hash',
-  'window.location.hash',
-  'HashRouter',
-  'createHashRouter',
-  'useParams',
-  'chatId',
-  'roomId',
-  'talkId',
-];
-const MAX_SNIPPETS_PER_TOKEN = 12;
-const RADIUS = 260;
-
 const files = fs.readdirSync(JS_DIR).filter(name => name.endsWith('.js')).sort();
-let totalMatches = 0;
-const routeLiterals = new Set();
+const pathLiterals = new Set();
+const routeContext = [];
 
 for (const file of files) {
   const source = fs.readFileSync(path.join(JS_DIR, file), 'utf8');
-  const literalRe = /(["'`])([^"'`\r\n]{0,120}(?:chat|talk|room)[^"'`\r\n]{0,120})\1/gi;
-  let literalMatch;
-  while ((literalMatch = literalRe.exec(source))) {
-    const value = literalMatch[2];
-    if (/[\/#:]|route|path|hash|navigate/i.test(value)) routeLiterals.add(value);
-    if (routeLiterals.size >= 120) break;
+  const literalRe = /(["'`])([^"'`\r\n]{1,100})\1/g;
+  let match;
+  while ((match = literalRe.exec(source))) {
+    const value = match[2];
+    const normalized = value.replace(/\\\//g, '/');
+    const looksLikeRoute =
+      /^\/[a-z0-9_:-]+(?:\/[a-z0-9_:.?&=-]+)*\/?$/i.test(normalized) ||
+      /^(?:chat|chats|talk|room|rooms|friends|home|main)(?:\/[a-z0-9_:-]+)+\/?$/i.test(normalized);
+    if (!looksLikeRoute) continue;
+    if (/^\/(?:api|r|static|assets?|images?|fonts?|sounds?|talk\/thrift)\b/i.test(normalized)) continue;
+    pathLiterals.add(normalized);
   }
-}
 
-for (const token of TOKENS) {
-  let shown = 0;
-  let matches = 0;
-  console.log(`LINE_ROUTE_TOKEN_BEGIN ${token}`);
-  for (const file of files) {
-    const source = fs.readFileSync(path.join(JS_DIR, file), 'utf8');
+  for (const needle of ['location.hash.substr(1)', "window.location.hash.replace(/^#/, '')"]) {
     let from = 0;
     while (from < source.length) {
-      const index = source.indexOf(token, from);
+      const index = source.indexOf(needle, from);
       if (index < 0) break;
-      matches += 1;
-      totalMatches += 1;
-      if (shown < MAX_SNIPPETS_PER_TOKEN) {
-        const start = Math.max(0, index - RADIUS);
-        const end = Math.min(source.length, index + token.length + RADIUS);
-        const snippet = source.slice(start, end).replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ');
-        console.log(`LINE_ROUTE_TOKEN_MATCH token=${token} file=${file} index=${index} snippet=${JSON.stringify(snippet)}`);
-        shown += 1;
-      }
-      from = index + token.length;
+      const start = Math.max(0, index - 1800);
+      const end = Math.min(source.length, index + needle.length + 1800);
+      routeContext.push({ file, needle, index, snippet: source.slice(start, end).replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ') });
+      from = index + needle.length;
     }
   }
-  console.log(`LINE_ROUTE_TOKEN_END ${token} matches=${matches} shown=${shown}`);
 }
 
-console.log('LINE_ROUTE_LITERALS_BEGIN');
-for (const value of [...routeLiterals].sort().slice(0, 120)) {
-  console.log(`LINE_ROUTE_LITERAL ${JSON.stringify(value)}`);
-}
-console.log(`LINE_ROUTE_LITERALS_END count=${routeLiterals.size}`);
+console.log('LINE_ROUTE_PATHS_BEGIN');
+for (const value of [...pathLiterals].sort()) console.log(`LINE_ROUTE_PATH ${JSON.stringify(value)}`);
+console.log(`LINE_ROUTE_PATHS_END count=${pathLiterals.size}`);
 
-if (!totalMatches && !routeLiterals.size) {
-  throw new Error('No LINE route evidence was found in bundled JavaScript');
+console.log('LINE_ROUTE_CONTEXT_BEGIN');
+for (const item of routeContext.slice(0, 12)) {
+  console.log(`LINE_ROUTE_CONTEXT file=${item.file} needle=${JSON.stringify(item.needle)} index=${item.index} snippet=${JSON.stringify(item.snippet)}`);
 }
-console.log(`LINE_ROUTE_STATIC_PROBE_OK tokenMatches=${totalMatches} routeLiterals=${routeLiterals.size}`);
+console.log(`LINE_ROUTE_CONTEXT_END count=${routeContext.length}`);
+
+if (!pathLiterals.size && !routeContext.length) throw new Error('No LINE route path evidence found');
+console.log(`LINE_ROUTE_PATH_PROBE_OK paths=${pathLiterals.size} contexts=${routeContext.length}`);
