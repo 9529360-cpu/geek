@@ -1,0 +1,130 @@
+name: LINE image group-send validation V7 (temporary)
+
+on:
+  push:
+    branches:
+      - diag/148-line-pasted-image-submit-v7
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact 1.2.12 validation baseline and temporary scope
+        shell: pwsh
+        run: |
+          $baseline = 'bbebd6c47dd88d8e61b241019e24fdf3ce768bef'
+          git cat-file -e "$baseline^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw '1.2.12 baseline commit unavailable' }
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($pkg.version -ne '1.2.12') { throw 'package version is not 1.2.12' }
+          $marker = (Get-Content .github/release-client-version -Raw).Trim()
+          if ($marker -ne '1.2.12') { throw 'release marker is not 1.2.12' }
+          $preloadBlob = (git hash-object resources/s3loYR.js).Trim()
+          if ($preloadBlob -ne 'ab3a974c603cb998e34cf221323062ced851e2fb') { throw 'LINE preload differs from exact 1.2.12 baseline' }
+          $changed = @(git diff --name-only $baseline HEAD)
+          $expected = @(
+            '.github/workflows/line-attachment-static-probe-temp.yml',
+            '.github/workflows/line-attachment-transaction-v6-temp.yml',
+            '.github/workflows/line-pasted-image-submit-v7-temp.yml',
+            'scripts/line-attachment-static-probe-temp.cjs',
+            'scripts/line-attachment-send-click-v4-temp.cjs',
+            'scripts/line-attachment-send-click-v5-temp.cjs',
+            'scripts/line-attachment-transaction-v6-temp.cjs',
+            'scripts/line-pasted-image-submit-v7-temp.cjs'
+          )
+          if ($changed.Count -ne $expected.Count) { throw "unexpected committed validation scope: $changed" }
+          foreach ($file in $expected) { if ($changed -notcontains $file) { throw "missing temporary validation file: $file" } }
+
+      - name: Apply LINE V7 validation patch
+        run: node scripts/line-pasted-image-submit-v7-temp.cjs
+
+      - name: Verify V7 runtime patch scope and invariants
+        shell: pwsh
+        run: |
+          $changed = @(git diff --name-only)
+          $expected = @('src/internal-cdp.cjs', 'src/main.cjs', 'ui/app.js', 'ui/translation-adapters.js')
+          if ($changed.Count -ne $expected.Count) { throw "unexpected runtime patch count: $changed" }
+          foreach ($file in $expected) { if ($changed -notcontains $file) { throw "missing runtime patch: $file" } }
+          git diff --check
+          $translationStat = @(git diff --numstat -- ui/translation-adapters.js)
+          if ($translationStat.Count -ne 1) { throw "unexpected translation diff stat: $translationStat" }
+          $parts = $translationStat[0] -split '\s+'
+          if ($parts[0] -ne '7' -or $parts[1] -ne '1') { throw "translation patch is not the accepted route-only 7+/1- diff: $translationStat" }
+          foreach ($needle in @('preferredGuestId', 'Number(g?.id) === Number(preferredGuestId)')) {
+            if (-not (Select-String -Path src/internal-cdp.cjs -SimpleMatch $needle -Quiet)) { throw "exact guest gate missing: $needle" }
+          }
+          foreach ($needle in @('DOM.setFileInputFiles', 'PASTE_DISPATCHED', 'pastedImageList-module__image_list_item__', 'linePastedImageCount', 'LINE_PASTED_IMAGE_NOT_READY', "targetPlatform === 'line' ? guestId : null")) {
+            if (-not (Select-String -Path src/main.cjs -SimpleMatch $needle -Quiet)) { throw "LINE V7 runtime marker missing: $needle" }
+          }
+          foreach ($needle in @('submitPastedImages: (msg, beforeIds, expectedImages) =>', 'pastedBeforeSubmit', 'LINE_SUBMIT_NOT_OBSERVED', 'LINE_MESSAGE_NOT_CONFIRMED', 'altKey: true, metaKey: true', 'broadcastFiles.length')) {
+            if (-not (Select-String -Path ui/app.js -SimpleMatch $needle -Quiet)) { throw "LINE V7 renderer marker missing: $needle" }
+          }
+          if (Select-String -Path ui/app.js -SimpleMatch "action: 'send'," -Quiet) { throw 'old LINE modal send action remains reachable in renderer' }
+          if (Select-String -Path ui/app.js -SimpleMatch 'sentOk = await wv.executeJavaScript(adapter.sendAttachment(personalMsg' -Quiet) { throw 'old LINE modal send adapter remains reachable' }
+          git diff --stat
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax checks
+        run: |
+          node --check src/internal-cdp.cjs
+          node --check src/main.cjs
+          node --check ui/app.js
+          node --check ui/translation-adapters.js
+
+      - name: Run 1.2.12 baseline contracts
+        run: npm test
+
+      - name: Build local validation installer only
+        run: npm run dist:test
+
+      - name: Validate installer and checksum
+        shell: pwsh
+        run: |
+          $exe = Get-Item dist-release/geek-setup-1.2.12.exe -ErrorAction Stop
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "file=$($exe.Name)" | Out-File dist-release/validation-sha256.txt -Encoding ascii
+          "sha256=$hash" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "baseline=bbebd6c47dd88d8e61b241019e24fdf3ce768bef" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "included=line-translation-route-fix + line-image-paste-path-fix + line-exact-guest-lock + line-pasted-image-readiness + line-native-editor-enter-submit + line-message-id-confirmation" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          "revision=v7-line-pasted-image-native-submit" | Out-File dist-release/validation-sha256.txt -Encoding ascii -Append
+          Write-Host "LINE_IMAGE_VALIDATION_V7_INSTALLER_OK $hash"
+
+      - name: Upload private validation installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-1.2.12-line-image-validation-v7
+          path: |
+            dist-release/geek-setup-1.2.12.exe
+            dist-release/validation-sha256.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Report V7 validation run to issue 148
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_STATUS: ${{ job.status }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          $checksum = 'unavailable'
+          if (Test-Path 'dist-release/validation-sha256.txt') {
+            $line = Get-Content 'dist-release/validation-sha256.txt' | Where-Object { $_ -like 'sha256=*' } | Select-Object -First 1
+            if ($line) { $checksum = $line.Substring(7) }
+          }
+          $body = "V7 validation telemetry: run ``$env:RUN_ID`` status ``$env:RUN_STATUS`` head ``$env:HEAD_SHA`` artifact ``geek-1.2.12-line-image-validation-v7`` installer SHA-256 ``$checksum``. Scope: exact LINE guest + pastedImageList readiness + native editor Enter submit; no sendFileModal dependency in the reachable renderer path. Validation-only; no master/release/update change."
+          $payload = @{ body = $body } | ConvertTo-Json
+          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/${{ github.repository }}/issues/148/comments" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' } -ContentType 'application/json' -Body $payload
