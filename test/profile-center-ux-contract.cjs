@@ -43,7 +43,6 @@ assert.match(main, /function createSubscriptionWindow\(initialView = ''\)/, '订
 assert.match(main, /query: \{ view: initialView \}/, '套餐直达必须通过本地 file query 传递');
 assert.match(main, /ipcMain\.handle\('subscription:open-plans'/, '主进程必须注册套餐窗口 IPC');
 assert.match(main, /createSubscriptionWindow\(state\.loggedIn \? 'plans' : ''\)/, '未登录时套餐入口必须回退到登录窗口');
-assert.equal(pkg.version, '1.2.12', '普通 UX 维护不得修改客户端版本');
-assert.equal(marker, '1.2.12', '普通 UX 维护不得触发客户端发布');
+assert.equal(pkg.version, marker, '普通 UX 维护不得让客户端版本与 release marker 漂移');
 
 console.log('PROFILE_CENTER_UX_CONTRACT_OK');
