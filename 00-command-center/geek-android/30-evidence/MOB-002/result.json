@@ -1,0 +1,23 @@
+{
+  "task_id": "MOB-002",
+  "outcome": "allow",
+  "facts": [
+    "A real Telegram session survived force-stop and cold restart on the authorized Mblu 21.",
+    "The bounded HTTPS WebView and revised account-first shell passed unit, lint, build, device navigation, and crash checks.",
+    "The revised UI exposes the saved account and primary reopen action before secondary tools."
+  ],
+  "assessments": [
+    "The single-account runtime is ready to become the dependency for multi-account isolation.",
+    "The new daily-use hierarchy is materially closer to normal mobile navigation habits than the original onboarding roadmap."
+  ],
+  "checks": [
+    {"name": "testDebugUnitTest", "exit_code": 0, "evidence": "Gradle BUILD SUCCESSFUL"},
+    {"name": "lintDebug", "exit_code": 0, "evidence": "Gradle BUILD SUCCESSFUL with abortOnError"},
+    {"name": "assembleDebug", "exit_code": 0, "evidence": "47-task Gradle run passed"},
+    {"name": "session_restart", "exit_code": 0, "evidence": "Real Telegram conversation list restored after force-stop and 980ms cold start"},
+    {"name": "navigation_smoke", "exit_code": 0, "evidence": "Five revised UI destination and reopen assertions passed"},
+    {"name": "crash_scan", "exit_code": 0, "evidence": "No fatal package crash"},
+    {"name": "git_diff_check", "exit_code": 0, "evidence": "No whitespace errors"}
+  ],
+  "evidence_ref": "30-evidence/MOB-002/verification-report.md"
+}

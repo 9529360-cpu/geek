@@ -99,11 +99,12 @@
     "task_id": "MOB-002",
     "roster_agent_id": "client-engineering--core-client-engineer",
     "runtime_agent_id": "codex-root",
-    "status": "active",
+    "status": "released",
     "bound_at": "2026-08-22T19:24:04.338054+00:00",
-    "lease_updated_at": "2026-08-22T19:26:40.145529+00:00",
-    "lease_expires_at": "2026-08-22T19:36:40.145529+00:00",
-    "last_progress_ref": "30-evidence/MOB-002/progress.md",
-    "released_at": null
+    "lease_updated_at": "2026-08-22T19:36:56.790099+00:00",
+    "lease_expires_at": "2026-08-22T19:46:56.790099+00:00",
+    "last_progress_ref": "30-evidence/MOB-002/verification-report.md",
+    "released_at": "2026-08-22T19:36:57.126654+00:00",
+    "release_reason": "Real Telegram session survived force-stop/cold start; redesigned shell passed unit, lint, build, navigation, device and crash checks"
   }
 ]

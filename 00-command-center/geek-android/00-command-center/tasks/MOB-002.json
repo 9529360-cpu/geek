@@ -7,7 +7,7 @@
   ],
   "capability_tags": [],
   "priority": "high",
-  "status": "working",
+  "status": "accepted",
   "owner_agent": "client-engineering--core-client-engineer",
   "manager_agent": "client-engineering--client-tech-lead",
   "reviewer_agent": "quality-assurance--test-architect",
@@ -41,7 +41,7 @@
   "requires_foundation_gate": true,
   "integration_eligible": true,
   "created_at": "2026-08-22T19:24:03.491997+00:00",
-  "updated_at": "2026-08-22T19:26:40.145529+00:00",
+  "updated_at": "2026-08-22T19:36:58.125970+00:00",
   "delivery_package": null,
   "review_records": [
     {
@@ -51,6 +51,30 @@
       "reason": "Begin single-account runtime after formal shell acceptance",
       "evidence_ref": "30-evidence/MOB-001/verification-report.md",
       "recorded_at": "2026-08-22T19:24:03.803119+00:00"
+    },
+    {
+      "from": "self_checked",
+      "to": "manager_review",
+      "actor": "client-engineering--client-tech-lead",
+      "reason": "Single-account runtime and usability acceptance evidence verified",
+      "evidence_ref": "30-evidence/MOB-002/verification-report.md",
+      "recorded_at": "2026-08-22T19:36:57.451297+00:00"
+    },
+    {
+      "from": "manager_review",
+      "to": "quality_review",
+      "actor": "client-engineering--client-tech-lead",
+      "reason": "Manager review passed; forward for independent quality gate",
+      "evidence_ref": "30-evidence/MOB-002/verification-report.md",
+      "recorded_at": "2026-08-22T19:36:57.773647+00:00"
+    },
+    {
+      "from": "quality_review",
+      "to": "accepted",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Real session persistence, origin guard, recovery bound, usability, build and device checks passed",
+      "evidence_ref": "30-evidence/MOB-002/verification-report.md",
+      "recorded_at": "2026-08-22T19:36:58.125970+00:00"
     }
   ]
 }

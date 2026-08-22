@@ -7,12 +7,11 @@
   "role_slots": 140,
   "active_roles": 24,
   "task_counts": {
-    "accepted": 8,
-    "working": 1
+    "accepted": 9
   },
   "current_gate": "QG-0",
   "release_candidate": null,
   "context_health": "healthy",
   "current_session": null,
-  "updated_at": "2026-08-22T19:26:40.145529+00:00"
+  "updated_at": "2026-08-22T19:36:58.164581+00:00"
 }

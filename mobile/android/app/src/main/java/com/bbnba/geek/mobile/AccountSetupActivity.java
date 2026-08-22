@@ -44,6 +44,7 @@ public final class AccountSetupActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         platform = getIntent().getStringExtra(EXTRA_PLATFORM);
         if (!"telegram".equals(platform) && !"line".equals(platform)) platform = "whatsapp";
+        getSharedPreferences("accounts", MODE_PRIVATE).edit().putString("last_platform", platform).apply();
         setContentView(buildContent());
         createWebView();
     }
@@ -126,6 +127,10 @@ public final class AccountSetupActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             CookieManager.getInstance().flush();
+            getSharedPreferences("accounts", MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("session_created_" + platform, true)
+                    .apply();
             status.setText("页面已就绪 · 完成登录后会话将保存在本机");
         }
 
