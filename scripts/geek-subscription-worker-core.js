@@ -554,19 +554,29 @@ async function handleAdminOrders(db) {
 }
 
 async function handleAdminStats(db) {
-  const [users, totalChars, revenue, pending] = await Promise.all([
+  const [users, todayUsers, totalChars, revenue, todayRevenue, pending, pendingValue, disabled, resetRequests] = await Promise.all([
     db.prepare('SELECT COUNT(*) AS c FROM users').first(),
+    db.prepare("SELECT COUNT(*) AS c FROM users WHERE created_at >= date('now')").first(),
     db.prepare('SELECT COALESCE(SUM(quota_chars),0) AS c FROM users').first(),
     db.prepare(`SELECT COALESCE(SUM(amount),0) AS c FROM orders WHERE status = 'paid'`).first(),
+    db.prepare("SELECT COALESCE(SUM(amount),0) AS c FROM orders WHERE status = 'paid' AND paid_at >= date('now')").first(),
     db.prepare(`SELECT COUNT(*) AS c FROM orders WHERE status = 'pending'`).first(),
+    db.prepare(`SELECT COALESCE(SUM(amount),0) AS c FROM orders WHERE status = 'pending'`).first(),
+    db.prepare(`SELECT COUNT(*) AS c FROM users WHERE status = 'disabled'`).first(),
+    db.prepare(`SELECT COUNT(*) AS c FROM password_reset_requests WHERE status = 'requested'`).first(),
   ]);
   return json({
     ok: true,
     stats: {
       users: users.c,
+      todayUsers: todayUsers.c,
       totalChars: totalChars.c,
       revenueUsd: revenue.c,
+      todayRevenueUsd: todayRevenue.c,
       pendingOrders: pending.c,
+      pendingValueUsd: pendingValue.c,
+      disabledUsers: disabled.c,
+      resetRequests: resetRequests.c,
     },
   });
 }
@@ -682,10 +692,11 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; background: #05060a; color: #f2f4f8; min-height: 100vh; display: flex; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid #7db4ff; outline-offset: 3px; }
   :root { --dim: #9aa3b2; --faint: #5c6470; --accent: #4f8cff; --accent2: #00e5a0; --border: rgba(255,255,255,.08); --card: rgba(255,255,255,.03); }
 
   /* 侧边栏 */
-  .sidebar { width: 220px; min-height: 100vh; background: #0a0d14; border-right: 1px solid var(--border); padding: 24px 16px; position: fixed; top: 0; bottom: 0; left: 0; display: flex; flex-direction: column; z-index: 10; }
+  .sidebar { width: 238px; min-height: 100vh; background: #080b12; border-right: 1px solid var(--border); padding: 24px 16px; position: fixed; top: 0; bottom: 0; left: 0; display: flex; flex-direction: column; z-index: 10; }
   .sb-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 24px; font-weight: 700; font-size: 16px; }
   .sb-logo { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #1d2438, #0a0d16); border: 1px solid rgba(255,255,255,.12); display: flex; align-items: center; justify-content: center; }
   .sb-logo svg { width: 20px; height: 20px; }
@@ -698,13 +709,13 @@ const ADMIN_HTML = `<!DOCTYPE html>
   .sb-item.logout:hover { background: rgba(248,113,113,.08); color: #f87171; }
 
   /* 主区 */
-  .main { margin-left: 220px; flex: 1; padding: 28px 32px; min-width: 0; }
+  .main { margin-left: 238px; flex: 1; padding: 30px 34px 60px; min-width: 0; max-width: 1600px; }
   .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 26px; }
   .topbar h1 { font-size: 22px; font-weight: 800; letter-spacing: -.3px; }
   .topbar .sub { color: var(--dim); font-size: 13px; margin-top: 4px; }
 
   /* 统计卡 */
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
   .stat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; backdrop-filter: blur(8px); }
   .stat .label { color: var(--dim); font-size: 12.5px; margin-bottom: 8px; }
   .stat .value { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
@@ -712,6 +723,13 @@ const ADMIN_HTML = `<!DOCTYPE html>
   .stat .value.blue { color: #8fb7ff; }
   .stat .value.yellow { color: #fbbf24; }
   .stat .value.pink { color: #f472b6; }
+  .stat.primary { background: linear-gradient(135deg, rgba(79,140,255,.15), rgba(0,229,160,.06)); border-color: rgba(79,140,255,.35); }
+  .stat .note { color: var(--faint); font-size: 11.5px; margin-top: 7px; }
+  .overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .attention-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 22px; }
+  .attention { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }
+  .attention strong { display: block; font-size: 15px; margin-bottom: 5px; }
+  .attention span { color: var(--dim); font-size: 12px; }
 
   /* 图表 */
   .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-bottom: 22px; }
@@ -750,6 +768,21 @@ const ADMIN_HTML = `<!DOCTYPE html>
   .toolbar input { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; color: #f2f4f8; font-size: 13px; outline: none; }
   .toolbar input:focus { border-color: rgba(79,140,255,.5); }
   .toolbar input::placeholder { color: var(--faint); }
+  .toolbar select { background: #10141e; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: #f2f4f8; font-size: 13px; outline: none; }
+  .toolbar-spacer { flex: 1; }
+  .error-state { color: #f87171; text-align: center; padding: 24px; }
+  .drawer-backdrop { position: fixed; inset: 0; display: none; justify-content: flex-end; background: rgba(0,0,0,.54); z-index: 80; }
+  .drawer-backdrop.on { display: flex; }
+  .drawer { width: min(520px, 44vw); height: 100%; overflow-y: auto; padding: 28px; background: #0b0f18; border-left: 1px solid var(--border); box-shadow: -24px 0 70px rgba(0,0,0,.35); }
+  .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 24px; }
+  .drawer h2 { font-size: 20px; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
+  .detail-item { padding: 13px; border-radius: 10px; background: rgba(255,255,255,.035); }
+  .detail-item span { display: block; color: var(--faint); font-size: 11px; margin-bottom: 5px; }
+  .desktop-required { display: none; min-height: 100vh; width: 100%; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+  .desktop-required-card { max-width: 430px; padding: 30px; border: 1px solid var(--border); border-radius: 18px; background: var(--card); }
+  .desktop-required-card h1 { font-size: 23px; margin-bottom: 10px; }
+  .desktop-required-card p { color: var(--dim); font-size: 13px; line-height: 1.7; }
 
   /* 设置表单 */
   .field { margin-bottom: 18px; }
@@ -777,15 +810,14 @@ const ADMIN_HTML = `<!DOCTYPE html>
   /* 视图切换 */
   .view { display: none; }
   .view.on { display: block; }
-  @media (max-width: 900px) {
-    .sidebar { width: 64px; }
-    .sb-brand span, .sb-item span { display: none; }
-    .main { margin-left: 64px; padding: 20px; }
-    .stats { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 960px) {
+    #loginView, #sidebar, #panelView, .drawer-backdrop { display: none !important; }
+    .desktop-required { display: flex; }
   }
 </style>
 </head>
 <body>
+<section class="desktop-required" aria-labelledby="desktop-required-title"><div class="desktop-required-card"><h1 id="desktop-required-title">请使用电脑访问经营后台</h1><p>经营后台包含经营报表、用户管理和高风险订单操作，需要桌面端完整视野。手机端不提供压缩版管理界面。</p></div></section>
 
 <!-- 登录 -->
 <div id="loginView">
@@ -817,6 +849,10 @@ const ADMIN_HTML = `<!DOCTYPE html>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
     <span>订单</span>
   </div>
+  <div class="sb-item" data-view="tasks" onclick="switchView('tasks')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    <span>运营待办</span>
+  </div>
   <div class="sb-item" data-view="settings" onclick="switchView('settings')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     <span>设置</span>
@@ -836,15 +872,15 @@ const ADMIN_HTML = `<!DOCTYPE html>
 <div class="main" id="panelView" style="display:none">
   <!-- 总览 -->
   <div class="view on" id="view-overview">
-    <div class="topbar"><div><h1>运营总览</h1><div class="sub">实时数据一览</div></div></div>
+    <div class="topbar"><div><h1>经营驾驶舱</h1><div class="sub">收入、增长与待处理事项集中查看</div></div><button onclick="refreshOverview()">刷新全部数据</button></div>
     <div class="stats" id="stats"></div>
-    <div class="chart-card">
-      <h3>近 7 天注册趋势</h3>
-      <div class="chart" id="users-chart"></div>
+    <div class="attention-grid">
+      <div class="attention"><div><strong>待确认订单</strong><span id="pending-summary">正在读取…</span></div><button class="primary" onclick="switchView('orders');setOrderFilter('pending')">立即处理</button></div>
+      <div class="attention"><div><strong>密码重置申请</strong><span id="reset-summary">正在读取…</span></div><button onclick="switchView('tasks')">查看待办</button></div>
     </div>
-    <div class="chart-card">
-      <h3>近 7 天收入（USD）</h3>
-      <div class="chart" id="revenue-chart"></div>
+    <div class="overview-grid">
+      <div class="chart-card"><h3>近 7 天新增用户</h3><div class="chart" id="users-chart"></div></div>
+      <div class="chart-card"><h3>近 7 天实收收入（USD）</h3><div class="chart" id="revenue-chart"></div></div>
     </div>
   </div>
 
@@ -854,6 +890,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
     <div class="card">
       <div class="toolbar">
         <input type="search" id="searchQ" placeholder="搜索邮箱…" onkeydown="if(event.key==='Enter')loadUsers()">
+        <select id="userStatus" onchange="renderUsers()"><option value="all">全部状态</option><option value="active">正常</option><option value="disabled">已封禁</option></select>
         <button onclick="loadUsers()">搜索</button>
         <button onclick="loadUsers();loadStats()">刷新</button>
       </div>
@@ -870,6 +907,7 @@ const ADMIN_HTML = `<!DOCTYPE html>
   <div class="view" id="view-orders">
     <div class="topbar"><div><h1>订单管理</h1><div class="sub">确认收款、取消订单</div></div></div>
     <div class="card">
+      <div class="toolbar"><input type="search" id="orderQ" placeholder="搜索订单号或用户邮箱…" oninput="renderOrders()"><select id="orderStatus" onchange="renderOrders()"><option value="all">全部状态</option><option value="pending">待确认</option><option value="paid">已收款</option><option value="cancelled">已取消</option><option value="expired">已过期</option></select><span class="toolbar-spacer"></span><button onclick="loadOrders()">刷新订单</button></div>
       <div style="overflow-x:auto">
         <table>
           <thead><tr><th>ID</th><th>用户</th><th>套餐</th><th>金额(USD)</th><th>状态</th><th>下单时间</th><th>操作</th></tr></thead>
@@ -877,6 +915,12 @@ const ADMIN_HTML = `<!DOCTYPE html>
         </table>
       </div>
     </div>
+  </div>
+
+  <!-- 待办 -->
+  <div class="view" id="view-tasks">
+    <div class="topbar"><div><h1>运营待办</h1><div class="sub">需要人工跟进的账户事项</div></div><button onclick="loadResets()">刷新待办</button></div>
+    <div class="card"><div class="card-head"><h3>密码重置申请</h3><span class="muted">仅处理 requested 状态</span></div><div style="overflow-x:auto"><table><thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>申请时间</th><th>操作</th></tr></thead><tbody id="resetsBody"></tbody></table></div></div>
   </div>
 
   <!-- 设置 -->
@@ -919,6 +963,8 @@ const ADMIN_HTML = `<!DOCTYPE html>
   </div>
 </div>
 
+<div class="drawer-backdrop" id="userDrawer" onclick="if(event.target===this)closeUserDrawer()"><aside class="drawer" aria-labelledby="drawerTitle"><div class="drawer-head"><div><h2 id="drawerTitle">用户详情</h2><div class="muted" id="drawerEmail"></div></div><button onclick="closeUserDrawer()">关闭</button></div><div id="drawerBody"></div></aside></div>
+
 <script>
 async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json' };
@@ -929,6 +975,8 @@ async function api(path, opts = {}) {
   return data;
 }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+let cachedUsers = [];
+let cachedOrders = [];
 
 function showLogin() { document.getElementById('loginView').style.display = 'flex'; document.getElementById('sidebar').style.display = 'none'; document.getElementById('panelView').style.display = 'none'; }
 function showPanel() { document.getElementById('loginView').style.display = 'none'; document.getElementById('sidebar').style.display = 'flex'; document.getElementById('panelView').style.display = 'block'; }
@@ -954,6 +1002,7 @@ function switchView(name) {
   if (name === 'overview') { loadStats(); loadTrends(); }
   if (name === 'users') loadUsers();
   if (name === 'orders') loadOrders();
+  if (name === 'tasks') loadResets();
   if (name === 'settings') loadSettings();
   if (name === 'logs') loadLogs();
 }
@@ -964,13 +1013,18 @@ async function loadStats() {
     const data = await api('/api/admin/stats');
     const s = data.stats;
     document.getElementById('stats').innerHTML = [
-      ['用户总数', s.users, 'blue'],
-      ['剩余字符总量', (s.totalChars || 0).toLocaleString(), 'green'],
-      ['累计收入', '$' + (s.revenueUsd || 0), 'pink'],
-      ['待确认订单', s.pendingOrders, 'yellow'],
-    ].map(([label, value, cls]) => \`<div class="stat"><div class="label">\${label}</div><div class="value \${cls}">\${value}</div></div>\`).join('');
+      ['用户总数', s.users, 'blue', '今日新增 +' + (s.todayUsers || 0), 'primary'],
+      ['累计实收', '$' + (s.revenueUsd || 0), 'pink', '今日实收 $' + (s.todayRevenueUsd || 0), 'primary'],
+      ['待确认订单', s.pendingOrders, 'yellow', '待确认金额 $' + (s.pendingValueUsd || 0), ''],
+      ['可用字符总量', (s.totalChars || 0).toLocaleString(), 'green', '所有用户剩余额度', ''],
+      ['已封禁用户', s.disabledUsers || 0, 'yellow', '需定期复核账户状态', ''],
+      ['密码重置待办', s.resetRequests || 0, 'blue', '等待人工处理的申请', ''],
+    ].map(([label, value, cls, note, extra]) => \`<div class="stat \${extra}"><div class="label">\${label}</div><div class="value \${cls}">\${value}</div><div class="note">\${note}</div></div>\`).join('');
+    document.getElementById('pending-summary').textContent = (s.pendingOrders || 0) + ' 笔 · 合计 $' + (s.pendingValueUsd || 0);
+    document.getElementById('reset-summary').textContent = (s.resetRequests || 0) + ' 项等待处理';
   } catch (e) { console.error(e); }
 }
+function refreshOverview() { loadStats(); loadTrends(); }
 
 async function loadTrends() {
   try {
@@ -999,7 +1053,14 @@ async function loadUsers() {
   try {
     const q = document.getElementById('searchQ').value.trim();
     const data = await api('/api/admin/users' + (q ? '?q=' + encodeURIComponent(q) : ''));
-    document.getElementById('usersBody').innerHTML = data.users.map(u => {
+    cachedUsers = data.users || [];
+    renderUsers();
+  } catch (e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" class="error-state">用户加载失败，请重试</td></tr>'; }
+}
+function renderUsers() {
+    const wanted = document.getElementById('userStatus').value;
+    const users = cachedUsers.filter(u => wanted === 'all' || u.status === wanted);
+    document.getElementById('usersBody').innerHTML = users.map(u => {
       const st = u.status === 'disabled' ? '<span class="badge b-disabled">已封禁</span>' : '<span class="badge b-active">正常</span>';
       return '<tr>' +
         '<td>' + u.id + '</td>' +
@@ -1014,8 +1075,7 @@ async function loadUsers() {
             ? '<button onclick="setUser(' + u.id + ', true)">解封</button>'
             : '<button class="danger" onclick="setUser(' + u.id + ', false)">封禁</button>') +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">暂无用户</td></tr>';
-  } catch (e) { console.error(e); }
+    }).join('') || '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">没有符合条件的用户</td></tr>';
 }
 
 async function viewUser(id) {
@@ -1023,18 +1083,13 @@ async function viewUser(id) {
     const data = await api('/api/admin/users/' + id);
     const u = data.user;
     const orders = data.orders || [];
-    const detail = [
-      '用户 #' + u.id + ' · ' + esc(u.email),
-      '状态：' + (u.status === 'disabled' ? '已封禁' : '正常'),
-      '剩余字符：' + (u.quota_chars || 0).toLocaleString(),
-      '注册时间：' + esc(u.created_at || ''),
-      '',
-      '订单记录（' + orders.length + ' 条）：',
-      ...orders.map(o => '  #' + o.id + ' ' + (PLAN_NAMES[o.plan] || o.plan) + ' $' + o.amount + ' ' + (o.status === 'paid' ? '已收款' : o.status === 'cancelled' ? '已取消' : '待确认') + ' ' + esc((o.created_at || '').slice(0, 10))),
-    ].join('\\n');
-    alert(detail);
+    document.getElementById('drawerTitle').textContent = '用户 #' + u.id;
+    document.getElementById('drawerEmail').textContent = u.email || '';
+    document.getElementById('drawerBody').innerHTML = '<div class="detail-grid"><div class="detail-item"><span>账户状态</span>' + (u.status === 'disabled' ? '已封禁' : '正常') + '</div><div class="detail-item"><span>剩余字符</span>' + (u.quota_chars || 0).toLocaleString() + '</div><div class="detail-item"><span>注册时间</span>' + esc((u.created_at || '').slice(0, 16)) + '</div><div class="detail-item"><span>订单数量</span>' + orders.length + '</div></div><div class="card-head"><h3>最近订单</h3></div><table><thead><tr><th>订单</th><th>套餐</th><th>金额</th><th>状态</th></tr></thead><tbody>' + orders.slice(0, 10).map(o => '<tr><td>#' + Number(o.id) + '</td><td>' + esc(PLAN_NAMES[o.plan] || o.plan) + '</td><td>$' + Number(o.amount || 0) + '</td><td>' + esc(o.status) + '</td></tr>').join('') + '</tbody></table>';
+    document.getElementById('userDrawer').classList.add('on');
   } catch (e) { alert('加载失败：' + e.message); }
 }
+function closeUserDrawer() { document.getElementById('userDrawer').classList.remove('on'); }
 
 async function setUser(id, enabled) {
   const act = enabled ? 'enable' : 'disable';
@@ -1063,7 +1118,16 @@ const PLAN_NAMES = { basic: '基础包 · 100万', standard: '标准包 · 150�
 async function loadOrders() {
   try {
     const data = await api('/api/admin/orders');
-    document.getElementById('ordersBody').innerHTML = data.orders.map(o => {
+    cachedOrders = data.orders || [];
+    renderOrders();
+  } catch (e) { document.getElementById('ordersBody').innerHTML = '<tr><td colspan="7" class="error-state">订单加载失败，请重试</td></tr>'; }
+}
+function setOrderFilter(value) { document.getElementById('orderStatus').value = value; renderOrders(); }
+function renderOrders() {
+    const statusFilter = document.getElementById('orderStatus').value;
+    const query = document.getElementById('orderQ').value.trim().toLowerCase();
+    const orders = cachedOrders.filter(o => (statusFilter === 'all' || o.status === statusFilter) && (!query || String(o.id).includes(query) || String(o.email || '').toLowerCase().includes(query)));
+    document.getElementById('ordersBody').innerHTML = orders.map(o => {
       const p = PLAN_NAMES[o.plan] || o.plan;
       const badge = o.status === 'paid' ? '<span class="badge b-paid">已收款</span>' : o.status === 'cancelled' ? '<span class="badge b-cancelled">已取消</span>' : '<span class="badge b-pending">待确认</span>';
       return '<tr>' +
@@ -1075,8 +1139,7 @@ async function loadOrders() {
         '<td class="muted">' + esc((o.created_at || '').slice(0, 16)) + '</td>' +
         '<td>' + (o.status === 'pending' ? '<button class="primary" onclick="confirmOrder(' + o.id + ')">确认收款</button> <button onclick="cancelOrder(' + o.id + ')">取消</button>' : '<span class="muted">—</span>') + '</td>' +
         '</tr>';
-    }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">暂无订单</td></tr>';
-  } catch (e) { console.error(e); }
+    }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">没有符合条件的订单</td></tr>';
 }
 
 async function confirmOrder(id) {
@@ -1094,6 +1157,24 @@ async function cancelOrder(id) {
     await api('/api/admin/orders/' + id + '/cancel', { method: 'POST' });
     loadOrders(); loadLogs();
   } catch (e) { alert('操作失败：' + e.message); }
+}
+
+// ===== 运营待办 =====
+async function loadResets() {
+  const body = document.getElementById('resetsBody');
+  body.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;padding:24px">正在加载…</td></tr>';
+  try {
+    const data = await api('/api/admin/password-resets');
+    const requests = (data.requests || []).filter(r => r.status === 'requested');
+    body.innerHTML = requests.map(r => '<tr><td>#' + Number(r.id) + '</td><td>' + esc(r.email) + '</td><td><span class="badge b-pending">待处理</span></td><td class="muted">' + esc((r.created_at || '').slice(0, 16)) + '</td><td><button class="primary" onclick="issueReset(' + Number(r.id) + ')">发送重置邮件</button></td></tr>').join('') || '<tr><td colspan="5" class="muted" style="text-align:center;padding:24px">当前没有密码重置待办</td></tr>';
+  } catch (e) { body.innerHTML = '<tr><td colspan="5" class="error-state">待办加载失败，请重试</td></tr>'; }
+}
+async function issueReset(id) {
+  if (!confirm('确认处理该密码重置申请并发送一次性重置邮件？')) return;
+  try {
+    await api('/api/admin/password-resets/' + id + '/issue', { method: 'POST' });
+    loadResets(); loadStats(); loadLogs();
+  } catch (e) { alert('处理失败：' + e.message); }
 }
 
 // ===== 设置 =====
