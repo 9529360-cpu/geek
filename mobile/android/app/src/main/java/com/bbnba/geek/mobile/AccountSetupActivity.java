@@ -9,11 +9,14 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
@@ -364,9 +367,14 @@ public class AccountSetupActivity extends Activity {
         public boolean shouldTranslate(String chatId) {
             if (!isCurrentPageAllowed()) return false;
             TranslationSettingsStore.GlobalConfig global = translationSettings.global();
-            if (chatId == null || chatId.trim().isEmpty()) return global.sendEnabled();
+            if (chatId == null || chatId.trim().isEmpty()) {
+                Log.i("GeekTranslation", "send gate platform=" + platform + " enabled=" + global.sendEnabled() + " scope=global");
+                return global.sendEnabled();
+            }
             TranslationSettingsStore.ChatConfig chat = translationSettings.chat(chatId.trim());
-            return chat.overrideEnabled() ? chat.sendEnabled() : global.sendEnabled();
+            boolean enabled = chat.overrideEnabled() ? chat.sendEnabled() : global.sendEnabled();
+            Log.i("GeekTranslation", "send gate platform=" + platform + " enabled=" + enabled + " scope=" + (chat.overrideEnabled() ? "chat" : "global"));
+            return enabled;
         }
 
         @JavascriptInterface
@@ -385,11 +393,14 @@ public class AccountSetupActivity extends Activity {
                 resolveSendTranslation(requestId, "", "TRANSLATION_DISABLED");
                 return;
             }
+            Log.i("GeekTranslation", "translation request started platform=" + platform + " target=" + target + " length=" + original.length());
             translationClient.translate(original, global.sendSource(), target, (result, error) -> {
                 if (error != null || result == null) {
+                    Log.w("GeekTranslation", "translation request failed platform=" + platform + " code=" + (error instanceof GeekTranslationClient.ServiceException ? ((GeekTranslationClient.ServiceException) error).code() : "client_error"));
                     resolveSendTranslation(requestId, "", error == null ? "翻译失败，原文未发送" : error.getMessage());
                     return;
                 }
+                Log.i("GeekTranslation", "translation request passed safety platform=" + platform + " length=" + result.text().length());
                 resolveSendTranslation(requestId, result.text(), "");
             });
         }
@@ -403,10 +414,33 @@ public class AccountSetupActivity extends Activity {
 
     private void resolveSendTranslation(String requestId, String translated, String error) {
         if (webView == null) return;
-        String script = "window.__geekMobileTranslationResolve&&window.__geekMobileTranslationResolve(" +
-                JSONObject.quote(requestId) + "," + JSONObject.quote(translated) + "," + JSONObject.quote(error) + ")";
         webView.post(() -> {
-            if (webView != null) webView.evaluateJavascript(script, null);
+            if (webView == null) return;
+            if (error != null && !error.isEmpty()) {
+                String failed = "window.__geekMobileTranslationResolve&&window.__geekMobileTranslationResolve(" +
+                        JSONObject.quote(requestId) + "," + JSONObject.quote(error) + ")";
+                webView.evaluateJavascript(failed, null);
+                return;
+            }
+            String prepare = "window.__geekMobilePrepareNativeInput&&window.__geekMobilePrepareNativeInput(" +
+                    JSONObject.quote(requestId) + "," + JSONObject.quote(translated) + ")";
+            webView.evaluateJavascript(prepare, prepared -> {
+                boolean committed = false;
+                String inputError = "";
+                try {
+                    if (!"true".equals(prepared)) throw new IllegalStateException("消息输入框未获得焦点");
+                    webView.requestFocus();
+                    InputConnection connection = webView.onCreateInputConnection(new EditorInfo());
+                    committed = connection != null && connection.commitText(translated, 1);
+                    if (!committed) inputError = "原生译文输入失败";
+                    Log.i("GeekTranslation", "native composer input platform=" + platform + " committed=" + committed);
+                } catch (Exception failure) {
+                    inputError = failure.getMessage() == null ? "原生译文输入失败" : failure.getMessage();
+                }
+                String finish = "window.__geekMobileFinishNativeInput&&window.__geekMobileFinishNativeInput(" +
+                        JSONObject.quote(requestId) + "," + committed + "," + JSONObject.quote(inputError) + ")";
+                webView.evaluateJavascript(finish, null);
+            });
         });
     }
 
@@ -420,10 +454,13 @@ public class AccountSetupActivity extends Activity {
                 "var fill=function(e,t){e.focus();if('value'in e){var p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,d=Object.getOwnPropertyDescriptor(p,'value');if(d&&d.set)d.set.call(e,t);else e.value=t;e.dispatchEvent(new Event('input',{bubbles:true}));}else{var s=getSelection(),r=document.createRange();r.selectNodeContents(e);s.removeAllRanges();s.addRange(r);if(!document.execCommand('insertText',false,t)){e.textContent=t;e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:t}));}}return value(e)===String(t).trim();};" +
                 "var chat=function(){try{if('telegram'==='" + platform + "'){var h=String(location.hash||'').replace(/^#/,'');return h?h.split('?')[0]:'';}if('line'==='" + platform + "'){var p=String(location.hash||'').replace(/^#/,'').split('?')[0],m=p.match(/^\\/[^/]+\\/([^/]+)\\/?$/);return m?decodeURIComponent(m[1]):'';}var x=window.WPP&&window.WPP.chat&&window.WPP.chat.getActiveChat&&window.WPP.chat.getActiveChat();return x&&x.id?(x.id._serialized||String(x.id)):'';}catch(z){return '';}};" +
                 "var notice=function(t){var n=document.getElementById('geek-mobile-send-error');if(n)n.remove();n=document.createElement('div');n.id='geek-mobile-send-error';n.textContent=t;Object.assign(n.style,{position:'fixed',left:'50%',bottom:'86px',transform:'translateX(-50%)',zIndex:'2147483647',padding:'9px 13px',borderRadius:'9px',background:'#b42318',color:'#fff',fontSize:'13px'});document.body.appendChild(n);setTimeout(function(){n.remove();},3200);};" +
-                "window.__geekMobileTranslationResolve=function(id,t,err){var p=pending.get(id);if(!p)return;pending.delete(id);lock=false;if(err){notice(err==='TRANSLATION_DISABLED'?'翻译已关闭':err+'，原文未发送');p.e.focus();return;}if(!fill(p.e,t)){fill(p.e,p.o);notice('译文回填校验失败，原文未发送');return;}bypass=true;(p.b||button())?.click();setTimeout(function(){bypass=false;},0);};" +
-                "var run=function(ev,e,b){if(bypass||lock||!e)return;var c=chat();if(!GeekMobileTranslation.shouldTranslate(c))return;var s=value(e);if(!s)return;ev.preventDefault();ev.stopImmediatePropagation();lock=true;var id=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12);pending.set(id,{e:e,b:b,o:s});GeekMobileTranslation.translateAndSend(id,s,c);};" +
-                "document.addEventListener('keydown',function(ev){var e=ev.target&&ev.target.closest&&ev.target.closest('[contenteditable=\"true\"],textarea');if(e&&ev.key==='Enter'&&!ev.shiftKey&&!ev.ctrlKey&&!ev.metaKey&&!ev.isComposing)run(ev,e,button());},{capture:true,signal:ac.signal});" +
-                "document.addEventListener('click',function(ev){var b=ev.target&&ev.target.closest&&ev.target.closest('button.Button.send.main-button,button[aria-label=\"发送消息\"],button[aria-label=\"Send\"],button[title=\"Send\"],.btn-send');if(!b){var i=ev.target&&ev.target.closest&&ev.target.closest('[data-icon=\"send\"]');b=i&&i.closest('button');}if(b)run(ev,editor(),b);},{capture:true,signal:ac.signal});return 'READY';" +
+                "window.__geekMobileTranslationResolve=function(id,err){var p=pending.get(id);if(!p)return;pending.delete(id);lock=false;notice(err==='TRANSLATION_DISABLED'?'翻译已关闭':err+'，原文未发送');p.e.focus();};" +
+                "window.__geekMobilePrepareNativeInput=function(id,t){var p=pending.get(id);if(!p)return false;p.t=String(t);p.e.setAttribute('contenteditable','true');p.e.focus();var s=getSelection(),r=document.createRange();r.selectNodeContents(p.e);s.removeAllRanges();s.addRange(r);return document.activeElement===p.e||p.e.contains(document.activeElement);};" +
+                "window.__geekMobileFinishNativeInput=function(id,ok,err){var p=pending.get(id);if(!p)return;pending.delete(id);lock=false;if(!ok){notice((err||'原生译文输入失败')+'，原文未发送');p.e.focus();return;}if(value(p.e)!==String(p.t).trim()){notice('译文回填校验失败，已阻止发送');p.e.focus();return;}bypass=true;(p.b||button())?.click();setTimeout(function(){bypass=false;},0);};" +
+                "var run=function(ev,e,b){if(bypass||!e)return;if(lock){ev.preventDefault();ev.stopImmediatePropagation();return;}var c=chat();if(!GeekMobileTranslation.shouldTranslate(c))return;var s=value(e);if(!s)return;ev.preventDefault();ev.stopImmediatePropagation();lock=true;var id=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12);pending.set(id,{e:e,b:b,o:s});GeekMobileTranslation.translateAndSend(id,s,c);};" +
+                "window.addEventListener('keydown',function(ev){var e=ev.target&&ev.target.closest&&ev.target.closest('[contenteditable=\"true\"],textarea');if(e&&ev.key==='Enter'&&!ev.shiftKey&&!ev.ctrlKey&&!ev.metaKey&&!ev.isComposing)run(ev,e,button());},{capture:true,signal:ac.signal});" +
+                "window.addEventListener('beforeinput',function(ev){if(ev.inputType!=='insertParagraph'&&ev.inputType!=='insertLineBreak')return;var e=ev.target&&ev.target.closest&&ev.target.closest('[contenteditable=\"true\"],textarea');if(e)run(ev,e,button());},{capture:true,signal:ac.signal});" +
+                "window.addEventListener('click',function(ev){var b=ev.target&&ev.target.closest&&ev.target.closest('button.Button.send.main-button,button[aria-label=\"发送消息\"],button[aria-label=\"Send\"],button[title=\"Send\"],.btn-send');if(!b){var i=ev.target&&ev.target.closest&&ev.target.closest('[data-icon=\"send\"]');b=i&&i.closest('button');}if(b)run(ev,editor(),b);},{capture:true,signal:ac.signal});return 'READY';" +
                 "}catch(e){return 'ERR:'+e.message;}})()";
         webView.evaluateJavascript(script, result -> {
             if ("\"READY\"".equals(result)) status.setText("页面已就绪 · 翻译发送保护已开启");

@@ -125,8 +125,8 @@
     "runtime_agent_id": "codex-root",
     "status": "active",
     "bound_at": "2026-08-22T20:05:14.487961+00:00",
-    "lease_updated_at": "2026-08-22T20:44:23.448646+00:00",
-    "lease_expires_at": "2026-08-22T20:54:23.448646+00:00",
+    "lease_updated_at": "2026-08-22T20:51:53.460282+00:00",
+    "lease_expires_at": "2026-08-22T21:01:53.460282+00:00",
     "last_progress_ref": "30-evidence/MOB-004/progress.md",
     "released_at": null
   }

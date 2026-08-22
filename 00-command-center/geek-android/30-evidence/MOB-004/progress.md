@@ -20,6 +20,9 @@ The mobile translation task started after MOB-003 dual-account acceptance.
 - Matched the desktop send contract: pressing Enter or the platform send button is intercepted when send translation is enabled; validated translated text is verified after composer refill and then sent automatically, without a second confirmation sheet.
 - Any request, selector, safety, or composer-refill failure blocks the send and preserves/restores the source draft.
 - The `译 / 发` floating tool group is draggable, clamped within the account surface, and remembers a separate position for each account.
+- Fixed Telegram mobile send interception after a real-device failure exposed two differences from desktop: Telegram could receive the event before a document-level listener, and ProseMirror ignored direct DOM text replacement.
+- Send interception now runs at the window capture phase for click, keydown, and mobile IME `beforeinput` events. While translation is pending, duplicate send events remain blocked.
+- Telegram translation refill now mirrors Electron's native `insertText` path through Android's WebView `InputConnection.commitText`, followed by an exact composer read-back before the send click is released.
 
 ## Checks passed
 
@@ -30,6 +33,7 @@ The mobile translation task started after MOB-003 dual-account acceptance.
 - `geek-product-login-dialog.png` records the final mobile product-login sheet and its PC-service/Keystore explanation.
 - Real-device UI Automator verified that the translation send hook reports `翻译发送保护已开启` and that a dragged tool position survives leaving and reopening the account.
 - `geek-mobile-draggable-tools.png` records the draggable tool group moved away from its default edge position on the safe LINE surface.
+- Live Telegram regression: `Good night` was intercepted, translated by the shared worker, passed output safety, committed through the native editor connection, and Telegram sent `Buonanotte`. The source was not sent by the fixed build.
 
 ## Remaining
 
