@@ -118,5 +118,16 @@
     "last_progress_ref": "30-evidence/MOB-003/progress.md",
     "released_at": "2026-08-22T20:03:04.510717+00:00",
     "release_reason": "Implementation, build, device isolation, deletion, restart, and two-account switching checks passed"
+  },
+  {
+    "task_id": "MOB-004",
+    "roster_agent_id": "client-engineering--core-client-engineer",
+    "runtime_agent_id": "codex-root",
+    "status": "active",
+    "bound_at": "2026-08-22T20:05:14.487961+00:00",
+    "lease_updated_at": "2026-08-22T20:06:52.725334+00:00",
+    "lease_expires_at": "2026-08-22T20:16:52.725334+00:00",
+    "last_progress_ref": "30-evidence/MOB-004/progress.md",
+    "released_at": null
   }
 ]

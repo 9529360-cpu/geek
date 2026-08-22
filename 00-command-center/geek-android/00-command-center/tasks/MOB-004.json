@@ -1,0 +1,48 @@
+{
+  "task_id": "MOB-004",
+  "title": "Implement fail-closed account-scoped mobile translation",
+  "department": "client-engineering",
+  "role_required": [
+    "core-client-engineer"
+  ],
+  "capability_tags": [],
+  "priority": "high",
+  "status": "working",
+  "owner_agent": "client-engineering--core-client-engineer",
+  "manager_agent": "client-engineering--client-tech-lead",
+  "reviewer_agent": "quality-assurance--test-architect",
+  "branch_or_worktree": null,
+  "inputs": [
+    "src/translation-output-safety.cjs",
+    "02-shared-knowledge/build-specimen/system-contracts.json",
+    "30-evidence/MOB-003/verification-report.md"
+  ],
+  "owned_paths": [
+    "mobile/android/features/translation/**",
+    "mobile/android/app/src/main/**/translation/**",
+    "mobile/android/app/src/test/**/translation/**"
+  ],
+  "outputs": [
+    "mobile/android/features/translation"
+  ],
+  "dependencies": [
+    "MOB-003"
+  ],
+  "acceptance_criteria": [
+    "Translation is explicitly scoped to the active account and never sends the source text as fallback",
+    "Empty unchanged same-script explanatory prefixed or suspicious model output is blocked before send",
+    "A translated draft is previewed and requires an explicit user send action",
+    "Provider keys are never embedded in the APK and failed requests preserve the source draft"
+  ],
+  "required_evidence": [
+    "Desktop safety-regression parity tests Android unit lint build and physical-device UI evidence"
+  ],
+  "risk": "high",
+  "task_type": "implementation",
+  "requires_foundation_gate": true,
+  "integration_eligible": true,
+  "created_at": "2026-08-22T20:05:05.713615+00:00",
+  "updated_at": "2026-08-22T20:06:52.725334+00:00",
+  "delivery_package": null,
+  "review_records": []
+}
