@@ -2,6 +2,7 @@ package com.bbnba.geek.mobile;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -22,13 +23,19 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.bbnba.geek.mobile.runtime.BrowserRuntime;
 import com.bbnba.geek.mobile.runtime.WebBrowserRuntime;
+import com.bbnba.geek.mobile.translation.TranslationSettingsStore;
 
 import java.util.ArrayDeque;
+import java.util.function.Consumer;
+
+import org.json.JSONTokener;
 
 public class AccountSetupActivity extends Activity {
     public static final String EXTRA_PLATFORM = "platform";
@@ -47,7 +54,14 @@ public class AccountSetupActivity extends Activity {
     private WebView webView;
     private String platform;
     private String accountName;
+    private TranslationSettingsStore translationSettings;
     private static boolean webViewDirectoryConfigured;
+    private static final String[] LANGUAGE_CODES = {
+            "en", "es", "fr", "de", "it", "pt", "zh", "ja", "ko", "hi", "ar", "ru", "id", "pl", "tr", "vi", "nl", "sv", "el", "th"
+    };
+    private static final String[] LANGUAGE_NAMES = {
+            "英语", "西班牙语", "法语", "德语", "意大利语", "葡萄牙语", "中文", "日语", "韩语", "印地语", "阿拉伯语", "俄语", "印尼语", "波兰语", "土耳其语", "越南语", "荷兰语", "瑞典语", "希腊语", "泰语"
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,7 +77,9 @@ public class AccountSetupActivity extends Activity {
             clearIsolatedWebData();
             return;
         }
-        if (getIntent().getIntExtra(EXTRA_SLOT, 0) == 0) {
+        int slot = getIntent().getIntExtra(EXTRA_SLOT, 0);
+        translationSettings = new TranslationSettingsStore(this, platform + "_slot_" + slot);
+        if (slot == 0) {
             getSharedPreferences("accounts", MODE_PRIVATE).edit().putString("last_platform", platform).apply();
         }
         setContentView(buildContent());
@@ -273,25 +289,152 @@ public class AccountSetupActivity extends Activity {
     }
 
     private void showTranslationPanel() {
+        resolveCurrentChat(this::showTranslationPanelForChat);
+    }
+
+    private void showTranslationPanelForChat(String chatId) {
         Dialog dialog = bottomDialog();
         LinearLayout sheet = dialogSheet();
-        sheet.addView(text(accountName + " · 翻译", 19, TEXT));
-        TextView hint = text("设置只作用于当前账户", 12, MUTED);
-        LinearLayout.LayoutParams hintParams = matchWrap();
-        hintParams.topMargin = dp(5);
-        sheet.addView(hint, hintParams);
-        sheet.addView(optionRow("收到消息", "翻译为中文"), spacedRow());
-        sheet.addView(optionRow("发送消息", "翻译为目标语言"), spacedRow());
-        Button confirm = sheetAction("保存翻译设置");
-        confirm.setOnClickListener(v -> {
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout headingCopy = new LinearLayout(this);
+        headingCopy.setOrientation(LinearLayout.VERTICAL);
+        headingCopy.addView(text("翻译", 21, TEXT));
+        headingCopy.addView(text(accountName + " · 配置仅对此账户生效", 11, MUTED));
+        heading.addView(headingCopy, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button close = control("×", "关闭翻译设置");
+        close.setOnClickListener(v -> dialog.dismiss());
+        heading.addView(close, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        sheet.addView(heading, new LinearLayout.LayoutParams(-1, dp(58)));
+
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
+        tabs.setBackground(roundRect(SURFACE, dp(15), Color.rgb(52, 60, 78)));
+        Button globalTab = compactSheetTab("全局设置");
+        Button chatTab = compactSheetTab("当前对话");
+        tabs.addView(globalTab, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        tabs.addView(chatTab, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(-1, dp(52));
+        tabsParams.topMargin = dp(8);
+        sheet.addView(tabs, tabsParams);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(0, dp(8), 0, dp(8));
+        scroll.addView(body, new ScrollView.LayoutParams(-1, -2));
+        sheet.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        Button save = sheetAction("保存并应用");
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(50));
+        saveParams.topMargin = dp(8);
+        sheet.addView(save, saveParams);
+
+        TranslationSettingsStore.GlobalConfig[] global = {translationSettings.global()};
+        TranslationSettingsStore.ChatConfig[] chat = {chatId.isEmpty() ? null : translationSettings.chat(chatId)};
+        boolean[] showGlobal = {true};
+        Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            body.removeAllViews();
+            styleSheetTab(globalTab, showGlobal[0]);
+            styleSheetTab(chatTab, !showGlobal[0]);
+            if (showGlobal[0]) renderGlobalTranslationSettings(body, global);
+            else renderChatTranslationSettings(body, chatId, global[0], chat, render[0]);
+            save.setText(showGlobal[0] ? "保存全局设置" : "保存当前对话设置");
+            save.setEnabled(showGlobal[0] || !chatId.isEmpty());
+            save.setAlpha(save.isEnabled() ? 1f : 0.45f);
+        };
+        globalTab.setOnClickListener(v -> { showGlobal[0] = true; render[0].run(); });
+        chatTab.setOnClickListener(v -> { showGlobal[0] = false; render[0].run(); });
+        save.setOnClickListener(v -> {
+            if (showGlobal[0]) translationSettings.saveGlobal(global[0]);
+            else if (!chatId.isEmpty() && chat[0] != null) translationSettings.saveChat(chatId, chat[0]);
             dialog.dismiss();
-            Toast.makeText(this, "翻译引擎将在多开稳定后接入", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, showGlobal[0] ? "全局翻译设置已保存" : "当前对话设置已保存", Toast.LENGTH_SHORT).show();
         });
-        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(-1, dp(50));
-        actionParams.topMargin = dp(16);
-        sheet.addView(confirm, actionParams);
+        render[0].run();
         dialog.setContentView(sheet);
         showBottomDialog(dialog);
+        Window window = dialog.getWindow();
+        if (window != null) window.setLayout(-1, Math.min(dp(720), (int) (getResources().getDisplayMetrics().heightPixels * 0.84f)));
+    }
+
+    private void renderGlobalTranslationSettings(LinearLayout body, TranslationSettingsStore.GlobalConfig[] state) {
+        TextView intro = text("与 PC 端同步的默认规则，新对话自动继承", 12, MUTED);
+        body.addView(intro, matchWrap());
+
+        LinearLayout incoming = translationSection("收到的消息", "自动把对方消息显示成你熟悉的语言");
+        incoming.addView(translationSwitch("自动翻译", "关闭后仍可按需手动翻译", state[0].receiveAuto(), checked -> state[0] = new TranslationSettingsStore.GlobalConfig(checked, state[0].receiveTarget(), state[0].groupAuto(), state[0].sendEnabled(), state[0].sendSource(), state[0].sendTarget(), state[0].manualTranslation())));
+        incoming.addView(languageRow("翻译成", state[0].receiveTarget(), false, code -> state[0] = new TranslationSettingsStore.GlobalConfig(state[0].receiveAuto(), code, state[0].groupAuto(), state[0].sendEnabled(), state[0].sendSource(), state[0].sendTarget(), state[0].manualTranslation())));
+        incoming.addView(translationSwitch("群聊也自动翻译", "只在自动翻译开启时生效", state[0].groupAuto(), checked -> state[0] = new TranslationSettingsStore.GlobalConfig(state[0].receiveAuto(), state[0].receiveTarget(), checked, state[0].sendEnabled(), state[0].sendSource(), state[0].sendTarget(), state[0].manualTranslation())));
+        addSpaced(body, incoming);
+
+        LinearLayout outgoing = translationSection("发送消息", "输入习惯不变，发送前翻译并校验译文");
+        outgoing.addView(translationSwitch("发送前翻译", "失败时保留草稿，绝不误发原文", state[0].sendEnabled(), checked -> state[0] = new TranslationSettingsStore.GlobalConfig(state[0].receiveAuto(), state[0].receiveTarget(), state[0].groupAuto(), checked, state[0].sendSource(), state[0].sendTarget(), state[0].manualTranslation())));
+        outgoing.addView(languageRow("我通常使用", state[0].sendSource(), true, code -> state[0] = new TranslationSettingsStore.GlobalConfig(state[0].receiveAuto(), state[0].receiveTarget(), state[0].groupAuto(), state[0].sendEnabled(), code, state[0].sendTarget(), state[0].manualTranslation())));
+        outgoing.addView(languageRow("发送为", state[0].sendTarget(), false, code -> state[0] = new TranslationSettingsStore.GlobalConfig(state[0].receiveAuto(), state[0].receiveTarget(), state[0].groupAuto(), state[0].sendEnabled(), state[0].sendSource(), code, state[0].manualTranslation())));
+        addSpaced(body, outgoing);
+    }
+
+    private void renderChatTranslationSettings(LinearLayout body, String chatId, TranslationSettingsStore.GlobalConfig global, TranslationSettingsStore.ChatConfig[] state, Runnable render) {
+        if (chatId.isEmpty()) {
+            LinearLayout empty = translationSection("还没有选中对话", "先在当前平台打开一个聊天，再设置这个对话的翻译规则");
+            TextView follows = text("当前会继续跟随全局设置", 13, MUTED);
+            LinearLayout.LayoutParams params = matchWrap();
+            params.topMargin = dp(14);
+            empty.addView(follows, params);
+            addSpaced(body, empty);
+            return;
+        }
+
+        TextView detected = pill("●  已识别当前对话", Color.rgb(64, 205, 135), SURFACE);
+        body.addView(detected, new LinearLayout.LayoutParams(-1, dp(38)));
+        LinearLayout mode = translationSection("当前对话", state[0].overrideEnabled() ? "使用单独设置" : "当前跟随全局设置");
+        mode.addView(translationSwitch("单独设置", "关闭时始终跟随全局", state[0].overrideEnabled(), checked -> {
+            state[0] = new TranslationSettingsStore.ChatConfig(checked, state[0].receiveAuto(), state[0].receiveTarget(), state[0].sendEnabled(), state[0].sendTarget(), state[0].manualTranslation());
+            render.run();
+        }));
+        addSpaced(body, mode);
+        if (!state[0].overrideEnabled()) return;
+
+        LinearLayout incoming = translationSection("这个对话的接收设置", "不影响其他对话");
+        incoming.addView(translationSwitch("自动翻译收到的消息", "关闭后改为按需翻译", state[0].receiveAuto(), checked -> state[0] = new TranslationSettingsStore.ChatConfig(true, checked, state[0].receiveTarget(), state[0].sendEnabled(), state[0].sendTarget(), state[0].manualTranslation())));
+        incoming.addView(languageRow("翻译成", state[0].receiveTarget(), false, code -> state[0] = new TranslationSettingsStore.ChatConfig(true, state[0].receiveAuto(), code, state[0].sendEnabled(), state[0].sendTarget(), state[0].manualTranslation())));
+        addSpaced(body, incoming);
+
+        LinearLayout outgoing = translationSection("这个对话的发送设置", "只影响当前聊天");
+        outgoing.addView(translationSwitch("发送前翻译", "安全校验不通过就禁止发送", state[0].sendEnabled(), checked -> state[0] = new TranslationSettingsStore.ChatConfig(true, state[0].receiveAuto(), state[0].receiveTarget(), checked, state[0].sendTarget(), state[0].manualTranslation())));
+        outgoing.addView(languageRow("发送为", state[0].sendTarget(), false, code -> state[0] = new TranslationSettingsStore.ChatConfig(true, state[0].receiveAuto(), state[0].receiveTarget(), state[0].sendEnabled(), code, state[0].manualTranslation())));
+        outgoing.addView(translationSwitch("允许手动翻译", "保留点击翻译能力", state[0].manualTranslation(), checked -> state[0] = new TranslationSettingsStore.ChatConfig(true, state[0].receiveAuto(), state[0].receiveTarget(), state[0].sendEnabled(), state[0].sendTarget(), checked)));
+        addSpaced(body, outgoing);
+
+        Button reset = sheetSecondaryAction("恢复为全局设置");
+        reset.setOnClickListener(v -> {
+            translationSettings.resetChat(chatId);
+            state[0] = new TranslationSettingsStore.ChatConfig(false, global.receiveAuto(), global.receiveTarget(), global.sendEnabled(), global.sendTarget(), global.manualTranslation());
+            render.run();
+        });
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(-1, dp(48));
+        resetParams.topMargin = dp(10);
+        body.addView(reset, resetParams);
+    }
+
+    private void resolveCurrentChat(Consumer<String> callback) {
+        if (webView == null) { callback.accept(""); return; }
+        String script = "(function(){try{" +
+                "if('telegram'==='" + platform + "'){var h=String(location.hash||'').replace(/^#/,'');if(h)return h.split('?')[0];var a=document.querySelector('#LeftColumn .Chat.active a[href],#LeftColumn .Chat.selected a[href],.Chat.active a[href]');return a?String(a.getAttribute('href')||'').replace(/^#/,''):'';}" +
+                "if('line'==='" + platform + "'){var p=String(location.hash||'').replace(/^#/,'').split('?')[0];var m=p.match(/^\\/[^/]+\\/([^/]+)\\/?$/);return m?decodeURIComponent(m[1]):'';}" +
+                "var id=window.WPP&&window.WPP.chat&&window.WPP.chat.getActiveChat&&window.WPP.chat.getActiveChat();return id&&id.id?(id.id._serialized||String(id.id)):'';" +
+                "}catch(e){return '';}})()";
+        webView.evaluateJavascript(script, value -> {
+            try {
+                Object decoded = new JSONTokener(value).nextValue();
+                callback.accept(decoded instanceof String ? ((String) decoded).trim() : "");
+            } catch (Exception ignored) {
+                callback.accept("");
+            }
+        });
     }
 
     private void showBroadcastPanel() {
@@ -352,6 +495,123 @@ public class AccountSetupActivity extends Activity {
         button.setAllCaps(false);
         button.setBackground(roundRect(Color.rgb(124, 92, 255), dp(13), Color.rgb(124, 92, 255)));
         return button;
+    }
+
+    private Button sheetSecondaryAction(String label) {
+        Button button = sheetAction(label);
+        button.setTextColor(TEXT);
+        button.setBackground(roundRect(SURFACE, dp(13), Color.rgb(52, 60, 78)));
+        return button;
+    }
+
+    private Button compactSheetTab(String label) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(13);
+        button.setTextColor(MUTED);
+        button.setAllCaps(false);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(6), 0, dp(6), 0);
+        button.setBackgroundColor(Color.TRANSPARENT);
+        return button;
+    }
+
+    private void styleSheetTab(Button button, boolean selected) {
+        button.setTextColor(selected ? Color.WHITE : MUTED);
+        button.setBackground(roundRect(selected ? Color.rgb(124, 92, 255) : Color.TRANSPARENT, dp(12), selected ? Color.rgb(124, 92, 255) : Color.TRANSPARENT));
+    }
+
+    private LinearLayout translationSection(String title, String subtitle) {
+        LinearLayout section = new LinearLayout(this);
+        section.setOrientation(LinearLayout.VERTICAL);
+        section.setPadding(dp(15), dp(14), dp(15), dp(12));
+        section.setBackground(roundRect(SURFACE, dp(16), Color.rgb(52, 60, 78)));
+        section.addView(text(title, 15, TEXT));
+        TextView detail = text(subtitle, 11, MUTED);
+        LinearLayout.LayoutParams detailParams = matchWrap();
+        detailParams.topMargin = dp(3);
+        detailParams.bottomMargin = dp(6);
+        section.addView(detail, detailParams);
+        return section;
+    }
+
+    @SuppressWarnings("deprecation")
+    private View translationSwitch(String label, String detail, boolean checked, Consumer<Boolean> changed) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(7), 0, dp(7));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.addView(text(label, 13, TEXT));
+        copy.addView(text(detail, 10, MUTED));
+        row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
+        Switch toggle = new Switch(this);
+        toggle.setChecked(checked);
+        int[][] states = {{android.R.attr.state_checked}, {}};
+        toggle.setThumbTintList(new ColorStateList(states, new int[]{Color.WHITE, Color.rgb(155, 162, 178)}));
+        toggle.setTrackTintList(new ColorStateList(states, new int[]{Color.rgb(124, 92, 255), Color.rgb(61, 68, 84)}));
+        toggle.setOnCheckedChangeListener((button, value) -> changed.accept(value));
+        row.addView(toggle, new LinearLayout.LayoutParams(dp(58), dp(44)));
+        return row;
+    }
+
+    private View languageRow(String label, String code, boolean allowAuto, Consumer<String> changed) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(5), 0, dp(5));
+        row.addView(text(label, 13, TEXT), new LinearLayout.LayoutParams(0, -2, 1f));
+        Button value = sheetSecondaryAction(languageName(code) + "  ›");
+        value.setTextSize(12);
+        value.setOnClickListener(v -> selectLanguage(code, allowAuto, selected -> {
+            changed.accept(selected);
+            value.setText(languageName(selected) + "  ›");
+        }));
+        row.addView(value, new LinearLayout.LayoutParams(dp(150), dp(42)));
+        return row;
+    }
+
+    private void selectLanguage(String selected, boolean allowAuto, Consumer<String> callback) {
+        int offset = allowAuto ? 1 : 0;
+        String[] labels = new String[LANGUAGE_NAMES.length + offset];
+        if (allowAuto) labels[0] = "自动检测";
+        System.arraycopy(LANGUAGE_NAMES, 0, labels, offset, LANGUAGE_NAMES.length);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("选择语言")
+                .setSingleChoiceItems(labels, languageIndex(selected, allowAuto), (dialog, which) -> {
+                    callback.accept(allowAuto && which == 0 ? "auto" : LANGUAGE_CODES[which - offset]);
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private int languageIndex(String code, boolean allowAuto) {
+        if (allowAuto && "auto".equals(code)) return 0;
+        for (int i = 0; i < LANGUAGE_CODES.length; i++) {
+            if (LANGUAGE_CODES[i].equals(code)) return i + (allowAuto ? 1 : 0);
+        }
+        return allowAuto ? 0 : 0;
+    }
+
+    private String languageName(String code) {
+        if ("auto".equals(code)) return "自动检测";
+        for (int i = 0; i < LANGUAGE_CODES.length; i++) {
+            if (LANGUAGE_CODES[i].equals(code)) return LANGUAGE_NAMES[i];
+        }
+        return code;
+    }
+
+    private void addSpaced(LinearLayout parent, View child) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(10);
+        parent.addView(child, params);
+    }
+
+    private TextView pill(String value, int foreground, int background) {
+        TextView view = text(value, 11, foreground);
+        view.setGravity(Gravity.CENTER);
+        view.setBackground(roundRect(background, dp(17), Color.rgb(52, 60, 78)));
+        return view;
     }
 
     private Dialog bottomDialog() {
