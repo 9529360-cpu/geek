@@ -2,21 +2,28 @@ package com.bbnba.geek.mobile;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.bbnba.geek.mobile.runtime.BrowserRuntime;
 import com.bbnba.geek.mobile.runtime.WebBrowserRuntime;
+import com.bbnba.geek.mobile.translation.GeekSessionStore;
+import com.bbnba.geek.mobile.translation.GeekTranslationClient;
 
 public final class MainActivity extends Activity {
     private static final int DELETE_ACCOUNT_REQUEST_BASE = 4100;
@@ -32,6 +39,8 @@ public final class MainActivity extends Activity {
     private final ShellState shellState = new ShellState();
     private final BrowserRuntime browserRuntime = new WebBrowserRuntime();
     private SharedPreferences accounts;
+    private GeekSessionStore geekSessionStore;
+    private GeekTranslationClient geekTranslationClient;
     private LinearLayout content;
     private LinearLayout navigation;
     private String selectedPlatform;
@@ -42,6 +51,8 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         accounts = getSharedPreferences("accounts", MODE_PRIVATE);
+        geekSessionStore = new GeekSessionStore(this);
+        geekTranslationClient = new GeekTranslationClient(geekSessionStore);
         selectedPlatform = accounts.getString("last_platform", "whatsapp");
         if (!hasAnySession()) shellState.select(ShellState.Section.APPLICATIONS);
         setContentView(buildShell());
@@ -273,14 +284,137 @@ public final class MainActivity extends Activity {
     }
 
     private void renderProfile() {
+        GeekSessionStore.Session session = geekSessionStore.load();
+        LinearLayout identity = card();
+        LinearLayout.LayoutParams identityParams = matchWrap();
+        identityParams.topMargin = dp(16);
+        content.addView(identity, identityParams);
+        identity.addView(text("极客账号", 17, TEXT, true));
+        if (session == null) {
+            TextView hint = text("登录后与 PC 端共用翻译服务、额度和账号权益", 12, MUTED, false);
+            LinearLayout.LayoutParams hintParams = matchWrap();
+            hintParams.topMargin = dp(8);
+            identity.addView(hint, hintParams);
+            Button login = compactButton("登录极客账号", true);
+            login.setOnClickListener(v -> showGeekLoginDialog());
+            LinearLayout.LayoutParams loginParams = new LinearLayout.LayoutParams(-1, dp(48));
+            loginParams.topMargin = dp(16);
+            identity.addView(login, loginParams);
+        } else {
+            addInfoRow(identity, "账号", session.email());
+            addInfoRow(identity, "翻译服务", "与 PC 端共用");
+            Button logout = compactButton("退出登录", false);
+            logout.setOnClickListener(v -> new AlertDialog.Builder(this)
+                    .setTitle("退出极客账号？")
+                    .setMessage("只会清除本机的极客产品登录，不会删除聊天平台账户。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("退出", (dialog, which) -> { geekSessionStore.clear(); render(); })
+                    .show());
+            LinearLayout.LayoutParams logoutParams = new LinearLayout.LayoutParams(-1, dp(46));
+            logoutParams.topMargin = dp(14);
+            identity.addView(logout, logoutParams);
+        }
+
         LinearLayout card = card();
         LinearLayout.LayoutParams params = matchWrap();
-        params.topMargin = dp(16);
+        params.topMargin = dp(12);
         content.addView(card, params);
         card.addView(text("当前设备", 17, TEXT, true));
         addInfoRow(card, "设备", "Mblu 21");
         addInfoRow(card, "账户数据", "仅保存在 App 沙箱");
         addInfoRow(card, "版本", "0.1.0 测试版");
+    }
+
+    private void showGeekLoginDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout sheet = new LinearLayout(this);
+        sheet.setOrientation(LinearLayout.VERTICAL);
+        sheet.setPadding(dp(22), dp(20), dp(22), dp(24));
+        sheet.setBackground(roundRect(Color.rgb(17, 21, 29), dp(22), STROKE));
+        sheet.addView(text("登录极客", 22, TEXT, true));
+        TextView subtitle = text("与 PC 端共用账号、翻译服务和额度", 12, MUTED, false);
+        LinearLayout.LayoutParams subtitleParams = matchWrap();
+        subtitleParams.topMargin = dp(5);
+        sheet.addView(subtitle, subtitleParams);
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams formParams = new LinearLayout.LayoutParams(-1, -2);
+        formParams.topMargin = dp(18);
+        sheet.addView(form, formParams);
+        EditText email = loginField("邮箱", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        EditText password = loginField("密码", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(email, new LinearLayout.LayoutParams(-1, dp(54)));
+        LinearLayout.LayoutParams passwordParams = new LinearLayout.LayoutParams(-1, dp(54));
+        passwordParams.topMargin = dp(10);
+        form.addView(password, passwordParams);
+        TextView note = text("使用与 PC 端相同的极客账号；密码不保存，登录令牌由 Android Keystore 加密。", 11, MUTED, false);
+        LinearLayout.LayoutParams noteParams = matchWrap();
+        noteParams.topMargin = dp(10);
+        form.addView(note, noteParams);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        Button cancel = compactButton("取消", false);
+        Button submit = compactButton("登录", true);
+        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        LinearLayout.LayoutParams submitParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        submitParams.leftMargin = dp(10);
+        actions.addView(submit, submitParams);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(48));
+        actionsParams.topMargin = dp(18);
+        sheet.addView(actions, actionsParams);
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        submit.setOnClickListener(v -> {
+            String emailValue = email.getText().toString().trim();
+            String passwordValue = password.getText().toString();
+            if (!emailValue.contains("@") || passwordValue.isEmpty()) {
+                Toast.makeText(this, "请输入正确的邮箱和密码", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            submit.setEnabled(false);
+            submit.setText("登录中…");
+            geekTranslationClient.login(emailValue, passwordValue, (session, error) -> {
+                password.setText("");
+                if (error != null) {
+                    submit.setEnabled(true);
+                    submit.setText("登录");
+                    Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
+                    return;
+                }
+                dialog.dismiss();
+                render();
+                Toast.makeText(this, "已登录，翻译服务与 PC 端共用", Toast.LENGTH_SHORT).show();
+            });
+        });
+        dialog.setContentView(sheet);
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams params = window.getAttributes();
+            params.width = WindowManager.LayoutParams.MATCH_PARENT;
+            params.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            params.gravity = Gravity.BOTTOM;
+            params.dimAmount = 0.6f;
+            window.setAttributes(params);
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private EditText loginField(String hint, int inputType) {
+        EditText field = new EditText(this);
+        field.setHint(hint);
+        field.setHintTextColor(MUTED);
+        field.setTextColor(TEXT);
+        field.setTextSize(14);
+        field.setSingleLine(true);
+        field.setInputType(inputType);
+        field.setPadding(dp(14), 0, dp(14), 0);
+        field.setBackground(roundRect(SURFACE_2, dp(13), STROKE));
+        return field;
     }
 
     private void renderNavigation() {
