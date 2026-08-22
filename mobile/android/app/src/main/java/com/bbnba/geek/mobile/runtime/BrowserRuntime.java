@@ -1,7 +1,8 @@
 package com.bbnba.geek.mobile.runtime;
 
-/** Boundary for the account web engine implemented in MOB-002. */
 public interface BrowserRuntime {
     boolean isAvailable();
-    String unavailableReason();
+    String startUrl(String platform);
+    String displayName(String platform);
+    boolean isAllowedOrigin(String platform, String scheme, String host);
 }

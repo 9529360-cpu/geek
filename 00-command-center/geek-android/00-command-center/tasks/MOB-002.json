@@ -1,0 +1,56 @@
+{
+  "task_id": "MOB-002",
+  "title": "Implement and verify one persistent mobile account session",
+  "department": "client-engineering",
+  "role_required": [
+    "core-client-engineer"
+  ],
+  "capability_tags": [],
+  "priority": "high",
+  "status": "working",
+  "owner_agent": "client-engineering--core-client-engineer",
+  "manager_agent": "client-engineering--client-tech-lead",
+  "reviewer_agent": "quality-assurance--test-architect",
+  "branch_or_worktree": null,
+  "inputs": [
+    "02-shared-knowledge/build-specimen/system-contracts.json",
+    "30-evidence/SPK-001/verification-report.md"
+  ],
+  "owned_paths": [
+    "mobile/android/app/src/main/**",
+    "mobile/android/app/src/test/**",
+    "30-evidence/MOB-002/**"
+  ],
+  "outputs": [
+    "mobile/android/app/build/outputs/apk/debug/app-debug.apk"
+  ],
+  "dependencies": [
+    "MOB-001"
+  ],
+  "acceptance_criteria": [
+    "One selected platform opens in a bounded HTTPS WebView inside the formal App",
+    "A user can complete one account login and the session survives App restart",
+    "Renderer recovery is bounded and fatal crash scan stays empty"
+  ],
+  "required_evidence": [
+    "Unit tests and Gradle build output",
+    "Physical-device login restart screenshot and crash scan"
+  ],
+  "risk": "high",
+  "task_type": "implementation",
+  "requires_foundation_gate": true,
+  "integration_eligible": true,
+  "created_at": "2026-08-22T19:24:03.491997+00:00",
+  "updated_at": "2026-08-22T19:26:40.145529+00:00",
+  "delivery_package": null,
+  "review_records": [
+    {
+      "from": "ready",
+      "to": "claimed",
+      "actor": "codex-root",
+      "reason": "Begin single-account runtime after formal shell acceptance",
+      "evidence_ref": "30-evidence/MOB-001/verification-report.md",
+      "recorded_at": "2026-08-22T19:24:03.803119+00:00"
+    }
+  ]
+}

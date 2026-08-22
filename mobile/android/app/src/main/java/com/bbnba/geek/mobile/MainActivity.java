@@ -1,6 +1,7 @@
 package com.bbnba.geek.mobile;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -13,7 +14,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.bbnba.geek.mobile.runtime.BrowserRuntime;
-import com.bbnba.geek.mobile.runtime.PendingBrowserRuntime;
+import com.bbnba.geek.mobile.runtime.WebBrowserRuntime;
 
 public final class MainActivity extends Activity {
     private static final int BG = Color.rgb(11, 13, 18);
@@ -26,7 +27,8 @@ public final class MainActivity extends Activity {
     private static final int GREEN = Color.rgb(64, 205, 135);
 
     private final ShellState state = new ShellState();
-    private final BrowserRuntime browserRuntime = new PendingBrowserRuntime();
+    private final BrowserRuntime browserRuntime = new WebBrowserRuntime();
+    private String selectedPlatform = "whatsapp";
     private LinearLayout content;
     private LinearLayout navigation;
 
@@ -122,9 +124,9 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams platformsParams = matchWrap();
         platformsParams.topMargin = dp(22);
         card.addView(platforms, platformsParams);
-        addPlatform(platforms, "W", "WhatsApp", Color.rgb(37, 211, 102));
-        addPlatform(platforms, "T", "Telegram", Color.rgb(51, 144, 236));
-        addPlatform(platforms, "L", "LINE", Color.rgb(6, 199, 85));
+        addPlatform(platforms, "whatsapp", "W", "WhatsApp", Color.rgb(37, 211, 102));
+        addPlatform(platforms, "telegram", "T", "Telegram", Color.rgb(51, 144, 236));
+        addPlatform(platforms, "line", "L", "LINE", Color.rgb(6, 199, 85));
 
         TextView status = text("当前：正式 App 外壳已就绪", 13, GREEN, true);
         LinearLayout.LayoutParams statusParams = wrap();
@@ -132,7 +134,15 @@ public final class MainActivity extends Activity {
         card.addView(status, statusParams);
 
         Button next = action("下一步 · 接入单账号");
-        next.setOnClickListener(v -> Toast.makeText(this, browserRuntime.unavailableReason(), Toast.LENGTH_SHORT).show());
+        next.setOnClickListener(v -> {
+            if (!browserRuntime.isAvailable()) {
+                Toast.makeText(this, "单账号登录内核暂不可用", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent intent = new Intent(this, AccountSetupActivity.class);
+            intent.putExtra(AccountSetupActivity.EXTRA_PLATFORM, selectedPlatform);
+            startActivity(intent);
+        });
         content.addView(next, new LinearLayout.LayoutParams(-1, dp(52)));
     }
 
@@ -197,10 +207,17 @@ public final class MainActivity extends Activity {
         parent.addView(stage, params);
     }
 
-    private void addPlatform(LinearLayout parent, String mark, String label, int color) {
+    private void addPlatform(LinearLayout parent, String key, String mark, String label, int color) {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
+        boolean selected = key.equals(selectedPlatform);
+        item.setBackground(roundRect(selected ? SURFACE_2 : Color.TRANSPARENT, dp(14), selected ? ACCENT : Color.TRANSPARENT));
+        item.setContentDescription("选择 " + label + (selected ? "，当前平台" : ""));
+        item.setOnClickListener(v -> {
+            selectedPlatform = key;
+            renderSection();
+        });
         TextView icon = text(mark, 17, Color.WHITE, true);
         icon.setGravity(Gravity.CENTER);
         icon.setBackground(roundRect(color, dp(13), color));
