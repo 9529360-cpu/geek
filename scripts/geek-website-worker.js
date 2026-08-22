@@ -152,14 +152,71 @@ const SHARED_CSS = `
   .faq details[open] summary::after { content: '−'; }
   .faq details p { color: var(--text-dim); font-size: 14px; line-height: 1.75; padding: 0 28px 19px 0; }
 
-  /* 个人中心 */
-  .account-meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 16px; position: relative; }
-  .account-pill { display: inline-block; padding: 5px 12px; border-radius: 100px; font-size: 12.5px; background: rgba(79,140,255,.15); color: #8fb7ff; border: 1px solid rgba(79,140,255,.3); }
-  .account-action { padding: 6px 11px; border-radius: 9px; font-size: 12px; color: var(--text-dim); background: rgba(255,255,255,.04); border: 1px solid var(--card-border); cursor: pointer; }
+  /* 桌面用户控制台 */
+  .account-page .wrap { max-width: 1480px; padding: 0 32px; }
+  .account-page footer { display: none; }
+  .account-page nav { height: 76px; padding: 18px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .account-page .nav-links { display: none; }
+  .dashboard-shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 30px; align-items: start; padding: 28px 0 64px; }
+  .dashboard-sidebar { position: sticky; top: 22px; min-height: calc(100vh - 126px); display: flex; flex-direction: column; padding: 18px 14px; background: rgba(10,13,20,.78); border: 1px solid var(--card-border); border-radius: 18px; backdrop-filter: blur(18px); }
+  .sidebar-account { padding: 10px 10px 18px; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .sidebar-label { color: var(--text-faint); font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 7px; }
+  .sidebar-email { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-nav { display: grid; gap: 5px; }
+  .dashboard-nav a { display: flex; align-items: center; gap: 11px; padding: 11px 12px; border-radius: 11px; color: var(--text-dim); font-size: 13.5px; transition: color .15s, background .15s; }
+  .dashboard-nav a:hover, .dashboard-nav a:first-child { color: var(--text); background: rgba(79,140,255,.11); }
+  .dashboard-nav .nav-icon { width: 25px; height: 25px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: #8fb7ff; background: rgba(79,140,255,.1); font-size: 12px; }
+  .sidebar-support { margin-top: auto; padding: 16px 10px 4px; color: var(--text-faint); font-size: 12px; line-height: 1.7; }
+  .sidebar-support a { color: #8fb7ff; }
+  .dashboard-main { min-width: 0; }
+  .dashboard-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin: 2px 0 22px; }
+  .dashboard-heading h1 { font-size: 29px; letter-spacing: -.7px; margin-bottom: 6px; }
+  .dashboard-heading p { color: var(--text-dim); font-size: 13.5px; }
+  .dashboard-actions { display: flex; gap: 9px; }
+  .dashboard-card { background: rgba(255,255,255,.025); border: 1px solid var(--card-border); border-radius: 18px; backdrop-filter: blur(12px); }
+  .metric-grid { display: grid; grid-template-columns: 1.4fr repeat(3, 1fr); gap: 14px; }
+  .metric { min-height: 144px; padding: 21px 22px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; position: relative; }
+  .metric.primary { background: linear-gradient(135deg, rgba(79,140,255,.16), rgba(0,229,160,.07)); border-color: rgba(79,140,255,.34); }
+  .metric.primary::after { content: ''; position: absolute; width: 180px; height: 180px; right: -65px; bottom: -90px; border-radius: 50%; background: rgba(0,229,160,.1); filter: blur(4px); }
+  .metric-label { color: var(--text-dim); font-size: 12px; }
+  .metric-value { font-size: 23px; font-weight: 780; letter-spacing: -.5px; position: relative; z-index: 1; }
+  .metric.primary .metric-value { font-size: 31px; }
+  .metric-note { color: var(--text-faint); font-size: 11.5px; line-height: 1.5; }
+  .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; background: #00e5a0; box-shadow: 0 0 9px rgba(0,229,160,.7); }
+  .dashboard-section { margin-top: 22px; scroll-margin-top: 22px; }
+  .section-card { padding: 24px; }
+  .section-toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 20px; }
+  .section-toolbar h2 { font-size: 18px; margin-bottom: 6px; }
+  .section-toolbar p { color: var(--text-dim); font-size: 12.5px; }
+  .account-action { padding: 7px 12px; border-radius: 9px; font-size: 12px; color: var(--text-dim); background: rgba(255,255,255,.04); border: 1px solid var(--card-border); cursor: pointer; }
   .account-action:hover { color: var(--text); border-color: rgba(79,140,255,.45); }
-  .order-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .mini-plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .mini-plan { min-height: 180px; padding: 21px; display: flex; flex-direction: column; background: rgba(255,255,255,.025); border: 1px solid var(--card-border); border-radius: 15px; position: relative; }
+  .mini-plan.recommended { background: linear-gradient(180deg, rgba(79,140,255,.1), rgba(255,255,255,.025)); border-color: rgba(79,140,255,.48); }
+  .mini-plan .recommended-badge { position: absolute; top: -9px; right: 16px; padding: 4px 10px; border-radius: 100px; background: var(--grad); color: #04121a; font-size: 10px; font-weight: 800; }
+  .mini-plan-name { color: var(--text-dim); font-size: 13px; }
+  .mini-plan-price { margin: 13px 0 2px; font-size: 30px; font-weight: 800; }
+  .mini-plan-chars { color: var(--text-faint); font-size: 12px; }
+  .mini-plan .btn { margin-top: auto; width: 100%; padding: 9px; }
+  .payment-workspace { display: grid; grid-template-columns: 190px 1fr; gap: 26px; align-items: center; padding: 24px; margin-top: 18px; text-align: left; background: rgba(0,229,160,.045); border: 1px solid rgba(0,229,160,.24); border-radius: 15px; }
+  .payment-heading { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 20px; align-items: center; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,.06); }
   .copy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .copy-btn { padding: 6px 10px; border-radius: 8px; font-size: 12px; color: #8fb7ff; background: rgba(79,140,255,.1); border: 1px solid rgba(79,140,255,.3); cursor: pointer; }
+  .orders-table { overflow: hidden; border: 1px solid var(--card-border); border-radius: 13px; }
+  .order-row { display: grid; grid-template-columns: .7fr 1.2fr .8fr 1fr .7fr; align-items: center; gap: 14px; min-height: 48px; padding: 0 15px; border-top: 1px solid rgba(255,255,255,.055); font-size: 12.5px; }
+  .order-row:first-child { border-top: none; }
+  .order-table-head { min-height: 42px; color: var(--text-faint); background: rgba(255,255,255,.025); font-size: 11.5px; font-weight: 700; letter-spacing: .3px; }
+  .order-status { justify-self: end; padding: 4px 9px; border-radius: 100px; background: rgba(255,255,255,.04); }
+  .orders-empty { padding: 28px; text-align: center; color: var(--text-dim); font-size: 13px; }
+  .resource-grid { display: grid; grid-template-columns: 1.35fr repeat(3, 1fr); gap: 12px; }
+  .resource-card { min-height: 116px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--card-border); border-radius: 14px; background: rgba(255,255,255,.025); }
+  .resource-card strong { font-size: 14px; }
+  .resource-card span { color: var(--text-dim); font-size: 12px; line-height: 1.55; }
+  .resource-card.primary { background: linear-gradient(135deg, rgba(79,140,255,.12), rgba(167,139,250,.07)); border-color: rgba(79,140,255,.34); }
+  .desktop-required { display: none; min-height: calc(100vh - 100px); align-items: center; justify-content: center; text-align: center; padding: 36px 20px; }
+  .desktop-required-card { max-width: 430px; padding: 30px 24px; background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; }
+  .desktop-required-card h1 { font-size: 23px; margin-bottom: 10px; }
+  .desktop-required-card p { color: var(--text-dim); font-size: 13px; line-height: 1.7; margin-bottom: 20px; }
 
   /* 页脚 */
   footer { border-top: 1px solid rgba(255,255,255,.06); padding: 44px 0 36px; margin-top: 40px; }
@@ -184,13 +241,15 @@ const SHARED_CSS = `
     .section { padding: 56px 0; }
     .footer-grid { flex-direction: column; }
   }
+  @media (max-width: 960px) {
+    .account-page .dashboard-shell { display: none; }
+    .account-page .desktop-required { display: flex; }
+  }
   @media (max-width: 480px) {
     .btn { padding: 10px 18px; font-size: 13.5px; }
     .wrap { padding: 0 18px; }
     .nav-cta { gap: 7px; }
     .nav-cta .btn { padding: 10px 13px; }
-    .mini-plans { grid-template-columns: 1fr !important; }
-    .account-balance { text-align: left !important; }
     .footer-cols { gap: 34px; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -222,12 +281,12 @@ function layout(body, active) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${active === 'home' ? '极客 Geek · 多平台多账号实时翻译客户端' : active === 'login' ? '登录 · 极客 Geek' : '个人中心 · 极客 Geek'}</title>
+<title>${active === 'home' ? '极客 Geek · 多平台多账号实时翻译客户端' : active === 'login' ? '登录 · 极客 Geek' : '用户后台 · 极客 Geek'}</title>
 <meta name="description" content="极客 Geek —— WhatsApp / Telegram / LINE 多平台多账号聊天客户端，实时翻译、群发、群组工具，出海必备。">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>${SHARED_CSS}</style>
 </head>
-<body>
+<body class="${active === 'account' ? 'account-page' : ''}">
 <div class="bg-glow"></div>
 <div class="wrap">
   <nav>
@@ -533,78 +592,119 @@ const RESET_PASSWORD = layout(`
 `, 'login');
 
 const ACCOUNT = layout(`
-  <section style="padding:56px 0 88px">
-    <div style="max-width:760px;margin:0 auto">
-      <!-- 余额卡 -->
-      <div style="background:linear-gradient(135deg, rgba(79,140,255,.14), rgba(0,229,160,.08));border:1px solid rgba(79,140,255,.3);border-radius:22px;padding:34px 32px;margin-bottom:22px;position:relative;overflow:hidden">
-        <div style="position:absolute;top:-60px;right:-60px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle, rgba(79,140,255,.25), transparent 70%);pointer-events:none"></div>
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;position:relative">
-          <div>
-            <div style="color:var(--text-dim);font-size:13px;margin-bottom:6px">登录账户</div>
-            <div style="font-size:16px;font-weight:600" id="email">—</div>
-          </div>
-          <div class="account-balance" style="text-align:right">
-            <div style="color:var(--text-dim);font-size:13px;margin-bottom:6px">剩余字符</div>
-            <div style="font-size:34px;font-weight:800;letter-spacing:-1px" id="quota" aria-live="polite">加载中…</div>
-          </div>
-        </div>
-        <div class="account-meta">
-          <span class="account-pill">字符余额永久有效</span>
-          <span id="member-since" style="color:var(--text-dim);font-size:12.5px">账户信息加载中…</span>
-          <button type="button" class="account-action" id="refresh-account">刷新数据</button>
-        </div>
-        <div id="account-message" role="status" style="color:var(--text-dim);font-size:12.5px;margin-top:11px;min-height:18px;position:relative"></div>
-      </div>
-
-      <!-- 购买卡 -->
-      <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:30px;backdrop-filter:blur(10px);margin-bottom:22px">
-        <h3 style="font-size:18px;font-weight:700;margin-bottom:6px">购买字符包</h3>
-        <p style="color:var(--text-dim);font-size:13.5px;margin-bottom:24px">买断不限时，USDT 到账后自动增加字符余额</p>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px" class="mini-plans">
-          <div style="background:rgba(255,255,255,.03);border:1px solid var(--card-border);border-radius:16px;padding:22px 18px;text-align:center">
-            <div style="font-size:14px;color:var(--text-dim)">基础包</div>
-            <div style="font-size:30px;font-weight:800;margin:10px 0 2px">$25</div>
-            <div style="font-size:12.5px;color:var(--text-faint);margin-bottom:16px">100 万字符</div>
-            <button class="btn btn-ghost" style="width:100%;padding:9px" onclick="buy('basic')">购买</button>
-          </div>
-          <div style="background:rgba(79,140,255,.06);border:1px solid rgba(79,140,255,.4);border-radius:16px;padding:22px 18px;text-align:center;position:relative">
-            <div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:var(--grad);color:#04121a;font-size:10.5px;font-weight:700;padding:3px 11px;border-radius:100px">推荐</div>
-            <div style="font-size:14px;color:var(--text-dim)">标准包</div>
-            <div style="font-size:30px;font-weight:800;margin:10px 0 2px">$48</div>
-            <div style="font-size:12.5px;color:var(--text-faint);margin-bottom:16px">150 万字符</div>
-            <button class="btn btn-primary" style="width:100%;padding:9px" onclick="buy('standard')">购买</button>
-          </div>
-          <div style="background:rgba(255,255,255,.03);border:1px solid var(--card-border);border-radius:16px;padding:22px 18px;text-align:center">
-            <div style="font-size:14px;color:var(--text-dim)">大包</div>
-            <div style="font-size:30px;font-weight:800;margin:10px 0 2px">$128</div>
-            <div style="font-size:12.5px;color:var(--text-faint);margin-bottom:16px">450 万字符</div>
-            <button class="btn btn-ghost" style="width:100%;padding:9px" onclick="buy('pro')">购买</button>
-          </div>
-        </div>
-        <div id="order-box"></div>
-        <div id="ok" style="color:#4ade80;font-size:13.5px;margin-top:12px"></div>
-        <div id="err" style="color:#f87171;font-size:13.5px;margin-top:12px"></div>
-      </div>
-
-      <!-- 订单记录 -->
-      <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:26px 30px;backdrop-filter:blur(10px);margin-bottom:22px">
-        <div class="order-head">
-          <h3 style="font-size:17px;font-weight:700">最近订单</h3>
-          <button type="button" class="account-action" id="refresh-orders">刷新订单</button>
-        </div>
-        <div id="orders-list" style="display:grid;gap:10px;color:var(--text-dim);font-size:13.5px">加载中…</div>
-      </div>
-
-      <!-- 下载卡 -->
-      <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 30px;backdrop-filter:blur(10px);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
-        <div>
-          <h3 style="font-size:17px;font-weight:700;margin-bottom:5px">下载客户端</h3>
-          <p style="color:var(--text-dim);font-size:13.5px">Windows 版 v${VERSION} · 登录后即可使用</p>
-        </div>
-        <a href="/download" class="btn btn-primary">${ICONS.down} 下载 Windows 版</a>
+  <section class="desktop-required" aria-labelledby="desktop-required-title">
+    <div class="desktop-required-card">
+      <div class="sidebar-label">Desktop console</div>
+      <h1 id="desktop-required-title">请使用电脑访问用户后台</h1>
+      <p>用户后台包含订单表格、付款工作区和账户管理工具，需要更大的屏幕操作。手机端暂不提供压缩版后台。</p>
+      <div style="display:flex;justify-content:center;gap:10px">
+        <a href="/" class="btn btn-primary">返回官网</a>
+        <button type="button" class="btn btn-ghost" onclick="logout()">退出登录</button>
       </div>
     </div>
   </section>
+
+  <div class="dashboard-shell">
+    <aside class="dashboard-sidebar" aria-label="用户后台导航">
+      <div class="sidebar-account">
+        <div class="sidebar-label">当前账户</div>
+        <div class="sidebar-email" id="email">正在加载…</div>
+      </div>
+      <nav class="dashboard-nav">
+        <a href="#overview"><span class="nav-icon">01</span>控制台概览</a>
+        <a href="#packages"><span class="nav-icon">02</span>字符包与付款</a>
+        <a href="#orders"><span class="nav-icon">03</span>订单记录</a>
+        <a href="#resources"><span class="nav-icon">04</span>资源与帮助</a>
+      </nav>
+      <div class="sidebar-support">遇到付款或到账问题？<br><a href="mailto:bbnbbba@gmail.com">联系人工支持</a></div>
+    </aside>
+
+    <main class="dashboard-main">
+      <header class="dashboard-heading">
+        <div>
+          <h1>用户后台</h1>
+          <p id="welcome-email">正在读取账户信息…</p>
+        </div>
+        <div class="dashboard-actions">
+          <button type="button" class="account-action" id="refresh-account">刷新数据</button>
+          <a href="/download" class="btn btn-primary" style="padding:9px 15px">${ICONS.down} 下载客户端</a>
+        </div>
+      </header>
+
+      <section id="overview" class="metric-grid" aria-label="账户概览">
+        <article class="dashboard-card metric primary">
+          <div class="metric-label">可用字符余额</div>
+          <div class="metric-value" id="quota" aria-live="polite">加载中…</div>
+          <div class="metric-note">字符永久有效 · 翻译调用时实时扣减</div>
+        </article>
+        <article class="dashboard-card metric">
+          <div class="metric-label">账户状态</div>
+          <div class="metric-value" id="account-state"><span class="status-dot"></span>读取中</div>
+          <div class="metric-note" id="member-since">账户信息加载中…</div>
+        </article>
+        <article class="dashboard-card metric">
+          <div class="metric-label">最近订单</div>
+          <div class="metric-value" id="latest-order-status">读取中</div>
+          <div class="metric-note" id="latest-order-note">正在同步订单记录</div>
+        </article>
+        <article class="dashboard-card metric">
+          <div class="metric-label">当前客户端</div>
+          <div class="metric-value">v${VERSION}</div>
+          <div class="metric-note">Windows 版本 · 登录同一账户即可同步余额</div>
+        </article>
+      </section>
+      <div id="account-message" role="status" style="color:var(--text-dim);font-size:12px;min-height:18px;margin:9px 2px 0"></div>
+
+      <section id="packages" class="dashboard-section">
+        <div class="dashboard-card section-card">
+          <div class="section-toolbar">
+            <div><h2>字符包与付款</h2><p>一次购买，永久有效；USDT 到账后系统自动增加余额。</p></div>
+            <span style="color:#8fb7ff;font-size:12px">USDT · TRC20</span>
+          </div>
+          <div class="mini-plans">
+            <article class="mini-plan">
+              <div class="mini-plan-name">基础包</div><div class="mini-plan-price">$25</div><div class="mini-plan-chars">100 万字符</div>
+              <button class="btn btn-ghost" onclick="buy('basic')">创建订单</button>
+            </article>
+            <article class="mini-plan recommended">
+              <span class="recommended-badge">推荐</span><div class="mini-plan-name">标准包</div><div class="mini-plan-price">$48</div><div class="mini-plan-chars">150 万字符</div>
+              <button class="btn btn-primary" onclick="buy('standard')">创建订单</button>
+            </article>
+            <article class="mini-plan">
+              <div class="mini-plan-name">大包</div><div class="mini-plan-price">$128</div><div class="mini-plan-chars">450 万字符</div>
+              <button class="btn btn-ghost" onclick="buy('pro')">创建订单</button>
+            </article>
+          </div>
+          <div id="order-box"></div>
+          <div id="ok" role="status" style="color:#4ade80;font-size:13px;margin-top:12px"></div>
+          <div id="err" role="alert" style="color:#f87171;font-size:13px;margin-top:12px"></div>
+        </div>
+      </section>
+
+      <section id="orders" class="dashboard-section">
+        <div class="dashboard-card section-card">
+          <div class="section-toolbar">
+            <div><h2>最近订单</h2><p>显示最近 10 笔订单及付款状态。</p></div>
+            <button type="button" class="account-action" id="refresh-orders">刷新订单</button>
+          </div>
+          <div class="orders-table">
+            <div class="order-row order-table-head"><span>订单号</span><span>字符包</span><span>金额</span><span>创建日期</span><span style="text-align:right">状态</span></div>
+            <div id="orders-list"><div class="orders-empty">正在加载订单…</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="resources" class="dashboard-section">
+        <div class="section-toolbar"><div><h2>资源与帮助</h2><p>从下载到首次使用，常用入口集中在这里。</p></div></div>
+        <div class="resource-grid">
+          <a class="resource-card primary" href="/download"><strong>下载 Windows 客户端</strong><span>获取 v${VERSION}，安装后登录当前账户。</span></a>
+          <a class="resource-card" href="/#guide"><strong>首次使用指南</strong><span>安装、登录和添加第一个聊天账号。</span></a>
+          <a class="resource-card" href="/#faq"><strong>常见问题</strong><span>查看余额、平台支持和使用说明。</span></a>
+          <a class="resource-card" href="/forgot-password"><strong>账户安全</strong><span>忘记密码时提交重置申请。</span></a>
+        </div>
+      </section>
+    </main>
+  </div>
   <script>
   const API = '${API_BASE}';
   async function api(path, body) {
@@ -625,9 +725,12 @@ const ACCOUNT = layout(`
     try {
       const me = await api('/api/me');
       if (me.status !== 200) { window.location.href = '/login'; return; }
-      document.getElementById('email').textContent = me.data.user?.email || '';
+      const email = me.data.user?.email || '';
+      document.getElementById('email').textContent = email;
+      document.getElementById('welcome-email').textContent = email ? email + '，欢迎回来' : '欢迎回来';
+      document.getElementById('account-state').innerHTML = '<span class="status-dot"></span>正常';
       const created = formatDate(me.data.user?.created_at);
-      document.getElementById('member-since').textContent = created ? '注册于 ' + created : '账户状态正常';
+      document.getElementById('member-since').textContent = created ? '注册于 ' + created : '账户可正常使用';
       const { data } = await api('/api/quota');
       const q = data.remaining_chars ?? 0;
       document.getElementById('quota').textContent = q.toLocaleString() + ' 字符';
@@ -635,30 +738,51 @@ const ACCOUNT = layout(`
       message.textContent = '账户数据已同步';
     } catch (e) {
       document.getElementById('quota').textContent = '暂时无法加载';
+      document.getElementById('account-state').textContent = '同步失败';
       message.textContent = '网络异常，请点击“刷新数据”重试';
     }
   }
   async function loadOrders() {
     const box = document.getElementById('orders-list');
-    box.textContent = '正在加载订单…';
+    const latestStatus = document.getElementById('latest-order-status');
+    const latestNote = document.getElementById('latest-order-note');
+    box.innerHTML = '<div class="orders-empty">正在加载订单…</div>';
     const result = await api('/api/orders').catch(() => null);
-    if (!result) { box.textContent = '订单加载失败，请点击刷新重试'; return; }
-    if (result.status !== 200) { box.textContent = '订单加载失败'; return; }
+    if (!result) {
+      box.innerHTML = '<div class="orders-empty">订单加载失败，请点击刷新重试</div>';
+      latestStatus.textContent = '同步失败'; latestNote.textContent = '请刷新订单后重试'; return;
+    }
+    if (result.status !== 200) {
+      box.innerHTML = '<div class="orders-empty">订单加载失败</div>';
+      latestStatus.textContent = '同步失败'; latestNote.textContent = '暂时无法读取订单'; return;
+    }
     const orders = Array.isArray(result.data.orders) ? result.data.orders.slice(0, 10) : [];
-    if (!orders.length) { box.textContent = '暂无订单'; return; }
+    if (!orders.length) {
+      box.innerHTML = '<div class="orders-empty">暂无订单，选择上方字符包即可创建第一笔订单。</div>';
+      latestStatus.textContent = '暂无订单'; latestNote.textContent = '字符包购买记录会显示在这里'; return;
+    }
     const planNames = { basic: '基础包', standard: '标准包', pro: '大包' };
     const statusNames = { pending: '等待付款', processing: '确认中', paid: '已到账', cancelled: '已取消', expired: '已过期' };
+    latestStatus.textContent = statusNames[orders[0].status] || '处理中';
+    latestNote.textContent = '#' + (Number(orders[0].id) || 0) + ' · ' + (planNames[orders[0].plan] || '字符包');
     const nodes = orders.map(order => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;border:1px solid var(--card-border);border-radius:11px;background:rgba(255,255,255,.02);flex-wrap:wrap';
-      const summary = document.createElement('span');
+      row.className = 'order-row';
       const created = formatDate(order.created_at);
       const exactAmount = Number.isFinite(Number(order.amount_cents)) && Number(order.amount_cents) > 0 ? (Number(order.amount_cents) / 100).toFixed(2) : (Number(order.amount) || 0);
-      summary.textContent = '#' + (Number(order.id) || 0) + ' · ' + (planNames[order.plan] || '字符包') + ' · $' + exactAmount + (created ? ' · ' + created : '');
+      const number = document.createElement('span');
+      number.textContent = '#' + (Number(order.id) || 0);
+      const plan = document.createElement('span');
+      plan.textContent = planNames[order.plan] || '字符包';
+      const amount = document.createElement('span');
+      amount.textContent = '$' + exactAmount;
+      const date = document.createElement('span');
+      date.textContent = created || '—';
       const status = document.createElement('span');
+      status.className = 'order-status';
       status.textContent = statusNames[order.status] || '处理中';
       status.style.color = order.status === 'paid' ? '#4ade80' : order.status === 'pending' ? '#fbbf24' : 'var(--text-dim)';
-      row.append(summary, status);
+      row.append(number, plan, amount, date, status);
       return row;
     });
     box.replaceChildren(...nodes);
@@ -684,26 +808,20 @@ const ACCOUNT = layout(`
       if (pay.method === 'usdt' && pay.usdt_address) {
         // USDT 支付：显示当前订单地址二维码 + 唯一金额 + 自动检测到账
         document.getElementById('order-box').innerHTML =
-          '<div style="background:rgba(0,229,160,.05);border:1px solid rgba(0,229,160,.25);border-radius:16px;padding:24px;margin-top:18px;text-align:center">' +
-          '<div style="font-weight:700;font-size:16px;margin-bottom:4px">' + esc(names[data.order.plan] || data.order.plan) + '</div>' +
-          '<div style="color:var(--text-dim);font-size:13px;margin-bottom:16px">订单号 <b style="color:var(--text)">#' + data.order.id + '</b> · USDT (TRC20)</div>' +
-          '<div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">' +
-            '<div style="background:#fff;border-radius:12px;padding:12px;width:176px;height:176px;flex-shrink:0">' +
+          '<div class="payment-workspace">' +
+            '<div class="payment-heading"><div><div style="font-weight:700;font-size:16px">' + esc(names[data.order.plan] || data.order.plan) + '</div><div style="color:var(--text-dim);font-size:12px;margin-top:4px">订单号 <b style="color:var(--text)">#' + data.order.id + '</b> · USDT (TRC20)</div></div><div id="usdt-status"><span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.3)">等待链上确认</span></div></div>' +
+            '<div style="background:#fff;border-radius:12px;padding:12px;width:176px;height:176px">' +
               '<img id="usdt-qr" src="/payment-qr?address=' + encodeURIComponent(pay.usdt_address) + '" width="152" height="152" style="width:152px;height:152px;display:block" alt="USDT TRC20 收款地址二维码">' +
-              '<div id="usdt-qr-fallback" style="display:none;width:152px;height:152px;align-items:center;justify-content:center;color:#111827;font-size:12px;line-height:1.5">二维码不可用<br>请复制地址</div>' +
+              '<div id="usdt-qr-fallback" style="display:none;width:152px;height:152px;align-items:center;justify-content:center;text-align:center;color:#111827;font-size:12px;line-height:1.5">二维码不可用<br>请复制地址</div>' +
             '</div>' +
-            '<div style="text-align:left;min-width:200px">' +
+            '<div>' +
               '<div style="color:var(--text-dim);font-size:12.5px;margin-bottom:4px">请转账以下精确金额</div>' +
               '<div class="copy-row"><div style="font-size:34px;font-weight:800;letter-spacing:-1px;color:#00e5a0" id="usdt-amount">$' + esc(pay.usdt_amount_display) + '</div><button type="button" class="copy-btn" id="copy-usdt-amount">复制金额</button></div>' +
-              '<div style="color:var(--text-faint);font-size:12px;margin-top:2px">（含优惠 · 识别订单用）</div>' +
+              '<div style="color:var(--text-faint);font-size:12px;margin-top:2px">精确金额用于自动识别订单，请勿自行取整。</div>' +
               '<div style="color:var(--text-dim);font-size:12.5px;margin-top:14px;margin-bottom:4px">USDT (TRC20) 收款地址</div>' +
               '<div class="copy-row"><div style="font-size:12.5px;color:#8fb7ff;word-break:break-all;line-height:1.5;flex:1;min-width:180px" id="usdt-addr">' + esc(pay.usdt_address) + '</div><button type="button" class="copy-btn" id="copy-usdt-address">复制地址</button></div>' +
+              '<div style="color:var(--text-dim);font-size:12px;line-height:1.65;margin-top:14px">使用支持 TRC20 的钱包扫码或复制地址。到账后系统会自动更新订单状态与字符余额。</div>' +
             '</div>' +
-          '</div>' +
-          '<div style="color:var(--text-dim);font-size:13px;line-height:1.7">打开支持 TRC20 的钱包（Token Pocket / TronLink / OKX）扫码或复制地址，<br>转账 <b style="color:#00e5a0">' + pay.usdt_amount_display + ' USDT</b>，系统自动确认到账，无需人工。</div>' +
-          '<div style="margin-top:16px" id="usdt-status">' +
-            '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.3)">⏳ 等待链上确认…</span>' +
-          '</div>' +
           '</div>';
         const qrImage = document.getElementById('usdt-qr');
         qrImage?.addEventListener('error', () => {
