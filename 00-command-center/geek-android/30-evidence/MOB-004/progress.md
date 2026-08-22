@@ -17,8 +17,9 @@ The mobile translation task started after MOB-003 dual-account acceptance.
 - The same 20-language catalog used by the PC settings is available in the mobile selectors.
 - Added the same product-account boundary as PC: mobile signs in through `geek-subscription`, obtains a short-lived translation token, and calls `geek-translate` with the same route contract.
 - Product passwords are never stored; the long-lived Geek product token is encrypted with Android Keystore, while provider credentials remain server-side only.
-- Added `翻译当前输入` to the account translation drawer. It reads the current Web composer without clearing it, requests a translation, applies the desktop output-safety contract, and shows an explicit source/translation confirmation sheet.
-- Safe output can be placed back into the composer for editing or explicitly confirmed for sending. Any request, selector, or safety failure preserves the source draft and sends nothing.
+- Matched the desktop send contract: pressing Enter or the platform send button is intercepted when send translation is enabled; validated translated text is verified after composer refill and then sent automatically, without a second confirmation sheet.
+- Any request, selector, safety, or composer-refill failure blocks the send and preserves/restores the source draft.
+- The `译 / 发` floating tool group is draggable, clamped within the account surface, and remembers a separate position for each account.
 
 ## Checks passed
 
@@ -27,7 +28,8 @@ The mobile translation task started after MOB-003 dual-account acceptance.
 - UI Automator verified the global controls, account scope, empty-current-chat state, scrolling drawer, and primary save action at 720 x 1640.
 - `geek-mobile-translation-global.png` contains the safe LINE login surface behind the final global-settings drawer.
 - `geek-product-login-dialog.png` records the final mobile product-login sheet and its PC-service/Keystore explanation.
-- `geek-mobile-translation-action.png` records the compact translation drawer with the new draft action on a real retained Telegram session.
+- Real-device UI Automator verified that the translation send hook reports `翻译发送保护已开启` and that a dragged tool position survives leaving and reopening the account.
+- `geek-mobile-draggable-tools.png` records the draggable tool group moved away from its default edge position on the safe LINE surface.
 
 ## Remaining
 

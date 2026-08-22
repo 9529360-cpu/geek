@@ -2,6 +2,7 @@ package com.bbnba.geek.mobile;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -9,10 +10,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -60,6 +63,9 @@ public class AccountSetupActivity extends Activity {
     private TranslationSettingsStore translationSettings;
     private GeekSessionStore geekSessionStore;
     private GeekTranslationClient translationClient;
+    private SharedPreferences floatingPreferences;
+    private String floatingPreferenceKey;
+    private volatile String currentPageUrl = "";
     private static boolean webViewDirectoryConfigured;
     private static final String[] LANGUAGE_CODES = {
             "en", "es", "fr", "de", "it", "pt", "zh", "ja", "ko", "hi", "ar", "ru", "id", "pl", "tr", "vi", "nl", "sv", "el", "th"
@@ -86,6 +92,8 @@ public class AccountSetupActivity extends Activity {
         translationSettings = new TranslationSettingsStore(this, platform + "_slot_" + slot);
         geekSessionStore = new GeekSessionStore(this);
         translationClient = new GeekTranslationClient(geekSessionStore);
+        floatingPreferences = getSharedPreferences("floating_tools", MODE_PRIVATE);
+        floatingPreferenceKey = platform + "_slot_" + slot;
         if (slot == 0) {
             getSharedPreferences("accounts", MODE_PRIVATE).edit().putString("last_platform", platform).apply();
         }
@@ -171,6 +179,9 @@ public class AccountSetupActivity extends Activity {
         quickParams.rightMargin = dp(12);
         quickParams.bottomMargin = dp(18);
         accountSurface.addView(quickActions, quickParams);
+        attachFloatingDrag(translation, quickActions, accountSurface);
+        attachFloatingDrag(broadcast, quickActions, accountSurface);
+        quickActions.post(() -> restoreFloatingPosition(quickActions, accountSurface));
         root.addView(accountSurface, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         TextView privacy = text("登录数据仅保存在当前 App 沙箱 · 不接入商业消息 API", 10, MUTED);
@@ -199,6 +210,7 @@ public class AccountSetupActivity extends Activity {
             candidate.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
         }
         candidate.setWebViewClient(new AccountWebViewClient());
+        candidate.addJavascriptInterface(new TranslationBridge(), "GeekMobileTranslation");
         webContainer.removeAllViews();
         webContainer.addView(candidate, new FrameLayout.LayoutParams(-1, -1));
         webView = candidate;
@@ -217,6 +229,7 @@ public class AccountSetupActivity extends Activity {
 
         @Override
         public void onPageFinished(WebView view, String url) {
+            currentPageUrl = url == null ? "" : url;
             CookieManager.getInstance().flush();
             int slot = getIntent().getIntExtra(EXTRA_SLOT, 0);
             String sessionKey = slot == 0
@@ -227,6 +240,7 @@ public class AccountSetupActivity extends Activity {
                     .putBoolean(sessionKey, true)
                     .apply();
             status.setText("页面已就绪 · 完成登录后会话将保存在本机");
+            installTranslationSendHook();
         }
 
         @Override
@@ -295,6 +309,127 @@ public class AccountSetupActivity extends Activity {
         return button;
     }
 
+    private void attachFloatingDrag(View handle, View target, View parent) {
+        final float[] down = new float[4];
+        final boolean[] moved = {false};
+        handle.setOnTouchListener((view, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                down[0] = event.getRawX();
+                down[1] = event.getRawY();
+                down[2] = target.getX();
+                down[3] = target.getY();
+                moved[0] = false;
+                view.setPressed(true);
+                return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                float dx = event.getRawX() - down[0];
+                float dy = event.getRawY() - down[1];
+                if (Math.abs(dx) > dp(5) || Math.abs(dy) > dp(5)) moved[0] = true;
+                float maxX = Math.max(0, parent.getWidth() - target.getWidth());
+                float maxY = Math.max(0, parent.getHeight() - target.getHeight());
+                target.setX(Math.max(0, Math.min(maxX, down[2] + dx)));
+                target.setY(Math.max(0, Math.min(maxY, down[3] + dy)));
+                return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                view.setPressed(false);
+                if (moved[0]) saveFloatingPosition(target);
+                else if (event.getActionMasked() == MotionEvent.ACTION_UP) view.performClick();
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void restoreFloatingPosition(View target, View parent) {
+        String xKey = floatingPreferenceKey + "_x";
+        String yKey = floatingPreferenceKey + "_y";
+        if (!floatingPreferences.contains(xKey) || !floatingPreferences.contains(yKey)) return;
+        float maxX = Math.max(0, parent.getWidth() - target.getWidth());
+        float maxY = Math.max(0, parent.getHeight() - target.getHeight());
+        target.setX(Math.max(0, Math.min(maxX, floatingPreferences.getFloat(xKey, target.getX()))));
+        target.setY(Math.max(0, Math.min(maxY, floatingPreferences.getFloat(yKey, target.getY()))));
+    }
+
+    private void saveFloatingPosition(View target) {
+        floatingPreferences.edit()
+                .putFloat(floatingPreferenceKey + "_x", target.getX())
+                .putFloat(floatingPreferenceKey + "_y", target.getY())
+                .apply();
+    }
+
+    private final class TranslationBridge {
+        @JavascriptInterface
+        public boolean shouldTranslate(String chatId) {
+            if (!isCurrentPageAllowed()) return false;
+            TranslationSettingsStore.GlobalConfig global = translationSettings.global();
+            if (chatId == null || chatId.trim().isEmpty()) return global.sendEnabled();
+            TranslationSettingsStore.ChatConfig chat = translationSettings.chat(chatId.trim());
+            return chat.overrideEnabled() ? chat.sendEnabled() : global.sendEnabled();
+        }
+
+        @JavascriptInterface
+        public void translateAndSend(String requestId, String source, String chatId) {
+            if (!isCurrentPageAllowed() || requestId == null || !requestId.matches("[a-zA-Z0-9_-]{8,80}")) return;
+            String original = source == null ? "" : source.trim();
+            if (original.isEmpty() || original.length() > 10_000) {
+                resolveSendTranslation(requestId, "", "消息内容无效，已阻止发送");
+                return;
+            }
+            TranslationSettingsStore.GlobalConfig global = translationSettings.global();
+            TranslationSettingsStore.ChatConfig chat = chatId == null || chatId.trim().isEmpty() ? null : translationSettings.chat(chatId.trim());
+            boolean enabled = chat != null && chat.overrideEnabled() ? chat.sendEnabled() : global.sendEnabled();
+            String target = chat != null && chat.overrideEnabled() ? chat.sendTarget() : global.sendTarget();
+            if (!enabled) {
+                resolveSendTranslation(requestId, "", "TRANSLATION_DISABLED");
+                return;
+            }
+            translationClient.translate(original, global.sendSource(), target, (result, error) -> {
+                if (error != null || result == null) {
+                    resolveSendTranslation(requestId, "", error == null ? "翻译失败，原文未发送" : error.getMessage());
+                    return;
+                }
+                resolveSendTranslation(requestId, result.text(), "");
+            });
+        }
+    }
+
+    private boolean isCurrentPageAllowed() {
+        if (webView == null || currentPageUrl.isEmpty()) return false;
+        Uri uri = Uri.parse(currentPageUrl);
+        return runtime.isAllowedOrigin(platform, uri.getScheme(), uri.getHost());
+    }
+
+    private void resolveSendTranslation(String requestId, String translated, String error) {
+        if (webView == null) return;
+        String script = "window.__geekMobileTranslationResolve&&window.__geekMobileTranslationResolve(" +
+                JSONObject.quote(requestId) + "," + JSONObject.quote(translated) + "," + JSONObject.quote(error) + ")";
+        webView.post(() -> {
+            if (webView != null) webView.evaluateJavascript(script, null);
+        });
+    }
+
+    private void installTranslationSendHook() {
+        if (webView == null || !isCurrentPageAllowed()) return;
+        String script = "(function(){try{" +
+                "window.__geekMobileSendAbort&&window.__geekMobileSendAbort.abort();var ac=new AbortController();window.__geekMobileSendAbort=ac;var lock=false,pending=new Map(),bypass=false;" +
+                "var editor=function(){return document.querySelector('#editable-message-text[contenteditable=\"true\"],footer [contenteditable=\"true\"][role=\"textbox\"],[contenteditable=\"true\"][data-tab],.composer_rich_textarea,textarea');};" +
+                "var button=function(){var b=document.querySelector('button.Button.send.main-button,button[aria-label=\"发送消息\"],button[aria-label=\"Send\"],button[title=\"Send\"],.btn-send');if(!b){var i=document.querySelector('[data-icon=\"send\"]');b=i&&i.closest('button');}return b;};" +
+                "var value=function(e){return String(('value'in e?e.value:(e.innerText||e.textContent||''))||'').replace(/\\n$/,'').trim();};" +
+                "var fill=function(e,t){e.focus();if('value'in e){var p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,d=Object.getOwnPropertyDescriptor(p,'value');if(d&&d.set)d.set.call(e,t);else e.value=t;e.dispatchEvent(new Event('input',{bubbles:true}));}else{var s=getSelection(),r=document.createRange();r.selectNodeContents(e);s.removeAllRanges();s.addRange(r);if(!document.execCommand('insertText',false,t)){e.textContent=t;e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:t}));}}return value(e)===String(t).trim();};" +
+                "var chat=function(){try{if('telegram'==='" + platform + "'){var h=String(location.hash||'').replace(/^#/,'');return h?h.split('?')[0]:'';}if('line'==='" + platform + "'){var p=String(location.hash||'').replace(/^#/,'').split('?')[0],m=p.match(/^\\/[^/]+\\/([^/]+)\\/?$/);return m?decodeURIComponent(m[1]):'';}var x=window.WPP&&window.WPP.chat&&window.WPP.chat.getActiveChat&&window.WPP.chat.getActiveChat();return x&&x.id?(x.id._serialized||String(x.id)):'';}catch(z){return '';}};" +
+                "var notice=function(t){var n=document.getElementById('geek-mobile-send-error');if(n)n.remove();n=document.createElement('div');n.id='geek-mobile-send-error';n.textContent=t;Object.assign(n.style,{position:'fixed',left:'50%',bottom:'86px',transform:'translateX(-50%)',zIndex:'2147483647',padding:'9px 13px',borderRadius:'9px',background:'#b42318',color:'#fff',fontSize:'13px'});document.body.appendChild(n);setTimeout(function(){n.remove();},3200);};" +
+                "window.__geekMobileTranslationResolve=function(id,t,err){var p=pending.get(id);if(!p)return;pending.delete(id);lock=false;if(err){notice(err==='TRANSLATION_DISABLED'?'翻译已关闭':err+'，原文未发送');p.e.focus();return;}if(!fill(p.e,t)){fill(p.e,p.o);notice('译文回填校验失败，原文未发送');return;}bypass=true;(p.b||button())?.click();setTimeout(function(){bypass=false;},0);};" +
+                "var run=function(ev,e,b){if(bypass||lock||!e)return;var c=chat();if(!GeekMobileTranslation.shouldTranslate(c))return;var s=value(e);if(!s)return;ev.preventDefault();ev.stopImmediatePropagation();lock=true;var id=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12);pending.set(id,{e:e,b:b,o:s});GeekMobileTranslation.translateAndSend(id,s,c);};" +
+                "document.addEventListener('keydown',function(ev){var e=ev.target&&ev.target.closest&&ev.target.closest('[contenteditable=\"true\"],textarea');if(e&&ev.key==='Enter'&&!ev.shiftKey&&!ev.ctrlKey&&!ev.metaKey&&!ev.isComposing)run(ev,e,button());},{capture:true,signal:ac.signal});" +
+                "document.addEventListener('click',function(ev){var b=ev.target&&ev.target.closest&&ev.target.closest('button.Button.send.main-button,button[aria-label=\"发送消息\"],button[aria-label=\"Send\"],button[title=\"Send\"],.btn-send');if(!b){var i=ev.target&&ev.target.closest&&ev.target.closest('[data-icon=\"send\"]');b=i&&i.closest('button');}if(b)run(ev,editor(),b);},{capture:true,signal:ac.signal});return 'READY';" +
+                "}catch(e){return 'ERR:'+e.message;}})()";
+        webView.evaluateJavascript(script, result -> {
+            if ("\"READY\"".equals(result)) status.setText("页面已就绪 · 翻译发送保护已开启");
+        });
+    }
+
     private void showTranslationPanel() {
         resolveCurrentChat(this::showTranslationPanelForChat);
     }
@@ -324,16 +459,6 @@ public class AccountSetupActivity extends Activity {
         LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(-1, dp(52));
         tabsParams.topMargin = dp(8);
         sheet.addView(tabs, tabsParams);
-
-        Button translateDraft = sheetAction("翻译当前输入");
-        translateDraft.setContentDescription("读取当前输入，翻译并预览");
-        translateDraft.setOnClickListener(v -> {
-            dialog.dismiss();
-            translateCurrentDraft(chatId);
-        });
-        LinearLayout.LayoutParams translateDraftParams = new LinearLayout.LayoutParams(-1, dp(50));
-        translateDraftParams.topMargin = dp(10);
-        sheet.addView(translateDraft, translateDraftParams);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -368,6 +493,7 @@ public class AccountSetupActivity extends Activity {
             if (showGlobal[0]) translationSettings.saveGlobal(global[0]);
             else if (!chatId.isEmpty() && chat[0] != null) translationSettings.saveChat(chatId, chat[0]);
             dialog.dismiss();
+            installTranslationSendHook();
             Toast.makeText(this, showGlobal[0] ? "全局翻译设置已保存" : "当前对话设置已保存", Toast.LENGTH_SHORT).show();
         });
         render[0].run();
@@ -452,118 +578,6 @@ public class AccountSetupActivity extends Activity {
                 callback.accept("");
             }
         });
-    }
-
-    private void translateCurrentDraft(String chatId) {
-        if (geekSessionStore.load() == null) {
-            Toast.makeText(this, "请先在“我的”登录极客账号", Toast.LENGTH_LONG).show();
-            return;
-        }
-        if (webView == null) {
-            Toast.makeText(this, "当前账户页面尚未就绪", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        String script = "(function(){try{" +
-                "var e=document.querySelector('footer [contenteditable=\"true\"],.input-message-container [contenteditable=\"true\"],.composer_rich_textarea,[contenteditable=\"true\"][role=\"textbox\"],textarea');" +
-                "if(!e)return '';return String('value'in e?e.value:(e.innerText||e.textContent||''));" +
-                "}catch(x){return '';}})()";
-        webView.evaluateJavascript(script, encoded -> {
-            String source = decodeJavascriptString(encoded);
-            if (source.trim().isEmpty()) {
-                Toast.makeText(this, "请先在当前对话输入要发送的内容", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            TranslationSettingsStore.GlobalConfig global = translationSettings.global();
-            TranslationSettingsStore.ChatConfig chat = chatId.isEmpty() ? null : translationSettings.chat(chatId);
-            String target = chat != null && chat.overrideEnabled() ? chat.sendTarget() : global.sendTarget();
-            showTranslationLoading(source, global.sendSource(), target);
-        });
-    }
-
-    private void showTranslationLoading(String source, String sourceLanguage, String targetLanguage) {
-        Dialog loading = bottomDialog();
-        LinearLayout sheet = dialogSheet();
-        sheet.addView(text("正在生成安全译文…", 19, TEXT));
-        TextView detail = text("使用与 PC 端相同的翻译服务和额度", 12, MUTED);
-        LinearLayout.LayoutParams detailParams = matchWrap();
-        detailParams.topMargin = dp(7);
-        sheet.addView(detail, detailParams);
-        loading.setContentView(sheet);
-        showBottomDialog(loading);
-        translationClient.translate(source, sourceLanguage, targetLanguage, (result, error) -> {
-            loading.dismiss();
-            if (error != null || result == null) {
-                String message = error == null ? "翻译服务暂时不可用" : error.getMessage();
-                Toast.makeText(this, message + "；原文仍保留，未发送", Toast.LENGTH_LONG).show();
-                return;
-            }
-            showTranslationPreview(source, result.text(), targetLanguage);
-        });
-    }
-
-    private void showTranslationPreview(String source, String translated, String targetLanguage) {
-        Dialog dialog = bottomDialog();
-        LinearLayout sheet = dialogSheet();
-        sheet.addView(text("发送前确认", 21, TEXT));
-        TextView detail = text("已通过译文安全校验 · " + languageName(targetLanguage), 12, Color.rgb(64, 205, 135));
-        LinearLayout.LayoutParams detailParams = matchWrap();
-        detailParams.topMargin = dp(5);
-        sheet.addView(detail, detailParams);
-        sheet.addView(previewBlock("原文", source, MUTED), spacedRow());
-        sheet.addView(previewBlock("译文", translated, TEXT), spacedRow());
-
-        LinearLayout actions = new LinearLayout(this);
-        Button replace = sheetSecondaryAction("放入输入框");
-        replace.setOnClickListener(v -> injectTranslatedDraft(translated, false, dialog));
-        actions.addView(replace, new LinearLayout.LayoutParams(0, dp(52), 1f));
-        Button send = sheetAction("确认发送");
-        send.setOnClickListener(v -> injectTranslatedDraft(translated, true, dialog));
-        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(0, dp(52), 1f);
-        sendParams.leftMargin = dp(10);
-        actions.addView(send, sendParams);
-        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(-1, dp(52));
-        actionParams.topMargin = dp(16);
-        sheet.addView(actions, actionParams);
-        dialog.setContentView(sheet);
-        showBottomDialog(dialog);
-    }
-
-    private View previewBlock(String label, String value, int valueColor) {
-        LinearLayout block = translationSection(label, value);
-        TextView content = (TextView) block.getChildAt(1);
-        content.setTextColor(valueColor);
-        content.setTextSize(14);
-        content.setMaxLines(6);
-        return block;
-    }
-
-    private void injectTranslatedDraft(String translated, boolean send, Dialog dialog) {
-        if (webView == null) return;
-        String value = JSONObject.quote(translated);
-        String script = "(function(){try{" +
-                "var e=document.querySelector('footer [contenteditable=\"true\"],.input-message-container [contenteditable=\"true\"],.composer_rich_textarea,[contenteditable=\"true\"][role=\"textbox\"],textarea');" +
-                "if(!e)return false;e.focus();var v=" + value + ";" +
-                "if('value'in e){e.value=v;}else{e.textContent=v;}" +
-                "e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:v}));" +
-                (send ? "var b=document.querySelector('button[aria-label=\"Send\"],button[title=\"Send\"],.Button.send,.btn-send');if(!b){var i=document.querySelector('[data-icon=\"send\"]');b=i&&i.closest('button');}if(!b)return false;b.click();" : "") +
-                "return true;}catch(x){return false;}})()";
-        webView.evaluateJavascript(script, result -> {
-            if (!"true".equals(result)) {
-                Toast.makeText(this, "未能定位当前输入框，译文没有发送", Toast.LENGTH_LONG).show();
-                return;
-            }
-            dialog.dismiss();
-            Toast.makeText(this, send ? "译文已确认发送" : "译文已放入输入框", Toast.LENGTH_SHORT).show();
-        });
-    }
-
-    private String decodeJavascriptString(String encoded) {
-        try {
-            Object decoded = new JSONTokener(encoded).nextValue();
-            return decoded instanceof String ? (String) decoded : "";
-        } catch (Exception ignored) {
-            return "";
-        }
     }
 
     private void showBroadcastPanel() {
