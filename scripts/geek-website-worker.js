@@ -45,6 +45,7 @@ const SHARED_CSS = `
   body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
   ::selection { background: rgba(79,140,255,.3); }
   a { text-decoration: none; color: inherit; }
+  :focus-visible { outline: 2px solid #7db4ff; outline-offset: 3px; }
   .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
 
   /* 背景光晕 + 网格 */
@@ -137,6 +138,29 @@ const SHARED_CSS = `
   .download p { color: var(--text-dim); font-size: 15px; margin-bottom: 28px; }
   .version-pill { display: inline-flex; gap: 8px; align-items: center; margin-bottom: 20px; padding: 6px 14px; border-radius: 100px; background: rgba(255,255,255,.04); border: 1px solid var(--card-border); color: var(--text-dim); font-size: 12.5px; }
 
+  /* 上手流程 + 常见问题 */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: step; }
+  .step { counter-increment: step; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 28px 26px; position: relative; }
+  .step::before { content: "0" counter(step); display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 12px; margin-bottom: 18px; color: #8fb7ff; background: rgba(79,140,255,.12); border: 1px solid rgba(79,140,255,.25); font-size: 12px; font-weight: 800; letter-spacing: .8px; }
+  .step h3 { font-size: 16.5px; margin-bottom: 9px; }
+  .step p { color: var(--text-dim); font-size: 14px; line-height: 1.7; }
+  .faq { max-width: 820px; margin: 0 auto; display: grid; gap: 12px; }
+  .faq details { background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; padding: 0 20px; }
+  .faq summary { cursor: pointer; padding: 19px 30px 19px 0; font-size: 15px; font-weight: 650; list-style: none; position: relative; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: '+'; position: absolute; right: 2px; top: 16px; color: #7db4ff; font-size: 22px; font-weight: 400; }
+  .faq details[open] summary::after { content: '−'; }
+  .faq details p { color: var(--text-dim); font-size: 14px; line-height: 1.75; padding: 0 28px 19px 0; }
+
+  /* 个人中心 */
+  .account-meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 16px; position: relative; }
+  .account-pill { display: inline-block; padding: 5px 12px; border-radius: 100px; font-size: 12.5px; background: rgba(79,140,255,.15); color: #8fb7ff; border: 1px solid rgba(79,140,255,.3); }
+  .account-action { padding: 6px 11px; border-radius: 9px; font-size: 12px; color: var(--text-dim); background: rgba(255,255,255,.04); border: 1px solid var(--card-border); cursor: pointer; }
+  .account-action:hover { color: var(--text); border-color: rgba(79,140,255,.45); }
+  .order-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .copy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .copy-btn { padding: 6px 10px; border-radius: 8px; font-size: 12px; color: #8fb7ff; background: rgba(79,140,255,.1); border: 1px solid rgba(79,140,255,.3); cursor: pointer; }
+
   /* 页脚 */
   footer { border-top: 1px solid rgba(255,255,255,.06); padding: 44px 0 36px; margin-top: 40px; }
   .footer-grid { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 24px; }
@@ -154,7 +178,7 @@ const SHARED_CSS = `
   .fade-up.in { opacity: 1; transform: none; }
 
   @media (max-width: 860px) {
-    .features, .plans { grid-template-columns: 1fr; }
+    .features, .plans, .steps { grid-template-columns: 1fr; }
     .nav-links { display: none; }
     .hero { padding: 64px 0 48px; }
     .section { padding: 56px 0; }
@@ -162,6 +186,17 @@ const SHARED_CSS = `
   }
   @media (max-width: 480px) {
     .btn { padding: 10px 18px; font-size: 13.5px; }
+    .wrap { padding: 0 18px; }
+    .nav-cta { gap: 7px; }
+    .nav-cta .btn { padding: 10px 13px; }
+    .mini-plans { grid-template-columns: 1fr !important; }
+    .account-balance { text-align: left !important; }
+    .footer-cols { gap: 34px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .fade-up { opacity: 1; transform: none; }
   }
 `;
 
@@ -189,6 +224,7 @@ function layout(body, active) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${active === 'home' ? '极客 Geek · 多平台多账号实时翻译客户端' : active === 'login' ? '登录 · 极客 Geek' : '个人中心 · 极客 Geek'}</title>
 <meta name="description" content="极客 Geek —— WhatsApp / Telegram / LINE 多平台多账号聊天客户端，实时翻译、群发、群组工具，出海必备。">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>${SHARED_CSS}</style>
 </head>
 <body>
@@ -201,6 +237,7 @@ function layout(body, active) {
     </a>
     <div class="nav-links">
       <a href="/#features">功能</a>
+      <a href="/#guide">教程</a>
       <a href="/#pricing">定价</a>
       <a href="/#download">下载</a>
       ${active === 'account' ? '<a href="/account">个人中心</a>' : ''}
@@ -235,8 +272,8 @@ function layout(body, active) {
         </div>
         <div class="col">
           <h4>支持</h4>
-          <a href="/#download">使用教程</a>
-          <a href="/#pricing">常见问题</a>
+          <a href="/#guide">使用教程</a>
+          <a href="/#faq">常见问题</a>
         </div>
       </div>
     </div>
@@ -288,6 +325,19 @@ const HOME = layout(`
       <div class="feature fade-up"><div class="icon">${ICONS.shield}</div><h3>数据隔离</h3><p>每个账号独立会话环境与代理，账号数据完全隔离，删除账号不留痕迹。</p></div>
       <div class="feature fade-up"><div class="icon">${ICONS.refresh}</div><h3>自动恢复</h3><p>重启自动恢复登录状态，崩溃自动重启，长时间挂机不丢消息。</p></div>
       <div class="feature fade-up"><div class="icon">${ICONS.sparkle}</div><h3>智能回复</h3><p>AI 辅助沟通，贴近母语习惯，让聊天更自然真实。</p></div>
+    </div>
+  </section>
+
+  <section class="section" id="guide">
+    <div class="section-head fade-up">
+      <div class="kicker">Get started</div>
+      <h2>三步开始使用</h2>
+      <p>从创建账户到添加聊天账号，首次使用路径清晰可控。</p>
+    </div>
+    <div class="steps">
+      <div class="step fade-up"><h3>免费注册</h3><p>使用邮箱创建极客账户，注册后即可获得 2 万翻译字符，字符余额没有到期时间。</p></div>
+      <div class="step fade-up"><h3>下载并登录</h3><p>下载 Windows 客户端，用同一邮箱账户登录；客户端会自动检查后续更新。</p></div>
+      <div class="step fade-up"><h3>添加聊天账号</h3><p>按需添加 WhatsApp、Telegram 或 LINE 账号，各账号会话相互隔离，随后即可配置翻译与群发。</p></div>
     </div>
   </section>
 
@@ -347,6 +397,21 @@ const HOME = layout(`
       <p>Windows 桌面版，登录即可使用</p>
       <div class="version-pill">当前版本 v${VERSION} · 自动更新</div>
       <div><a href="/download" class="btn btn-primary" style="font-size:15px;padding:14px 34px">${ICONS.down} 下载 Windows 版</a></div>
+    </div>
+  </section>
+
+  <section class="section" id="faq">
+    <div class="section-head fade-up">
+      <div class="kicker">FAQ</div>
+      <h2>常见问题</h2>
+      <p>下载前最常遇到的问题，这里一次说清。</p>
+    </div>
+    <div class="faq fade-up">
+      <details><summary>注册赠送的字符会过期吗？</summary><p>不会。注册赠送和后续购买的都是字符余额，没有订阅到期时间；翻译成功后按实际字符用量扣减。</p></details>
+      <details><summary>一个客户端可以同时登录多少个平台？</summary><p>可以按需要组合添加 WhatsApp、Telegram 和 LINE 账号。每个账号使用独立会话环境，互不共享登录状态。</p></details>
+      <details><summary>购买字符包后多久可以到账？</summary><p>在个人中心创建 USDT（TRC20）订单并按页面显示的精确金额转账。链上确认后系统会自动增加字符余额，个人中心会同步显示订单状态。</p></details>
+      <details><summary>聊天记录会上传到极客账户吗？</summary><p>极客账户服务用于登录、字符余额与订单。聊天平台的会话数据保存在各自隔离的客户端环境中，不作为账户后台数据上传。</p></details>
+      <details><summary>忘记密码怎么办？</summary><p>在登录页选择“忘记密码”，提交注册邮箱。若账户存在，系统会发送或安排一次性重置链接；统一提示不会暴露邮箱是否注册。</p></details>
     </div>
   </section>
 `, 'home');
@@ -478,12 +543,17 @@ const ACCOUNT = layout(`
             <div style="color:var(--text-dim);font-size:13px;margin-bottom:6px">登录账户</div>
             <div style="font-size:16px;font-weight:600" id="email">—</div>
           </div>
-          <div style="text-align:right">
+          <div class="account-balance" style="text-align:right">
             <div style="color:var(--text-dim);font-size:13px;margin-bottom:6px">剩余字符</div>
-            <div style="font-size:34px;font-weight:800;letter-spacing:-1px" id="quota">—</div>
+            <div style="font-size:34px;font-weight:800;letter-spacing:-1px" id="quota" aria-live="polite">加载中…</div>
           </div>
         </div>
-        <div style="margin-top:18px;position:relative"><span id="plan-pill" style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(79,140,255,.15);color:#8fb7ff;border:1px solid rgba(79,140,255,.3)">免费用户</span></div>
+        <div class="account-meta">
+          <span class="account-pill">字符余额永久有效</span>
+          <span id="member-since" style="color:var(--text-dim);font-size:12.5px">账户信息加载中…</span>
+          <button type="button" class="account-action" id="refresh-account">刷新数据</button>
+        </div>
+        <div id="account-message" role="status" style="color:var(--text-dim);font-size:12.5px;margin-top:11px;min-height:18px;position:relative"></div>
       </div>
 
       <!-- 购买卡 -->
@@ -518,7 +588,10 @@ const ACCOUNT = layout(`
 
       <!-- 订单记录 -->
       <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:26px 30px;backdrop-filter:blur(10px);margin-bottom:22px">
-        <h3 style="font-size:17px;font-weight:700;margin-bottom:14px">最近订单</h3>
+        <div class="order-head">
+          <h3 style="font-size:17px;font-weight:700">最近订单</h3>
+          <button type="button" class="account-action" id="refresh-orders">刷新订单</button>
+        </div>
         <div id="orders-list" style="display:grid;gap:10px;color:var(--text-dim);font-size:13.5px">加载中…</div>
       </div>
 
@@ -540,20 +613,36 @@ const ACCOUNT = layout(`
     return { status: res.status, data: await res.json().catch(() => ({})) };
   }
   function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function formatDate(value) {
+    if (!value) return '';
+    const normalized = String(value).includes('T') ? String(value) : String(value).replace(' ', 'T') + 'Z';
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  }
   async function load() {
+    const message = document.getElementById('account-message');
+    message.textContent = '正在同步账户数据…';
     try {
       const me = await api('/api/me');
       if (me.status !== 200) { window.location.href = '/login'; return; }
       document.getElementById('email').textContent = me.data.user?.email || '';
+      const created = formatDate(me.data.user?.created_at);
+      document.getElementById('member-since').textContent = created ? '注册于 ' + created : '账户状态正常';
       const { data } = await api('/api/quota');
       const q = data.remaining_chars ?? 0;
       document.getElementById('quota').textContent = q.toLocaleString() + ' 字符';
       await loadOrders();
-    } catch (e) { document.getElementById('quota').textContent = '—'; }
+      message.textContent = '账户数据已同步';
+    } catch (e) {
+      document.getElementById('quota').textContent = '暂时无法加载';
+      message.textContent = '网络异常，请点击“刷新数据”重试';
+    }
   }
   async function loadOrders() {
     const box = document.getElementById('orders-list');
-    const result = await api('/api/orders');
+    box.textContent = '正在加载订单…';
+    const result = await api('/api/orders').catch(() => null);
+    if (!result) { box.textContent = '订单加载失败，请点击刷新重试'; return; }
     if (result.status !== 200) { box.textContent = '订单加载失败'; return; }
     const orders = Array.isArray(result.data.orders) ? result.data.orders.slice(0, 10) : [];
     if (!orders.length) { box.textContent = '暂无订单'; return; }
@@ -561,9 +650,11 @@ const ACCOUNT = layout(`
     const statusNames = { pending: '等待付款', processing: '确认中', paid: '已到账', cancelled: '已取消', expired: '已过期' };
     const nodes = orders.map(order => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid var(--card-border);border-radius:11px;background:rgba(255,255,255,.02)';
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;border:1px solid var(--card-border);border-radius:11px;background:rgba(255,255,255,.02);flex-wrap:wrap';
       const summary = document.createElement('span');
-      summary.textContent = '#' + (Number(order.id) || 0) + ' · ' + (planNames[order.plan] || '字符包') + ' · $' + (Number(order.amount) || 0);
+      const created = formatDate(order.created_at);
+      const exactAmount = Number.isFinite(Number(order.amount_cents)) && Number(order.amount_cents) > 0 ? (Number(order.amount_cents) / 100).toFixed(2) : (Number(order.amount) || 0);
+      summary.textContent = '#' + (Number(order.id) || 0) + ' · ' + (planNames[order.plan] || '字符包') + ' · $' + exactAmount + (created ? ' · ' + created : '');
       const status = document.createElement('span');
       status.textContent = statusNames[order.status] || '处理中';
       status.style.color = order.status === 'paid' ? '#4ade80' : order.status === 'pending' ? '#fbbf24' : 'var(--text-dim)';
@@ -571,6 +662,16 @@ const ACCOUNT = layout(`
       return row;
     });
     box.replaceChildren(...nodes);
+  }
+  async function copyValue(value, label, button) {
+    const message = document.getElementById('account-message');
+    try {
+      await navigator.clipboard.writeText(String(value));
+      message.textContent = label + '已复制';
+      if (button) { const before = button.textContent; button.textContent = '已复制'; setTimeout(() => { button.textContent = before; }, 1400); }
+    } catch (error) {
+      message.textContent = '复制失败，请长按或选中文本复制';
+    }
   }
   async function buy(plan) {
     const ok = document.getElementById('ok'); const er = document.getElementById('err');
@@ -593,10 +694,10 @@ const ACCOUNT = layout(`
             '</div>' +
             '<div style="text-align:left;min-width:200px">' +
               '<div style="color:var(--text-dim);font-size:12.5px;margin-bottom:4px">请转账以下精确金额</div>' +
-              '<div style="font-size:34px;font-weight:800;letter-spacing:-1px;color:#00e5a0" id="usdt-amount">$' + pay.usdt_amount_display + '</div>' +
+              '<div class="copy-row"><div style="font-size:34px;font-weight:800;letter-spacing:-1px;color:#00e5a0" id="usdt-amount">$' + esc(pay.usdt_amount_display) + '</div><button type="button" class="copy-btn" id="copy-usdt-amount">复制金额</button></div>' +
               '<div style="color:var(--text-faint);font-size:12px;margin-top:2px">（含优惠 · 识别订单用）</div>' +
               '<div style="color:var(--text-dim);font-size:12.5px;margin-top:14px;margin-bottom:4px">USDT (TRC20) 收款地址</div>' +
-              '<div style="font-size:12.5px;color:#8fb7ff;word-break:break-all;line-height:1.5" id="usdt-addr">' + esc(pay.usdt_address) + '</div>' +
+              '<div class="copy-row"><div style="font-size:12.5px;color:#8fb7ff;word-break:break-all;line-height:1.5;flex:1;min-width:180px" id="usdt-addr">' + esc(pay.usdt_address) + '</div><button type="button" class="copy-btn" id="copy-usdt-address">复制地址</button></div>' +
             '</div>' +
           '</div>' +
           '<div style="color:var(--text-dim);font-size:13px;line-height:1.7">打开支持 TRC20 的钱包（Token Pocket / TronLink / OKX）扫码或复制地址，<br>转账 <b style="color:#00e5a0">' + pay.usdt_amount_display + ' USDT</b>，系统自动确认到账，无需人工。</div>' +
@@ -610,7 +711,10 @@ const ACCOUNT = layout(`
           const fallback = document.getElementById('usdt-qr-fallback');
           if (fallback) fallback.style.display = 'flex';
         }, { once: true });
+        document.getElementById('copy-usdt-amount')?.addEventListener('click', (event) => copyValue(pay.usdt_amount_display, '精确金额', event.currentTarget));
+        document.getElementById('copy-usdt-address')?.addEventListener('click', (event) => copyValue(pay.usdt_address, '收款地址', event.currentTarget));
         ok.textContent = '订单已生成，扫码转账后自动到账';
+        await loadOrders();
         startUsdtPoll(data.order.id);
       } else {
         // 降级：手动确认（未配置 USDT 地址时）
@@ -622,6 +726,7 @@ const ACCOUNT = layout(`
           '<button class="btn btn-ghost" style="margin-top:14px;padding:8px 18px" onclick="refreshOrder()">我已完成付款，刷新</button>' +
           '</div>';
         ok.textContent = '订单已生成，请完成付款';
+        await loadOrders();
       }
     } catch (e) { er.textContent = '网络错误，请稍后重试'; }
   }
@@ -640,6 +745,7 @@ const ACCOUNT = layout(`
           ok.textContent = '✅ 支付成功，字符已到账！';
           const q = await api('/api/quota');
           document.getElementById('quota').textContent = (q.data.remaining_chars ?? 0).toLocaleString() + ' 字符';
+          await loadOrders();
         } else if (order && order.status === 'expired') {
           clearInterval(usdtPollTimer);
           document.getElementById('usdt-status').innerHTML =
@@ -655,12 +761,27 @@ const ACCOUNT = layout(`
     try {
       const { data } = await api('/api/quota');
       document.getElementById('quota').textContent = (data.remaining_chars ?? 0).toLocaleString() + ' 字符';
+      await loadOrders();
       ok.textContent = '已刷新，当前剩余 ' + (data.remaining_chars ?? 0).toLocaleString() + ' 字符';
     } catch (e) { er.textContent = '网络错误'; }
   }
+  document.getElementById('refresh-account').addEventListener('click', load);
+  document.getElementById('refresh-orders').addEventListener('click', loadOrders);
   load();
   </script>
 `, 'account');
+
+function faviconResponse() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4f8cff"/><stop offset=".55" stop-color="#00e5a0"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#0a0d14"/><rect x="12" y="24" width="26" height="18" rx="5" fill="#111a2d" stroke="#7db4ff" stroke-width="2"/><rect x="32" y="10" width="20" height="14" rx="4" fill="#08221d" stroke="#00e5a0" stroke-width="2"/><path d="M40 43c7-6 9-13 7-20" fill="none" stroke="url(#g)" stroke-width="4" stroke-linecap="round"/><path d="m50 20-5 3 2-6z" fill="url(#g)"/></svg>`;
+  return new Response(svg, {
+    headers: {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=86400',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
 
 function paymentQrResponse(address) {
   const value = String(address || '').trim();
@@ -724,6 +845,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    if (request.method === 'GET' && (path === '/favicon.svg' || path === '/favicon.ico')) return faviconResponse();
     if (request.method === 'GET' && path === '/payment-qr') return paymentQrResponse(url.searchParams.get('address'));
 
     if (path.startsWith('/api/')) return proxyApi(request, path + url.search);
