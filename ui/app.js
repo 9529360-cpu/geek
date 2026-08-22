@@ -847,6 +847,43 @@
           const local = window.__geekTranslationConfig.chats?.[chatId];
           return local ? { ...base, ...local, source: local.source || base.source, messageTarget: local.messageTarget || base.messageTarget } : base;
         };
+        const notifySendBlocked = function (message) {
+          document.getElementById('geek-translation-send-error')?.remove();
+          const notice = document.createElement('div'); notice.id = 'geek-translation-send-error'; notice.textContent = message;
+          Object.assign(notice.style, { position: 'fixed', left: '50%', bottom: '82px', transform: 'translateX(-50%)', zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318', color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)' });
+          document.body.appendChild(notice); setTimeout(() => notice.remove(), 3200);
+        };
+        window.__geekWhatsAppGuardAbort?.abort();
+        window.__geekWhatsAppGuardAbort = new AbortController();
+        const guardSignal = window.__geekWhatsAppGuardAbort.signal;
+        const activeComposerText = function () {
+          const editor = document.querySelector('#main footer [contenteditable="true"],#main [data-testid="conversation-compose-box-input"],[contenteditable="true"][data-tab="10"]');
+          return String(editor?.innerText || editor?.textContent || '').replace(/\u200b/g, '').trim();
+        };
+        const shouldGuardRawSend = function () {
+          const chatId = window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || '';
+          const setting = window.__geekGetTranslationSetting(chatId);
+          const text = activeComposerText();
+          if (!text || !setting?.enabled || !setting?.autoSend) return false;
+          if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) return false;
+          const live = window.require?.('WAWebSendTextMsgChatAction');
+          return !live?.sendTextMsgToChat || live.sendTextMsgToChat !== window.__geekWhatsAppWrappedSend;
+        };
+        const blockUnhookedSend = function (event) {
+          if (!shouldGuardRawSend()) return;
+          event.preventDefault(); event.stopImmediatePropagation();
+          notifySendBlocked('翻译尚未就绪，已阻止原文发送');
+        };
+        document.addEventListener('keydown', function (event) {
+          if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+          if (!event.target?.closest?.('[contenteditable="true"]')) return;
+          blockUnhookedSend(event);
+        }, { capture: true, signal: guardSignal });
+        document.addEventListener('click', function (event) {
+          const button = event.target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],[data-testid="compose-btn-send"],button:has([data-icon="send"])');
+          if (button) blockUnhookedSend(event);
+        }, { capture: true, signal: guardSignal });
+
         const mod = window.require?.('WAWebSendTextMsgChatAction');
         if (!mod?.sendTextMsgToChat) return 'NO_SEND_MODULE';
         if (mod.__geekOriginalSendText) mod.sendTextMsgToChat = mod.__geekOriginalSendText;
@@ -973,7 +1010,7 @@
         mod.__geekOriginalSendText = original;
         // 发送串行队列：用户快速连发多条时，翻译+发送必须按输入顺序排队，防止乱序/合并
         window.__geekSendQueue = window.__geekSendQueue || Promise.resolve();
-        mod.sendTextMsgToChat = function (chat, ...args) {
+        const wrappedSendText = function (chat, ...args) {
           const run = async () => {
             try {
               const id = chat?.id?._serialized;
@@ -986,13 +1023,15 @@
                 args[0] = result.text;
               }
               return original.call(this, chat, ...args);
-            } catch (error) { console.error('[geek-translation]', error); throw error; }
+            } catch (error) { console.error('[geek-translation]', error); notifySendBlocked('翻译失败，原文未发送'); throw error; }
           };
           // 排队：前一条完成后再执行本条（失败也继续下一条，不阻塞队列）
           const next = window.__geekSendQueue.then(run, run);
           window.__geekSendQueue = next.catch(() => {});
           return next;
         };
+        window.__geekWhatsAppWrappedSend = wrappedSendText;
+        mod.sendTextMsgToChat = wrappedSendText;
         const mediaMod = window.require?.('WAWebMediaPrep');
         if (mediaMod?.sendMediaMsgToChat) {
           if (mediaMod.__geekOriginalSendMedia) mediaMod.sendMediaMsgToChat = mediaMod.__geekOriginalSendMedia;
