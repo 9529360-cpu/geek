@@ -1,0 +1,33 @@
+{
+  "version": "1.1.0",
+  "default_model_context_tokens": 128000,
+  "default_pack_budget_tokens": 24000,
+  "generation_reserve_ratio": 0.35,
+  "compact_threshold_ratio": 0.6,
+  "rotate_threshold_ratio": 0.72,
+  "emergency_threshold_ratio": 0.82,
+  "max_embedded_file_tokens": 5000,
+  "recent_event_tail": 50,
+  "checkpoint_interval_minutes": 45,
+  "hot_memory_default": [
+    "active_task",
+    "dependencies",
+    "contracts",
+    "owned_paths",
+    "recent_events",
+    "current_diff"
+  ],
+  "truth_order": [
+    "canonical_records",
+    "approved_evidence",
+    "shared_knowledge",
+    "agent_local_memory",
+    "conversation"
+  ],
+  "routing_classes": [
+    "economy",
+    "standard",
+    "expert"
+  ],
+  "updated_at": "2026-08-22T18:56:47.774694+00:00"
+}

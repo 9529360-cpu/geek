@@ -1,0 +1,98 @@
+[
+  {
+    "task_id": "RST-0001",
+    "roster_agent_id": "research-strategy--market-researcher",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T18:59:27.285793+00:00",
+    "lease_updated_at": "2026-08-22T18:59:59.691681+00:00",
+    "lease_expires_at": "2026-08-22T19:09:59.691681+00:00",
+    "last_progress_ref": "30-evidence/RST-0001/RCPT-20260822T185829841157Z.json",
+    "released_at": "2026-08-22T19:00:00.632037+00:00",
+    "release_reason": "Research output and evidence complete"
+  },
+  {
+    "task_id": "PRD-0001",
+    "roster_agent_id": "product-requirements--product-manager",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T19:02:47.190337+00:00",
+    "lease_updated_at": "2026-08-22T19:02:48.089345+00:00",
+    "lease_expires_at": "2026-08-22T19:12:48.089345+00:00",
+    "last_progress_ref": "30-evidence/PRD-0001/result.json",
+    "released_at": "2026-08-22T19:02:49.000935+00:00",
+    "release_reason": "Product contract complete"
+  },
+  {
+    "task_id": "ARC-0001",
+    "roster_agent_id": "architecture-platform--client-architect",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T19:05:13.617335+00:00",
+    "lease_updated_at": "2026-08-22T19:05:14.497614+00:00",
+    "lease_expires_at": "2026-08-22T19:15:14.497614+00:00",
+    "last_progress_ref": "30-evidence/ARC-0001/result.json",
+    "released_at": "2026-08-22T19:05:15.390043+00:00",
+    "release_reason": "Architecture contract complete"
+  },
+  {
+    "task_id": "UXV-0001",
+    "roster_agent_id": "ux-visual--ux-lead",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T19:06:20.980783+00:00",
+    "lease_updated_at": "2026-08-22T19:06:21.864033+00:00",
+    "lease_expires_at": "2026-08-22T19:16:21.864033+00:00",
+    "last_progress_ref": "30-evidence/UXV-0001/result.json",
+    "released_at": "2026-08-22T19:06:22.757365+00:00",
+    "release_reason": "Experience contract complete"
+  },
+  {
+    "task_id": "CPM-0001",
+    "roster_agent_id": "command-pmo--factory-commander",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T19:07:22.922301+00:00",
+    "lease_updated_at": "2026-08-22T19:07:23.805152+00:00",
+    "lease_expires_at": "2026-08-22T19:17:23.805152+00:00",
+    "last_progress_ref": "30-evidence/CPM-0001/result.json",
+    "released_at": "2026-08-22T19:07:24.706188+00:00",
+    "release_reason": "Execution blueprint complete"
+  },
+  {
+    "task_id": "QAA-0001",
+    "roster_agent_id": "quality-assurance--test-architect",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T19:08:15.705829+00:00",
+    "lease_updated_at": "2026-08-22T19:08:16.622891+00:00",
+    "lease_expires_at": "2026-08-22T19:18:16.622891+00:00",
+    "last_progress_ref": "30-evidence/QAA-0001/result.json",
+    "released_at": "2026-08-22T19:08:17.471893+00:00",
+    "release_reason": "Verification contract complete"
+  },
+  {
+    "task_id": "SPK-001",
+    "roster_agent_id": "client-engineering--core-client-engineer",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T19:09:36.635911+00:00",
+    "lease_updated_at": "2026-08-22T19:17:25.368561+00:00",
+    "lease_expires_at": "2026-08-22T19:27:25.368561+00:00",
+    "last_progress_ref": "30-evidence/SPK-001/verification-report.md",
+    "released_at": "2026-08-22T19:17:25.691726+00:00",
+    "release_reason": "APK built, installed, cold-started, visually inspected, and crash-scanned on authorized Mblu 21"
+  },
+  {
+    "task_id": "MOB-001",
+    "roster_agent_id": "client-engineering--core-client-engineer",
+    "runtime_agent_id": "codex-root",
+    "status": "released",
+    "bound_at": "2026-08-22T19:18:14.103838+00:00",
+    "lease_updated_at": "2026-08-22T19:22:37.154363+00:00",
+    "lease_expires_at": "2026-08-22T19:32:37.154363+00:00",
+    "last_progress_ref": "30-evidence/MOB-001/verification-report.md",
+    "released_at": "2026-08-22T19:22:37.485030+00:00",
+    "release_reason": "Formal shell passed tests, lint, build, physical-device install, cold start, navigation, visual, and crash checks"
+  }
+]

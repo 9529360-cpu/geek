@@ -1,0 +1,151 @@
+{
+  "task_id": "RST-0001",
+  "title": "Research the problem, users, constraints, and alternatives",
+  "department": "research-strategy",
+  "role_required": [
+    "market-researcher"
+  ],
+  "capability_tags": [
+    "intent-compilation",
+    "research"
+  ],
+  "priority": "high",
+  "status": "accepted",
+  "owner_agent": "research-strategy--market-researcher",
+  "manager_agent": "research-strategy--research-manager",
+  "reviewer_agent": "quality-assurance--test-architect",
+  "branch_or_worktree": null,
+  "inputs": [
+    "02-shared-knowledge/build-specimen/intent-contract.json"
+  ],
+  "owned_paths": [
+    "02-shared-knowledge/build-specimen/research.json",
+    "30-evidence/RST-0001/**"
+  ],
+  "outputs": [
+    "02-shared-knowledge/build-specimen/research.json"
+  ],
+  "dependencies": [],
+  "acceptance_criteria": [
+    "Output validates against workflow stage research schema",
+    "All cross-document IDs resolve and applicable requirement coverage is complete",
+    "Facts and model assessments are separated in the evidence receipt",
+    "Input and workflow hashes match the dispatch packet"
+  ],
+  "required_evidence": [
+    "structured completion",
+    "deterministic checks",
+    "cross-document validation",
+    "provenance hashes"
+  ],
+  "risk": "medium",
+  "workflow": {
+    "workflow_id": "intent-to-build",
+    "stage_id": "research",
+    "contract_path": "00-command-center/workflows/intent-to-build.json",
+    "contract_hash": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559",
+    "prompt_version": "n-forge-intent-v1",
+    "attempt_limit": 3,
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "claims",
+        "uncertainties",
+        "recommendation"
+      ],
+      "properties": {
+        "claims": {
+          "type": "array"
+        },
+        "uncertainties": {
+          "type": "array"
+        },
+        "recommendation": {
+          "type": "string"
+        }
+      }
+    },
+    "routing_rules": {
+      "allow": {
+        "next_task": "PRD-0001"
+      },
+      "defer": {
+        "next_task": "RST-0001"
+      },
+      "block": {
+        "next_task": null
+      }
+    }
+  },
+  "task_type": "design",
+  "requires_foundation_gate": false,
+  "source_hashes": {
+    "02-shared-knowledge/build-specimen/intent-contract.json": "3e0009fc8b0234eb3fbc15a85e7ccef5b69d6fc537a9919b292778ed66bd3ca2"
+  },
+  "local_test_commands": [
+    "python \"C:\\Users\\bz977\\.codex\\skills\\n-forge\\scripts\\advance_workflow.py\" --project \"<project>\" --task RST-0001 --result \"<result.json>\""
+  ],
+  "completion_format": {
+    "required": [
+      "task_id",
+      "outcome",
+      "next_task",
+      "prompt_version",
+      "contract_hash",
+      "source_hashes",
+      "output_path",
+      "facts",
+      "assessments",
+      "checks"
+    ],
+    "outcomes": [
+      "allow",
+      "defer",
+      "block"
+    ]
+  },
+  "escalation_conditions": [
+    "contract or source hash drift",
+    "scope or architecture change outside the stage contract",
+    "repeated identical failure",
+    "attempt budget exhausted",
+    "missing deterministic verification"
+  ],
+  "created_at": "2026-08-22T18:56:48.738030+00:00",
+  "updated_at": "2026-08-22T19:00:03.332581+00:00",
+  "delivery_package": null,
+  "review_records": [
+    {
+      "from": "ready",
+      "to": "claimed",
+      "actor": "codex-root",
+      "reason": "Begin bounded research contract",
+      "evidence_ref": null,
+      "recorded_at": "2026-08-22T18:59:25.608261+00:00"
+    },
+    {
+      "from": "self_checked",
+      "to": "manager_review",
+      "actor": "research-strategy--research-manager",
+      "reason": "Research completeness review passed",
+      "evidence_ref": "30-evidence/RST-0001/RCPT-20260822T185829841157Z.json",
+      "recorded_at": "2026-08-22T19:00:01.535199+00:00"
+    },
+    {
+      "from": "manager_review",
+      "to": "quality_review",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Independent schema and evidence review passed",
+      "evidence_ref": "30-evidence/RST-0001/RCPT-20260822T185829841157Z.json",
+      "recorded_at": "2026-08-22T19:00:02.425997+00:00"
+    },
+    {
+      "from": "quality_review",
+      "to": "accepted",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Research contract accepted",
+      "evidence_ref": "30-evidence/RST-0001/RCPT-20260822T185829841157Z.json",
+      "recorded_at": "2026-08-22T19:00:03.332581+00:00"
+    }
+  ]
+}

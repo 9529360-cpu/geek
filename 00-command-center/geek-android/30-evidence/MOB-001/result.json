@@ -1,0 +1,24 @@
+{
+  "task_id": "MOB-001",
+  "outcome": "allow",
+  "facts": [
+    "The formal Android shell passed unit tests, lint, and debug assembly.",
+    "The formal debug package installed and cold-started on the authorized Mblu 21 without a fatal crash.",
+    "All four compact mobile navigation destinations were exercised through UI Automator."
+  ],
+  "assessments": [
+    "The formal application foundation is ready for the single-account runtime task.",
+    "Account login and later capabilities remain intentionally unavailable until their acceptance gates pass."
+  ],
+  "checks": [
+    {"name": "testDebugUnitTest", "exit_code": 0, "evidence": "Gradle BUILD SUCCESSFUL"},
+    {"name": "lintDebug", "exit_code": 0, "evidence": "Gradle BUILD SUCCESSFUL with abortOnError"},
+    {"name": "assembleDebug", "exit_code": 0, "evidence": "Gradle BUILD SUCCESSFUL; 47 actionable tasks"},
+    {"name": "adb_install", "exit_code": 0, "evidence": "Performing Streamed Install; Success"},
+    {"name": "adb_cold_start", "exit_code": 0, "evidence": "Status ok; LaunchState COLD; TotalTime 1186ms"},
+    {"name": "navigation_smoke", "exit_code": 0, "evidence": "All four destination text assertions passed"},
+    {"name": "crash_scan", "exit_code": 0, "evidence": "No fatal package crash in post-launch logcat scan"},
+    {"name": "git_diff_check", "exit_code": 0, "evidence": "No whitespace errors"}
+  ],
+  "evidence_ref": "30-evidence/MOB-001/verification-report.md"
+}

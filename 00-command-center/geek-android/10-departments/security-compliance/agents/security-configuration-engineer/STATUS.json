@@ -1,0 +1,11 @@
+{
+  "agent_id": "security-compliance--security-configuration-engineer",
+  "department": "security-compliance",
+  "role": "security-configuration-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.483692+00:00"
+}

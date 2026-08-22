@@ -1,0 +1,11 @@
+{
+  "agent_id": "client-engineering--input-interaction-engineer",
+  "department": "client-engineering",
+  "role": "input-interaction-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.209910+00:00"
+}

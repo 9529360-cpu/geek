@@ -1,0 +1,17 @@
+{
+  "project_id": "NF-20260822-GEEK-ANDROID",
+  "status": "intake",
+  "profile": "lean",
+  "execution_mode": "single-agent-emulation",
+  "departments": 14,
+  "role_slots": 140,
+  "active_roles": 24,
+  "task_counts": {
+    "accepted": 8
+  },
+  "current_gate": "QG-0",
+  "release_candidate": null,
+  "context_health": "healthy",
+  "current_session": null,
+  "updated_at": "2026-08-22T19:22:38.467058+00:00"
+}

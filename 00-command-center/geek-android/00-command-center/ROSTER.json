@@ -1,0 +1,1402 @@
+[
+  {
+    "agent_id": "command-pmo--factory-commander",
+    "department": "command-pmo",
+    "role": "factory-commander",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\command-pmo\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--project-director",
+    "department": "command-pmo",
+    "role": "project-director",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\project-director",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/project-director/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--project-manager",
+    "department": "command-pmo",
+    "role": "project-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\project-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/project-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--task-decomposition-manager",
+    "department": "command-pmo",
+    "role": "task-decomposition-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\task-decomposition-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/task-decomposition-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--resource-dispatch-manager",
+    "department": "command-pmo",
+    "role": "resource-dispatch-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\resource-dispatch-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/resource-dispatch-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--dependency-manager",
+    "department": "command-pmo",
+    "role": "dependency-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\dependency-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/dependency-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--risk-manager",
+    "department": "command-pmo",
+    "role": "risk-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\risk-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/risk-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--change-manager",
+    "department": "command-pmo",
+    "role": "change-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\change-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/change-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--configuration-manager",
+    "department": "command-pmo",
+    "role": "configuration-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\configuration-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/configuration-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "command-pmo--progress-auditor",
+    "department": "command-pmo",
+    "role": "progress-auditor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\command-pmo\\agents\\progress-auditor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/command-pmo/agents/progress-auditor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--research-manager",
+    "department": "research-strategy",
+    "role": "research-manager",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\research-strategy\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--market-researcher",
+    "department": "research-strategy",
+    "role": "market-researcher",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\research-strategy\\agents\\market-researcher",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/market-researcher/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--competitor-analyst",
+    "department": "research-strategy",
+    "role": "competitor-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\competitor-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/competitor-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--user-researcher",
+    "department": "research-strategy",
+    "role": "user-researcher",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\user-researcher",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/user-researcher/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--industry-trend-analyst",
+    "department": "research-strategy",
+    "role": "industry-trend-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\industry-trend-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/industry-trend-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--business-model-analyst",
+    "department": "research-strategy",
+    "role": "business-model-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\business-model-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/business-model-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--technology-researcher",
+    "department": "research-strategy",
+    "role": "technology-researcher",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\technology-researcher",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/technology-researcher/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--platform-channel-analyst",
+    "department": "research-strategy",
+    "role": "platform-channel-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\platform-channel-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/platform-channel-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--research-data-analyst",
+    "department": "research-strategy",
+    "role": "research-data-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\research-data-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/research-data-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "research-strategy--research-reviewer",
+    "department": "research-strategy",
+    "role": "research-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\research-strategy\\agents\\research-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/research-strategy/agents/research-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--product-lead",
+    "department": "product-requirements",
+    "role": "product-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\product-requirements\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--product-manager",
+    "department": "product-requirements",
+    "role": "product-manager",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\product-requirements\\agents\\product-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/product-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--requirements-analyst",
+    "department": "product-requirements",
+    "role": "requirements-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\requirements-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/requirements-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--business-analyst",
+    "department": "product-requirements",
+    "role": "business-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\business-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/business-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--user-story-designer",
+    "department": "product-requirements",
+    "role": "user-story-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\user-story-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/user-story-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--acceptance-criteria-engineer",
+    "department": "product-requirements",
+    "role": "acceptance-criteria-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\acceptance-criteria-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/acceptance-criteria-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--product-flow-designer",
+    "department": "product-requirements",
+    "role": "product-flow-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\product-flow-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/product-flow-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--scope-manager",
+    "department": "product-requirements",
+    "role": "scope-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\scope-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/scope-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--product-metrics-designer",
+    "department": "product-requirements",
+    "role": "product-metrics-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\product-metrics-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/product-metrics-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "product-requirements--requirements-reviewer",
+    "department": "product-requirements",
+    "role": "requirements-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\product-requirements\\agents\\requirements-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/product-requirements/agents/requirements-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--domain-design-lead",
+    "department": "domain-design",
+    "role": "domain-design-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\domain-design\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--core-mechanics-designer",
+    "department": "domain-design",
+    "role": "core-mechanics-designer",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\domain-design\\agents\\core-mechanics-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/core-mechanics-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--level-or-workflow-designer",
+    "department": "domain-design",
+    "role": "level-or-workflow-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\level-or-workflow-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/level-or-workflow-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--item-or-rule-designer",
+    "department": "domain-design",
+    "role": "item-or-rule-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\item-or-rule-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/item-or-rule-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--progression-designer",
+    "department": "domain-design",
+    "role": "progression-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\progression-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/progression-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--mission-system-designer",
+    "department": "domain-design",
+    "role": "mission-system-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\mission-system-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/mission-system-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--economy-or-policy-designer",
+    "department": "domain-design",
+    "role": "economy-or-policy-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\economy-or-policy-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/economy-or-policy-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--balance-simulation-designer",
+    "department": "domain-design",
+    "role": "balance-simulation-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\balance-simulation-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/balance-simulation-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--onboarding-designer",
+    "department": "domain-design",
+    "role": "onboarding-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\onboarding-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/onboarding-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "domain-design--configuration-data-engineer",
+    "department": "domain-design",
+    "role": "configuration-data-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\domain-design\\agents\\configuration-data-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/domain-design/agents/configuration-data-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--chief-architect",
+    "department": "architecture-platform",
+    "role": "chief-architect",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\architecture-platform\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--client-architect",
+    "department": "architecture-platform",
+    "role": "client-architect",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\architecture-platform\\agents\\client-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/client-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--backend-architect",
+    "department": "architecture-platform",
+    "role": "backend-architect",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\backend-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/backend-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--data-architect",
+    "department": "architecture-platform",
+    "role": "data-architect",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\data-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/data-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--api-architect",
+    "department": "architecture-platform",
+    "role": "api-architect",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\api-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/api-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--security-architect",
+    "department": "architecture-platform",
+    "role": "security-architect",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\security-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/security-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--performance-architect",
+    "department": "architecture-platform",
+    "role": "performance-architect",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\performance-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/performance-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--infrastructure-architect",
+    "department": "architecture-platform",
+    "role": "infrastructure-architect",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\infrastructure-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/infrastructure-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--build-systems-engineer",
+    "department": "architecture-platform",
+    "role": "build-systems-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\build-systems-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/build-systems-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "architecture-platform--architecture-reviewer",
+    "department": "architecture-platform",
+    "role": "architecture-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\architecture-platform\\agents\\architecture-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/architecture-platform/agents/architecture-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--design-director",
+    "department": "ux-visual",
+    "role": "design-director",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\ux-visual\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--ux-lead",
+    "department": "ux-visual",
+    "role": "ux-lead",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\ux-visual\\agents\\ux-lead",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/ux-lead/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--ui-designer",
+    "department": "ux-visual",
+    "role": "ui-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\ui-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/ui-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--interaction-designer",
+    "department": "ux-visual",
+    "role": "interaction-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\interaction-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/interaction-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--design-system-engineer",
+    "department": "ux-visual",
+    "role": "design-system-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\design-system-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/design-system-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--visual-artist",
+    "department": "ux-visual",
+    "role": "visual-artist",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\visual-artist",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/visual-artist/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--motion-designer",
+    "department": "ux-visual",
+    "role": "motion-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\motion-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/motion-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--icon-asset-designer",
+    "department": "ux-visual",
+    "role": "icon-asset-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\icon-asset-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/icon-asset-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--accessibility-designer",
+    "department": "ux-visual",
+    "role": "accessibility-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\accessibility-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/accessibility-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "ux-visual--visual-quality-reviewer",
+    "department": "ux-visual",
+    "role": "visual-quality-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\ux-visual\\agents\\visual-quality-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/ux-visual/agents/visual-quality-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--client-tech-lead",
+    "department": "client-engineering",
+    "role": "client-tech-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\client-engineering\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--core-client-engineer",
+    "department": "client-engineering",
+    "role": "core-client-engineer",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\client-engineering\\agents\\core-client-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/core-client-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--ui-engineer",
+    "department": "client-engineering",
+    "role": "ui-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\ui-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/ui-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--animation-engineer",
+    "department": "client-engineering",
+    "role": "animation-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\animation-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/animation-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--input-interaction-engineer",
+    "department": "client-engineering",
+    "role": "input-interaction-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\input-interaction-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/input-interaction-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--state-management-engineer",
+    "department": "client-engineering",
+    "role": "state-management-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\state-management-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/state-management-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--local-storage-engineer",
+    "department": "client-engineering",
+    "role": "local-storage-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\local-storage-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/local-storage-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--client-performance-engineer",
+    "department": "client-engineering",
+    "role": "client-performance-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\client-performance-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/client-performance-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--multiplatform-engineer",
+    "department": "client-engineering",
+    "role": "multiplatform-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\multiplatform-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/multiplatform-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "client-engineering--client-code-reviewer",
+    "department": "client-engineering",
+    "role": "client-code-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\client-engineering\\agents\\client-code-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/client-engineering/agents/client-code-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--backend-tech-lead",
+    "department": "backend-data",
+    "role": "backend-tech-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\backend-data\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--identity-engineer",
+    "department": "backend-data",
+    "role": "identity-engineer",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\backend-data\\agents\\identity-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/identity-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--ranking-query-engineer",
+    "department": "backend-data",
+    "role": "ranking-query-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\ranking-query-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/ranking-query-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--rewards-workflow-engineer",
+    "department": "backend-data",
+    "role": "rewards-workflow-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\rewards-workflow-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/rewards-workflow-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--api-engineer",
+    "department": "backend-data",
+    "role": "api-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\api-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/api-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--database-engineer",
+    "department": "backend-data",
+    "role": "database-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\database-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/database-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--data-model-engineer",
+    "department": "backend-data",
+    "role": "data-model-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\data-model-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/data-model-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--analytics-instrumentation-engineer",
+    "department": "backend-data",
+    "role": "analytics-instrumentation-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\analytics-instrumentation-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/analytics-instrumentation-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--abuse-prevention-engineer",
+    "department": "backend-data",
+    "role": "abuse-prevention-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\abuse-prevention-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/abuse-prevention-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "backend-data--backend-code-reviewer",
+    "department": "backend-data",
+    "role": "backend-code-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\backend-data\\agents\\backend-code-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/backend-data/agents/backend-code-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--content-audio-lead",
+    "department": "content-audio",
+    "role": "content-audio-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\content-audio\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--sound-designer",
+    "department": "content-audio",
+    "role": "sound-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\sound-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/sound-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--music-designer",
+    "department": "content-audio",
+    "role": "music-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\music-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/music-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--feedback-audio-designer",
+    "department": "content-audio",
+    "role": "feedback-audio-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\feedback-audio-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/feedback-audio-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--audio-integration-engineer",
+    "department": "content-audio",
+    "role": "audio-integration-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\audio-integration-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/audio-integration-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--audio-optimization-engineer",
+    "department": "content-audio",
+    "role": "audio-optimization-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\audio-optimization-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/audio-optimization-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--voice-content-editor",
+    "department": "content-audio",
+    "role": "voice-content-editor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\voice-content-editor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/voice-content-editor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--content-writer",
+    "department": "content-audio",
+    "role": "content-writer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\content-writer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/content-writer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--localization-editor",
+    "department": "content-audio",
+    "role": "localization-editor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\localization-editor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/localization-editor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "content-audio--content-quality-reviewer",
+    "department": "content-audio",
+    "role": "content-quality-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\content-audio\\agents\\content-quality-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/content-audio/agents/content-quality-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--qa-lead",
+    "department": "quality-assurance",
+    "role": "qa-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\quality-assurance\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--test-architect",
+    "department": "quality-assurance",
+    "role": "test-architect",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\quality-assurance\\agents\\test-architect",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/test-architect/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--functional-test-engineer",
+    "department": "quality-assurance",
+    "role": "functional-test-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\functional-test-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/functional-test-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--automation-test-engineer",
+    "department": "quality-assurance",
+    "role": "automation-test-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\automation-test-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/automation-test-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--integration-test-engineer",
+    "department": "quality-assurance",
+    "role": "integration-test-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\integration-test-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/integration-test-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--regression-test-engineer",
+    "department": "quality-assurance",
+    "role": "regression-test-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\regression-test-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/regression-test-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--compatibility-test-engineer",
+    "department": "quality-assurance",
+    "role": "compatibility-test-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\compatibility-test-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/compatibility-test-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--performance-test-engineer",
+    "department": "quality-assurance",
+    "role": "performance-test-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\performance-test-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/performance-test-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--usability-test-engineer",
+    "department": "quality-assurance",
+    "role": "usability-test-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\usability-test-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/usability-test-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "quality-assurance--release-quality-auditor",
+    "department": "quality-assurance",
+    "role": "release-quality-auditor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\quality-assurance\\agents\\release-quality-auditor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/quality-assurance/agents/release-quality-auditor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--security-lead",
+    "department": "security-compliance",
+    "role": "security-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\security-compliance\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--threat-model-engineer",
+    "department": "security-compliance",
+    "role": "threat-model-engineer",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\security-compliance\\agents\\threat-model-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/threat-model-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--application-security-engineer",
+    "department": "security-compliance",
+    "role": "application-security-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\application-security-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/application-security-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--dependency-security-auditor",
+    "department": "security-compliance",
+    "role": "dependency-security-auditor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\dependency-security-auditor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/dependency-security-auditor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--privacy-engineer",
+    "department": "security-compliance",
+    "role": "privacy-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\privacy-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/privacy-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--access-control-auditor",
+    "department": "security-compliance",
+    "role": "access-control-auditor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\access-control-auditor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/access-control-auditor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--security-configuration-engineer",
+    "department": "security-compliance",
+    "role": "security-configuration-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\security-configuration-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/security-configuration-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--license-provenance-auditor",
+    "department": "security-compliance",
+    "role": "license-provenance-auditor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\license-provenance-auditor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/license-provenance-auditor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--legal-compliance-reviewer",
+    "department": "security-compliance",
+    "role": "legal-compliance-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\legal-compliance-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/legal-compliance-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "security-compliance--security-acceptance-owner",
+    "department": "security-compliance",
+    "role": "security-acceptance-owner",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\security-compliance\\agents\\security-acceptance-owner",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/security-compliance/agents/security-acceptance-owner/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--release-lead",
+    "department": "devops-release",
+    "role": "release-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\devops-release\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--ci-cd-engineer",
+    "department": "devops-release",
+    "role": "ci-cd-engineer",
+    "is_manager": false,
+    "activation": "active",
+    "home": "10-departments\\devops-release\\agents\\ci-cd-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/ci-cd-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--build-engineer",
+    "department": "devops-release",
+    "role": "build-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\build-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/build-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--environment-engineer",
+    "department": "devops-release",
+    "role": "environment-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\environment-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/environment-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--container-engineer",
+    "department": "devops-release",
+    "role": "container-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\container-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/container-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--observability-engineer",
+    "department": "devops-release",
+    "role": "observability-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\observability-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/observability-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--deployment-engineer",
+    "department": "devops-release",
+    "role": "deployment-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\deployment-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/deployment-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--rollback-engineer",
+    "department": "devops-release",
+    "role": "rollback-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\rollback-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/rollback-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--package-signing-engineer",
+    "department": "devops-release",
+    "role": "package-signing-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\package-signing-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/package-signing-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "devops-release--release-records-manager",
+    "department": "devops-release",
+    "role": "release-records-manager",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\devops-release\\agents\\release-records-manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/devops-release/agents/release-records-manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--documentation-lead",
+    "department": "documentation-support",
+    "role": "documentation-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\documentation-support\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--architecture-documentation-engineer",
+    "department": "documentation-support",
+    "role": "architecture-documentation-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\architecture-documentation-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/architecture-documentation-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--api-documentation-engineer",
+    "department": "documentation-support",
+    "role": "api-documentation-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\api-documentation-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/api-documentation-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--user-guide-editor",
+    "department": "documentation-support",
+    "role": "user-guide-editor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\user-guide-editor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/user-guide-editor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--operations-manual-editor",
+    "department": "documentation-support",
+    "role": "operations-manual-editor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\operations-manual-editor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/operations-manual-editor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--troubleshooting-editor",
+    "department": "documentation-support",
+    "role": "troubleshooting-editor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\troubleshooting-editor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/troubleshooting-editor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--release-notes-editor",
+    "department": "documentation-support",
+    "role": "release-notes-editor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\release-notes-editor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/release-notes-editor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--documentation-localization-editor",
+    "department": "documentation-support",
+    "role": "documentation-localization-editor",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\documentation-localization-editor",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/documentation-localization-editor/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--support-knowledge-engineer",
+    "department": "documentation-support",
+    "role": "support-knowledge-engineer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\support-knowledge-engineer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/support-knowledge-engineer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "documentation-support--documentation-quality-reviewer",
+    "department": "documentation-support",
+    "role": "documentation-quality-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\documentation-support\\agents\\documentation-quality-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/documentation-support/agents/documentation-quality-reviewer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--operations-lead",
+    "department": "operations-growth",
+    "role": "operations-lead",
+    "is_manager": true,
+    "activation": "active",
+    "home": "10-departments\\operations-growth\\manager",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/manager/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--distribution-operations-specialist",
+    "department": "operations-growth",
+    "role": "distribution-operations-specialist",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\distribution-operations-specialist",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/distribution-operations-specialist/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--growth-designer",
+    "department": "operations-growth",
+    "role": "growth-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\growth-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/growth-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--monetization-designer",
+    "department": "operations-growth",
+    "role": "monetization-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\monetization-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/monetization-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--experiment-designer",
+    "department": "operations-growth",
+    "role": "experiment-designer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\experiment-designer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/experiment-designer/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--lifecycle-operator",
+    "department": "operations-growth",
+    "role": "lifecycle-operator",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\lifecycle-operator",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/lifecycle-operator/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--community-operator",
+    "department": "operations-growth",
+    "role": "community-operator",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\community-operator",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/community-operator/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--feedback-analyst",
+    "department": "operations-growth",
+    "role": "feedback-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\feedback-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/feedback-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--product-kpi-analyst",
+    "department": "operations-growth",
+    "role": "product-kpi-analyst",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\product-kpi-analyst",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/product-kpi-analyst/ROLE_SKILLS.md"
+  },
+  {
+    "agent_id": "operations-growth--post-launch-reviewer",
+    "department": "operations-growth",
+    "role": "post-launch-reviewer",
+    "is_manager": false,
+    "activation": "inactive",
+    "home": "10-departments\\operations-growth\\agents\\post-launch-reviewer",
+    "runtime_binding": "dynamic",
+    "skill_profile": "10-departments/operations-growth/agents/post-launch-reviewer/ROLE_SKILLS.md"
+  }
+]

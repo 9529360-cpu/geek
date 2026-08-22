@@ -1,0 +1,20 @@
+# Autonomous Product Brief
+
+## Goal
+
+构建属于极客的 Android 多账号聊天客户端，按 App 外壳、账号隔离多开、翻译、群发的顺序逐步交付，不依赖商业消息 API。
+
+## Known inputs
+
+- 桌面端现有 WhatsApp、Telegram、LINE 网页会话、翻译网关和账号沙箱逻辑是参考实现，但移动端必须独立构建。
+- 首期仅 Android；真实设备为 MEIZU Mblu 21、Android 14、arm64、约 6GB 内存。
+- 不使用 WhatsApp 或 LINE 商业消息 API；先做 App，再多开，再翻译，再群发。
+
+## Observable success
+
+- 在已连接的 Mblu 21 Android 14 真机上安装并启动极客 App。
+- 单账号 Web 会话能够登录、收发并在重启后恢复，随后才能进入多账号隔离实现。
+
+## Operating instruction
+
+Research first, preserve uncertainty, minimize sensitive data, and progress autonomously through the phase gates. Ask the user only for authority or material choices listed in `AUTONOMY_POLICY.json`.

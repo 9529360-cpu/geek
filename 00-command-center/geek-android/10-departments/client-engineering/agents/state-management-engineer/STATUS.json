@@ -1,0 +1,11 @@
+{
+  "agent_id": "client-engineering--state-management-engineer",
+  "department": "client-engineering",
+  "role": "state-management-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.216350+00:00"
+}

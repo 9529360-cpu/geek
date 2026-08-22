@@ -1,0 +1,11 @@
+{
+  "agent_id": "client-engineering--ui-engineer",
+  "department": "client-engineering",
+  "role": "ui-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.197470+00:00"
+}

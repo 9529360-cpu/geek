@@ -1,0 +1,11 @@
+{
+  "agent_id": "documentation-support--operations-manual-editor",
+  "department": "documentation-support",
+  "role": "operations-manual-editor",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.597288+00:00"
+}

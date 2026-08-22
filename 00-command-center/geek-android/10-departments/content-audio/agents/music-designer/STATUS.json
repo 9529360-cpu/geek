@@ -1,0 +1,11 @@
+{
+  "agent_id": "content-audio--music-designer",
+  "department": "content-audio",
+  "role": "music-designer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.331321+00:00"
+}

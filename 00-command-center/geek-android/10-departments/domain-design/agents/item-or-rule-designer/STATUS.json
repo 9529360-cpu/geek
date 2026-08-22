@@ -1,0 +1,11 @@
+{
+  "agent_id": "domain-design--item-or-rule-designer",
+  "department": "domain-design",
+  "role": "item-or-rule-designer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.012115+00:00"
+}

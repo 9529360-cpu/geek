@@ -1,0 +1,8 @@
+{
+  "session_id": null,
+  "actor": null,
+  "task_id": null,
+  "status": "not_started",
+  "estimated_consumed_tokens": 0,
+  "updated_at": "2026-08-22T18:56:47.774694+00:00"
+}

@@ -1,0 +1,161 @@
+{
+  "task_id": "PRD-0001",
+  "title": "Compile user workflows, scope, and measurable product acceptance",
+  "department": "product-requirements",
+  "role_required": [
+    "product-manager"
+  ],
+  "capability_tags": [
+    "intent-compilation",
+    "product-contract"
+  ],
+  "priority": "high",
+  "status": "accepted",
+  "owner_agent": "product-requirements--product-manager",
+  "manager_agent": "product-requirements--product-lead",
+  "reviewer_agent": "quality-assurance--test-architect",
+  "branch_or_worktree": null,
+  "inputs": [
+    "02-shared-knowledge/build-specimen/research.json"
+  ],
+  "owned_paths": [
+    "02-shared-knowledge/build-specimen/product-contract.json",
+    "30-evidence/PRD-0001/**"
+  ],
+  "outputs": [
+    "02-shared-knowledge/build-specimen/product-contract.json"
+  ],
+  "dependencies": [
+    "RST-0001"
+  ],
+  "acceptance_criteria": [
+    "Output validates against workflow stage product-contract schema",
+    "All cross-document IDs resolve and applicable requirement coverage is complete",
+    "Facts and model assessments are separated in the evidence receipt",
+    "Input and workflow hashes match the dispatch packet"
+  ],
+  "required_evidence": [
+    "structured completion",
+    "deterministic checks",
+    "cross-document validation",
+    "provenance hashes"
+  ],
+  "risk": "medium",
+  "workflow": {
+    "workflow_id": "intent-to-build",
+    "stage_id": "product-contract",
+    "contract_path": "00-command-center/workflows/intent-to-build.json",
+    "contract_hash": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559",
+    "prompt_version": "n-forge-intent-v1",
+    "attempt_limit": 3,
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "actors",
+        "requirements",
+        "workflows",
+        "non_goals",
+        "acceptance_oracles"
+      ],
+      "properties": {
+        "actors": {
+          "type": "array"
+        },
+        "requirements": {
+          "type": "array"
+        },
+        "workflows": {
+          "type": "array"
+        },
+        "non_goals": {
+          "type": "array"
+        },
+        "acceptance_oracles": {
+          "type": "array"
+        }
+      }
+    },
+    "routing_rules": {
+      "allow": {
+        "next_task": "ARC-0001"
+      },
+      "defer": {
+        "next_task": "PRD-0001"
+      },
+      "block": {
+        "next_task": null
+      }
+    }
+  },
+  "task_type": "design",
+  "requires_foundation_gate": false,
+  "source_hashes": {
+    "02-shared-knowledge/build-specimen/research.json": "7cb02e366dcb5379f352e99de4dddd859cce97efc77dd3d653ef57bc5eb95e17"
+  },
+  "local_test_commands": [
+    "python \"C:\\Users\\bz977\\.codex\\skills\\n-forge\\scripts\\advance_workflow.py\" --project \"<project>\" --task PRD-0001 --result \"<result.json>\""
+  ],
+  "completion_format": {
+    "required": [
+      "task_id",
+      "outcome",
+      "next_task",
+      "prompt_version",
+      "contract_hash",
+      "source_hashes",
+      "output_path",
+      "facts",
+      "assessments",
+      "checks"
+    ],
+    "outcomes": [
+      "allow",
+      "defer",
+      "block"
+    ]
+  },
+  "escalation_conditions": [
+    "contract or source hash drift",
+    "scope or architecture change outside the stage contract",
+    "repeated identical failure",
+    "attempt budget exhausted",
+    "missing deterministic verification"
+  ],
+  "created_at": "2026-08-22T18:56:48.740035+00:00",
+  "updated_at": "2026-08-22T19:02:51.742294+00:00",
+  "delivery_package": null,
+  "review_records": [
+    {
+      "from": "ready",
+      "to": "claimed",
+      "actor": "codex-root",
+      "reason": "Compile bounded Android product contract",
+      "evidence_ref": null,
+      "recorded_at": "2026-08-22T19:02:45.458069+00:00"
+    },
+    {
+      "from": "self_checked",
+      "to": "manager_review",
+      "actor": "product-requirements--product-lead",
+      "reason": "Scope and traceability reviewed",
+      "evidence_ref": "30-evidence/PRD-0001/result.json",
+      "recorded_at": "2026-08-22T19:02:49.922457+00:00"
+    },
+    {
+      "from": "manager_review",
+      "to": "quality_review",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Independent acceptance review",
+      "evidence_ref": "30-evidence/PRD-0001/result.json",
+      "recorded_at": "2026-08-22T19:02:50.866686+00:00"
+    },
+    {
+      "from": "quality_review",
+      "to": "accepted",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Product contract accepted",
+      "evidence_ref": "30-evidence/PRD-0001/result.json",
+      "recorded_at": "2026-08-22T19:02:51.742294+00:00"
+    }
+  ]
+}

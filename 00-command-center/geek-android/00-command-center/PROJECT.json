@@ -1,0 +1,15 @@
+{
+  "project_id": "NF-20260822-GEEK-ANDROID",
+  "name": "Geek Android",
+  "goal": "构建属于极客的 Android 多账号聊天客户端，按 App 外壳、账号隔离多开、翻译、群发的顺序逐步交付，不依赖商业消息 API。",
+  "slug": "geek-android",
+  "profile": "lean",
+  "execution_mode": "single-agent-emulation",
+  "status": "intake",
+  "created_at": "2026-08-22T18:56:47.770025+00:00",
+  "factory_version": "1.1.0",
+  "canonical_state": "00-command-center/FACTORY_STATE.json",
+  "event_log": "00-command-center/EVENTS.jsonl",
+  "context_protocol": "00-command-center/context/CONTEXT_POLICY.json",
+  "session_ledger": "00-command-center/context/SESSION_LEDGER.jsonl"
+}

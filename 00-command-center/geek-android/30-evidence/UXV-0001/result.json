@@ -1,0 +1,9 @@
+{
+  "task_id": "UXV-0001", "outcome": "allow", "next_task": "CPM-0001",
+  "prompt_version": "n-forge-intent-v1", "contract_hash": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559",
+  "source_hashes": {"02-shared-knowledge/build-specimen/system-contracts.json": "38c32ddf7d6d4361267ae4d1dedefe190631d1a0345d2b6cbd1d41621356be2b"},
+  "output_path": "02-shared-knowledge/build-specimen/experience-contract.json",
+  "facts": ["All planned mobile phases have explicit surfaces and failure states.", "The first device visual target is 720x1640 at 320dpi."],
+  "assessments": ["The foundation UI stays deliberately small so engine evidence, not polish, decides the next route."],
+  "checks": [{"name": "experience-json", "command": "python -m json.tool experience-contract.json", "exit_code": 0}, {"name": "surface-state-refs", "command": "all surface and workflow IDs resolve", "exit_code": 0}]
+}

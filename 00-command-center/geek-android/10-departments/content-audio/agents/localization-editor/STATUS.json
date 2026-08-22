@@ -1,0 +1,11 @@
+{
+  "agent_id": "content-audio--localization-editor",
+  "department": "content-audio",
+  "role": "localization-editor",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.369534+00:00"
+}

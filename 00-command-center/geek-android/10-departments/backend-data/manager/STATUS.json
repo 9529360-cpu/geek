@@ -1,0 +1,11 @@
+{
+  "agent_id": "backend-data--backend-tech-lead",
+  "department": "backend-data",
+  "role": "backend-tech-lead",
+  "activation": "active",
+  "status": "standby",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.254996+00:00"
+}

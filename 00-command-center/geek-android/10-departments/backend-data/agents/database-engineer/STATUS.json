@@ -1,0 +1,11 @@
+{
+  "agent_id": "backend-data--database-engineer",
+  "department": "backend-data",
+  "role": "database-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.276657+00:00"
+}

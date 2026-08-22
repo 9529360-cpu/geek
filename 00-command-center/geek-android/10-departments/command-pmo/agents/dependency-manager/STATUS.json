@@ -1,0 +1,11 @@
+{
+  "agent_id": "command-pmo--dependency-manager",
+  "department": "command-pmo",
+  "role": "dependency-manager",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:47.810219+00:00"
+}

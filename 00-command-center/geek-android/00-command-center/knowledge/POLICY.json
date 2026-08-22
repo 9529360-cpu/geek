@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "database": "00-command-center/knowledge/index.sqlite",
+  "roots": [
+    "00-command-center"
+  ],
+  "max_file_bytes": 2000000,
+  "query_limit": 8,
+  "exclude_sensitive": [
+    "credentials",
+    "secrets",
+    "personal data",
+    "binary/build output"
+  ],
+  "canonical_truth": "Index is a rebuildable retrieval cache; source records remain authoritative."
+}

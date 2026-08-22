@@ -1,0 +1,45 @@
+{
+  "receipt_id": "RCPT-20260822T190518894901Z",
+  "recorded_at": "2026-08-22T19:05:18.894901+00:00",
+  "workflow_id": "intent-to-build",
+  "task_id": "ARC-0001",
+  "attempt": 1,
+  "outcome": "allow",
+  "next_task": "UXV-0001",
+  "contract": {
+    "path": "00-command-center/workflows/intent-to-build.json",
+    "sha256": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559"
+  },
+  "sources": {
+    "02-shared-knowledge/build-specimen/product-contract.json": "52e4896c09aee038800522f98c3d0511ebbd8bbde9237964a8075a7d52ee103d"
+  },
+  "output": {
+    "path": "02-shared-knowledge/build-specimen/system-contracts.json",
+    "sha256": "38c32ddf7d6d4361267ae4d1dedefe190631d1a0345d2b6cbd1d41621356be2b"
+  },
+  "facts": [
+    "Every product requirement has component/module/data/API/failure design coverage.",
+    "Browser credentials remain inside isolated engine storage."
+  ],
+  "assessments": [
+    "A replaceable web-runtime adapter keeps the first spike reversible and prevents premature engine lock-in."
+  ],
+  "checks": [
+    {
+      "name": "system-contract-json",
+      "command": "python -m json.tool system-contracts.json",
+      "exit_code": 0
+    },
+    {
+      "name": "design-coverage",
+      "command": "all requirement IDs covered",
+      "exit_code": 0
+    }
+  ],
+  "failure": {
+    "code": null,
+    "fingerprint": null,
+    "repeat_count": 0
+  },
+  "escalation_required": false
+}

@@ -1,0 +1,11 @@
+{
+  "agent_id": "documentation-support--documentation-lead",
+  "department": "documentation-support",
+  "role": "documentation-lead",
+  "activation": "active",
+  "status": "standby",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.570580+00:00"
+}

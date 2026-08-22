@@ -1,0 +1,11 @@
+{
+  "agent_id": "architecture-platform--build-systems-engineer",
+  "department": "architecture-platform",
+  "role": "build-systems-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.101582+00:00"
+}

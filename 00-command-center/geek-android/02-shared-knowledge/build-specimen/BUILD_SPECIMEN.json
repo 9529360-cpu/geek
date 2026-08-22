@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "status": "scaffold",
+  "intent_contract": "02-shared-knowledge/build-specimen/intent-contract.json",
+  "intent_hash": "3e0009fc8b0234eb3fbc15a85e7ccef5b69d6fc537a9919b292778ed66bd3ca2",
+  "workflow_contract": "00-command-center/workflows/intent-to-build.json",
+  "workflow_hash": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559",
+  "sections": [
+    "research",
+    "product-contract",
+    "system-contracts",
+    "experience-contract",
+    "execution-blueprint",
+    "specimen-verification"
+  ],
+  "task_dag": [
+    {
+      "task_id": "RST-0001",
+      "depends_on": []
+    },
+    {
+      "task_id": "PRD-0001",
+      "depends_on": [
+        "RST-0001"
+      ]
+    },
+    {
+      "task_id": "ARC-0001",
+      "depends_on": [
+        "PRD-0001"
+      ]
+    },
+    {
+      "task_id": "UXV-0001",
+      "depends_on": [
+        "ARC-0001"
+      ]
+    },
+    {
+      "task_id": "CPM-0001",
+      "depends_on": [
+        "UXV-0001"
+      ]
+    },
+    {
+      "task_id": "QAA-0001",
+      "depends_on": [
+        "CPM-0001"
+      ]
+    }
+  ],
+  "created_at": "2026-08-22T18:56:48.736026+00:00"
+}

@@ -1,0 +1,30 @@
+{
+  "applicability": {"ui": {"applicable": true, "reason": "Android App 外壳和账号操作是首期直接交付面。"}},
+  "surfaces": [
+    {"id": "UI-HOME", "name": "移动端主页", "requirement_ids": ["REQ-001", "REQ-002"], "workflow_ids": ["WF-001"], "content": ["极客品牌", "WhatsApp/Telegram/LINE 平台入口", "账号空状态", "添加账号按钮", "设置入口"]},
+    {"id": "UI-WEB", "name": "单账号网页容器", "requirement_ids": ["REQ-003", "REQ-004", "REQ-005", "REQ-006"], "workflow_ids": ["WF-002", "WF-003"], "content": ["账号标题", "安全状态", "网页内容", "返回", "刷新", "恢复"]},
+    {"id": "UI-ACCOUNTS", "name": "账号切换层", "requirement_ids": ["REQ-007", "REQ-008"], "workflow_ids": ["WF-004"], "content": ["账号列表", "活跃/休眠/离线状态", "切换", "删除"]},
+    {"id": "UI-TRANSLATE", "name": "翻译设置与预览", "requirement_ids": ["REQ-009"], "workflow_ids": ["WF-005"], "content": ["目标语言", "原文", "译文", "失败提示", "确认发送"]},
+    {"id": "UI-BROADCAST", "name": "群发任务", "requirement_ids": ["REQ-010"], "workflow_ids": ["WF-006"], "content": ["对象", "正文", "进度", "暂停", "停止"]}
+  ],
+  "states": [
+    {"id": "STATE-EMPTY", "surface_ids": ["UI-HOME"], "description": "没有账号，显示明确添加入口。"},
+    {"id": "STATE-LOADING", "surface_ids": ["UI-WEB"], "description": "页面加载且可取消/返回。"},
+    {"id": "STATE-READY", "surface_ids": ["UI-WEB", "UI-ACCOUNTS"], "description": "会话可交互并显示当前账号。"},
+    {"id": "STATE-RECOVERING", "surface_ids": ["UI-WEB", "UI-ACCOUNTS"], "description": "渲染终止后的有限次恢复。"},
+    {"id": "STATE-MANUAL", "surface_ids": ["UI-WEB"], "description": "超过恢复上限，要求用户手动操作。"},
+    {"id": "STATE-BLOCKED", "surface_ids": ["UI-WEB", "UI-TRANSLATE", "UI-BROADCAST"], "description": "来源、翻译或任务安全校验失败时阻止继续。"},
+    {"id": "STATE-SLEEP", "surface_ids": ["UI-ACCOUNTS"], "description": "内存预算触发休眠，切换时可恢复。"}
+  ],
+  "accessibility": [
+    {"id": "A11Y-TOUCH", "rule": "主要触控目标至少 48dp。"},
+    {"id": "A11Y-LABEL", "rule": "图标按钮均有 contentDescription，当前平台与账号不能只靠颜色表达。"},
+    {"id": "A11Y-TEXT", "rule": "支持系统字体缩放，核心按钮和错误内容不被截断。"},
+    {"id": "A11Y-CONTRAST", "rule": "深色界面正文与控件满足可读对比度。"}
+  ],
+  "visual_acceptance": [
+    {"id": "VA-HOME", "surface_ids": ["UI-HOME"], "criteria": "720x1640@320dpi 无横向溢出，平台入口和添加账号首屏可见。"},
+    {"id": "VA-WEB", "surface_ids": ["UI-WEB"], "criteria": "系统状态栏、手势导航区和软键盘不遮挡网页主要输入区。"},
+    {"id": "VA-STATE", "surface_ids": ["UI-WEB", "UI-ACCOUNTS"], "criteria": "加载、恢复、休眠和失败状态有稳定文案与可执行下一步。"}
+  ]
+}

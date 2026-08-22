@@ -1,0 +1,41 @@
+{
+  "task_id": "SPK-001",
+  "outcome": "allow",
+  "facts": [
+    "The debug APK built successfully with JDK 17, Gradle 8.9, and Android SDK 35.",
+    "ADB installed and cold-started the package on device 416HGEFK22S7E.",
+    "The Geek shell and Telegram HTTPS probe rendered on the physical device without a crash."
+  ],
+  "assessments": [
+    "The runtime is suitable as evidence for beginning the formal Android shell.",
+    "The spike itself remains non-integratable and must be reimplemented in the formal mobile source tree."
+  ],
+  "checks": [
+    {
+      "name": "assembleDebug",
+      "exit_code": 0,
+      "evidence": "BUILD SUCCESSFUL in 34s; 32 actionable tasks"
+    },
+    {
+      "name": "adb_install",
+      "exit_code": 0,
+      "evidence": "Performing Streamed Install; Success"
+    },
+    {
+      "name": "adb_cold_start",
+      "exit_code": 0,
+      "evidence": "Status ok; LaunchState COLD; TotalTime 977ms"
+    },
+    {
+      "name": "crash_scan",
+      "exit_code": 0,
+      "evidence": "No fatal package crash in post-launch logcat scan"
+    },
+    {
+      "name": "git_diff_check",
+      "exit_code": 0,
+      "evidence": "No whitespace errors"
+    }
+  ],
+  "evidence_ref": "30-evidence/SPK-001/verification-report.md"
+}

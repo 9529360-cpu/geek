@@ -1,0 +1,11 @@
+{
+  "agent_id": "backend-data--data-model-engineer",
+  "department": "backend-data",
+  "role": "data-model-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.293311+00:00"
+}

@@ -1,0 +1,11 @@
+{
+  "agent_id": "backend-data--backend-code-reviewer",
+  "department": "backend-data",
+  "role": "backend-code-reviewer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.315769+00:00"
+}

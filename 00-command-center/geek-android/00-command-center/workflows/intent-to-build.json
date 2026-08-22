@@ -1,0 +1,306 @@
+{
+  "workflow_id": "intent-to-build",
+  "version": 1,
+  "prompt_version": "n-forge-intent-v1",
+  "intent_contract": "02-shared-knowledge/build-specimen/intent-contract.json",
+  "intent_hash": "3e0009fc8b0234eb3fbc15a85e7ccef5b69d6fc537a9919b292778ed66bd3ca2",
+  "limits": {
+    "context_tiers": [
+      "L0-index",
+      "L1-contract",
+      "L2-source-on-demand"
+    ],
+    "max_delegation_depth": 2,
+    "attempt_limit_per_stage": 3,
+    "repeat_failure_limit": 2
+  },
+  "stages": [
+    {
+      "stage_id": "research",
+      "task_id": "RST-0001",
+      "purpose": "Research the problem, users, constraints, and alternatives",
+      "inputs": [
+        "02-shared-knowledge/build-specimen/intent-contract.json"
+      ],
+      "output": "02-shared-knowledge/build-specimen/research.json",
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "claims",
+          "uncertainties",
+          "recommendation"
+        ],
+        "properties": {
+          "claims": {
+            "type": "array"
+          },
+          "uncertainties": {
+            "type": "array"
+          },
+          "recommendation": {
+            "type": "string"
+          }
+        }
+      },
+      "routing_rules": {
+        "allow": {
+          "next_task": "PRD-0001"
+        },
+        "defer": {
+          "next_task": "RST-0001"
+        },
+        "block": {
+          "next_task": null
+        }
+      },
+      "depends_on": []
+    },
+    {
+      "stage_id": "product-contract",
+      "task_id": "PRD-0001",
+      "purpose": "Compile user workflows, scope, and measurable product acceptance",
+      "inputs": [
+        "02-shared-knowledge/build-specimen/research.json"
+      ],
+      "output": "02-shared-knowledge/build-specimen/product-contract.json",
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "actors",
+          "requirements",
+          "workflows",
+          "non_goals",
+          "acceptance_oracles"
+        ],
+        "properties": {
+          "actors": {
+            "type": "array"
+          },
+          "requirements": {
+            "type": "array"
+          },
+          "workflows": {
+            "type": "array"
+          },
+          "non_goals": {
+            "type": "array"
+          },
+          "acceptance_oracles": {
+            "type": "array"
+          }
+        }
+      },
+      "routing_rules": {
+        "allow": {
+          "next_task": "ARC-0001"
+        },
+        "defer": {
+          "next_task": "PRD-0001"
+        },
+        "block": {
+          "next_task": null
+        }
+      },
+      "depends_on": [
+        "RST-0001"
+      ]
+    },
+    {
+      "stage_id": "system-contracts",
+      "task_id": "ARC-0001",
+      "purpose": "Compile architecture, data, API, safety, and recovery contracts",
+      "inputs": [
+        "02-shared-knowledge/build-specimen/product-contract.json"
+      ],
+      "output": "02-shared-knowledge/build-specimen/system-contracts.json",
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "applicability",
+          "components",
+          "modules",
+          "data_contracts",
+          "api_contracts",
+          "failure_modes"
+        ],
+        "properties": {
+          "applicability": {
+            "type": "object"
+          },
+          "components": {
+            "type": "array"
+          },
+          "modules": {
+            "type": "array"
+          },
+          "data_contracts": {
+            "type": "array"
+          },
+          "api_contracts": {
+            "type": "array"
+          },
+          "failure_modes": {
+            "type": "array"
+          }
+        }
+      },
+      "routing_rules": {
+        "allow": {
+          "next_task": "UXV-0001"
+        },
+        "defer": {
+          "next_task": "ARC-0001"
+        },
+        "block": {
+          "next_task": null
+        }
+      },
+      "depends_on": [
+        "PRD-0001"
+      ]
+    },
+    {
+      "stage_id": "experience-contract",
+      "task_id": "UXV-0001",
+      "purpose": "Compile the customer-visible UI and interaction contract",
+      "inputs": [
+        "02-shared-knowledge/build-specimen/system-contracts.json"
+      ],
+      "output": "02-shared-knowledge/build-specimen/experience-contract.json",
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "applicability",
+          "surfaces",
+          "states",
+          "accessibility",
+          "visual_acceptance"
+        ],
+        "properties": {
+          "applicability": {
+            "type": "object"
+          },
+          "surfaces": {
+            "type": "array"
+          },
+          "states": {
+            "type": "array"
+          },
+          "accessibility": {
+            "type": "array"
+          },
+          "visual_acceptance": {
+            "type": "array"
+          }
+        }
+      },
+      "routing_rules": {
+        "allow": {
+          "next_task": "CPM-0001"
+        },
+        "defer": {
+          "next_task": "UXV-0001"
+        },
+        "block": {
+          "next_task": null
+        }
+      },
+      "depends_on": [
+        "ARC-0001"
+      ]
+    },
+    {
+      "stage_id": "execution-blueprint",
+      "task_id": "CPM-0001",
+      "purpose": "Compile the owned-path task DAG, worker packets, and integration plan",
+      "inputs": [
+        "02-shared-knowledge/build-specimen/experience-contract.json"
+      ],
+      "output": "02-shared-knowledge/build-specimen/execution-blueprint.json",
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "task_dag",
+          "worker_packets",
+          "integration_plan",
+          "rollback_plan"
+        ],
+        "properties": {
+          "task_dag": {
+            "type": "array"
+          },
+          "worker_packets": {
+            "type": "array"
+          },
+          "integration_plan": {
+            "type": "array"
+          },
+          "rollback_plan": {
+            "type": "array"
+          }
+        }
+      },
+      "routing_rules": {
+        "allow": {
+          "next_task": "QAA-0001"
+        },
+        "defer": {
+          "next_task": "CPM-0001"
+        },
+        "block": {
+          "next_task": null
+        }
+      },
+      "depends_on": [
+        "UXV-0001"
+      ]
+    },
+    {
+      "stage_id": "specimen-verification",
+      "task_id": "QAA-0001",
+      "purpose": "Independently verify the executable build specimen",
+      "inputs": [
+        "02-shared-knowledge/build-specimen/execution-blueprint.json"
+      ],
+      "output": "02-shared-knowledge/build-specimen/verification.json",
+      "output_schema": {
+        "type": "object",
+        "required": [
+          "verdict",
+          "criteria",
+          "gaps",
+          "permanent_regressions"
+        ],
+        "properties": {
+          "verdict": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array"
+          },
+          "gaps": {
+            "type": "array"
+          },
+          "permanent_regressions": {
+            "type": "array"
+          }
+        }
+      },
+      "routing_rules": {
+        "allow": {
+          "next_task": null
+        },
+        "defer": {
+          "next_task": "QAA-0001"
+        },
+        "block": {
+          "next_task": null
+        }
+      },
+      "depends_on": [
+        "CPM-0001"
+      ]
+    }
+  ],
+  "created_at": "2026-08-22T18:56:48.722996+00:00"
+}

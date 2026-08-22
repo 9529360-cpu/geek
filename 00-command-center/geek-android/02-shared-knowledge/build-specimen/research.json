@@ -1,0 +1,75 @@
+{
+  "claims": [
+    {
+      "id": "RSC-001",
+      "claim": "极客 Android 首期应延续桌面端的网页会话路线，不依赖 WhatsApp 或 LINE 商业消息 API。",
+      "evidence": [
+        "用户明确约束（2026-08-22）",
+        "本地 README.md 中的桌面端 WebView 与账号 partition 架构"
+      ],
+      "certainty": "confirmed"
+    },
+    {
+      "id": "RSC-002",
+      "claim": "Android WebView 可以在不同应用进程中使用不同 data-directory suffix 隔离 Cookie、缓存和 Web 数据，但同一数据目录不能跨进程共享。",
+      "evidence": [
+        "https://developer.android.com/reference/androidx/webkit/ProcessGlobalConfig",
+        "https://developer.android.com/about/versions/pie/android-9.0-changes-28"
+      ],
+      "certainty": "authoritative"
+    },
+    {
+      "id": "RSC-003",
+      "claim": "GeckoView 可以在 APK 中安装内置 WebExtension，并通过 native messaging 与网页内容双向通信，因此是 LINE 移动兼容验证的候选内核。",
+      "evidence": [
+        "https://mozilla.github.io/geckoview/consumer/docs/web-extensions",
+        "https://mozilla.github.io/geckoview/"
+      ],
+      "certainty": "authoritative"
+    },
+    {
+      "id": "RSC-004",
+      "claim": "Android 在内存压力或后台状态下可能回收 WebView 渲染进程，产品必须实现渲染进程终止检测、账号状态恢复和按设备能力限制活跃账号数。",
+      "evidence": [
+        "https://developer.android.com/develop/ui/views/layout/webapps/managing-webview",
+        "https://developer.android.com/develop/ui/views/layout/webapps/handle-termination"
+      ],
+      "certainty": "authoritative"
+    },
+    {
+      "id": "RSC-005",
+      "claim": "首台已授权真机为 MEIZU Mblu 21，Android 14（SDK 34）、arm64-v8a、约 6GB RAM、720x1640@320dpi，可承担首轮安装、登录恢复和内存验证。",
+      "evidence": [
+        "ADB 设备序列 416HGEFK22S7E 的只读 getprop/wm/meminfo 输出（2026-08-22）"
+      ],
+      "certainty": "measured"
+    }
+  ],
+  "uncertainties": [
+    {
+      "id": "UNC-001",
+      "question": "WhatsApp Web 与 Telegram Web 在 Mblu 21 的 Android WebView/GeckoView 中能否完成登录、收发和重启恢复？",
+      "resolution": "构建两个隔离、可丢弃的 validation spike，使用真实测试账号验证。",
+      "severity": "high"
+    },
+    {
+      "id": "UNC-002",
+      "question": "当前 Chromium MV3 LINE 扩展能否直接在 GeckoView 运行，或需要移植为兼容 WebExtension？",
+      "resolution": "只验证扩展加载、登录页和必要页面全局；失败时记录不兼容 API，不进入正式实现。",
+      "severity": "high"
+    },
+    {
+      "id": "UNC-003",
+      "question": "6GB 真机可同时保持多少个活跃网页账号而不被系统回收？",
+      "resolution": "单账号恢复通过后依次测试 2、3、5 个隔离会话并记录 PSS、渲染终止和恢复时间。",
+      "severity": "high"
+    },
+    {
+      "id": "UNC-004",
+      "question": "Google Play 分发与平台条款是否允许最终产品形态？",
+      "resolution": "首期仅侧载内部测试 APK，不做商店发布声明；发布前单独完成条款与分发审查。",
+      "severity": "medium"
+    }
+  ],
+  "recommendation": "proceed：先建立 Android App 外壳和单账号双内核 validation spike；只有真实设备上的登录、收发、重启恢复和渲染恢复通过后，才进入多账号隔离实现。翻译和群发保持后置。"
+}

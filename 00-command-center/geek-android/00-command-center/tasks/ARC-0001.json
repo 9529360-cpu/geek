@@ -1,0 +1,165 @@
+{
+  "task_id": "ARC-0001",
+  "title": "Compile architecture, data, API, safety, and recovery contracts",
+  "department": "architecture-platform",
+  "role_required": [
+    "client-architect"
+  ],
+  "capability_tags": [
+    "intent-compilation",
+    "system-contracts"
+  ],
+  "priority": "high",
+  "status": "accepted",
+  "owner_agent": "architecture-platform--client-architect",
+  "manager_agent": "architecture-platform--chief-architect",
+  "reviewer_agent": "quality-assurance--test-architect",
+  "branch_or_worktree": null,
+  "inputs": [
+    "02-shared-knowledge/build-specimen/product-contract.json"
+  ],
+  "owned_paths": [
+    "02-shared-knowledge/build-specimen/system-contracts.json",
+    "30-evidence/ARC-0001/**"
+  ],
+  "outputs": [
+    "02-shared-knowledge/build-specimen/system-contracts.json"
+  ],
+  "dependencies": [
+    "PRD-0001"
+  ],
+  "acceptance_criteria": [
+    "Output validates against workflow stage system-contracts schema",
+    "All cross-document IDs resolve and applicable requirement coverage is complete",
+    "Facts and model assessments are separated in the evidence receipt",
+    "Input and workflow hashes match the dispatch packet"
+  ],
+  "required_evidence": [
+    "structured completion",
+    "deterministic checks",
+    "cross-document validation",
+    "provenance hashes"
+  ],
+  "risk": "medium",
+  "workflow": {
+    "workflow_id": "intent-to-build",
+    "stage_id": "system-contracts",
+    "contract_path": "00-command-center/workflows/intent-to-build.json",
+    "contract_hash": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559",
+    "prompt_version": "n-forge-intent-v1",
+    "attempt_limit": 3,
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "applicability",
+        "components",
+        "modules",
+        "data_contracts",
+        "api_contracts",
+        "failure_modes"
+      ],
+      "properties": {
+        "applicability": {
+          "type": "object"
+        },
+        "components": {
+          "type": "array"
+        },
+        "modules": {
+          "type": "array"
+        },
+        "data_contracts": {
+          "type": "array"
+        },
+        "api_contracts": {
+          "type": "array"
+        },
+        "failure_modes": {
+          "type": "array"
+        }
+      }
+    },
+    "routing_rules": {
+      "allow": {
+        "next_task": "UXV-0001"
+      },
+      "defer": {
+        "next_task": "ARC-0001"
+      },
+      "block": {
+        "next_task": null
+      }
+    }
+  },
+  "task_type": "design",
+  "requires_foundation_gate": false,
+  "source_hashes": {
+    "02-shared-knowledge/build-specimen/product-contract.json": "52e4896c09aee038800522f98c3d0511ebbd8bbde9237964a8075a7d52ee103d"
+  },
+  "local_test_commands": [
+    "python \"C:\\Users\\bz977\\.codex\\skills\\n-forge\\scripts\\advance_workflow.py\" --project \"<project>\" --task ARC-0001 --result \"<result.json>\""
+  ],
+  "completion_format": {
+    "required": [
+      "task_id",
+      "outcome",
+      "next_task",
+      "prompt_version",
+      "contract_hash",
+      "source_hashes",
+      "output_path",
+      "facts",
+      "assessments",
+      "checks"
+    ],
+    "outcomes": [
+      "allow",
+      "defer",
+      "block"
+    ]
+  },
+  "escalation_conditions": [
+    "contract or source hash drift",
+    "scope or architecture change outside the stage contract",
+    "repeated identical failure",
+    "attempt budget exhausted",
+    "missing deterministic verification"
+  ],
+  "created_at": "2026-08-22T18:56:48.741383+00:00",
+  "updated_at": "2026-08-22T19:05:18.079255+00:00",
+  "delivery_package": null,
+  "review_records": [
+    {
+      "from": "ready",
+      "to": "claimed",
+      "actor": "codex-root",
+      "reason": "Compile mobile architecture contracts",
+      "evidence_ref": null,
+      "recorded_at": "2026-08-22T19:05:11.932566+00:00"
+    },
+    {
+      "from": "self_checked",
+      "to": "manager_review",
+      "actor": "architecture-platform--chief-architect",
+      "reason": "Architecture review passed",
+      "evidence_ref": "30-evidence/ARC-0001/result.json",
+      "recorded_at": "2026-08-22T19:05:16.280861+00:00"
+    },
+    {
+      "from": "manager_review",
+      "to": "quality_review",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Independent architecture review passed",
+      "evidence_ref": "30-evidence/ARC-0001/result.json",
+      "recorded_at": "2026-08-22T19:05:17.177890+00:00"
+    },
+    {
+      "from": "quality_review",
+      "to": "accepted",
+      "actor": "quality-assurance--test-architect",
+      "reason": "System contracts accepted",
+      "evidence_ref": "30-evidence/ARC-0001/result.json",
+      "recorded_at": "2026-08-22T19:05:18.079255+00:00"
+    }
+  ]
+}

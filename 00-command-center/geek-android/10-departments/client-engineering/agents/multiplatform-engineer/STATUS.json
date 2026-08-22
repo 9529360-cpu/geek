@@ -1,0 +1,11 @@
+{
+  "agent_id": "client-engineering--multiplatform-engineer",
+  "department": "client-engineering",
+  "role": "multiplatform-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.233726+00:00"
+}

@@ -1,0 +1,11 @@
+{
+  "agent_id": "content-audio--audio-integration-engineer",
+  "department": "content-audio",
+  "role": "audio-integration-engineer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.343895+00:00"
+}

@@ -1,0 +1,56 @@
+{
+  "QG-0": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-1": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-2": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-3": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-4": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-5": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-6": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-7": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  },
+  "QG-8": {
+    "status": "not_started",
+    "mandatory": true,
+    "evidence": [],
+    "updated_at": null
+  }
+}

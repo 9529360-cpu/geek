@@ -1,0 +1,19 @@
+{
+  "valid": true,
+  "status": "pass",
+  "checked_at": "2026-08-22T19:08:21.679890+00:00",
+  "workflow": "00-command-center/workflows/intent-to-build.json",
+  "workflow_hash": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559",
+  "foundation_revision": "94afebafba7a89185df82fe3de449943815f19336c65719b70e11f10197b8242",
+  "artifacts": {
+    "02-shared-knowledge/build-specimen/research.json": "7cb02e366dcb5379f352e99de4dddd859cce97efc77dd3d653ef57bc5eb95e17",
+    "02-shared-knowledge/build-specimen/product-contract.json": "52e4896c09aee038800522f98c3d0511ebbd8bbde9237964a8075a7d52ee103d",
+    "02-shared-knowledge/build-specimen/system-contracts.json": "38c32ddf7d6d4361267ae4d1dedefe190631d1a0345d2b6cbd1d41621356be2b",
+    "02-shared-knowledge/build-specimen/experience-contract.json": "689a5d143f6ee5d67f333accef9e268376d925769677dd625f7fb51a1b3d183f",
+    "02-shared-knowledge/build-specimen/execution-blueprint.json": "5a3c928d40870b07482768dcab52d5b3f36361ce406ee2138a165afc9cda1d4f",
+    "02-shared-knowledge/build-specimen/verification.json": "71d6134f1c903de3a0217516605a31e7ecf794e55937064ad9f729b9691a041f"
+  },
+  "errors": [],
+  "warnings": [],
+  "implementation_policy": "Production implementation requires a current pass. Isolated disposable validation spikes are evidence-only and cannot enter integration."
+}

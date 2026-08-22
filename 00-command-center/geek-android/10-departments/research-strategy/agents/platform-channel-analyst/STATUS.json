@@ -1,0 +1,11 @@
+{
+  "agent_id": "research-strategy--platform-channel-analyst",
+  "department": "research-strategy",
+  "role": "platform-channel-analyst",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:47.893632+00:00"
+}

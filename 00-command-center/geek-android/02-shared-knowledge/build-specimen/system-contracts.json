@@ -1,0 +1,36 @@
+{
+  "applicability": {
+    "database": {"applicable": true, "reason": "账号元数据、生命周期和后续任务需要本地持久化；网页凭据仍由隔离浏览器存储管理。"},
+    "api": {"applicable": true, "reason": "foundation 需要复用极客账户 API，后续翻译需要现有受控网关。"}
+  },
+  "components": [
+    {"id": "CMP-APP", "name": "Android App Shell", "requirement_ids": ["REQ-001", "REQ-002", "REQ-005"]},
+    {"id": "CMP-WEB", "name": "Isolated Web Runtime", "requirement_ids": ["REQ-003", "REQ-004", "REQ-006", "REQ-007", "REQ-008"]},
+    {"id": "CMP-SVC", "name": "Geek Service Clients", "requirement_ids": ["REQ-009", "REQ-010"]}
+  ],
+  "modules": [
+    {"id": "MOD-SHELL", "component_ids": ["CMP-APP"], "requirement_ids": ["REQ-001", "REQ-002"], "responsibility": "应用生命周期、导航、品牌外壳和空状态。"},
+    {"id": "MOD-SECURITY", "component_ids": ["CMP-APP", "CMP-WEB"], "requirement_ids": ["REQ-005"], "responsibility": "来源白名单、网络安全配置、日志脱敏和桥消息校验。"},
+    {"id": "MOD-ACCOUNT", "component_ids": ["CMP-WEB"], "requirement_ids": ["REQ-003", "REQ-004", "REQ-007"], "responsibility": "账号身份、隔离存储、创建删除和会话恢复。"},
+    {"id": "MOD-RUNTIME", "component_ids": ["CMP-WEB"], "requirement_ids": ["REQ-006", "REQ-008"], "responsibility": "WebView/GeckoView 生命周期、休眠、渲染终止和资源预算。"},
+    {"id": "MOD-TRANSLATION", "component_ids": ["CMP-SVC"], "requirement_ids": ["REQ-009"], "responsibility": "后置翻译请求、输出校验和安全发送。"},
+    {"id": "MOD-BROADCAST", "component_ids": ["CMP-SVC"], "requirement_ids": ["REQ-010"], "responsibility": "后置群发任务状态机、持久化与幂等。"}
+  ],
+  "data_contracts": [
+    {"id": "DATA-ACCOUNT", "requirement_ids": ["REQ-004", "REQ-007"], "fields": ["account_id", "platform", "display_name", "profile_key", "created_at"], "sensitivity": "high", "retention": "until explicit account deletion"},
+    {"id": "DATA-RUNTIME", "requirement_ids": ["REQ-006", "REQ-008"], "fields": ["account_id", "state", "last_active_at", "recovery_attempts", "last_failure_code"], "sensitivity": "low", "retention": "bounded operational state"},
+    {"id": "DATA-TASK", "requirement_ids": ["REQ-010"], "fields": ["task_id", "account_id", "state", "target_tokens", "completed_tokens"], "sensitivity": "high", "retention": "until user deletes task"}
+  ],
+  "api_contracts": [
+    {"id": "API-ACCOUNT", "requirement_ids": ["REQ-002"], "boundary": "existing Geek account service", "rule": "HttpOnly/session or mobile token design must be separately authenticated; no credential logging."},
+    {"id": "API-TRANSLATE", "requirement_ids": ["REQ-009"], "boundary": "existing HTTPS translation worker", "rule": "No provider key in App; authoritative quota and output safety remain server/client enforced."},
+    {"id": "API-BRIDGE", "requirement_ids": ["REQ-003", "REQ-005", "REQ-010"], "boundary": "web content to native", "rule": "Allowlisted origin, versioned message schema, account-bound nonce, fail closed on mismatch."}
+  ],
+  "failure_modes": [
+    {"id": "FAIL-RENDERER", "requirement_ids": ["REQ-006"], "trigger": "renderer crash or OS reclaim", "recovery": "destroy invalid view, bounded recreation, manual recovery after retry limit"},
+    {"id": "FAIL-SESSION", "requirement_ids": ["REQ-004", "REQ-007"], "trigger": "profile corruption or cross-account mismatch", "recovery": "isolate affected profile, never copy cookies, require relogin"},
+    {"id": "FAIL-MEMORY", "requirement_ids": ["REQ-008"], "trigger": "device memory pressure", "recovery": "sleep least-recent account, preserve metadata, restore on selection"},
+    {"id": "FAIL-TRANSLATE", "requirement_ids": ["REQ-009"], "trigger": "timeout or unsafe output", "recovery": "block send and retain draft"},
+    {"id": "FAIL-BROADCAST", "requirement_ids": ["REQ-010"], "trigger": "process death or partial delivery", "recovery": "resume from persisted per-target checkpoint without duplicate send"}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "agent_id": "client-engineering--client-tech-lead",
+  "department": "client-engineering",
+  "role": "client-tech-lead",
+  "activation": "active",
+  "status": "standby",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.185181+00:00"
+}

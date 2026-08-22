@@ -1,0 +1,11 @@
+{
+  "agent_id": "product-requirements--product-manager",
+  "department": "product-requirements",
+  "role": "product-manager",
+  "activation": "active",
+  "status": "standby",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:47.931182+00:00"
+}

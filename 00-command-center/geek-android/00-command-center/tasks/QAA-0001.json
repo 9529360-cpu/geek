@@ -1,0 +1,157 @@
+{
+  "task_id": "QAA-0001",
+  "title": "Independently verify the executable build specimen",
+  "department": "quality-assurance",
+  "role_required": [
+    "test-architect"
+  ],
+  "capability_tags": [
+    "intent-compilation",
+    "specimen-verification"
+  ],
+  "priority": "high",
+  "status": "accepted",
+  "owner_agent": "quality-assurance--test-architect",
+  "manager_agent": "quality-assurance--qa-lead",
+  "reviewer_agent": "command-pmo--factory-commander",
+  "branch_or_worktree": null,
+  "inputs": [
+    "02-shared-knowledge/build-specimen/execution-blueprint.json"
+  ],
+  "owned_paths": [
+    "02-shared-knowledge/build-specimen/verification.json",
+    "30-evidence/QAA-0001/**"
+  ],
+  "outputs": [
+    "02-shared-knowledge/build-specimen/verification.json"
+  ],
+  "dependencies": [
+    "CPM-0001"
+  ],
+  "acceptance_criteria": [
+    "Output validates against workflow stage specimen-verification schema",
+    "All cross-document IDs resolve and applicable requirement coverage is complete",
+    "Facts and model assessments are separated in the evidence receipt",
+    "Input and workflow hashes match the dispatch packet"
+  ],
+  "required_evidence": [
+    "structured completion",
+    "deterministic checks",
+    "cross-document validation",
+    "provenance hashes"
+  ],
+  "risk": "medium",
+  "workflow": {
+    "workflow_id": "intent-to-build",
+    "stage_id": "specimen-verification",
+    "contract_path": "00-command-center/workflows/intent-to-build.json",
+    "contract_hash": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559",
+    "prompt_version": "n-forge-intent-v1",
+    "attempt_limit": 3,
+    "output_schema": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "criteria",
+        "gaps",
+        "permanent_regressions"
+      ],
+      "properties": {
+        "verdict": {
+          "type": "string"
+        },
+        "criteria": {
+          "type": "array"
+        },
+        "gaps": {
+          "type": "array"
+        },
+        "permanent_regressions": {
+          "type": "array"
+        }
+      }
+    },
+    "routing_rules": {
+      "allow": {
+        "next_task": null
+      },
+      "defer": {
+        "next_task": "QAA-0001"
+      },
+      "block": {
+        "next_task": null
+      }
+    }
+  },
+  "task_type": "review",
+  "requires_foundation_gate": false,
+  "source_hashes": {
+    "02-shared-knowledge/build-specimen/execution-blueprint.json": "5a3c928d40870b07482768dcab52d5b3f36361ce406ee2138a165afc9cda1d4f"
+  },
+  "local_test_commands": [
+    "python \"C:\\Users\\bz977\\.codex\\skills\\n-forge\\scripts\\advance_workflow.py\" --project \"<project>\" --task QAA-0001 --result \"<result.json>\""
+  ],
+  "completion_format": {
+    "required": [
+      "task_id",
+      "outcome",
+      "next_task",
+      "prompt_version",
+      "contract_hash",
+      "source_hashes",
+      "output_path",
+      "facts",
+      "assessments",
+      "checks"
+    ],
+    "outcomes": [
+      "allow",
+      "defer",
+      "block"
+    ]
+  },
+  "escalation_conditions": [
+    "contract or source hash drift",
+    "scope or architecture change outside the stage contract",
+    "repeated identical failure",
+    "attempt budget exhausted",
+    "missing deterministic verification"
+  ],
+  "created_at": "2026-08-22T18:56:48.746581+00:00",
+  "updated_at": "2026-08-22T19:08:20.189153+00:00",
+  "delivery_package": null,
+  "review_records": [
+    {
+      "from": "ready",
+      "to": "claimed",
+      "actor": "codex-root",
+      "reason": "Verify mobile build specimen",
+      "evidence_ref": null,
+      "recorded_at": "2026-08-22T19:08:14.055748+00:00"
+    },
+    {
+      "from": "self_checked",
+      "to": "manager_review",
+      "actor": "quality-assurance--qa-lead",
+      "reason": "Verification completeness reviewed",
+      "evidence_ref": "30-evidence/QAA-0001/result.json",
+      "recorded_at": "2026-08-22T19:08:18.390402+00:00"
+    },
+    {
+      "from": "manager_review",
+      "to": "quality_review",
+      "actor": "command-pmo--factory-commander",
+      "reason": "Independent specimen review",
+      "evidence_ref": "30-evidence/QAA-0001/result.json",
+      "recorded_at": "2026-08-22T19:08:19.283312+00:00"
+    },
+    {
+      "from": "quality_review",
+      "to": "accepted",
+      "actor": "command-pmo--factory-commander",
+      "reason": "Build specimen accepted",
+      "evidence_ref": "30-evidence/QAA-0001/result.json",
+      "recorded_at": "2026-08-22T19:08:20.189153+00:00"
+    }
+  ]
+}

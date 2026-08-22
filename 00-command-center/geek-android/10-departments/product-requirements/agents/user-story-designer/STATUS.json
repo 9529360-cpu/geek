@@ -1,0 +1,11 @@
+{
+  "agent_id": "product-requirements--user-story-designer",
+  "department": "product-requirements",
+  "role": "user-story-designer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:47.951241+00:00"
+}

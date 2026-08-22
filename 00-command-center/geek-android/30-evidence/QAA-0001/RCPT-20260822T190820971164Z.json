@@ -1,0 +1,45 @@
+{
+  "receipt_id": "RCPT-20260822T190820971164Z",
+  "recorded_at": "2026-08-22T19:08:20.971164+00:00",
+  "workflow_id": "intent-to-build",
+  "task_id": "QAA-0001",
+  "attempt": 1,
+  "outcome": "allow",
+  "next_task": null,
+  "contract": {
+    "path": "00-command-center/workflows/intent-to-build.json",
+    "sha256": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559"
+  },
+  "sources": {
+    "02-shared-knowledge/build-specimen/execution-blueprint.json": "5a3c928d40870b07482768dcab52d5b3f36361ce406ee2138a165afc9cda1d4f"
+  },
+  "output": {
+    "path": "02-shared-knowledge/build-specimen/verification.json",
+    "sha256": "71d6134f1c903de3a0217516605a31e7ecf794e55937064ad9f729b9691a041f"
+  },
+  "facts": [
+    "Every requirement maps to at least one implementation task and verification criterion.",
+    "No unresolved critical or high foundation gap remains."
+  ],
+  "assessments": [
+    "The specimen is ready for the disposable engine spike and, after that evidence, production foundation work."
+  ],
+  "checks": [
+    {
+      "name": "verification-json",
+      "command": "python -m json.tool verification.json",
+      "exit_code": 0
+    },
+    {
+      "name": "traceability",
+      "command": "all requirement/task references resolve",
+      "exit_code": 0
+    }
+  ],
+  "failure": {
+    "code": null,
+    "fingerprint": null,
+    "repeat_count": 0
+  },
+  "escalation_required": false
+}

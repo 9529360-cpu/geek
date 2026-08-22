@@ -1,0 +1,32 @@
+{
+  "task_dag": [
+    {"id": "SPK-001", "type": "validation-spike", "depends_on": [], "requirement_ids": ["REQ-001", "REQ-003", "REQ-004", "REQ-005", "REQ-006"], "module_ids": ["MOD-SHELL", "MOD-SECURITY", "MOD-ACCOUNT", "MOD-RUNTIME"], "owned_paths": ["20-validation-spikes/android-web-runtime/**"], "integration_eligible": false},
+    {"id": "MOB-001", "type": "implementation", "depends_on": ["SPK-001"], "requirement_ids": ["REQ-001", "REQ-002", "REQ-005", "REQ-006"], "module_ids": ["MOD-SHELL", "MOD-SECURITY", "MOD-RUNTIME"], "owned_paths": ["mobile/android/**"]},
+    {"id": "MOB-002", "type": "implementation", "depends_on": ["MOB-001"], "requirement_ids": ["REQ-003", "REQ-004", "REQ-006"], "module_ids": ["MOD-ACCOUNT", "MOD-RUNTIME"], "owned_paths": ["mobile/android/app/src/main/**", "mobile/android/app/src/androidTest/**"]},
+    {"id": "MOB-003", "type": "implementation", "depends_on": ["MOB-002"], "requirement_ids": ["REQ-007", "REQ-008"], "module_ids": ["MOD-ACCOUNT", "MOD-RUNTIME"], "owned_paths": ["mobile/android/app/src/main/**", "mobile/android/app/src/androidTest/**"]},
+    {"id": "MOB-004", "type": "implementation", "depends_on": ["MOB-003"], "requirement_ids": ["REQ-009"], "module_ids": ["MOD-TRANSLATION", "MOD-SECURITY"], "owned_paths": ["mobile/android/features/translation/**"]},
+    {"id": "MOB-005", "type": "implementation", "depends_on": ["MOB-004"], "requirement_ids": ["REQ-010"], "module_ids": ["MOD-BROADCAST", "MOD-SECURITY"], "owned_paths": ["mobile/android/features/broadcast/**"]}
+  ],
+  "worker_packets": [
+    {"id": "PKT-SPK-001", "task_id": "SPK-001", "role": "android validation engineer", "checks": ["assembleDebug", "adb install", "cold start", "single-session recovery"]},
+    {"id": "PKT-MOB-001", "task_id": "MOB-001", "role": "android client engineer", "checks": ["unit tests", "lint", "assembleDebug", "device smoke"]},
+    {"id": "PKT-MOB-002", "task_id": "MOB-002", "role": "web runtime engineer", "checks": ["allowed origins", "login recovery", "renderer recovery"]},
+    {"id": "PKT-MOB-003", "task_id": "MOB-003", "role": "android platform engineer", "checks": ["cookie isolation", "delete isolation", "PSS thresholds"]},
+    {"id": "PKT-MOB-004", "task_id": "MOB-004", "role": "translation integration engineer", "checks": ["unsafe-output regression", "quota auth", "fail-closed send"]},
+    {"id": "PKT-MOB-005", "task_id": "MOB-005", "role": "workflow engineer", "checks": ["pause", "stop", "restart idempotency", "no duplicate sends"]}
+  ],
+  "integration_plan": [
+    {"order": 1, "task_id": "SPK-001", "rule": "evidence only; never merge spike code into production paths"},
+    {"order": 2, "task_id": "MOB-001", "rule": "reimplement only the accepted engine route behind an adapter"},
+    {"order": 3, "task_id": "MOB-002", "rule": "require real-account single-session acceptance"},
+    {"order": 4, "task_id": "MOB-003", "rule": "require isolation and memory evidence before increasing active-account default"},
+    {"order": 5, "task_id": "MOB-004", "rule": "port desktop translation safety regressions first"},
+    {"order": 6, "task_id": "MOB-005", "rule": "add durable task idempotency before UI completeness"}
+  ],
+  "rollback_plan": [
+    {"scope": "validation spike", "action": "delete only 20-validation-spikes/android-web-runtime after evidence is recorded"},
+    {"scope": "debug device install", "action": "adb uninstall com.bbnba.geek.mobile.debug; never touch other phone apps or data"},
+    {"scope": "production module", "action": "revert the isolated mobile task commit; desktop client and release marker remain unchanged"},
+    {"scope": "engine selection", "action": "retain BrowserRuntime interface and switch adapter without migrating credentials between engines"}
+  ]
+}

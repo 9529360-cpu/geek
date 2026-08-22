@@ -1,0 +1,11 @@
+{
+  "agent_id": "domain-design--mission-system-designer",
+  "department": "domain-design",
+  "role": "mission-system-designer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.023117+00:00"
+}

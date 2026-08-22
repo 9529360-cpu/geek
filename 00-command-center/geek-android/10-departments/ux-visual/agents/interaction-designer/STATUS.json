@@ -1,0 +1,11 @@
+{
+  "agent_id": "ux-visual--interaction-designer",
+  "department": "ux-visual",
+  "role": "interaction-designer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.137337+00:00"
+}

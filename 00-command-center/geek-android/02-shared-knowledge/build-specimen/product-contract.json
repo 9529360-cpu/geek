@@ -1,0 +1,42 @@
+{
+  "actors": [
+    {"id": "ACT-001", "name": "极客 Android 用户", "job": "在手机上独立使用多个网页聊天账号"},
+    {"id": "ACT-002", "name": "测试操作者", "job": "在真实账号和真机上验证登录、恢复与资源占用"}
+  ],
+  "requirements": [
+    {"id": "REQ-001", "priority": "P0", "phase": "foundation", "statement": "Android 14 arm64 真机可以安装、启动和卸载调试版极客 App。"},
+    {"id": "REQ-002", "priority": "P0", "phase": "foundation", "statement": "App 提供极客品牌外壳、平台入口、账号空状态和设置入口。"},
+    {"id": "REQ-003", "priority": "P0", "phase": "single-account", "statement": "单个受允许来源的网页会话能够登录、收发消息并处理页面导航。"},
+    {"id": "REQ-004", "priority": "P0", "phase": "single-account", "statement": "进程重启和应用重开后，会话登录状态可恢复且不会泄露到其他账号。"},
+    {"id": "REQ-005", "priority": "P0", "phase": "foundation", "statement": "网页容器默认禁止任意明文流量、任意外部来源和不受控 JavaScript 原生接口。"},
+    {"id": "REQ-006", "priority": "P1", "phase": "single-account", "statement": "渲染进程被系统回收或崩溃时，App 给出明确状态并可恢复，不进入无限重载。"},
+    {"id": "REQ-007", "priority": "P1", "phase": "multi-account", "statement": "多账号阶段为每个账号提供独立身份、存储目录、Cookie、缓存、代理配置和生命周期。"},
+    {"id": "REQ-008", "priority": "P1", "phase": "multi-account", "statement": "活跃账号数量由真机内存证据决定，超限账号进入可恢复的休眠状态。"},
+    {"id": "REQ-009", "priority": "P1", "phase": "translation", "statement": "翻译只能在单账号与多账号恢复验收后接入，并沿用发送失败时禁止原文误发的安全合同。"},
+    {"id": "REQ-010", "priority": "P1", "phase": "broadcast", "statement": "群发只能在翻译验收后接入，任务必须可暂停、停止、恢复并持久化。"}
+  ],
+  "workflows": [
+    {"id": "WF-001", "actor": "ACT-002", "requirement_ids": ["REQ-001", "REQ-002"], "steps": ["构建 debug APK", "ADB 安装", "启动 App", "验证空状态与设置入口"]},
+    {"id": "WF-002", "actor": "ACT-001", "requirement_ids": ["REQ-003", "REQ-004", "REQ-005"], "steps": ["选择平台", "创建单账号", "登录网页会话", "收发测试消息", "强制停止并重开", "确认登录恢复"]},
+    {"id": "WF-003", "actor": "ACT-002", "requirement_ids": ["REQ-006"], "steps": ["制造渲染终止", "观察错误状态", "执行恢复", "确认无无限重载"]},
+    {"id": "WF-004", "actor": "ACT-002", "requirement_ids": ["REQ-007", "REQ-008"], "steps": ["创建两个隔离账号", "分别登录", "交叉验证 Cookie", "逐级增加账号", "记录 PSS 与恢复时间"]},
+    {"id": "WF-005", "actor": "ACT-001", "requirement_ids": ["REQ-009"], "steps": ["输入原文", "请求翻译", "预览译文", "仅在安全校验通过后发送"]},
+    {"id": "WF-006", "actor": "ACT-001", "requirement_ids": ["REQ-010"], "steps": ["建立任务", "选择对象", "启动发送", "暂停或停止", "重开后恢复状态"]}
+  ],
+  "non_goals": [
+    "首期不接入 WhatsApp 或 LINE 商业消息 API。",
+    "首期不发布 Google Play 或其他应用商店。",
+    "foundation 阶段不实现翻译、群发、群组克隆和经营后台。",
+    "不宣称无限多开，不在没有真机证据时承诺后台永远在线。",
+    "不迁移或读取用户现有官方聊天 App 的私有数据。"
+  ],
+  "acceptance_oracles": [
+    {"id": "AO-001", "requirement_ids": ["REQ-001", "REQ-002"], "oracle": "assembleDebug 成功；ADB 安装成功；冷启动无崩溃；关键 UI 可见。"},
+    {"id": "AO-002", "requirement_ids": ["REQ-003", "REQ-004"], "oracle": "测试账号完成登录和双向消息；force-stop 后重开仍处于已登录状态。"},
+    {"id": "AO-003", "requirement_ids": ["REQ-005"], "oracle": "非允许来源导航被拒绝；原生桥只接受固定消息结构；日志无 Cookie、token 或聊天正文。"},
+    {"id": "AO-004", "requirement_ids": ["REQ-006"], "oracle": "渲染终止后显示恢复状态；一分钟内最多两次自动恢复；第三次停止并要求人工操作。"},
+    {"id": "AO-005", "requirement_ids": ["REQ-007", "REQ-008"], "oracle": "两个账号 Cookie 互不可见；删除一个账号不影响另一个；逐级压力记录确定默认活跃上限。"},
+    {"id": "AO-006", "requirement_ids": ["REQ-009"], "oracle": "翻译失败、同语种输出、解释性前后缀或原文回显均不能触发发送。"},
+    {"id": "AO-007", "requirement_ids": ["REQ-010"], "oracle": "群发暂停、停止和进程重启均不重复发送已完成目标。"}
+  ]
+}

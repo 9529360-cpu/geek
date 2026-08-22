@@ -1,0 +1,11 @@
+{
+  "agent_id": "backend-data--identity-engineer",
+  "department": "backend-data",
+  "role": "identity-engineer",
+  "activation": "active",
+  "status": "standby",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:48.261337+00:00"
+}

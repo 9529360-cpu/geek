@@ -1,0 +1,11 @@
+{
+  "agent_id": "research-strategy--research-reviewer",
+  "department": "research-strategy",
+  "role": "research-reviewer",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:47.915958+00:00"
+}

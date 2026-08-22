@@ -1,0 +1,52 @@
+{
+  "receipt_id": "RCPT-20260822T185829841157Z",
+  "recorded_at": "2026-08-22T18:58:29.841157+00:00",
+  "workflow_id": "intent-to-build",
+  "task_id": "RST-0001",
+  "attempt": 1,
+  "outcome": "allow",
+  "next_task": "PRD-0001",
+  "contract": {
+    "path": "00-command-center/workflows/intent-to-build.json",
+    "sha256": "74a18c29b204dfb4002ff475803c71f35d96a06166ecd76ed164cfa40c322559"
+  },
+  "sources": {
+    "02-shared-knowledge/build-specimen/intent-contract.json": "3e0009fc8b0234eb3fbc15a85e7ccef5b69d6fc537a9919b292778ed66bd3ca2"
+  },
+  "output": {
+    "path": "02-shared-knowledge/build-specimen/research.json",
+    "sha256": "7cb02e366dcb5379f352e99de4dddd859cce97efc77dd3d653ef57bc5eb95e17"
+  },
+  "facts": [
+    "Android WebView supports per-process data directory suffixes.",
+    "GeckoView supports bundled WebExtensions.",
+    "The connected test device is authorized and reports Android 14, arm64, and about 6 GB RAM."
+  ],
+  "assessments": [
+    "Proceed with bounded validation spikes before selecting the production browser engine.",
+    "Do not begin translation or broadcast implementation before single-account recovery succeeds."
+  ],
+  "checks": [
+    {
+      "name": "research-json-parse",
+      "command": "python -m json.tool 02-shared-knowledge/build-specimen/research.json",
+      "exit_code": 0
+    },
+    {
+      "name": "bounded-high-impact-unknowns",
+      "command": "manual deterministic field check: every high uncertainty has a non-empty resolution",
+      "exit_code": 0
+    },
+    {
+      "name": "evidence-classification",
+      "command": "manual deterministic field check: each claim contains evidence and certainty",
+      "exit_code": 0
+    }
+  ],
+  "failure": {
+    "code": null,
+    "fingerprint": null,
+    "repeat_count": 0
+  },
+  "escalation_required": false
+}

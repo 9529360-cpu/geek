@@ -1,0 +1,11 @@
+{
+  "agent_id": "command-pmo--progress-auditor",
+  "department": "command-pmo",
+  "role": "progress-auditor",
+  "activation": "inactive",
+  "status": "inactive",
+  "current_task": null,
+  "blocked_by": [],
+  "workload": 0,
+  "last_heartbeat": "2026-08-22T18:56:47.842485+00:00"
+}

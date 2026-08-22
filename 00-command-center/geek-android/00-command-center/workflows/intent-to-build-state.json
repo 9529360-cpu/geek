@@ -1,0 +1,15 @@
+{
+  "workflow_id": "intent-to-build",
+  "attempts": {
+    "RST-0001": 2,
+    "PRD-0001": 1,
+    "ARC-0001": 1,
+    "UXV-0001": 1,
+    "CPM-0001": 1,
+    "QAA-0001": 1
+  },
+  "failures": {},
+  "status": "completed",
+  "last_receipt": "30-evidence/QAA-0001/RCPT-20260822T190820971164Z.json",
+  "updated_at": "2026-08-22T19:08:20.973412+00:00"
+}

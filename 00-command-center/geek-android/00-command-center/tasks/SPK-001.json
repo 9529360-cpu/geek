@@ -1,0 +1,77 @@
+{
+  "task_id": "SPK-001",
+  "title": "Validate installable Android Web runtime on Mblu 21",
+  "department": "client-engineering",
+  "role_required": [
+    "core-client-engineer"
+  ],
+  "capability_tags": [],
+  "priority": "high",
+  "status": "accepted",
+  "owner_agent": "client-engineering--core-client-engineer",
+  "manager_agent": "client-engineering--client-tech-lead",
+  "reviewer_agent": "quality-assurance--test-architect",
+  "branch_or_worktree": null,
+  "inputs": [
+    "02-shared-knowledge/build-specimen/execution-blueprint.json"
+  ],
+  "owned_paths": [
+    "20-validation-spikes/android-web-runtime/**",
+    "30-evidence/SPK-001/**"
+  ],
+  "outputs": [
+    "20-validation-spikes/android-web-runtime/app/build/outputs/apk/debug/app-debug.apk"
+  ],
+  "dependencies": [],
+  "acceptance_criteria": [
+    "Debug APK builds reproducibly with JDK 17 and Android SDK 35",
+    "APK installs and cold-starts on the authorized Mblu 21 without crash",
+    "App shell shows Geek branding, platform selectors, account empty state, and a bounded WebView probe"
+  ],
+  "required_evidence": [
+    "Gradle build log",
+    "ADB install and launch output",
+    "device screenshot and logcat crash scan"
+  ],
+  "risk": "medium",
+  "task_type": "validation-spike",
+  "requires_foundation_gate": false,
+  "integration_eligible": false,
+  "created_at": "2026-08-22T19:09:12.471879+00:00",
+  "updated_at": "2026-08-22T19:17:35.071217+00:00",
+  "delivery_package": null,
+  "review_records": [
+    {
+      "from": "ready",
+      "to": "claimed",
+      "actor": "codex-root",
+      "reason": "Build disposable Android web runtime spike",
+      "evidence_ref": null,
+      "recorded_at": "2026-08-22T19:09:34.954900+00:00"
+    },
+    {
+      "from": "self_checked",
+      "to": "manager_review",
+      "actor": "client-engineering--client-tech-lead",
+      "reason": "Acceptance criteria and physical-device evidence verified",
+      "evidence_ref": "30-evidence/SPK-001/verification-report.md",
+      "recorded_at": "2026-08-22T19:17:34.477614+00:00"
+    },
+    {
+      "from": "manager_review",
+      "to": "quality_review",
+      "actor": "client-engineering--client-tech-lead",
+      "reason": "Manager review passed; forward for independent quality gate",
+      "evidence_ref": "30-evidence/SPK-001/verification-report.md",
+      "recorded_at": "2026-08-22T19:17:34.765164+00:00"
+    },
+    {
+      "from": "quality_review",
+      "to": "accepted",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Build, install, cold-start, visual shell, bounded HTTPS probe, and crash scan passed",
+      "evidence_ref": "30-evidence/SPK-001/verification-report.md",
+      "recorded_at": "2026-08-22T19:17:35.071217+00:00"
+    }
+  ]
+}

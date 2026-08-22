@@ -1,0 +1,22 @@
+{
+  "verdict": "pass",
+  "criteria": [
+    {"id": "VC-001", "requirement_ids": ["REQ-001", "REQ-002", "REQ-005"], "task_ids": ["SPK-001", "MOB-001"], "method": "reproducible debug build, ADB install, cold-start UI and origin-denial checks"},
+    {"id": "VC-002", "requirement_ids": ["REQ-003", "REQ-004", "REQ-006"], "task_ids": ["SPK-001", "MOB-002"], "method": "real-account login/send/receive, force-stop recovery and renderer termination fixture"},
+    {"id": "VC-003", "requirement_ids": ["REQ-007", "REQ-008"], "task_ids": ["MOB-003"], "method": "cross-account cookie canary, deletion isolation, staged PSS and LMK pressure run"},
+    {"id": "VC-004", "requirement_ids": ["REQ-009"], "task_ids": ["MOB-004"], "method": "ported translation safety regressions plus real-chat confirmation"},
+    {"id": "VC-005", "requirement_ids": ["REQ-010"], "task_ids": ["MOB-005"], "method": "task checkpoint, process-death resume and duplicate-send canary"}
+  ],
+  "gaps": [
+    {"id": "GAP-001", "severity": "medium", "status": "open", "description": "Google Play and external distribution policy review is intentionally deferred; current scope is internal sideload only."},
+    {"id": "GAP-002", "severity": "high", "status": "resolved", "description": "Engine uncertainty is contained by integration-ineligible SPK-001 before production implementation."},
+    {"id": "GAP-003", "severity": "high", "status": "resolved", "description": "Unproven account capacity is not a customer claim; MOB-003 must derive the default from device evidence."}
+  ],
+  "permanent_regressions": [
+    {"id": "REG-ORIGIN", "requirement_ids": ["REQ-005"], "fixture": "attempt navigation to a non-allowlisted origin must fail closed"},
+    {"id": "REG-RECOVERY", "requirement_ids": ["REQ-006"], "fixture": "third renderer failure inside one minute must stop automatic reload"},
+    {"id": "REG-ISOLATION", "requirement_ids": ["REQ-007"], "fixture": "account A cookie canary must be absent from account B"},
+    {"id": "REG-TRANSLATE", "requirement_ids": ["REQ-009"], "fixture": "model explanation or source echo must never be sent"},
+    {"id": "REG-BROADCAST", "requirement_ids": ["REQ-010"], "fixture": "process restart must not resend a completed target"}
+  ]
+}
