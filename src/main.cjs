@@ -19,6 +19,7 @@ const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
+const { assertSafeTranslationOutput } = require('./translation-output-safety.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -814,7 +815,7 @@ async function removeAccount(event, accountId) {
   return publicState();
 }
 
-const TRANSLATION_CACHE_VERSION = 'prompt-20260815-1';
+const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
 const translationCaches = new Map(); // partition -> Map(hash -> encrypted-local translation)
 const translationCacheLoaded = new Set();
 const deletedTranslationPartitions = new Set();
@@ -990,7 +991,14 @@ async function translateViaRemoteGateway(event, payload) {
   const inflightKey = `${partition}:${key}`;
   if (body.refresh !== true) {
     const cached = cache.get(key);
-    if (cached) return { text: cached.text, source: body.source || 'auto', target, cached: true };
+    if (cached) {
+      try {
+        const safeCachedText = assertSafeTranslationOutput({ source: text, output: cached.text, target });
+        return { text: safeCachedText, source: body.source || 'auto', target, cached: true };
+      } catch {
+        cache.delete(key);
+      }
+    }
     if (body.isHistory === true && body.translateHistory !== true) return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true };
     if (translationInflight.has(inflightKey)) return translationInflight.get(inflightKey);
   }
@@ -1036,8 +1044,15 @@ async function translateViaRemoteGateway(event, payload) {
         let result; try { result = JSON.parse(raw); } catch { result = {}; }
         if (!response.ok) { pool.reportFailure(endpoint); lastError = new Error(String(result.error || `翻译网关错误 ${response.status}`).slice(0, 300)); continue; }
         if (!result.text || typeof result.text !== 'string') { pool.reportFailure(endpoint); lastError = new Error('翻译网关返回格式错误'); continue; }
+        let translated;
+        try {
+          translated = assertSafeTranslationOutput({ source: text, output: result.text, target });
+        } catch (error) {
+          pool.reportFailure(endpoint);
+          lastError = error;
+          continue;
+        }
         pool.reportSuccess(endpoint);
-        const translated = result.text;
         if (deletedTranslationPartitions.has(partition)) throw new Error('翻译账号已删除');
         if (translationLatestRequest.get(inflightKey) !== requestSequence) return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, superseded: true, route: picked.route };
         const item = { text: translated, at: Date.now() };

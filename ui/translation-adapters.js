@@ -138,12 +138,24 @@
     window.__geekTelegramSendBound = true;
     window.__geekTelegramSendLock = false;
     const sendButton = () => document.querySelector('#MiddleColumn button.Button.send.main-button, #Main button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"]');
+    const notifySendBlocked = message => {
+      document.getElementById('geek-translation-send-error')?.remove();
+      const notice = document.createElement('div'); notice.id = 'geek-translation-send-error'; notice.textContent = message;
+      Object.assign(notice.style, { position: 'fixed', left: '50%', bottom: '82px', transform: 'translateX(-50%)', zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318', color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)' });
+      document.body.appendChild(notice); setTimeout(() => notice.remove(), 3200);
+    };
     const translateAndSend = async (event, editor, button) => {
-      const cid = chatId(); const setting = settingFor(cid);
-      if (!cid || !setting?.enabled || setting.autoSend === false || !window.__geekTranslationRequest || window.__geekTelegramSendLock) return;
+      if (window.__geekTelegramSendLock) return;
+      const cid = chatId(); const setting = settingFor(cid || '');
+      if (!setting?.enabled || setting.autoSend === false) return;
       const original = messageText(editor).replace(/\n$/, '').trim();
-      if (!original || (setting.includeZh === false && window.GeekTranslationCore?.isChinese(original))) return;
+      if (!original || (setting.includeZh === false && /[\u3400-\u9fff]/.test(original))) return;
       event?.preventDefault?.(); event?.stopImmediatePropagation?.();
+      if (!cid || !window.__geekTranslationRequest) {
+        notifySendBlocked('翻译尚未就绪，已阻止原文发送');
+        editor.focus();
+        return;
+      }
       window.__geekTelegramSendLock = true;
       editor.setAttribute('contenteditable', 'false');
       try {
@@ -159,6 +171,7 @@
         (button || sendButton())?.click();
       } catch (error) {
         console.error('[geek-telegram-translation-send]', error);
+        notifySendBlocked('翻译失败，原文未发送');
         editor.setAttribute('contenteditable', 'true'); editor.focus();
       } finally { window.__geekTelegramSendLock = false; }
     };
@@ -242,18 +255,26 @@
     window.__geekLineSendAbort?.abort();
     window.__geekLineSendAbort = new AbortController();
     window.__geekLineSendLock = false;
-    document.addEventListener('keydown', async event => {
-      if (!event.isTrusted || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+    const notifySendBlocked = message => {
+      document.getElementById('geek-translation-send-error')?.remove();
+      const notice = document.createElement('div'); notice.id = 'geek-translation-send-error'; notice.textContent = message;
+      Object.assign(notice.style, { position: 'fixed', left: '50%', bottom: '72px', transform: 'translateX(-50%)', zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318', color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)' });
+      document.body.appendChild(notice); setTimeout(() => notice.remove(), 3200);
+    };
+    const composerHost = event => {
       const path = event.composedPath?.() || [];
-      const host = path.find(node => node?.tagName === 'TEXTAREA-EX') || document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
-      if (!host || !path.some(node => node === host || node === host.shadowRoot?.querySelector('textarea'))) return;
-      const cid = chatId(); const setting = settingFor(cid);
-      if (!cid || !setting.enabled || !setting.autoSend || !window.__geekTranslationRequest || window.__geekLineSendLock) return;
+      return path.find(node => node?.tagName === 'TEXTAREA-EX') || document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+    };
+    const translateAndSend = async (event, host, button = null) => {
+      if (window.__geekLineSendLock || !host) return;
+      const cid = chatId(); const setting = settingFor(cid || '');
+      if (!setting.enabled || !setting.autoSend) return;
       const values = Array.isArray(host.value) ? host.value : [host.value];
       const original = values.filter(value => typeof value === 'string').join('').trim();
       if (!original || /^[-+]?\d+(?:[.,]\d+)?$/.test(original)) return;
       event.preventDefault(); event.stopImmediatePropagation(); window.__geekLineSendLock = true;
       try {
+        if (!cid || !window.__geekTranslationRequest) throw new Error('翻译尚未就绪');
         const result = await window.__geekTranslationRequest({ text: original, source: setting.sendFrom || 'auto', target: setting.target || setting.sendTo || 'en', provider: setting.provider, route: setting.route, chatId: cid });
         if (!result?.text) throw new Error('翻译失败');
         const textarea = host.shadowRoot?.querySelector('textarea'); if (!textarea || typeof host.insertValue !== 'function') throw new Error('LINE输入组件不可用');
@@ -262,9 +283,22 @@
         const after = (Array.isArray(host.value) ? host.value : [host.value]).filter(value => typeof value === 'string').join('').trim();
         if (after !== result.text.trim()) throw new Error('LINE编辑器回填校验失败');
         if (!setting.includeZh && window.GeekTranslationCore?.isChinese(after)) throw new Error('译文仍包含中文，已阻止发送');
-        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
-      } catch (error) { console.error('[geek-line-translation-send]', error); }
+        if (button) button.click();
+        else textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
+      } catch (error) { console.error('[geek-line-translation-send]', error); notifySendBlocked('翻译失败，原文未发送'); }
       finally { window.__geekLineSendLock = false; }
+    };
+    document.addEventListener('keydown', event => {
+      if (!event.isTrusted || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+      const path = event.composedPath?.() || [];
+      const host = composerHost(event);
+      if (!host || !path.some(node => node === host || node === host.shadowRoot?.querySelector('textarea'))) return;
+      translateAndSend(event, host);
+    }, { capture: true, signal: window.__geekLineSendAbort.signal });
+    document.addEventListener('click', event => {
+      const button = event.target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],button[type="submit"],[class*="chatroomEditor-module__editor_area__"] button[data-action="send"]');
+      if (!button || !button.closest?.('[class*="chatroomEditor-module__editor_area__"]')) return;
+      translateAndSend(event, composerHost(event), button);
     }, { capture: true, signal: window.__geekLineSendAbort.signal });
     const scan = root => { if (root?.matches?.('[class*="message-module__message__"][data-mid]')) process(root); root?.querySelectorAll?.('[class*="message-module__message__"][data-mid]').forEach(process); };
     window.__geekLineTranslationObserver = new MutationObserver(records => { for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) scan(node); });
