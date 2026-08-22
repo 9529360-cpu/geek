@@ -7,7 +7,7 @@
   ],
   "capability_tags": [],
   "priority": "high",
-  "status": "working",
+  "status": "accepted",
   "owner_agent": "client-engineering--core-client-engineer",
   "manager_agent": "client-engineering--client-tech-lead",
   "reviewer_agent": "quality-assurance--test-architect",
@@ -44,7 +44,7 @@
   "requires_foundation_gate": true,
   "integration_eligible": true,
   "created_at": "2026-08-22T19:40:18.462977+00:00",
-  "updated_at": "2026-08-22T19:57:54.915856+00:00",
+  "updated_at": "2026-08-22T20:03:05.479864+00:00",
   "delivery_package": null,
   "review_records": [
     {
@@ -54,6 +54,30 @@
       "reason": "Implement user-confirmed PC-aligned application center, account list, and contextual action model",
       "evidence_ref": "30-evidence/MOB-002/verification-report.md",
       "recorded_at": "2026-08-22T19:40:18.800031+00:00"
+    },
+    {
+      "from": "self_checked",
+      "to": "manager_review",
+      "actor": "client-engineering--client-tech-lead",
+      "reason": "PC-aligned mobile account workflow and isolation evidence verified complete",
+      "evidence_ref": "30-evidence/MOB-003/verification-report.md",
+      "recorded_at": "2026-08-22T20:03:04.847088+00:00"
+    },
+    {
+      "from": "manager_review",
+      "to": "quality_review",
+      "actor": "client-engineering--client-tech-lead",
+      "reason": "Manager review passed; forward for independent physical-device quality review",
+      "evidence_ref": "30-evidence/MOB-003/verification-report.md",
+      "recorded_at": "2026-08-22T20:03:05.151806+00:00"
+    },
+    {
+      "from": "quality_review",
+      "to": "accepted",
+      "actor": "quality-assurance--test-architect",
+      "reason": "Two real sessions, isolation, independent deletion, restart, build, memory, and crash checks passed",
+      "evidence_ref": "30-evidence/MOB-003/verification-report.md",
+      "recorded_at": "2026-08-22T20:03:05.479864+00:00"
     }
   ]
 }

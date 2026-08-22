@@ -111,11 +111,12 @@
     "task_id": "MOB-003",
     "roster_agent_id": "client-engineering--core-client-engineer",
     "runtime_agent_id": "codex-root",
-    "status": "active",
+    "status": "released",
     "bound_at": "2026-08-22T19:40:30.905647+00:00",
     "lease_updated_at": "2026-08-22T19:57:54.915856+00:00",
     "lease_expires_at": "2026-08-22T20:07:54.915856+00:00",
     "last_progress_ref": "30-evidence/MOB-003/progress.md",
-    "released_at": null
+    "released_at": "2026-08-22T20:03:04.510717+00:00",
+    "release_reason": "Implementation, build, device isolation, deletion, restart, and two-account switching checks passed"
   }
 ]

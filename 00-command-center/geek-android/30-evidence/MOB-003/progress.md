@@ -27,9 +27,9 @@ The PC-aligned mobile interaction model is implemented and installed on the auth
 - Measured PSS on Mblu 21: main process about 34 MB and one active isolated Telegram WebView process about 104 MB.
 - Post-interaction fatal crash scan and `git diff --check`.
 
-## Remaining before MOB-003 acceptance
+## Final acceptance
 
-The runtime isolation, independent deletion, restart behavior, and initial memory profile are now proven on the physical device. MOB-003 remains active only until a user completes login for `Telegram 2`, allowing two credentialed accounts to be switched in both directions without either session changing. Translation and broadcast panels define interaction only; their engines remain owned by MOB-004 and MOB-005.
+The user completed a real login for `Telegram 2`. UI Automator then verified the sequence `Telegram 2 -> Telegram 1 -> Telegram 2`: both account headers were correct, both pages were ready, neither displayed Telegram's phone-login form, and the fatal-crash scan stayed empty. Runtime isolation, independent deletion, process restart, two credentialed sessions, and the initial memory profile are therefore accepted. Translation and broadcast panels define interaction only; their engines remain owned by MOB-004 and MOB-005.
 
 ## Physical-device evidence
 
