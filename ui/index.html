@@ -415,12 +415,15 @@
 <div id="broadcast-overlay" class="overlay hidden">
   <div class="bc-dialog" role="dialog" aria-modal="true" aria-label="群发消息">
     <header class="bc-header">
-      <span class="bc-header__title">群发消息</span>
+      <div class="bc-header__heading">
+        <span class="bc-header__title">群发消息</span>
+        <small>编辑内容并选择发送对象</small>
+      </div>
       <button type="button" id="broadcast-close" class="bc-header__close">×</button>
     </header>
     <div class="bc-body">
       <!-- 卡片1：定时发送 -->
-      <div class="bc-card">
+      <div class="bc-card bc-schedule-card">
         <label class="bc-switch-row">
           <input type="checkbox" id="broadcast-schedule-toggle" class="bc-switch-input">
           <span class="bc-switch"></span>
@@ -434,15 +437,15 @@
       </div>
 
       <!-- 卡片2：消息内容 -->
-      <div class="bc-card">
+      <div class="bc-card bc-compose-card">
+        <h3 class="bc-card-title"><span>消息内容</span><small>支持变量与多版本消息</small></h3>
         <div id="bc-saved-accordion" class="bc-saved-accordion collapsed">
-          <button type="button" id="bc-saved-accordion-toggle" class="bc-saved-accordion-head"><strong>已保存消息 ↵</strong><span id="bc-saved-accordion-arrow">▸</span></button>
+          <button type="button" id="bc-saved-accordion-toggle" class="bc-saved-accordion-head"><strong>常用消息</strong><span id="bc-saved-accordion-arrow">▸</span></button>
           <div id="bc-saved-accordion-body" class="bc-saved-accordion-body">
             <div id="bc-saved-message-list" class="bc-original-message-list"><span class="bc-original-empty">暂无已保存消息</span></div>
             <select id="bc-saved-messages" class="bc-input bc-saved-select" style="display:none"><option value="">已保存消息…</option></select>
           </div>
         </div>
-        <h3 class="bc-card-title">消息内容</h3>
         <textarea id="broadcast-message" class="bc-message" placeholder="输入消息内容，%nc = 联系人名称（换行会保留为同一条完整消息）"></textarea>
         <div class="bc-var-row">
           <span class="bc-var-label">插入变量：</span>
@@ -455,35 +458,40 @@
           <button type="button" id="bc-save-message" class="bc-btn bc-btn--small">▣ 保存消息</button>
           <button type="button" id="bc-delete-message" class="bc-btn bc-btn--small" style="display:none">删除</button>
         </div>
-        <div class="bc-media-row">
-          <label class="bc-switch-row">
-            <input type="checkbox" id="broadcast-add-file" class="bc-switch-input">
-            <span class="bc-switch"></span>
-            <span class="bc-switch-label">添加图片/视频/文件/电子名片 <span class="bc-tag-cyan">最大100MB</span></span>
-          </label>
-          <button type="button" id="broadcast-dropzone" class="bc-dropzone"><span class="bc-dropzone-icon">⇧</span><strong>拖放文件到这里，或点击选择</strong><small>图片、视频和文档，支持多选</small></button>
-          <div id="broadcast-files" class="bc-files"></div>
-        </div>
-        <div class="bc-media-row">
-          <label class="bc-switch-row">
-            <input type="checkbox" id="broadcast-add-vcard" class="bc-switch-input">
-            <span class="bc-switch"></span>
-            <span class="bc-switch-label">添加电子名片 <span class="bc-tag-cyan">选择联系人</span></span>
-          </label>
-          <div id="bc-vcard-list" class="bc-vcard-list"></div>
-        </div>
-        <div class="bc-media-row">
-          <label class="bc-switch-row">
-            <input type="checkbox" id="broadcast-tagall" class="bc-switch-input">
-            <span class="bc-switch"></span>
-            <span class="bc-switch-label">在消息中@全体群成员</span>
-          </label>
-        </div>
+        <details class="bc-content-tools">
+          <summary><span>附件与高级内容</span><small>文件、名片、@全体</small></summary>
+          <div class="bc-content-tools__body">
+            <div class="bc-media-row">
+              <label class="bc-switch-row">
+                <input type="checkbox" id="broadcast-add-file" class="bc-switch-input">
+                <span class="bc-switch"></span>
+                <span class="bc-switch-label">添加图片/视频/文件 <span class="bc-tag-cyan">最大100MB</span></span>
+              </label>
+              <button type="button" id="broadcast-dropzone" class="bc-dropzone"><span class="bc-dropzone-icon">⇧</span><strong>拖放文件到这里，或点击选择</strong><small>图片、视频和文档，支持多选</small></button>
+              <div id="broadcast-files" class="bc-files"></div>
+            </div>
+            <div class="bc-media-row">
+              <label class="bc-switch-row">
+                <input type="checkbox" id="broadcast-add-vcard" class="bc-switch-input">
+                <span class="bc-switch"></span>
+                <span class="bc-switch-label">添加电子名片 <span class="bc-tag-cyan">选择联系人</span></span>
+              </label>
+              <div id="bc-vcard-list" class="bc-vcard-list"></div>
+            </div>
+            <div class="bc-media-row">
+              <label class="bc-switch-row">
+                <input type="checkbox" id="broadcast-tagall" class="bc-switch-input">
+                <span class="bc-switch"></span>
+                <span class="bc-switch-label">在消息中@全体群成员</span>
+              </label>
+            </div>
+          </div>
+        </details>
       </div>
 
       <!-- 卡片3：发送至 -->
-      <div class="bc-card">
-        <h3 class="bc-card-title">发送至</h3>
+      <div class="bc-card bc-recipient-card">
+        <h3 class="bc-card-title"><span>发送对象</span><small>选择联系人、群组或其他来源</small></h3>
         <div class="bc-radio-group">
           <label class="bc-radio"><input type="radio" name="bc-sendto" value="custom" checked><span>联系人与群组</span></label>
           <div class="bc-sendto-body" id="bc-sendto-custom">
@@ -552,8 +560,8 @@
       </div>
 
       <!-- 卡片4：发送间隔 -->
-      <div class="bc-card">
-        <h3 class="bc-card-title">每个联系人/群组的发送间隔</h3>
+      <div class="bc-card bc-interval-card">
+        <h3 class="bc-card-title"><span>发送间隔</span><small>为每个联系人或群组随机等待</small></h3>
         <div class="bc-interval-row bc-range-row">
           <input id="broadcast-interval-min" class="bc-input bc-input--num" type="number" min="5" value="5" style="display:none">
           <input id="broadcast-interval-max" class="bc-input bc-input--num" type="number" min="5" value="10" style="display:none">
@@ -589,6 +597,7 @@
         <div class="bc-sending-close"><button type="button" id="broadcast-sending-close" class="bc-btn bc-btn--plain">关闭</button></div>
       </div>
       <div class="bc-footer__btns">
+        <span class="bc-footer-note">发送前请确认对象与间隔</span>
         <button type="button" id="broadcast-export" class="bc-btn" style="display:none">导出失败名单</button>
         <button type="button" id="broadcast-cancel" class="bc-btn">取消</button>
         <button type="button" id="broadcast-send" class="bc-btn bc-btn--primary bc-btn--large">开始群发</button>
