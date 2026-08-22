@@ -11,8 +11,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.Space;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.bbnba.geek.mobile.runtime.BrowserRuntime;
 import com.bbnba.geek.mobile.runtime.WebBrowserRuntime;
@@ -27,11 +27,11 @@ public final class MainActivity extends Activity {
     private static final int ACCENT = Color.rgb(124, 92, 255);
     private static final int GREEN = Color.rgb(64, 205, 135);
 
-    private final ShellState state = new ShellState();
+    private final ShellState shellState = new ShellState();
     private final BrowserRuntime browserRuntime = new WebBrowserRuntime();
+    private SharedPreferences accounts;
     private LinearLayout content;
     private LinearLayout navigation;
-    private SharedPreferences accounts;
     private String selectedPlatform;
 
     @Override
@@ -41,8 +41,9 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         accounts = getSharedPreferences("accounts", MODE_PRIVATE);
         selectedPlatform = accounts.getString("last_platform", "whatsapp");
+        if (!hasAnySession()) shellState.select(ShellState.Section.APPLICATIONS);
         setContentView(buildShell());
-        renderSection();
+        render();
     }
 
     @Override
@@ -50,7 +51,10 @@ public final class MainActivity extends Activity {
         super.onResume();
         if (accounts != null && content != null) {
             selectedPlatform = accounts.getString("last_platform", selectedPlatform);
-            renderSection();
+            if (hasAnySession() && shellState.selected() == ShellState.Section.APPLICATIONS) {
+                shellState.select(ShellState.Section.ACCOUNTS);
+            }
+            render();
         }
     }
 
@@ -68,18 +72,17 @@ public final class MainActivity extends Activity {
         navigation.setOrientation(LinearLayout.HORIZONTAL);
         navigation.setPadding(dp(4), dp(4), dp(4), dp(4));
         navigation.setBackground(roundRect(SURFACE, dp(18), STROKE));
-        LinearLayout.LayoutParams navParams = new LinearLayout.LayoutParams(-1, dp(62));
+        LinearLayout.LayoutParams navParams = new LinearLayout.LayoutParams(-1, dp(64));
         navParams.topMargin = dp(10);
         root.addView(navigation, navParams);
         return root;
     }
 
-    private void renderSection() {
+    private void render() {
         content.removeAllViews();
         renderHeader();
-        if (state.selected() == ShellState.Section.ACCOUNTS) renderAccounts();
-        else if (state.selected() == ShellState.Section.CONVERSATIONS) renderConversations();
-        else if (state.selected() == ShellState.Section.TOOLS) renderTools();
+        if (shellState.selected() == ShellState.Section.APPLICATIONS) renderApplicationCenter();
+        else if (shellState.selected() == ShellState.Section.ACCOUNTS) renderAccountList();
         else renderProfile();
         renderNavigation();
     }
@@ -89,173 +92,169 @@ public final class MainActivity extends Activity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.addView(text(state.selected().label(), 27, TEXT, true));
-        String subtitle = state.selected() == ShellState.Section.ACCOUNTS
-                ? accountCount() + " 个本机会话"
-                : sectionSubtitle(state.selected());
-        TextView detail = text(subtitle, 12, MUTED, false);
-        LinearLayout.LayoutParams detailParams = wrap();
-        detailParams.topMargin = dp(2);
-        copy.addView(detail, detailParams);
+        copy.addView(text(shellState.selected().label(), 27, TEXT, true));
+        TextView subtitle = text(sectionSubtitle(), 12, MUTED, false);
+        LinearLayout.LayoutParams subtitleParams = wrap();
+        subtitleParams.topMargin = dp(2);
+        copy.addView(subtitle, subtitleParams);
         row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        if (state.selected() == ShellState.Section.ACCOUNTS) {
+        if (shellState.selected() == ShellState.Section.ACCOUNTS) {
             Button add = compactButton("＋ 添加", false);
-            add.setOnClickListener(v -> showAddAccount());
+            add.setOnClickListener(v -> {
+                shellState.select(ShellState.Section.APPLICATIONS);
+                render();
+            });
             row.addView(add, new LinearLayout.LayoutParams(dp(96), dp(42)));
         } else {
             TextView local = pill("●  本机", GREEN, SURFACE_2);
             row.addView(local, new LinearLayout.LayoutParams(dp(86), dp(36)));
         }
-        content.addView(row, new LinearLayout.LayoutParams(-1, dp(64)));
+        content.addView(row, new LinearLayout.LayoutParams(-1, dp(66)));
     }
 
-    private void renderAccounts() {
-        if (hasCurrentSession()) renderAccountCard();
-        else renderEmptyAccount();
+    private void renderApplicationCenter() {
+        TextView intro = text("选择应用，登录后自动加入账户列表", 14, MUTED, false);
+        LinearLayout.LayoutParams introParams = wrap();
+        introParams.topMargin = dp(12);
+        content.addView(intro, introParams);
 
-        TextView quickTitle = text("常用功能", 16, TEXT, true);
-        LinearLayout.LayoutParams quickTitleParams = wrap();
-        quickTitleParams.topMargin = dp(22);
-        content.addView(quickTitle, quickTitleParams);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, 0, 1f);
+        listParams.topMargin = dp(16);
+        content.addView(list, listParams);
+        addApplication(list, "whatsapp", "WhatsApp", "聊天与客户沟通", Color.rgb(37, 211, 102));
+        addApplication(list, "telegram", "Telegram", "频道、群组与私聊", Color.rgb(51, 144, 236));
+        addApplication(list, "line", "LINE", "好友与商业会话", Color.rgb(6, 199, 85));
 
-        LinearLayout quick = new LinearLayout(this);
-        quick.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams quickParams = matchWrap();
-        quickParams.topMargin = dp(10);
-        content.addView(quick, quickParams);
-        addQuickTool(quick, "译", "翻译", "登录稳定后开放");
-        addQuickTool(quick, "发", "群发", "多账号后开放");
-
-        TextView safety = text("账号数据仅保存在这台手机的极客 App 沙箱中", 11, MUTED, false);
-        safety.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams safetyParams = new LinearLayout.LayoutParams(-1, -2);
-        safetyParams.topMargin = dp(18);
-        content.addView(safety, safetyParams);
+        TextView note = text("与 PC 端一致：每次添加都会成为一个独立账户实例", 11, MUTED, false);
+        note.setGravity(Gravity.CENTER);
+        content.addView(note, new LinearLayout.LayoutParams(-1, dp(38)));
     }
 
-    private void renderAccountCard() {
-        LinearLayout card = card();
-        LinearLayout.LayoutParams cardParams = matchWrap();
-        cardParams.topMargin = dp(14);
-        content.addView(card, cardParams);
+    private void addApplication(LinearLayout parent, String platform, String title, String description, int color) {
+        LinearLayout card = new LinearLayout(this);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(16), dp(14), dp(14), dp(14));
+        card.setBackground(roundRect(SURFACE, dp(18), STROKE));
 
-        LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        int platformColor = platformColor(selectedPlatform);
-        TextView icon = text(platformMark(selectedPlatform), 20, Color.WHITE, true);
+        TextView icon = text(platformMark(platform), 20, Color.WHITE, true);
         icon.setGravity(Gravity.CENTER);
-        icon.setBackground(roundRect(platformColor, dp(17), platformColor));
-        top.addView(icon, new LinearLayout.LayoutParams(dp(54), dp(54)));
+        icon.setBackground(roundRect(color, dp(16), color));
+        card.addView(icon, new LinearLayout.LayoutParams(dp(54), dp(54)));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(14), 0, dp(8), 0);
+        copy.addView(text(title, 17, TEXT, true));
+        TextView detail = text(description, 12, MUTED, false);
+        LinearLayout.LayoutParams detailParams = wrap();
+        detailParams.topMargin = dp(4);
+        copy.addView(detail, detailParams);
+        card.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        Button add = compactButton(hasSession(platform) ? "再添加" : "添加", true);
+        add.setContentDescription("添加 " + title + " 账户");
+        add.setOnClickListener(v -> requestAccount(platform));
+        card.addView(add, new LinearLayout.LayoutParams(dp(84), dp(44)));
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(88));
+        if (parent.getChildCount() > 0) params.topMargin = dp(11);
+        parent.addView(card, params);
+    }
+
+    private void requestAccount(String platform) {
+        if (hasSession(platform)) {
+            Toast.makeText(this, "正在接入第 2 个隔离实例，当前先打开已有账户", Toast.LENGTH_SHORT).show();
+        }
+        selectedPlatform = platform;
+        openAccount(platform);
+    }
+
+    private void renderAccountList() {
+        if (!hasAnySession()) {
+            LinearLayout empty = card();
+            empty.setGravity(Gravity.CENTER);
+            empty.addView(text("还没有账户", 19, TEXT, true));
+            TextView hint = text("去应用中心选择 WhatsApp、Telegram 或 LINE", 13, MUTED, false);
+            LinearLayout.LayoutParams hintParams = wrap();
+            hintParams.topMargin = dp(8);
+            empty.addView(hint, hintParams);
+            Button go = compactButton("打开应用中心", true);
+            go.setOnClickListener(v -> {
+                shellState.select(ShellState.Section.APPLICATIONS);
+                render();
+            });
+            LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(-1, dp(48));
+            goParams.topMargin = dp(20);
+            empty.addView(go, goParams);
+            LinearLayout.LayoutParams emptyParams = new LinearLayout.LayoutParams(-1, dp(260));
+            emptyParams.topMargin = dp(16);
+            content.addView(empty, emptyParams);
+            return;
+        }
+
+        TextView count = text(accountCount() + " 个账户 · 点击进入对应的多开实例", 13, MUTED, false);
+        LinearLayout.LayoutParams countParams = wrap();
+        countParams.topMargin = dp(12);
+        content.addView(count, countParams);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, 0, 1f);
+        listParams.topMargin = dp(14);
+        content.addView(list, listParams);
+        if (hasSession("whatsapp")) addAccountRow(list, "whatsapp", accountName("whatsapp"));
+        if (hasSession("telegram")) addAccountRow(list, "telegram", accountName("telegram"));
+        if (hasSession("line")) addAccountRow(list, "line", accountName("line"));
+    }
+
+    private void addAccountRow(LinearLayout parent, String platform, String name) {
+        LinearLayout card = new LinearLayout(this);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(16), dp(15), dp(14), dp(15));
+        card.setBackground(roundRect(SURFACE, dp(18), STROKE));
+        TextView icon = text(platformMark(platform), 19, Color.WHITE, true);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(roundRect(platformColor(platform), dp(16), platformColor(platform)));
+        card.addView(icon, new LinearLayout.LayoutParams(dp(54), dp(54)));
 
         LinearLayout identity = new LinearLayout(this);
         identity.setOrientation(LinearLayout.VERTICAL);
         identity.setPadding(dp(14), 0, 0, 0);
-        identity.addView(text(browserRuntime.displayName(selectedPlatform), 18, TEXT, true));
-        TextView local = text("本机会话 · 已保存", 12, MUTED, false);
-        LinearLayout.LayoutParams localParams = wrap();
-        localParams.topMargin = dp(3);
-        identity.addView(local, localParams);
-        top.addView(identity, new LinearLayout.LayoutParams(0, -2, 1f));
+        identity.addView(text(name, 17, TEXT, true));
+        TextView state = text("● 在线 · 本机独立会话", 12, GREEN, false);
+        LinearLayout.LayoutParams stateParams = wrap();
+        stateParams.topMargin = dp(4);
+        identity.addView(state, stateParams);
+        card.addView(identity, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView arrow = text("›", 29, MUTED, false);
+        arrow.setGravity(Gravity.CENTER);
+        card.addView(arrow, new LinearLayout.LayoutParams(dp(38), dp(48)));
+        card.setContentDescription("打开账户 " + name);
+        card.setOnClickListener(v -> openAccount(platform));
 
-        TextView status = pill("●  可用", GREEN, SURFACE_2);
-        top.addView(status, new LinearLayout.LayoutParams(dp(76), dp(34)));
-        card.addView(top, matchWrap());
-
-        TextView hint = text("直接回到会话，不需要重新登录", 13, MUTED, false);
-        LinearLayout.LayoutParams hintParams = wrap();
-        hintParams.topMargin = dp(17);
-        card.addView(hint, hintParams);
-
-        Button open = compactButton("打开 " + browserRuntime.displayName(selectedPlatform), true);
-        open.setOnClickListener(v -> openAccount(selectedPlatform));
-        LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(-1, dp(50));
-        openParams.topMargin = dp(16);
-        card.addView(open, openParams);
-    }
-
-    private void renderEmptyAccount() {
-        LinearLayout card = card();
-        card.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(245));
-        params.topMargin = dp(14);
-        content.addView(card, params);
-        card.addView(text("连接第一个账号", 20, TEXT, true));
-        TextView hint = text("选择平台后在当前 App 内完成登录", 13, MUTED, false);
-        LinearLayout.LayoutParams hintParams = wrap();
-        hintParams.topMargin = dp(7);
-        card.addView(hint, hintParams);
-        LinearLayout choices = platformChoices();
-        LinearLayout.LayoutParams choiceParams = matchWrap();
-        choiceParams.topMargin = dp(18);
-        card.addView(choices, choiceParams);
-        Button connect = compactButton("继续", true);
-        connect.setOnClickListener(v -> openAccount(selectedPlatform));
-        LinearLayout.LayoutParams connectParams = new LinearLayout.LayoutParams(-1, dp(48));
-        connectParams.topMargin = dp(18);
-        card.addView(connect, connectParams);
-    }
-
-    private void showAddAccount() {
-        if (hasCurrentSession()) {
-            android.widget.Toast.makeText(this, "多账号隔离正在下一阶段开发", android.widget.Toast.LENGTH_SHORT).show();
-            return;
-        }
-        renderSection();
-    }
-
-    private void renderConversations() {
-        LinearLayout card = card();
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, 0, 1f);
-        params.topMargin = dp(14);
-        content.addView(card, params);
-        if (hasCurrentSession()) {
-            card.addView(text("继续最近会话", 18, TEXT, true));
-            TextView note = text(browserRuntime.displayName(selectedPlatform) + " 会话保存在当前设备", 13, MUTED, false);
-            LinearLayout.LayoutParams noteParams = wrap();
-            noteParams.topMargin = dp(7);
-            card.addView(note, noteParams);
-            Space space = new Space(this);
-            card.addView(space, new LinearLayout.LayoutParams(1, 0, 1f));
-            Button open = compactButton("打开会话", true);
-            open.setOnClickListener(v -> openAccount(selectedPlatform));
-            card.addView(open, new LinearLayout.LayoutParams(-1, dp(50)));
-        } else {
-            card.setGravity(Gravity.CENTER);
-            card.addView(text("先在“账号”里连接一个平台", 14, MUTED, false));
-        }
-    }
-
-    private void renderTools() {
-        TextView guide = text("工具按安全顺序开放", 15, MUTED, false);
-        LinearLayout.LayoutParams guideParams = wrap();
-        guideParams.topMargin = dp(14);
-        content.addView(guide, guideParams);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, 0, 1f);
-        listParams.topMargin = dp(12);
-        content.addView(list, listParams);
-        addToolRow(list, "多账号", "隔离每个账号的登录和数据", "下一步");
-        addToolRow(list, "翻译", "发送前翻译并校验输出", "待开发");
-        addToolRow(list, "群发", "可暂停、可停止、避免重复发送", "待开发");
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(94));
+        if (parent.getChildCount() > 0) params.topMargin = dp(11);
+        parent.addView(card, params);
     }
 
     private void renderProfile() {
         LinearLayout card = card();
         LinearLayout.LayoutParams params = matchWrap();
-        params.topMargin = dp(14);
+        params.topMargin = dp(16);
         content.addView(card, params);
-        card.addView(text("当前设备", 16, TEXT, true));
+        card.addView(text("当前设备", 17, TEXT, true));
         addInfoRow(card, "设备", "Mblu 21");
-        addInfoRow(card, "数据位置", "仅本机 App 沙箱");
+        addInfoRow(card, "账户数据", "仅保存在 App 沙箱");
         addInfoRow(card, "版本", "0.1.0 测试版");
     }
 
     private void renderNavigation() {
         navigation.removeAllViews();
         for (ShellState.Section section : ShellState.Section.values()) {
-            boolean selected = state.selected() == section;
+            boolean selected = shellState.selected() == section;
             Button button = new Button(this);
             button.setText(section.label());
             button.setTextSize(13);
@@ -266,96 +265,44 @@ public final class MainActivity extends Activity {
             button.setBackground(roundRect(selected ? ACCENT : Color.TRANSPARENT, dp(14), selected ? ACCENT : Color.TRANSPARENT));
             button.setContentDescription(section.label() + (selected ? "，当前页面" : ""));
             button.setOnClickListener(v -> {
-                state.select(section);
-                renderSection();
+                shellState.select(section);
+                render();
             });
             navigation.addView(button, new LinearLayout.LayoutParams(0, -1, 1f));
         }
-    }
-
-    private LinearLayout platformChoices() {
-        LinearLayout choices = new LinearLayout(this);
-        choices.setOrientation(LinearLayout.HORIZONTAL);
-        addPlatformChoice(choices, "whatsapp", "W");
-        addPlatformChoice(choices, "telegram", "T");
-        addPlatformChoice(choices, "line", "L");
-        return choices;
-    }
-
-    private void addPlatformChoice(LinearLayout parent, String key, String mark) {
-        boolean selected = key.equals(selectedPlatform);
-        Button button = compactButton(mark + "  " + browserRuntime.displayName(key), selected);
-        button.setContentDescription("选择 " + browserRuntime.displayName(key));
-        button.setOnClickListener(v -> {
-            selectedPlatform = key;
-            renderSection();
-        });
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(46), 1f);
-        if (parent.getChildCount() > 0) params.leftMargin = dp(7);
-        parent.addView(button, params);
-    }
-
-    private void addQuickTool(LinearLayout parent, String mark, String title, String subtitle) {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setPadding(dp(15), dp(14), dp(15), dp(14));
-        item.setBackground(roundRect(SURFACE, dp(17), STROKE));
-        item.addView(text(mark + "  " + title, 15, TEXT, true));
-        TextView detail = text(subtitle, 11, MUTED, false);
-        LinearLayout.LayoutParams detailParams = wrap();
-        detailParams.topMargin = dp(7);
-        item.addView(detail, detailParams);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(90), 1f);
-        if (parent.getChildCount() > 0) params.leftMargin = dp(9);
-        parent.addView(item, params);
-    }
-
-    private void addToolRow(LinearLayout parent, String title, String subtitle, String stateText) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(17), dp(15), dp(17), dp(15));
-        row.setBackground(roundRect(SURFACE, dp(17), STROKE));
-        LinearLayout copy = new LinearLayout(this);
-        copy.setOrientation(LinearLayout.VERTICAL);
-        copy.addView(text(title, 16, TEXT, true));
-        TextView detail = text(subtitle, 12, MUTED, false);
-        LinearLayout.LayoutParams detailParams = wrap();
-        detailParams.topMargin = dp(4);
-        copy.addView(detail, detailParams);
-        row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
-        row.addView(pill(stateText, "下一步".equals(stateText) ? ACCENT : MUTED, SURFACE_2), new LinearLayout.LayoutParams(dp(72), dp(34)));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(82));
-        if (parent.getChildCount() > 0) params.topMargin = dp(10);
-        parent.addView(row, params);
-    }
-
-    private void addInfoRow(LinearLayout parent, String label, String value) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(14), 0, 0);
-        row.addView(text(label, 13, MUTED, false), new LinearLayout.LayoutParams(0, -2, 1f));
-        row.addView(text(value, 13, TEXT, false));
-        parent.addView(row, matchWrap());
     }
 
     private void openAccount(String platform) {
         accounts.edit().putString("last_platform", platform).apply();
         Intent intent = new Intent(this, AccountSetupActivity.class);
         intent.putExtra(AccountSetupActivity.EXTRA_PLATFORM, platform);
+        intent.putExtra(AccountSetupActivity.EXTRA_ACCOUNT_NAME, accountName(platform));
         startActivity(intent);
     }
 
-    private boolean hasCurrentSession() {
-        return accounts.getBoolean("session_created_" + selectedPlatform, false);
+    private boolean hasAnySession() {
+        return hasSession("whatsapp") || hasSession("telegram") || hasSession("line");
+    }
+
+    private boolean hasSession(String platform) {
+        return accounts.getBoolean("session_created_" + platform, false);
     }
 
     private int accountCount() {
-        return hasCurrentSession() ? 1 : 0;
+        int count = 0;
+        if (hasSession("whatsapp")) count++;
+        if (hasSession("telegram")) count++;
+        if (hasSession("line")) count++;
+        return count;
     }
 
-    private String sectionSubtitle(ShellState.Section section) {
-        if (section == ShellState.Section.CONVERSATIONS) return "快速返回平台会话";
-        if (section == ShellState.Section.TOOLS) return "多账号、翻译与群发";
+    private String accountName(String platform) {
+        return accounts.getString("account_name_" + platform, browserRuntime.displayName(platform) + " 1");
+    }
+
+    private String sectionSubtitle() {
+        if (shellState.selected() == ShellState.Section.APPLICATIONS) return "选择并添加聊天应用";
+        if (shellState.selected() == ShellState.Section.ACCOUNTS) return accountCount() + " 个多开账户";
         return "设备、安全与版本";
     }
 
@@ -389,6 +336,15 @@ public final class MainActivity extends Activity {
         button.setGravity(Gravity.CENTER);
         button.setBackground(roundRect(primary ? ACCENT : SURFACE_2, dp(14), primary ? ACCENT : STROKE));
         return button;
+    }
+
+    private void addInfoRow(LinearLayout parent, String label, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(15), 0, 0);
+        row.addView(text(label, 13, MUTED, false), new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(text(value, 13, TEXT, false));
+        parent.addView(row, matchWrap());
     }
 
     private TextView pill(String value, int foreground, int background) {

@@ -4,9 +4,8 @@ import java.util.Objects;
 
 public final class ShellState {
     public enum Section {
-        ACCOUNTS("账号"),
-        CONVERSATIONS("会话"),
-        TOOLS("工具"),
+        APPLICATIONS("应用中心"),
+        ACCOUNTS("账户列表"),
         PROFILE("我的");
 
         private final String label;

@@ -1,0 +1,59 @@
+{
+  "task_id": "MOB-003",
+  "title": "Implement PC-aligned application center and isolated account list",
+  "department": "client-engineering",
+  "role_required": [
+    "core-client-engineer"
+  ],
+  "capability_tags": [],
+  "priority": "high",
+  "status": "working",
+  "owner_agent": "client-engineering--core-client-engineer",
+  "manager_agent": "client-engineering--client-tech-lead",
+  "reviewer_agent": "quality-assurance--test-architect",
+  "branch_or_worktree": null,
+  "inputs": [
+    "ui/index.html",
+    "ui/app.js",
+    "02-shared-knowledge/build-specimen/system-contracts.json"
+  ],
+  "owned_paths": [
+    "mobile/android/app/src/main/**",
+    "mobile/android/app/src/test/**",
+    "mobile/android/app/src/androidTest/**",
+    "30-evidence/MOB-003/**"
+  ],
+  "outputs": [
+    "mobile/android/app/build/outputs/apk/debug/app-debug.apk"
+  ],
+  "dependencies": [
+    "MOB-002"
+  ],
+  "acceptance_criteria": [
+    "Bottom navigation exposes Application Center and Account List using the same mental model as the PC client",
+    "Selecting a platform creates or opens a named account instance and each accepted instance has an isolated runtime boundary",
+    "Inside an account, floating Translation and Broadcast buttons open panels scoped to that account",
+    "Cookie deletion and restart tests prove one account cannot affect another account"
+  ],
+  "required_evidence": [
+    "Unit lint build and physical-device UI evidence",
+    "Cookie isolation delete isolation restart and PSS evidence"
+  ],
+  "risk": "high",
+  "task_type": "implementation",
+  "requires_foundation_gate": true,
+  "integration_eligible": true,
+  "created_at": "2026-08-22T19:40:18.462977+00:00",
+  "updated_at": "2026-08-22T19:45:59.847529+00:00",
+  "delivery_package": null,
+  "review_records": [
+    {
+      "from": "ready",
+      "to": "claimed",
+      "actor": "codex-root",
+      "reason": "Implement user-confirmed PC-aligned application center, account list, and contextual action model",
+      "evidence_ref": "30-evidence/MOB-002/verification-report.md",
+      "recorded_at": "2026-08-22T19:40:18.800031+00:00"
+    }
+  ]
+}

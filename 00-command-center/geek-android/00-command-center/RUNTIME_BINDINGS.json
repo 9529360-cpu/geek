@@ -106,5 +106,16 @@
     "last_progress_ref": "30-evidence/MOB-002/verification-report.md",
     "released_at": "2026-08-22T19:36:57.126654+00:00",
     "release_reason": "Real Telegram session survived force-stop/cold start; redesigned shell passed unit, lint, build, navigation, device and crash checks"
+  },
+  {
+    "task_id": "MOB-003",
+    "roster_agent_id": "client-engineering--core-client-engineer",
+    "runtime_agent_id": "codex-root",
+    "status": "active",
+    "bound_at": "2026-08-22T19:40:30.905647+00:00",
+    "lease_updated_at": "2026-08-22T19:45:59.847529+00:00",
+    "lease_expires_at": "2026-08-22T19:55:59.847529+00:00",
+    "last_progress_ref": "30-evidence/MOB-003/progress.md",
+    "released_at": null
   }
 ]
