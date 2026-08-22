@@ -31,4 +31,10 @@ public final class ShellStateTest {
         assertEquals(false, runtime.isAllowedOrigin("telegram", "https", "example.com"));
         assertEquals("https://web.whatsapp.com/", runtime.startUrl("whatsapp"));
     }
+
+    @Test
+    public void allocatesTheFirstFreeIsolatedSlot() {
+        assertEquals(2, AccountSlotAllocator.firstAvailable(new boolean[]{true, true, false, false}));
+        assertEquals(-1, AccountSlotAllocator.firstAvailable(new boolean[]{true, true, true, true}));
+    }
 }

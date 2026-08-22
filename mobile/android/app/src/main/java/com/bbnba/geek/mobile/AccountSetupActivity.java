@@ -15,6 +15,7 @@ import android.webkit.CookieManager;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
@@ -29,9 +30,11 @@ import com.bbnba.geek.mobile.runtime.WebBrowserRuntime;
 
 import java.util.ArrayDeque;
 
-public final class AccountSetupActivity extends Activity {
+public class AccountSetupActivity extends Activity {
     public static final String EXTRA_PLATFORM = "platform";
     public static final String EXTRA_ACCOUNT_NAME = "account_name";
+    public static final String EXTRA_CLEAR_DATA = "clear_data";
+    public static final String EXTRA_SLOT = "slot";
 
     private static final int BG = Color.rgb(11, 13, 18);
     private static final int SURFACE = Color.rgb(20, 24, 33);
@@ -44,9 +47,11 @@ public final class AccountSetupActivity extends Activity {
     private WebView webView;
     private String platform;
     private String accountName;
+    private static boolean webViewDirectoryConfigured;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        configureWebViewDirectoryOnce();
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
@@ -54,9 +59,44 @@ public final class AccountSetupActivity extends Activity {
         if (!"telegram".equals(platform) && !"line".equals(platform)) platform = "whatsapp";
         accountName = getIntent().getStringExtra(EXTRA_ACCOUNT_NAME);
         if (accountName == null || accountName.trim().isEmpty()) accountName = runtime.displayName(platform) + " 1";
-        getSharedPreferences("accounts", MODE_PRIVATE).edit().putString("last_platform", platform).apply();
+        if (getIntent().getBooleanExtra(EXTRA_CLEAR_DATA, false)) {
+            clearIsolatedWebData();
+            return;
+        }
+        if (getIntent().getIntExtra(EXTRA_SLOT, 0) == 0) {
+            getSharedPreferences("accounts", MODE_PRIVATE).edit().putString("last_platform", platform).apply();
+        }
         setContentView(buildContent());
         createWebView();
+    }
+
+    protected String webViewDataDirectorySuffix() {
+        return null;
+    }
+
+    private void configureWebViewDirectoryOnce() {
+        String suffix = webViewDataDirectorySuffix();
+        if (suffix == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return;
+        synchronized (AccountSetupActivity.class) {
+            if (!webViewDirectoryConfigured) {
+                WebView.setDataDirectorySuffix(suffix);
+                webViewDirectoryConfigured = true;
+            }
+        }
+    }
+
+    private void clearIsolatedWebData() {
+        WebView cleaner = new WebView(this);
+        cleaner.clearCache(true);
+        cleaner.clearFormData();
+        cleaner.clearHistory();
+        WebStorage.getInstance().deleteAllData();
+        CookieManager.getInstance().removeAllCookies(value -> {
+            CookieManager.getInstance().flush();
+            cleaner.destroy();
+            setResult(RESULT_OK, getIntent());
+            finish();
+        });
     }
 
     private View buildContent() {
@@ -155,9 +195,13 @@ public final class AccountSetupActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             CookieManager.getInstance().flush();
+            int slot = getIntent().getIntExtra(EXTRA_SLOT, 0);
+            String sessionKey = slot == 0
+                    ? "session_created_" + platform
+                    : "slot_" + slot + "_page_created";
             getSharedPreferences("accounts", MODE_PRIVATE)
                     .edit()
-                    .putBoolean("session_created_" + platform, true)
+                    .putBoolean(sessionKey, true)
                     .apply();
             status.setText("页面已就绪 · 完成登录后会话将保存在本机");
         }

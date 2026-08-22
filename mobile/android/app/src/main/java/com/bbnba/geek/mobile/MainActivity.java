@@ -1,6 +1,7 @@
 package com.bbnba.geek.mobile;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -18,6 +19,7 @@ import com.bbnba.geek.mobile.runtime.BrowserRuntime;
 import com.bbnba.geek.mobile.runtime.WebBrowserRuntime;
 
 public final class MainActivity extends Activity {
+    private static final int DELETE_ACCOUNT_REQUEST_BASE = 4100;
     private static final int BG = Color.rgb(11, 13, 18);
     private static final int SURFACE = Color.rgb(20, 24, 33);
     private static final int SURFACE_2 = Color.rgb(26, 31, 42);
@@ -165,11 +167,28 @@ public final class MainActivity extends Activity {
     }
 
     private void requestAccount(String platform) {
-        if (hasSession(platform)) {
-            Toast.makeText(this, "正在接入第 2 个隔离实例，当前先打开已有账户", Toast.LENGTH_SHORT).show();
-        }
         selectedPlatform = platform;
-        openAccount(platform);
+        if (!hasAnySession()) {
+            openAccount(platform, 0, browserRuntime.displayName(platform) + " 1");
+            return;
+        }
+        boolean[] used = new boolean[AccountSlotAllocator.MAX_ISOLATED_SLOTS + 1];
+        used[0] = true;
+        for (int slot = 1; slot <= AccountSlotAllocator.MAX_ISOLATED_SLOTS; slot++) {
+            used[slot] = accounts.getBoolean("slot_" + slot + "_active", false);
+        }
+        int slot = AccountSlotAllocator.firstAvailable(used);
+        if (slot < 0) {
+            Toast.makeText(this, "当前测试版最多同时保存 4 个账户", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String name = browserRuntime.displayName(platform) + " " + (platformAccountCount(platform) + 1);
+        accounts.edit()
+                .putBoolean("slot_" + slot + "_active", true)
+                .putString("slot_" + slot + "_platform", platform)
+                .putString("slot_" + slot + "_name", name)
+                .apply();
+        openAccount(platform, slot, name);
     }
 
     private void renderAccountList() {
@@ -205,12 +224,17 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, 0, 1f);
         listParams.topMargin = dp(14);
         content.addView(list, listParams);
-        if (hasSession("whatsapp")) addAccountRow(list, "whatsapp", accountName("whatsapp"));
-        if (hasSession("telegram")) addAccountRow(list, "telegram", accountName("telegram"));
-        if (hasSession("line")) addAccountRow(list, "line", accountName("line"));
+        if (hasLegacySession("whatsapp")) addAccountRow(list, "whatsapp", 0, accountName("whatsapp", 0));
+        if (hasLegacySession("telegram")) addAccountRow(list, "telegram", 0, accountName("telegram", 0));
+        if (hasLegacySession("line")) addAccountRow(list, "line", 0, accountName("line", 0));
+        for (int slot = 1; slot <= AccountSlotAllocator.MAX_ISOLATED_SLOTS; slot++) {
+            if (!accounts.getBoolean("slot_" + slot + "_active", false)) continue;
+            String platform = accounts.getString("slot_" + slot + "_platform", "whatsapp");
+            addAccountRow(list, platform, slot, accountName(platform, slot));
+        }
     }
 
-    private void addAccountRow(LinearLayout parent, String platform, String name) {
+    private void addAccountRow(LinearLayout parent, String platform, int slot, String name) {
         LinearLayout card = new LinearLayout(this);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(dp(16), dp(15), dp(14), dp(15));
@@ -224,16 +248,24 @@ public final class MainActivity extends Activity {
         identity.setOrientation(LinearLayout.VERTICAL);
         identity.setPadding(dp(14), 0, 0, 0);
         identity.addView(text(name, 17, TEXT, true));
-        TextView state = text("● 在线 · 本机独立会话", 12, GREEN, false);
+        TextView state = text(slot == 0 ? "● 本机会话" : "● 独立实例 " + slot, 12, GREEN, false);
         LinearLayout.LayoutParams stateParams = wrap();
         stateParams.topMargin = dp(4);
         identity.addView(state, stateParams);
         card.addView(identity, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView arrow = text("›", 29, MUTED, false);
-        arrow.setGravity(Gravity.CENTER);
-        card.addView(arrow, new LinearLayout.LayoutParams(dp(38), dp(48)));
+        if (slot > 0) {
+            Button manage = compactButton("⋯", false);
+            manage.setTextSize(20);
+            manage.setContentDescription("管理账户 " + name);
+            manage.setOnClickListener(v -> showAccountManagement(platform, slot, name));
+            card.addView(manage, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        } else {
+            TextView arrow = text("›", 29, MUTED, false);
+            arrow.setGravity(Gravity.CENTER);
+            card.addView(arrow, new LinearLayout.LayoutParams(dp(38), dp(48)));
+        }
         card.setContentDescription("打开账户 " + name);
-        card.setOnClickListener(v -> openAccount(platform));
+        card.setOnClickListener(v -> openAccount(platform, slot, name));
 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(94));
         if (parent.getChildCount() > 0) params.topMargin = dp(11);
@@ -272,32 +304,111 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void openAccount(String platform) {
+    private void openAccount(String platform, int slot, String name) {
         accounts.edit().putString("last_platform", platform).apply();
-        Intent intent = new Intent(this, AccountSetupActivity.class);
+        Intent intent = new Intent(this, activityClassForSlot(slot));
         intent.putExtra(AccountSetupActivity.EXTRA_PLATFORM, platform);
-        intent.putExtra(AccountSetupActivity.EXTRA_ACCOUNT_NAME, accountName(platform));
+        intent.putExtra(AccountSetupActivity.EXTRA_ACCOUNT_NAME, name);
+        intent.putExtra(AccountSetupActivity.EXTRA_SLOT, slot);
         startActivity(intent);
     }
 
+    private void showAccountManagement(String platform, int slot, String name) {
+        new AlertDialog.Builder(this)
+                .setTitle(name)
+                .setItems(new String[]{"删除账户及本机数据"}, (dialog, which) -> confirmAccountDeletion(platform, slot, name))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void confirmAccountDeletion(String platform, int slot, String name) {
+        new AlertDialog.Builder(this)
+                .setTitle("删除 " + name + "？")
+                .setMessage("将清除该实例的 Cookie、缓存和本地网页数据，不影响其他账户。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> clearAccountData(platform, slot, name))
+                .show();
+    }
+
+    private void clearAccountData(String platform, int slot, String name) {
+        Intent intent = new Intent(this, activityClassForSlot(slot));
+        intent.putExtra(AccountSetupActivity.EXTRA_PLATFORM, platform);
+        intent.putExtra(AccountSetupActivity.EXTRA_ACCOUNT_NAME, name);
+        intent.putExtra(AccountSetupActivity.EXTRA_SLOT, slot);
+        intent.putExtra(AccountSetupActivity.EXTRA_CLEAR_DATA, true);
+        startActivityForResult(intent, DELETE_ACCOUNT_REQUEST_BASE + slot);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        int slot = requestCode - DELETE_ACCOUNT_REQUEST_BASE;
+        if (resultCode != RESULT_OK || slot < 1 || slot > AccountSlotAllocator.MAX_ISOLATED_SLOTS) return;
+        String name = accounts.getString("slot_" + slot + "_name", "账户");
+        accounts.edit()
+                .remove("slot_" + slot + "_active")
+                .remove("slot_" + slot + "_platform")
+                .remove("slot_" + slot + "_name")
+                .remove("slot_" + slot + "_page_created")
+                .apply();
+        Toast.makeText(this, name + " 已删除", Toast.LENGTH_SHORT).show();
+        shellState.select(hasAnySession() ? ShellState.Section.ACCOUNTS : ShellState.Section.APPLICATIONS);
+        render();
+    }
+
+    private Class<? extends AccountSetupActivity> activityClassForSlot(int slot) {
+        if (slot == 1) return AccountSlot1Activity.class;
+        if (slot == 2) return AccountSlot2Activity.class;
+        if (slot == 3) return AccountSlot3Activity.class;
+        return AccountSetupActivity.class;
+    }
+
     private boolean hasAnySession() {
-        return hasSession("whatsapp") || hasSession("telegram") || hasSession("line");
+        if (hasLegacySession("whatsapp") || hasLegacySession("telegram") || hasLegacySession("line")) return true;
+        for (int slot = 1; slot <= AccountSlotAllocator.MAX_ISOLATED_SLOTS; slot++) {
+            if (accounts.getBoolean("slot_" + slot + "_active", false)) return true;
+        }
+        return false;
     }
 
     private boolean hasSession(String platform) {
+        if (hasLegacySession(platform)) return true;
+        for (int slot = 1; slot <= AccountSlotAllocator.MAX_ISOLATED_SLOTS; slot++) {
+            if (accounts.getBoolean("slot_" + slot + "_active", false)
+                    && platform.equals(accounts.getString("slot_" + slot + "_platform", ""))) return true;
+        }
+        return false;
+    }
+
+    private boolean hasLegacySession(String platform) {
         return accounts.getBoolean("session_created_" + platform, false);
     }
 
     private int accountCount() {
         int count = 0;
-        if (hasSession("whatsapp")) count++;
-        if (hasSession("telegram")) count++;
-        if (hasSession("line")) count++;
+        if (hasLegacySession("whatsapp")) count++;
+        if (hasLegacySession("telegram")) count++;
+        if (hasLegacySession("line")) count++;
+        for (int slot = 1; slot <= AccountSlotAllocator.MAX_ISOLATED_SLOTS; slot++) {
+            if (accounts.getBoolean("slot_" + slot + "_active", false)) count++;
+        }
         return count;
     }
 
-    private String accountName(String platform) {
-        return accounts.getString("account_name_" + platform, browserRuntime.displayName(platform) + " 1");
+    private int platformAccountCount(String platform) {
+        int count = hasLegacySession(platform) ? 1 : 0;
+        for (int slot = 1; slot <= AccountSlotAllocator.MAX_ISOLATED_SLOTS; slot++) {
+            if (accounts.getBoolean("slot_" + slot + "_active", false)
+                    && platform.equals(accounts.getString("slot_" + slot + "_platform", ""))) count++;
+        }
+        return count;
+    }
+
+    private String accountName(String platform, int slot) {
+        if (slot == 0) {
+            return accounts.getString("account_name_" + platform, browserRuntime.displayName(platform) + " 1");
+        }
+        return accounts.getString("slot_" + slot + "_name", browserRuntime.displayName(platform) + " " + (slot + 1));
     }
 
     private String sectionSubtitle() {

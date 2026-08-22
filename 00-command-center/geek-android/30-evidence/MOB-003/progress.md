@@ -19,8 +19,20 @@ The PC-aligned mobile interaction model is implemented and installed on the auth
 - Application Center and Account List rendering at 720 x 1640 without horizontal overflow.
 - UI Automator detection of both contextual floating actions.
 - Translation sheet and Broadcast sheet open from the active `Telegram 1` session.
+- Dedicated WebView processes and data-directory suffixes are implemented for three additional account slots.
+- `Telegram 2` opens in `:geek_account_1` with a clean Telegram login page instead of inheriting the `Telegram 1` session.
+- The account-management action clears only the selected isolated slot's cookies, cache, WebStorage, and registry entry.
+- Physical-device delete verification removed `Telegram 2` while `Telegram 1` remained present and reopened without the phone-login form.
+- Recreating `Telegram 2` reused isolated slot 1; after a process stop/restart it again rendered the clean phone-login form.
+- Measured PSS on Mblu 21: main process about 34 MB and one active isolated Telegram WebView process about 104 MB.
 - Post-interaction fatal crash scan and `git diff --check`.
 
 ## Remaining before MOB-003 acceptance
 
-The UI intentionally precedes the isolation engine. `再添加` currently returns to the existing platform session while the multi-process WebView slot implementation is built. MOB-003 remains active until two real accounts prove cookie isolation, independent deletion, restart persistence, and acceptable memory use. Translation and broadcast panels define interaction only; their engines remain owned by MOB-004 and MOB-005.
+The runtime isolation, independent deletion, restart behavior, and initial memory profile are now proven on the physical device. MOB-003 remains active only until a user completes login for `Telegram 2`, allowing two credentialed accounts to be switched in both directions without either session changing. Translation and broadcast panels define interaction only; their engines remain owned by MOB-004 and MOB-005.
+
+## Physical-device evidence
+
+- `geek-account-management.png`: three-account registry with an explicit management action on the isolated instance.
+- `geek-telegram-2-isolated.png`: first clean launch of the second Telegram process.
+- `geek-telegram-2-recreated-clean.png`: clean login state after deletion, slot reuse, and process restart.
