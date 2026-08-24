@@ -41,6 +41,55 @@
     return match ? { current: Number(match[1]), total: Number(match[2]) } : null;
   }
 
+  function parseHistory(raw) {
+    try {
+      const value = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw;
+      return Array.isArray(value) ? value : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function historyEntryMatchesJob(entry, job) {
+    if (!entry || !job) return false;
+    const time = Number(entry.t) || 0;
+    const start = Number(job.createdAt) || 0;
+    return time >= Math.max(0, start - 2000)
+      && Number(entry.total) === Number(job.total)
+      && Number(entry.ok) === Number(job.ok)
+      && Number(entry.fail) === Number(job.fail);
+  }
+
+  // Transition safety while legacy app.js still appends sendHistory through activeId.
+  // Returns explicit owner/source patches only when exactly one new non-owner entry
+  // unambiguously matches the completed job. The final executor will write the owner
+  // directly and this helper remains a defensive migration guard.
+  function reconcileHistoryOwner(job, snapshots, currentByAccount) {
+    if (!job || !job.accountId) return [];
+    const ownerId = String(job.accountId);
+    const ownerCurrent = parseHistory(currentByAccount?.[ownerId]);
+    if (ownerCurrent.some(entry => historyEntryMatchesJob(entry, job))) return [];
+    const candidates = [];
+    for (const [accountId, raw] of Object.entries(currentByAccount || {})) {
+      if (String(accountId) === ownerId) continue;
+      const before = parseHistory(snapshots?.[accountId]);
+      const current = parseHistory(raw);
+      const tail = current.slice(Math.min(before.length, current.length));
+      tail.forEach((entry, index) => {
+        if (historyEntryMatchesJob(entry, job)) candidates.push({ accountId: String(accountId), entry, absoluteIndex: before.length + index, current });
+      });
+    }
+    if (candidates.length !== 1) return [];
+    const hit = candidates[0];
+    const sourceNext = hit.current.filter((_entry, index) => index !== hit.absoluteIndex);
+    const ownerNext = [...ownerCurrent, hit.entry];
+    if (ownerNext.length > 500) ownerNext.splice(0, ownerNext.length - 500);
+    return [
+      { accountId: hit.accountId, value: JSON.stringify(sourceNext) },
+      { accountId: ownerId, value: JSON.stringify(ownerNext) },
+    ];
+  }
+
   function activeAccountId() {
     return document.querySelector('.nav-account.active[data-id]')?.dataset.id || '';
   }
@@ -194,13 +243,49 @@
     };
   }
 
+  async function captureHistorySnapshots(runtime) {
+    try {
+      const listed = await window.api.accounts.list();
+      const accounts = listed?.accounts || listed || [];
+      const snapshots = {};
+      for (const account of accounts) {
+        const data = await window.api.accountData.getAll(account.id);
+        snapshots[String(account.id)] = String(data?.sendHistory || '[]');
+      }
+      runtime.historySnapshots = snapshots;
+    } catch {
+      runtime.historySnapshots = {};
+    }
+  }
+
+  async function repairHistoryOwner(runtime) {
+    if (!runtime.job || runtime.historyReconciled) return;
+    runtime.historyReconciled = true;
+    try {
+      const listed = await window.api.accounts.list();
+      const accounts = listed?.accounts || listed || [];
+      const current = {};
+      for (const account of accounts) {
+        const data = await window.api.accountData.getAll(account.id);
+        current[String(account.id)] = String(data?.sendHistory || '[]');
+      }
+      const patches = reconcileHistoryOwner(runtime.job, runtime.historySnapshots || {}, current);
+      for (const patch of patches) {
+        await window.api.accountData.set(patch.accountId, 'sendHistory', patch.value);
+      }
+    } catch {
+      // History repair is fail-quiet because the final executor will own this write
+      // directly. Never mutate another account unless the match is unambiguous.
+    }
+  }
+
   function install() {
     if (typeof document === 'undefined' || window.__geekBroadcastJobInstalled) return;
     window.__geekBroadcastJobInstalled = true;
     injectStyles();
     applyCopyAndSemantics();
     installAlertFilter();
-    const runtime = { job: null, pendingOwner: '', monitor: null };
+    const runtime = { job: null, pendingOwner: '', monitor: null, historySnapshots: {}, historyReconciled: false };
     ensureBar(runtime);
 
     const beginObservation = () => {
@@ -224,6 +309,7 @@
           runtime.job.current = runtime.job.total || runtime.job.current;
           runtime.job.state = completion.stopped ? 'stopped' : 'completed';
           runtime.job.finishedAt ||= Date.now();
+          void repairHistoryOwner(runtime);
         }
         render(runtime);
       }, 250);
@@ -239,6 +325,8 @@
       }
       runtime.pendingOwner = activeAccountId();
       if (target.id !== 'broadcast-send') return;
+      runtime.historyReconciled = false;
+      void captureHistorySnapshots(runtime);
       setTimeout(() => {
         const sending = document.getElementById('broadcast-sending');
         const progress = document.getElementById('broadcast-progress-text')?.textContent || '';
@@ -259,7 +347,7 @@
     window.__geekBroadcastJobRuntime = runtime;
   }
 
-  return Object.freeze({ createJob, visibleFor, parseCompletion, parseProgress, install });
+  return Object.freeze({ createJob, visibleFor, parseCompletion, parseProgress, reconcileHistoryOwner, install });
 });
 
 if (typeof window !== 'undefined') {
