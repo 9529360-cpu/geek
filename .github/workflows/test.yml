@@ -32,7 +32,7 @@ jobs:
 
   broadcast-test-installer:
     if: github.event_name == 'pull_request' && github.event.pull_request.number == 168
-    runs-on: [self-hosted, windows, x64, geek-real-client]
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 60
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
