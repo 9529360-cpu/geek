@@ -7,6 +7,7 @@ const { createScheduledBroadcastAttachmentStore } = require('../src/scheduled-br
 function createFakeFs() {
   const files = new Map();
   const dirs = new Set();
+  let failNextRename = false;
   function key(value) { return path.resolve(String(value)); }
   function enoent() { return Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); }
   return {
@@ -22,6 +23,7 @@ function createFakeFs() {
       if (!current) throw enoent();
       files.set(key(filePath), { ...current, data: buffer, size: buffer.length, mtimeMs });
     },
+    failRenameOnce() { failNextRename = true; },
     async realpath(value) {
       const absolute = key(value);
       const record = files.get(absolute);
@@ -45,6 +47,10 @@ function createFakeFs() {
       files.set(key(value), { data: buffer, size: buffer.length, mtimeMs: Date.now(), isRealFile: false });
     },
     async rename(from, to) {
+      if (failNextRename) {
+        failNextRename = false;
+        throw Object.assign(new Error('EIO'), { code: 'EIO' });
+      }
       const source = files.get(key(from));
       if (!source) throw enoent();
       files.set(key(to), { ...source });
@@ -78,10 +84,23 @@ function createFakeFs() {
   await assert.rejects(first.resolve(selected[0].ref, { accountId: 'account-a', taskId: 'task-2' }), { code: 'SCHEDULED_BROADCAST_ATTACHMENT_REF_INVALID' });
 
   const restored = createScheduledBroadcastAttachmentStore({ fs, storePath, randomBytes });
-  await restored.init();
+  const originalReadFile = fs.readFile.bind(fs);
+  let releaseRead;
+  const readGate = new Promise(resolve => { releaseRead = resolve; });
+  let gated = true;
+  fs.readFile = async (...args) => {
+    if (gated && path.resolve(String(args[0])) === storePath) await readGate;
+    return originalReadFile(...args);
+  };
+  const initPromise = restored.init();
+  const concurrentResolve = restored.resolve(selected[1].ref, { accountId: 'account-a', taskId: 'task-1' });
+  gated = false;
+  releaseRead();
+  await initPromise;
+  const afterConcurrentInit = await concurrentResolve;
+  assert.equal(afterConcurrentInit.filePath, path.resolve('docs/b.txt'), 'concurrent callers must await the same initialization promise');
   assert.equal(restored.size(), 2, 'persistent refs must survive store reconstruction');
-  const afterRestart = await restored.resolve(selected[1].ref, { accountId: 'account-a', taskId: 'task-1' });
-  assert.equal(afterRestart.filePath, path.resolve('docs/b.txt'));
+  fs.readFile = originalReadFile;
 
   fs.mutate('docs/a.pdf', 'CHANGED', 99);
   await assert.rejects(
@@ -89,6 +108,12 @@ function createFakeFs() {
     { code: 'SCHEDULED_BROADCAST_ATTACHMENT_CHANGED' },
     'changed source file must fail closed',
   );
+
+  fs.failRenameOnce();
+  await assert.rejects(restored.cleanupTask('account-a', 'task-1'), { code: 'EIO' });
+  assert.equal(restored.size(), 2, 'failed cleanup persistence must roll back in-memory deletion');
+  const stillThere = await restored.resolve(selected[1].ref, { accountId: 'account-a', taskId: 'task-1' });
+  assert.equal(stillThere.filePath, path.resolve('docs/b.txt'));
 
   const removed = await restored.cleanupTask('account-a', 'task-1');
   assert.equal(removed, 2);
