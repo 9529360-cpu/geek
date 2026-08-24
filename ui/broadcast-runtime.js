@@ -247,15 +247,6 @@
     }
   }
 
-  async function submitVerifiedText(ctx, adapter) {
-    if (ctx?.platform?.family === 'telegram') {
-      const script = typeof adapter?.send === 'function' ? adapter.send('') : adapter?.send;
-      if (!script) return 'NO_SEND_SCRIPT';
-      return ctx.wv.executeJavaScript(script);
-    }
-    return ctx.platform.sendText('');
-  }
-
   async function sendTarget(ctx, job, target) {
     const message = personalize(job.message, target);
     const adapter = ctx.adapter;
@@ -339,7 +330,7 @@
             sent = `ERR:${composerGuard.reason}`;
             continue;
           }
-          sent = await submitVerifiedText(ctx, adapter);
+          sent = await ctx.platform.sendText('');
         }
         if (sent === 'SENT' || sent === 'CLICKED') return { ok: true };
       } catch (error) {
@@ -572,7 +563,7 @@
     });
   }
 
-  return Object.freeze({ install, activeAccountId, personalize, submitVerifiedText });
+  return Object.freeze({ install, activeAccountId, personalize });
 });
 
 if (typeof window !== 'undefined') {
