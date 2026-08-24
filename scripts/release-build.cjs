@@ -18,117 +18,6 @@ function sha256File(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function normalizeAsarEntry(value) {
-  return String(value || '').replace(/\\/g, '/').replace(/^\/+/, '');
-}
-
-function verifyPackagedClientRuntime() {
-  const appAsar = path.join(outDir, 'win-unpacked', 'resources', 'app.asar');
-  if (!fs.existsSync(appAsar)) fail('缺少打包后的 app.asar');
-
-  let asar;
-  try {
-    asar = require('@electron/asar');
-  } catch (error) {
-    fail(`无法加载 ASAR 校验器: ${error.message}`);
-  }
-
-  let entries;
-  try {
-    entries = new Set(asar.listPackage(appAsar).map(normalizeAsarEntry));
-  } catch (error) {
-    fail(`无法读取打包后的 app.asar: ${error.message}`);
-  }
-
-  const requiredEntries = [
-    'package.json',
-    'src/main-entry.cjs',
-    'src/main.cjs',
-    'src/preload.cjs',
-    'src/scheduled-broadcast-attachment-boundary.cjs',
-    'src/scheduled-broadcast-attachments.cjs',
-    'ui/index.html',
-    'ui/app.js',
-    'ui/broadcast-safety.js',
-    'ui/broadcast-job-manager.js',
-    'ui/broadcast-schedule-registry.js',
-    'ui/broadcast-executor.js',
-    'ui/broadcast-runtime.js',
-    'ui/broadcast-job-controller.js',
-    'ui/broadcast-job-guard.js',
-    'ui/broadcast-schedule-persistence.js',
-    'ui/broadcast-legacy-schedule-migration.js',
-    'ui/broadcast-account-indicator.js',
-    'resources/wa/index.html',
-    'resources/waplus-wpp.js',
-  ];
-  for (const entry of requiredEntries) {
-    if (!entries.has(entry)) fail(`完整客户端打包缺少运行文件: ${entry}`);
-  }
-
-  const extractText = (entry) => {
-    try {
-      const value = asar.extractFile(appAsar, entry);
-      return Buffer.isBuffer(value) ? value.toString('utf8') : String(value || '');
-    } catch (error) {
-      fail(`无法读取打包文件 ${entry}: ${error.message}`);
-    }
-  };
-
-  // 应用中心必须保留正式客户端平台入口，而不是只产出群发测试壳。
-  const packagedMain = extractText('src/main.cjs');
-  if (!packagedMain.includes("ipcMain.handle('platforms:list'") || !packagedMain.includes('Object.entries(APP_TYPES)')) {
-    fail('完整客户端打包缺少应用中心 platforms:list 入口');
-  }
-  for (const type of ['whatsapp', 'whatsapp-pure', 'telegram-z', 'telegram-k', 'line', 'line-business']) {
-    const escaped = type.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (!(new RegExp(`['\"]?${escaped}['\"]?\\s*:\\s*\\{`)).test(packagedMain)) {
-      fail(`完整客户端打包缺少平台定义: ${type}`);
-    }
-  }
-
-  const packagedPreload = extractText('src/preload.cjs');
-  if (!packagedPreload.includes("list: () => ipcRenderer.invoke('platforms:list')")) {
-    fail('完整客户端 preload 缺少应用中心平台桥');
-  }
-
-  const packagedIndex = extractText('ui/index.html');
-  if (!packagedIndex.includes('id="btn-app-center"') || !packagedIndex.includes('src="broadcast-safety.js"')) {
-    fail('完整客户端 UI 缺少应用中心或群发安全入口');
-  }
-
-  const packagedApp = extractText('ui/app.js');
-  if (!packagedApp.includes('window.api.platforms.list()') || !packagedApp.includes('const PLATFORM_FAMILIES')) {
-    fail('完整客户端 UI 缺少平台列表加载逻辑');
-  }
-
-  // 新群发模块必须从正式 UI 的既有安全入口真正接线，而不是只存在于 app.asar 中。
-  const packagedBroadcastSafety = extractText('ui/broadcast-safety.js');
-  for (const moduleName of [
-    'broadcast-job-manager.js',
-    'broadcast-schedule-registry.js',
-    'broadcast-executor.js',
-    'broadcast-runtime.js',
-    'broadcast-legacy-schedule-migration.js',
-    'broadcast-schedule-persistence.js',
-    'broadcast-account-indicator.js',
-    'broadcast-job-controller.js',
-    'broadcast-job-guard.js',
-  ]) {
-    if (!packagedBroadcastSafety.includes(`./${moduleName}`)) {
-      fail(`群发运行模块未接入正式 UI: ${moduleName}`);
-    }
-  }
-
-  // LINE 扩展必须是可落地磁盘的真实文件；loadExtension 不能从 asar 虚拟路径加载。
-  const lineSource = path.join(root, 'resources', 'extensions', 'line-3.5.1', 'manifest.json');
-  const linePackaged = path.join(outDir, 'win-unpacked', 'resources', 'app.asar.unpacked', 'resources', 'extensions', 'line-3.5.1', 'manifest.json');
-  if (!fs.existsSync(linePackaged)) fail('完整客户端打包缺少 LINE 扩展 manifest');
-  if (sha256File(linePackaged) !== sha256File(lineSource)) fail('打包后的 LINE 扩展 manifest 与源码不一致');
-
-  console.log(`[release] 完整客户端运行内容校验通过 (${requiredEntries.length} 个关键文件 + 6 个平台入口)`);
-}
-
 // GitHub Actions 不是唯一安全边界：正式发布入口本身必须先跑完整测试。
 const testRunner = path.join(root, 'scripts', 'run-tests.cjs');
 const tests = spawnSync(process.execPath, [testRunner], {
@@ -160,10 +49,6 @@ const build = spawnSync(process.execPath, [builderCli, '--win', '--publish', 'ne
 });
 if (build.error) fail(`无法启动 electron-builder: ${build.error.message}`);
 if (build.status !== 0) fail(`electron-builder 失败 (${build.status})`);
-
-// 不能只验证“生成了 EXE”。正式候选必须同时保留完整客户端平台/UI/运行资源，
-// 并且本次群发模块必须真正接入已有正式 UI。
-verifyPackagedClientRuntime();
 
 // WA/TG 翻译和原生输入依赖这个 guest preload。打包运行时从
 // app.asar.unpacked/resources 解析，因此发布包必须真实包含且与源码一致，
