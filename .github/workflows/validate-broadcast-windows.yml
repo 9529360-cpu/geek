@@ -1,3 +1,4 @@
+# Private validation only; renderer-loop regression retest. Do not merge.
 name: validate-broadcast-windows
 
 on:
