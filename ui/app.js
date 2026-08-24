@@ -1961,7 +1961,8 @@
     if (!g) return;
     if (!confirm(`删除群组标签「${g.name}」？不会删除真实群组。`)) return;
     const next = currentBroadcastGroupTags().filter(x => x.id !== g.id);
-    accountStorageSetItem('broadcastGroups', JSON.stringify(next));
+    const deleted = await accountStorageSetItem('broadcastGroups', JSON.stringify(next));
+    if (deleted === false) { alert('删除标签失败，请重试'); return; }
     clearBroadcastGroupTagFilter();
   }
   document.getElementById('broadcast-saved-groups').onchange = (e) => {
