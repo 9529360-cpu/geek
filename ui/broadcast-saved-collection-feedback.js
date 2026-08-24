@@ -111,24 +111,22 @@
   function install() {
     if (installed || typeof document === 'undefined') return;
     installed = true;
-    let pending = null;
 
     document.addEventListener('click', event => {
       const button = event.target?.closest?.('#broadcast-save-group');
       if (!button) return;
       const accountId = activeAccountId();
       if (!accountId) return;
-      pending = { accountId, before: new Map() };
-      // Read the durable baseline before the legacy onclick opens its naming prompt.
-      void persistedGroups(accountId).then(groups => {
-        if (!pending || pending.accountId !== accountId) return;
-        pending.before = snapshot(groups);
-      }).catch(() => {});
+
+      // Capture the durable baseline before the legacy onclick opens its naming prompt.
+      // The post-click microtask waits for this promise, so cancelling the prompt cannot
+      // turn an already-existing collection into a false "saved" result.
+      const beforePromise = persistedGroups(accountId).then(snapshot).catch(() => null);
       queueMicrotask(() => {
-        const current = pending;
-        pending = null;
-        if (!current) return;
-        void settleSave(current.accountId, current.before);
+        void beforePromise.then(before => {
+          if (!before) return;
+          return settleSave(accountId, before);
+        });
       });
     }, true);
 
