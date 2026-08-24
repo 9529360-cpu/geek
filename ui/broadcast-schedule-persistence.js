@@ -6,6 +6,7 @@
   'use strict';
 
   const STORAGE_KEY = 'broadcastJobSchedules';
+  const MAX_RESTORE_ATTEMPTS = 20;
   let installed = false;
   const restoreRetries = new Map();
 
@@ -42,12 +43,31 @@
     await window.api.accountData.set(String(accountId), STORAGE_KEY, JSON.stringify(pending));
   }
 
+  function duePendingJob(manager, accountId) {
+    return manager?.getPending(accountId).find(job =>
+      job.state === 'queued' || (job.state === 'scheduled' && Number(job.scheduledAt) <= Date.now())
+    ) || null;
+  }
+
+  function failExhaustedRestore(accountId) {
+    const manager = window.GeekBroadcastJobs;
+    const due = duePendingJob(manager, accountId);
+    if (!manager || !due || !['queued', 'scheduled'].includes(due.state)) return null;
+    const error = new Error('账号页面持续未就绪，定时群发已停止。请打开该账号并重新创建任务。');
+    error.code = 'BROADCAST_SCHEDULE_ACCOUNT_UNAVAILABLE';
+    return manager.markFailed(due.id, error);
+  }
+
   function scheduleRetry(accountId, previousAttempts = 0) {
     const id = String(accountId || '');
     const previous = restoreRetries.get(id);
     if (previous) clearTimeout(previous.handle);
     const attempts = Math.max(Number(previous?.attempts) || 0, Number(previousAttempts) || 0) + 1;
-    if (attempts > 20) { restoreRetries.delete(id); return; }
+    if (attempts > MAX_RESTORE_ATTEMPTS) {
+      restoreRetries.delete(id);
+      failExhaustedRestore(id);
+      return;
+    }
     const handle = setTimeout(() => {
       restoreRetries.delete(id);
       void startDueForAccount(id, attempts);
@@ -60,9 +80,7 @@
     const runtime = window.GeekBroadcastRuntimeInstance;
     if (!manager || !runtime) return;
     if (manager.hasActive(accountId)) return;
-    const due = manager.getPending(accountId).find(job =>
-      job.state === 'queued' || (job.state === 'scheduled' && Number(job.scheduledAt) <= Date.now())
-    );
+    const due = duePendingJob(manager, accountId);
     if (!due) return;
     if (due.state === 'scheduled') manager.transition(due.id, 'queued');
     try {
@@ -158,7 +176,7 @@
     window.GeekBroadcastSchedulePersistenceInstance = Object.freeze({ restore, persistAccount, startDueForAccount });
   }
 
-  return Object.freeze({ STORAGE_KEY, serializableJob, install });
+  return Object.freeze({ STORAGE_KEY, MAX_RESTORE_ATTEMPTS, serializableJob, install });
 });
 
 if (typeof window !== 'undefined') {
