@@ -24,6 +24,21 @@
     return Number.isFinite(value) && value > Date.now() ? value : null;
   }
 
+  function usesRecipientNameVariables(message) {
+    return /%(?:nc|nr)\b/i.test(String(message || ''));
+  }
+
+  function reviewRecord(needsReview, legacyId, task, reason) {
+    if (needsReview.some(item => item.id === legacyId)) return;
+    needsReview.push({
+      id: legacyId,
+      time: task.time || '',
+      message: String(task.message || ''),
+      groupId: String(task.groupId || ''),
+      reason,
+    });
+  }
+
   function migrateRecords(account, data) {
     const legacy = parseArray(data?.[OLD_KEY]);
     const existing = parseArray(data?.[NEW_KEY]);
@@ -41,9 +56,14 @@
       const group = task.groupId ? groups.find(item => String(item.id) === String(task.groupId)) : null;
       const ids = Array.isArray(group?.chatIds) ? group.chatIds.map(String).filter(Boolean) : [];
       if (!ids.length) {
-        if (!needsReview.some(item => item.id === legacyId)) {
-          needsReview.push({ id: legacyId, time: task.time || '', message: String(task.message || ''), groupId: String(task.groupId || ''), reason: task.groupId ? '群组集合已不存在' : '旧任务未持久化收件人，需要重新确认' });
-        }
+        reviewRecord(needsReview, legacyId, task, task.groupId ? '群组集合已不存在' : '旧任务未持久化收件人，需要重新确认');
+        continue;
+      }
+      // Legacy saved group sets persisted chat IDs only. They did not persist the names
+      // needed by %nc/%nr, so auto-migrating those messages would either leak IDs into
+      // user copy or silently blank personalization. Fail closed and ask for review.
+      if (usesRecipientNameVariables(task.message)) {
+        reviewRecord(needsReview, legacyId, task, '旧群组集合只保存了聊天 ID，但消息使用了联系人名称变量，请重新确认收件人与消息');
         continue;
       }
       migrated.push({
@@ -52,7 +72,7 @@
         accountName: String(account.name || ''),
         partition: String(account.partition || ''),
         platformFamily: '',
-        targets: ids.map(chatId => ({ id: chatId, name: chatId })),
+        targets: ids.map(chatId => ({ id: chatId, name: '' })),
         message: String(task.message || ''),
         vcards: [],
         tagAll: false,
@@ -123,7 +143,7 @@
         notice.style.cssText = 'margin-top:6px;font-size:10.5px;color:#d6a84a;';
         footer.parentElement?.insertBefore(notice, footer);
       }
-      notice.textContent = `有 ${review.length} 条旧定时任务未保存收件人，已停止旧执行并保留备份，请重新确认后创建定时发送。`;
+      notice.textContent = `有 ${review.length} 条旧定时任务需要重新确认，旧执行已停止且备份已保留。请重新选择收件人并创建新的定时发送。`;
     } catch (_) {}
   }
 
@@ -150,7 +170,7 @@
     window.GeekBroadcastLegacyScheduleMigrationInstance = Object.freeze({ migrateAll, migrateAccount, renderReviewNotice });
   }
 
-  return Object.freeze({ OLD_KEY, NEW_KEY, BACKUP_KEY, REVIEW_KEY, MARKER_KEY, migrateRecords, install });
+  return Object.freeze({ OLD_KEY, NEW_KEY, BACKUP_KEY, REVIEW_KEY, MARKER_KEY, migrateRecords, usesRecipientNameVariables, install });
 });
 
 if (typeof window !== 'undefined') {
