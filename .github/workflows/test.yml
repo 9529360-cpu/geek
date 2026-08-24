@@ -47,13 +47,15 @@ jobs:
           cache: npm
 
       - name: Install dependencies without lifecycle scripts
+        shell: cmd
         run: npm ci --ignore-scripts
 
       - name: Run full release-candidate build locally only
+        shell: cmd
         run: npm run dist
 
       - name: Prepare regression artifact
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $short = $env:GITHUB_SHA.Substring(0, 8)
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
