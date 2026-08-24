@@ -1906,17 +1906,35 @@
     const selectedGroups = broadcastChats.filter(c => broadcastSelected.has(c.id) && c.type === '群组');
     if (!selectedGroups.length) { alert('请先勾选要保存的群组'); return; }
     const name = prompt('给这组群起个标签名：', `群组标签 ${(currentBroadcastGroupTags()).length + 1}`);
-    if (!name) return;
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName) return;
     const groups = currentBroadcastGroupTags();
-    const old = groups.find(g => g.name === name.trim());
-    const tag = { id: old ? old.id : 'bg' + Date.now(), name: name.trim(), chatIds: selectedGroups.map(c => c.id), createdAt: old?.createdAt || Date.now(), updatedAt: Date.now() };
+    const old = groups.find(g => g.name === normalizedName);
+    const tag = { id: old ? old.id : 'bg' + Date.now(), name: normalizedName, chatIds: selectedGroups.map(c => c.id), createdAt: old?.createdAt || Date.now(), updatedAt: Date.now() };
     const next = old ? groups.map(g => g.id === old.id ? tag : g) : [...groups, tag];
-    accountStorageSetItem('broadcastGroups', JSON.stringify(next));
+    const saveButton = document.getElementById('broadcast-save-group');
+    const defaultLabel = saveButton?.textContent || '保存当前选择';
+    if (saveButton) { saveButton.disabled = true; saveButton.textContent = '正在保存…'; }
+    const saved = await accountStorageSetItem('broadcastGroups', JSON.stringify(next));
+    if (saved === false) {
+      if (saveButton) {
+        saveButton.disabled = false;
+        saveButton.textContent = '保存失败，请重试';
+        setTimeout(() => { if (saveButton.isConnected && saveButton.textContent === '保存失败，请重试') saveButton.textContent = defaultLabel; }, 1800);
+      }
+      return;
+    }
     broadcastSavedFilter = new Set(tag.chatIds);
-    document.getElementById('broadcast-saved-groups').value = tag.id;
+    renderSavedGroups();
+    const savedGroups = document.getElementById('broadcast-saved-groups');
+    if (savedGroups) savedGroups.value = tag.id;
     renderSavedGroups();
     renderBroadcastList();
-    alert(`已保存群组标签「${tag.name}」（${tag.chatIds.length} 个群）`);
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = `已保存 · ${tag.chatIds.length} 个群`;
+      setTimeout(() => { if (saveButton.isConnected && saveButton.textContent.startsWith('已保存 ·')) saveButton.textContent = defaultLabel; }, 1800);
+    }
   };
   function clearBroadcastGroupTagFilter() {
     broadcastSavedFilter = null;
