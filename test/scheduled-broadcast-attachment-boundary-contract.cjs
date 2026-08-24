@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { installScheduledBroadcastAttachmentBoundary, CHANNELS } = require('../src/scheduled-broadcast-attachment-boundary.cjs');
 
 function createFakeFs() {
@@ -27,7 +28,7 @@ function createFakeFs() {
   const ipcMain = { handle(channel, handler) { handlers.set(channel, handler); } };
   const uiEntryPath = path.resolve('ui/index.html');
   const sender = { id: 42 };
-  const win = { webContents: { id: 42, getURL: () => `file://${uiEntryPath}` }, isDestroyed: () => false };
+  const win = { webContents: { id: 42, getURL: () => pathToFileURL(uiEntryPath).href }, isDestroyed: () => false };
   const BrowserWindow = { fromWebContents(value) { return value === sender ? win : null; } };
   const fs = createFakeFs();
   fs.seed('docs/a.pdf', 'AAAA', 10);
@@ -58,7 +59,6 @@ function createFakeFs() {
     uiEntryPath,
     ephemeralRegistry,
     getUserDataDir: () => path.dirname(storePath),
-    fileURLToPath: url => url.pathname,
   });
   assert.deepEqual(boundary.channels, CHANNELS);
   assert.equal(handlers.size, 3);
