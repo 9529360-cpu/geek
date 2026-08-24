@@ -59,6 +59,9 @@
         reviewRecord(needsReview, legacyId, task, task.groupId ? '群组集合已不存在' : '旧任务未持久化收件人，需要重新确认');
         continue;
       }
+      // Legacy saved group sets persisted chat IDs only. They did not persist the names
+      // needed by %nc/%nr, so auto-migrating those messages would either leak IDs into
+      // user copy or silently blank personalization. Fail closed and ask for review.
       if (usesRecipientNameVariables(task.message)) {
         reviewRecord(needsReview, legacyId, task, '旧群组集合只保存了聊天 ID，但消息使用了联系人名称变量，请重新确认收件人与消息');
         continue;
@@ -88,10 +91,17 @@
     const data = await window.api.accountData.getAll(account.id);
     const result = migrateRecords(account, data || {});
     if (!result.legacy.length) return { changed: false, review: result.needsReview.length };
-    const backup = { migratedAt: Date.now(), source: OLD_KEY, tasks: result.legacy };
+    const backup = {
+      migratedAt: Date.now(),
+      source: OLD_KEY,
+      tasks: result.legacy,
+    };
     await window.api.accountData.set(account.id, BACKUP_KEY, JSON.stringify(backup));
     await window.api.accountData.set(account.id, NEW_KEY, JSON.stringify(result.migrated));
     await window.api.accountData.set(account.id, REVIEW_KEY, JSON.stringify(result.needsReview));
+    // Clearing the old key is intentional only after a backup and replacement/review
+    // record are durable. This prevents legacy armScheduleTasks/fireScheduledTask from
+    // bypassing the account-scoped Job Manager.
     await window.api.accountData.set(account.id, OLD_KEY, '[]');
     await window.api.accountData.set(account.id, MARKER_KEY, String(Date.now()));
     return { changed: true, review: result.needsReview.length };
@@ -110,6 +120,9 @@
       } catch (_) {}
     }
     if (changed) {
+      // app.js keeps legacy scheduleTasks/timers in closure. Re-selecting the current
+      // account makes its existing reload path read the now-empty legacy key and call
+      // armScheduleTasks(), which clears the old global timer map without patching it.
       setTimeout(() => document.querySelector('.nav-account.active .nav-account-main')?.click(), 0);
       setTimeout(() => window.GeekBroadcastSchedulePersistenceInstance?.restore?.(), 50);
     }
@@ -141,12 +154,18 @@
     style.id = 'broadcast-legacy-schedule-migration-style';
     style.textContent = '#broadcast-add-schedule,#broadcast-schedule-list{display:none!important}';
     document.head.appendChild(style);
+
     document.addEventListener('click', event => {
       const addLegacy = event.target?.closest?.('#broadcast-add-schedule');
-      if (addLegacy) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+      if (addLegacy) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       const open = event.target?.closest?.('#bc-menu-send');
       if (open) setTimeout(() => void renderReviewNotice(document.querySelector('.nav-account.active[data-id]')?.dataset.id || ''), 0);
     }, true);
+
     setTimeout(() => void migrateAll(), 0);
     window.GeekBroadcastLegacyScheduleMigrationInstance = Object.freeze({ migrateAll, migrateAccount, renderReviewNotice });
   }
