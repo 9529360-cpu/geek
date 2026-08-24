@@ -31,12 +31,22 @@ function aclText(p) {
   return run('icacls', [p]).replace(/\r\n/g, '\n');
 }
 
+function effectiveWindowsPrincipal() {
+  const whoami = run('whoami', []).trim();
+  if (whoami) return whoami;
+  return process.env.USERNAME || os.userInfo().username;
+}
+
 (async () => {
   if (process.platform !== 'win32') {
     console.log('ACL_REPAIR_INTEGRATION_SKIPPED (非 Windows)');
     return;
   }
-  const username = process.env.USERNAME || require('node:os').userInfo().username;
+  // GitHub self-hosted runner may run as NetworkService. In that case USERNAME/os.userInfo()
+  // can surface the machine-account-style name (e.g. MACHINE$), which is not the effective
+  // token principal accepted by icacls. Use whoami so this remains a real ACL integration test
+  // for whichever Windows identity actually executes the process.
+  const username = effectiveWindowsPrincipal();
 
   // 1. 构建模拟 userData：accounts.json（模拟账号数据）+ diagnostics/line-tokens.json（模拟凭据）
   //    + Partitions/Cookies/IndexedDB 哨兵（模拟 Chromium 会话数据，修复不得改写其显式 ACE）
