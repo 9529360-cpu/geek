@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - validation/broadcast-account-jobs-1.2.16
+  pull_request:
+    branches:
+      - fix/scheduled-broadcast-attachments
 
 permissions:
   contents: read
