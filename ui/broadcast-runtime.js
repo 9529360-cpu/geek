@@ -45,6 +45,12 @@
     return draftFilesByAccount.get(id);
   }
 
+  function resetDraftFiles(accountId = activeAccountId()) {
+    const id = String(accountId || '');
+    if (!id) return;
+    draftFilesByAccount.set(id, []);
+  }
+
   function renderDraftFiles(accountId = activeAccountId()) {
     const el = document.getElementById('broadcast-files');
     if (!el) return;
@@ -375,6 +381,22 @@
     });
   }
 
+  async function runPendingWithRecovery(job) {
+    if (!job) return null;
+    const persistence = window.GeekBroadcastSchedulePersistenceInstance;
+    if (persistence && typeof persistence.startDueForAccount === 'function') {
+      return persistence.startDueForAccount(job.accountId);
+    }
+    try {
+      return await runJob(job.id);
+    } catch (error) {
+      const manager = window.GeekBroadcastJobs;
+      const current = manager?.get(job.id);
+      if (current && ['scheduled', 'queued'].includes(current.state)) manager.markFailed(job.id, error);
+      throw error;
+    }
+  }
+
   async function onScheduledDue(task) {
     const manager = window.GeekBroadcastJobs;
     const job = manager.get(task.jobId);
@@ -383,7 +405,7 @@
       if (job.state === 'scheduled') manager.transition(job.id, 'queued');
       return;
     }
-    try { await runJob(job.id); }
+    try { await runPendingWithRecovery(job); }
     catch (_) {}
   }
 
@@ -392,7 +414,7 @@
     if (manager.hasActive(accountId)) return;
     const next = manager.getPending(accountId).find(job => job.state === 'queued' || (job.state === 'scheduled' && job.scheduledAt != null && job.scheduledAt <= Date.now()));
     if (!next) return;
-    try { await runJob(next.id); } catch (_) {}
+    try { await runPendingWithRecovery(next); } catch (_) {}
   }
 
   function nextScheduledJobId() {
@@ -463,6 +485,7 @@
     } else {
       job = manager.start(seed);
     }
+    resetDraftFiles(accountId);
     document.getElementById('broadcast-overlay')?.classList.add('hidden');
     if (!isFuture) void runJob(job.id).catch(() => {});
     return job;
@@ -523,7 +546,11 @@
         return;
       }
       const open = event.target?.closest?.('#bc-menu-send');
-      if (open) setTimeout(() => renderDraftFiles(activeAccountId()), 0);
+      if (open) {
+        const accountId = activeAccountId();
+        if (!window.GeekBroadcastJobs?.hasActive(accountId)) resetDraftFiles(accountId);
+        setTimeout(() => renderDraftFiles(accountId), 0);
+      }
     }, true);
 
     window.GeekBroadcastRuntimeInstance = Object.freeze({

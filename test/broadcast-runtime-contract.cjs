@@ -24,6 +24,9 @@ assert.match(runtime, /GeekBroadcastSafety\.authorizeSend/, 'new runtime must pr
 assert.match(runtime, /GeekPlatformTransports\?\.forAccount/, 'new runtime must reuse the existing platform transport rather than fork WA\/TG\/LINE adapters');
 assert.match(runtime, /window\.api\.file\.pick\(\{ multiple: true \}\)/, 'runtime attachment selection must keep using the existing main-process picker');
 assert.match(runtime, /currentDraftFiles\(accountId\)/, 'attachment drafts must be account-scoped before the Job snapshot is created');
+assert.match(runtime, /function resetDraftFiles\(accountId = activeAccountId\(\)\)/, 'runtime needs an explicit attachment-draft reset boundary');
+assert.match(runtime, /if \(!window\.GeekBroadcastJobs\?\.hasActive\(accountId\)\) resetDraftFiles\(accountId\)/, 'opening a fresh editor must not resurrect attachment drafts from the previous session');
+assert.match(runtime, /resetDraftFiles\(accountId\);\s*document\.getElementById\('broadcast-overlay'\)/, 'successfully creating a job must consume the attachment draft so the next job starts clean');
 assert.match(runtime, /scheduledAttachmentApi\(\)\.persist/, 'future attachment jobs must convert short picker tokens into durable refs before registration');
 assert.match(runtime, /attachmentRefs/, 'scheduled jobs must carry durable attachment refs in the immutable snapshot');
 assert.match(runtime, /files: isFuture \? \[\] : files/, 'future jobs must not keep ephemeral picker tokens in the Job snapshot');
@@ -33,6 +36,9 @@ assert.match(runtime, /scheduledAttachmentApi\(\)\.cleanup/, 'terminal and cance
 assert.doesNotMatch(runtime, /当前版本先不允许带附件定时/, 'durable refs replace the old blanket rejection for scheduled attachments');
 assert.match(runtime, /manager\.hasActive\(job\.accountId\)/, 'scheduled jobs must queue only when their own account is executing');
 assert.match(runtime, /manager\.transition\(job\.id, 'queued'\)/, 'same-account schedule collision must become queued instead of disappearing');
+assert.match(runtime, /runPendingWithRecovery\(job\)/, 'in-session due jobs must enter the same recovery path instead of losing their timer on a transient account-view failure');
+assert.match(runtime, /GeekBroadcastSchedulePersistenceInstance[\s\S]*startDueForAccount/, 'runtime due/queue recovery must reuse the bounded schedule-persistence retry path');
+assert.match(runtime, /runPendingWithRecovery\(next\)/, 'same-account queued drain must also use bounded recovery instead of getting stuck after a transient account-view failure');
 assert.match(runtime, /drainQueued\(event\.job\.accountId\)/, 'terminal jobs must trigger a queue drain for the same account only');
 
 assert.ok(loader.indexOf("'./broadcast-runtime.js'") < loader.indexOf("'./broadcast-job-controller.js'"), 'runtime must load before presentation compatibility hooks');
