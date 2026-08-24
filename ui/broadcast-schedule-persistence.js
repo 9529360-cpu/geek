@@ -19,6 +19,12 @@
       platformFamily: job.platformFamily || '',
       targets: (job.targets || []).map(target => ({ ...target })),
       message: job.message || '',
+      attachmentRefs: (job.attachmentRefs || []).map(item => ({
+        ref: String(item?.ref || ''),
+        name: String(item?.name || ''),
+        size: Number(item?.size) || 0,
+        mime: String(item?.mime || 'application/octet-stream'),
+      })).filter(item => item.ref),
       vcards: (job.vcards || []).map(card => ({ ...card })),
       tagAll: !!job.tagAll,
       intervalMin: Number(job.intervalMin) || 5,
@@ -32,7 +38,7 @@
     const manager = window.GeekBroadcastJobs;
     if (!manager || !accountId) return;
     const pending = manager.getPending(accountId)
-      .filter(job => !job.files?.length)
+      .filter(job => !job.files?.length || job.attachmentRefs?.length)
       .map(serializableJob);
     await window.api.accountData.set(String(accountId), STORAGE_KEY, JSON.stringify(pending));
   }
@@ -130,7 +136,10 @@
       } catch (_) {}
       for (const record of records) {
         if (!record?.id || manager.get(record.id)) continue;
-        if (!record.message && !(record.vcards || []).length) continue;
+        const refs = Array.isArray(record.attachmentRefs)
+          ? record.attachmentRefs.filter(item => item && typeof item.ref === 'string' && item.ref)
+          : [];
+        if (!record.message && !(record.vcards || []).length && !refs.length) continue;
         const scheduledAt = Number(record.scheduledAt);
         if (!Number.isFinite(scheduledAt)) continue;
         try {
@@ -140,6 +149,7 @@
             accountName: record.accountName || account.name || '',
             partition: account.partition || record.partition || '',
             files: [],
+            attachmentRefs: refs,
             state: scheduledAt <= Date.now() ? 'queued' : 'scheduled',
             scheduledAt,
           });

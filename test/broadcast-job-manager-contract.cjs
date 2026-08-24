@@ -36,14 +36,17 @@ assert.equal(manager.get(b.id).current, 0, 'A progress must not mutate B');
 
 const draftTargets = [{ id: 'future-a' }];
 const draftFiles = [{ token: 'future-file' }];
+const draftRefs = [{ ref: 'durable-ref-a', name: 'future.pdf' }];
 const futureA = manager.register({
   accountId: 'account-a', state: 'scheduled', scheduledAt: 9000,
-  targets: draftTargets, files: draftFiles, message: 'future A',
+  targets: draftTargets, files: draftFiles, attachmentRefs: draftRefs, message: 'future A',
 });
 draftTargets[0].id = 'mutated';
 draftFiles[0].token = 'mutated';
+draftRefs[0].ref = 'mutated';
 assert.equal(manager.get(futureA.id).targets[0].id, 'future-a', 'scheduled target snapshot must be immutable');
 assert.equal(manager.get(futureA.id).files[0].token, 'future-file', 'scheduled file snapshot must be immutable');
+assert.equal(manager.get(futureA.id).attachmentRefs[0].ref, 'durable-ref-a', 'scheduled durable attachment refs must be immutable');
 assert.equal(manager.getPending('account-a').length, 1, 'scheduled job may coexist with a running job for the same account');
 assert.equal(manager.getActive('account-a').id, a.id, 'scheduled job must not occupy execution slot');
 
@@ -88,6 +91,7 @@ manager.attachControls(a.id, {
 
   assert.equal(Object.isFrozen(a.targets), true, 'job targets must be snapshotted');
   assert.equal(Object.isFrozen(a.files), true, 'job files must be snapshotted');
+  assert.equal(Object.isFrozen(futureA.attachmentRefs), true, 'job durable attachment refs must be snapshotted');
   assert.equal(a.partition, 'persist:a');
   assert.equal(a.webviewId, 'wv-a');
   assert.equal(a.message, 'hello A');

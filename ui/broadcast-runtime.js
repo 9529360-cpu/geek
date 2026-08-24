@@ -6,6 +6,7 @@
   'use strict';
 
   const draftFilesByAccount = new Map();
+  const materializedFilesByJob = new Map();
   let installed = false;
   let executor = null;
   let scheduler = null;
@@ -42,6 +43,12 @@
     const id = String(accountId || '');
     if (!draftFilesByAccount.has(id)) draftFilesByAccount.set(id, []);
     return draftFilesByAccount.get(id);
+  }
+
+  function resetDraftFiles(accountId = activeAccountId()) {
+    const id = String(accountId || '');
+    if (!id) return;
+    draftFilesByAccount.set(id, []);
   }
 
   function renderDraftFiles(accountId = activeAccountId()) {
@@ -198,20 +205,63 @@
       .replace(/%sa/gi, greeting());
   }
 
+  function executionFiles(job) {
+    return materializedFilesByJob.get(String(job?.id || '')) || job?.files || [];
+  }
+
+  function scheduledAttachmentApi() {
+    const api = window.api?.broadcastScheduled;
+    if (!api || typeof api.persist !== 'function' || typeof api.materialize !== 'function' || typeof api.cleanup !== 'function') {
+      throw new Error('定时附件持久化能力尚未就绪');
+    }
+    return api;
+  }
+
+  async function materializeScheduledAttachments(job) {
+    const refs = Array.isArray(job?.attachmentRefs) ? job.attachmentRefs : [];
+    if (!refs.length) return executionFiles(job);
+    const files = await scheduledAttachmentApi().materialize({
+      accountId: job.accountId,
+      taskId: job.id,
+      refs: refs.map(item => String(item?.ref || item || '')),
+    });
+    if (!Array.isArray(files) || files.length !== refs.length) throw new Error('定时附件恢复失败，请重新选择附件');
+    const mapped = files.map(file => Object.freeze({
+      name: String(file?.name || '附件'),
+      size: Number(file?.size) || 0,
+      mime: String(file?.mime || 'application/octet-stream'),
+      filePath: String(file?.token || ''),
+    }));
+    if (mapped.some(file => !file.filePath)) throw new Error('定时附件恢复失败，请重新选择附件');
+    materializedFilesByJob.set(String(job.id), Object.freeze(mapped));
+    return mapped;
+  }
+
+  async function cleanupScheduledAttachments(job) {
+    if (!job?.id || !job?.accountId || !job.attachmentRefs?.length) return false;
+    try {
+      await scheduledAttachmentApi().cleanup({ accountId: job.accountId, taskId: job.id });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function sendTarget(ctx, job, target) {
     const message = personalize(job.message, target);
     const adapter = ctx.adapter;
+    const files = executionFiles(job);
     let sent = 'NO_SEND';
     let composer = 'NO_SET';
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         if (adapter.sendDirect) {
-          if (job.files.length) {
+          if (files.length) {
             let mediaOk = true;
             const details = [];
-            for (let index = 0; index < job.files.length; index++) {
-              const file = job.files[index];
-              const caption = index === job.files.length - 1 ? message : '';
+            for (let index = 0; index < files.length; index++) {
+              const file = files[index];
+              const caption = index === files.length - 1 ? message : '';
               try {
                 const result = await window.api.broadcast.sendFile({ partition: job.partition, filePath: file.filePath, chatId: target.id, caption, mime: file.mime, name: file.name });
                 const text = String(result || '');
@@ -241,15 +291,15 @@
         const openGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId, targetChatId: target.id, composerResult: 'NO_SET', needsComposer: false });
         if (!openGuard.ok) { sent = `ERR:${openGuard.reason}`; continue; }
 
-        if (job.files.length) {
+        if (files.length) {
           if (ctx.platform.family === 'telegram') {
             try {
-              sent = await window.api.broadcast.sendTelegramAttachments({ partition: job.partition, guestId: job.guestId, targetChatId: target.id, caption: message, files: job.files });
+              sent = await window.api.broadcast.sendTelegramAttachments({ partition: job.partition, guestId: job.guestId, targetChatId: target.id, caption: message, files });
             } catch (error) { sent = `ERR:${String(error?.message || error || 'TG_NATIVE_ATTACH_FAILED')}`; }
             break;
           }
           let ready = true;
-          for (const file of job.files) {
+          for (const file of files) {
             try {
               const dropped = await window.api.broadcast.dropFile({ partition: job.partition, filePath: file.filePath, mime: file.mime, platform: ctx.platform.family, guestId: ctx.platform.family === 'line' ? job.guestId : undefined });
               if (dropped !== true) { ready = false; sent = typeof dropped === 'string' ? dropped : 'ERR:文件未进入发送面板'; break; }
@@ -265,8 +315,8 @@
             const readyRaw = await ctx.wv.executeJavaScript(`(() => JSON.stringify({ pastedCount: document.querySelectorAll('[class*="pastedImageList-module__image_list_item__"]').length, ids: [...document.querySelectorAll('[class*="message-module__message__"][data-mid]')].map(el => el.getAttribute('data-mid')).filter(Boolean) }))()`);
             let readyState = {};
             try { readyState = JSON.parse(readyRaw || '{}'); } catch (_) {}
-            if (Number(readyState.pastedCount || 0) < job.files.length) { sent = 'LINE_PASTED_IMAGE_NOT_READY'; break; }
-            sent = await ctx.wv.executeJavaScript(adapter.submitPastedImages(message, Array.isArray(readyState.ids) ? readyState.ids : [], job.files.length));
+            if (Number(readyState.pastedCount || 0) < files.length) { sent = 'LINE_PASTED_IMAGE_NOT_READY'; break; }
+            sent = await ctx.wv.executeJavaScript(adapter.submitPastedImages(message, Array.isArray(readyState.ids) ? readyState.ids : [], files.length));
             break;
           }
           sent = await ctx.wv.executeJavaScript(adapter.send(message));
@@ -296,20 +346,55 @@
       let history;
       try { history = JSON.parse(data?.sendHistory || '[]'); } catch (_) { history = []; }
       if (!Array.isArray(history)) history = [];
-      history.push({ t: Date.now(), total: job.total, ok: job.ok, fail: job.fail, files: job.files.length, msgLen: job.message.length, jobId: job.id });
+      const fileCount = job.attachmentRefs?.length || job.files.length;
+      history.push({ t: Date.now(), total: job.total, ok: job.ok, fail: job.fail, files: fileCount, msgLen: job.message.length, jobId: job.id });
       if (history.length > 500) history.splice(0, history.length - 500);
       await window.api.accountData.set(job.accountId, 'sendHistory', JSON.stringify(history));
     } catch (_) {}
   }
 
   async function runJob(jobId) {
-    const job = window.GeekBroadcastJobs.get(jobId);
+    const manager = window.GeekBroadcastJobs;
+    const job = manager.get(jobId);
     if (!job) return null;
     const ctx = await contextForAccount(job.accountId);
+    try {
+      await materializeScheduledAttachments(job);
+    } catch (error) {
+      const current = manager.get(job.id);
+      if (current && !['completed', 'stopped', 'failed'].includes(current.state)) manager.markFailed(job.id, error);
+      await cleanupScheduledAttachments(job);
+      materializedFilesByJob.delete(String(job.id));
+      throw error;
+    }
     return executor.run(jobId, {
       sendTarget: (currentJob, target) => sendTarget(ctx, currentJob, target),
-      finished: appendHistory,
+      finished: async finalJob => {
+        await appendHistory(finalJob);
+        await cleanupScheduledAttachments(finalJob);
+        materializedFilesByJob.delete(String(finalJob.id));
+      },
+      failed: async finalJob => {
+        await cleanupScheduledAttachments(finalJob);
+        materializedFilesByJob.delete(String(finalJob?.id || job.id));
+      },
     });
+  }
+
+  async function runPendingWithRecovery(job) {
+    if (!job) return null;
+    const persistence = window.GeekBroadcastSchedulePersistenceInstance;
+    if (persistence && typeof persistence.startDueForAccount === 'function') {
+      return persistence.startDueForAccount(job.accountId);
+    }
+    try {
+      return await runJob(job.id);
+    } catch (error) {
+      const manager = window.GeekBroadcastJobs;
+      const current = manager?.get(job.id);
+      if (current && ['scheduled', 'queued'].includes(current.state)) manager.markFailed(job.id, error);
+      throw error;
+    }
   }
 
   async function onScheduledDue(task) {
@@ -320,7 +405,7 @@
       if (job.state === 'scheduled') manager.transition(job.id, 'queued');
       return;
     }
-    try { await runJob(job.id); }
+    try { await runPendingWithRecovery(job); }
     catch (_) {}
   }
 
@@ -329,7 +414,11 @@
     if (manager.hasActive(accountId)) return;
     const next = manager.getPending(accountId).find(job => job.state === 'queued' || (job.state === 'scheduled' && job.scheduledAt != null && job.scheduledAt <= Date.now()));
     if (!next) return;
-    try { await runJob(next.id); } catch (_) {}
+    try { await runPendingWithRecovery(next); } catch (_) {}
+  }
+
+  function nextScheduledJobId() {
+    return `bc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
   async function startFromEditor() {
@@ -346,11 +435,25 @@
     const files = currentDraftFiles(accountId).map(file => ({ ...file }));
     const message = document.getElementById('broadcast-message')?.value || '';
     if (!message.trim() && !files.length) throw new Error('请输入消息内容或添加附件');
-    if (isFuture && files.length) throw new Error('定时附件需要持久化文件引用，当前版本先不允许带附件定时，避免到点后文件 token 失效');
     const targets = await resolveTargets(ctx);
     const intervalMin = Math.max(5, Number(document.getElementById('broadcast-interval-min')?.value) || 5);
     const intervalMax = Math.max(intervalMin, Number(document.getElementById('broadcast-interval-max')?.value) || Math.max(10, intervalMin));
+    const scheduledJobId = isFuture ? nextScheduledJobId() : null;
+    let attachmentRefs = [];
+    if (isFuture && files.length) {
+      attachmentRefs = await scheduledAttachmentApi().persist({
+        accountId,
+        taskId: scheduledJobId,
+        fileTokens: files.map(file => String(file.filePath || '')),
+      });
+      if (!Array.isArray(attachmentRefs) || attachmentRefs.length !== files.length || attachmentRefs.some(item => !item?.ref)) {
+        await scheduledAttachmentApi().cleanup({ accountId, taskId: scheduledJobId }).catch(() => false);
+        throw new Error('定时附件持久化失败，请重新选择附件');
+      }
+    }
+
     const seed = {
+      id: scheduledJobId || undefined,
       accountId,
       accountName: ctx.account.name || '',
       partition: ctx.account.partition || '',
@@ -359,7 +462,8 @@
       guestId: typeof ctx.wv.getWebContentsId === 'function' ? ctx.wv.getWebContentsId() : null,
       targets,
       message,
-      files,
+      files: isFuture ? [] : files,
+      attachmentRefs,
       vcards: Array.isArray(window.__vcardContacts) ? window.__vcardContacts.map(card => ({ ...card })) : [],
       tagAll: !!document.getElementById('broadcast-tagall')?.checked,
       intervalMin,
@@ -369,11 +473,19 @@
 
     let job;
     if (isFuture) {
-      job = manager.register({ ...seed, state: 'scheduled' });
-      scheduler.schedule({ id: `timer-${job.id}`, accountId, scheduledAt, jobId: job.id, targets: job.targets, message: job.message, intervalMin, intervalMax, tagAll: job.tagAll }, onScheduledDue);
+      try {
+        job = manager.register({ ...seed, state: 'scheduled' });
+        scheduler.schedule({ id: `timer-${job.id}`, accountId, scheduledAt, jobId: job.id, targets: job.targets, message: job.message, intervalMin, intervalMax, tagAll: job.tagAll }, onScheduledDue);
+      } catch (error) {
+        if (attachmentRefs.length) await scheduledAttachmentApi().cleanup({ accountId, taskId: scheduledJobId }).catch(() => false);
+        const current = manager.get(scheduledJobId);
+        if (current && !['completed', 'stopped', 'failed'].includes(current.state)) manager.markFailed(current.id, error);
+        throw error;
+      }
     } else {
       job = manager.start(seed);
     }
+    resetDraftFiles(accountId);
     document.getElementById('broadcast-overlay')?.classList.add('hidden');
     if (!isFuture) void runJob(job.id).catch(() => {});
     return job;
@@ -389,7 +501,12 @@
     scheduler = window.GeekBroadcastScheduleRegistry.createRegistry();
 
     manager.subscribe(event => {
-      if (event?.job && ['completed', 'stopped', 'failed'].includes(event.job.state)) queueMicrotask(() => drainQueued(event.job.accountId));
+      if (!event?.job || !['completed', 'stopped', 'failed'].includes(event.job.state)) return;
+      queueMicrotask(() => {
+        void cleanupScheduledAttachments(event.job);
+        materializedFilesByJob.delete(String(event.job.id || ''));
+        void drainQueued(event.job.accountId);
+      });
     });
 
     document.addEventListener('change', event => {
@@ -429,7 +546,11 @@
         return;
       }
       const open = event.target?.closest?.('#bc-menu-send');
-      if (open) setTimeout(() => renderDraftFiles(activeAccountId()), 0);
+      if (open) {
+        const accountId = activeAccountId();
+        if (!window.GeekBroadcastJobs?.hasActive(accountId)) resetDraftFiles(accountId);
+        setTimeout(() => renderDraftFiles(accountId), 0);
+      }
     }, true);
 
     window.GeekBroadcastRuntimeInstance = Object.freeze({

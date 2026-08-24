@@ -14,13 +14,19 @@ assert.equal(api.STORAGE_KEY, 'broadcastJobSchedules');
 assert.equal(api.MAX_RESTORE_ATTEMPTS, 20);
 const frozen = api.serializableJob({
   id: 'job-a', accountId: 'A', accountName: 'A', partition: 'persist:a', platformFamily: 'whatsapp',
-  targets: [{ id: '1', name: 'Alice' }], message: 'hello', vcards: [], tagAll: false,
-  intervalMin: 5, intervalMax: 10, scheduledAt: 5000, createdAt: 1000,
+  targets: [{ id: '1', name: 'Alice' }], message: 'hello', files: [],
+  attachmentRefs: [{ ref: 'opaque-ref-a', name: 'a.pdf', size: 4, mime: 'application/pdf' }],
+  vcards: [], tagAll: false, intervalMin: 5, intervalMax: 10, scheduledAt: 5000, createdAt: 1000,
 });
 assert.equal(frozen.accountId, 'A');
 assert.deepEqual(frozen.targets, [{ id: '1', name: 'Alice' }]);
+assert.deepEqual(frozen.attachmentRefs, [{ ref: 'opaque-ref-a', name: 'a.pdf', size: 4, mime: 'application/pdf' }]);
 assert.equal('files' in frozen, false, 'temporary attachment tokens must never be persisted as durable schedule data');
+assert.equal('filePath' in JSON.parse(JSON.stringify(frozen)), false, 'schedule records must not persist renderer file-token compatibility fields');
+assert.equal(JSON.stringify(frozen).includes('canonicalPath'), false, 'schedule records must never contain main-process canonical paths');
 
+assert.match(source, /attachmentRefs:/, 'durable attachment refs must be serialized with pending jobs');
+assert.match(source, /files: \[\],[\s\S]*attachmentRefs: refs/, 'restored jobs must keep execution tokens empty and restore only durable refs');
 assert.match(source, /accountData\.set\(String\(accountId\), STORAGE_KEY/, 'pending schedules must persist under an explicit account owner');
 assert.match(source, /accountData\.getAll\(account\.id\)/, 'restore must read each account sandbox explicitly');
 assert.match(source, /accountId: String\(account\.id\)/, 'restored job owner must come from the account being restored');

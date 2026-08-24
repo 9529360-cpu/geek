@@ -6,6 +6,7 @@ const fs = nodeFs.promises;
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, webContents } = require('electron');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
+const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-broadcast-attachment-boundary.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 
 const uiEntryPath = path.join(__dirname, '../ui/index.html');
@@ -17,7 +18,7 @@ const externalDebuggingRequested = process.argv.some((arg) => /^--remote-debuggi
 // Install the selected-file capability boundary before main.cjs registers IPC.
 // The existing main orchestrator keeps the platform-specific CDP delivery logic;
 // legacy picker/raw-path channels are intercepted and disabled by the boundary.
-installBroadcastFileBoundary({
+const broadcastFileBoundary = installBroadcastFileBoundary({
   ipcMain,
   dialog,
   BrowserWindow,
@@ -31,6 +32,18 @@ installBroadcastFileBoundary({
     }
     return telegramNativeAttachments.send(payload);
   },
+});
+
+// Scheduled attachments use a separate persistent lifetime. The renderer never receives
+// canonical paths: short-lived picker tokens are persisted to opaque refs in main, then
+// materialized back into fresh short-lived tokens immediately before execution.
+installScheduledBroadcastAttachmentBoundary({
+  ipcMain,
+  BrowserWindow,
+  fs,
+  uiEntryPath,
+  ephemeralRegistry: broadcastFileBoundary.registry,
+  getUserDataDir: () => app.getPath('userData'),
 });
 
 // Keep account sandbox persistence outside the main orchestrator. The userData
