@@ -60,6 +60,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
           loadScript('./broadcast-legacy-schedule-migration.js', 'GeekBroadcastLegacyScheduleMigration', () => {
             loadScript('./broadcast-schedule-persistence.js', 'GeekBroadcastSchedulePersistence', () => {
               loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
+              loadScript('./broadcast-saved-collection-feedback.js', 'GeekBroadcastSavedCollectionFeedback');
               loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
                 loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
               });
