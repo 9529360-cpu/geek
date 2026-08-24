@@ -61,8 +61,9 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $short = $env:GITHUB_SHA.Substring(0, 8)
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          $source = "dist-release\geek-setup-$($pkg.version).exe"
+          $version = (& node -p "require('./package.json').version").Trim()
+          if (-not $version) { throw 'Unable to resolve package version' }
+          $source = "dist-release\geek-setup-$version.exe"
           if (-not (Test-Path $source)) { throw "Missing installer: $source" }
           New-Item -ItemType Directory -Force -Path 'dist-test' | Out-Null
           $target = "dist-test\geek-broadcast-test-$short.exe"
@@ -71,7 +72,7 @@ jobs:
           $manifest = [ordered]@{
             purpose = 'broadcast-real-client-regression'
             sourceCommit = $env:GITHUB_SHA
-            packageVersion = [string]$pkg.version
+            packageVersion = [string]$version
             installer = [System.IO.Path]::GetFileName($target)
             sha256 = $hash
             productionPublished = $false
