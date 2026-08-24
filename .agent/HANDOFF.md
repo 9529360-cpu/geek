@@ -15,10 +15,11 @@ Updated: 2026-08-24
 ## Task Queue
 
 - P0 done — Remove the incorrect self-hosted PR build path from #168. Standard `test.yml` restored, temporary broadcast installer workflow removed, and `scripts/release-build.cjs` restored to the feature base version.
-- P0 in_progress — Produce a private Windows validation installer from the cleaned #168 product tree using the repository precedent from Issue #153: GitHub-hosted Windows, full `npm test`, then `npm run dist:test`, private artifact only.
+- P0 in_progress — Produce a private Windows validation installer from the cleaned #168 product tree using the repository precedent from Issue #153. Temporary Draft PR #170 uses GitHub-hosted `windows-latest`, full `npm test`, then `npm run dist:test`, private artifact only. Standard PR test run #524 is success; Windows validation run #3 has passed full repository contracts and is currently building with `dist:test`.
 - P0 planned — Owner performs real-client WA/TG/LINE regression from the validation installer in the normal logged-in Windows user profile.
 - P1 planned — After real-client evidence, update #168 validation status and decide readiness without changing package version or release marker.
 - P2 planned — Close/remove obsolete temporary validation PR/branch #169 once the replacement validation artifact is confirmed.
+- P2 planned — Close/remove temporary validation PR #170 and branch after the artifact/evidence has served its purpose; never merge it.
 
 ## Current constraints
 
@@ -31,6 +32,8 @@ Updated: 2026-08-24
 
 ## Evidence already established
 
-- Standard Ubuntu test and Windows product build were previously observed passing far enough to build an NSIS installer, but that run used the wrong self-hosted service context and is not accepted as the final validation path.
+- Standard PR CI after cleanup: run #524 success.
+- Windows validation run #3: dependency install success; full repository contracts success; `npm run dist:test` currently in progress.
+- Earlier self-hosted Windows service build is not accepted as final real-client validation evidence because it ran under the wrong service/profile context.
 - ACL integration test was corrected to use the effective Windows principal and its dedicated Windows workflow subsequently passed.
 - Windows-safe attachment-boundary test fixture and guarded manager contract changes are retained as cross-platform test fixes; product security behavior was not weakened.
