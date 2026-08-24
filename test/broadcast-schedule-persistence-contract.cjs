@@ -11,6 +11,7 @@ const loader = fs.readFileSync(loaderPath, 'utf8');
 const api = require(persistencePath);
 
 assert.equal(api.STORAGE_KEY, 'broadcastJobSchedules');
+assert.equal(api.MAX_RESTORE_ATTEMPTS, 20);
 const frozen = api.serializableJob({
   id: 'job-a', accountId: 'A', accountName: 'A', partition: 'persist:a', platformFamily: 'whatsapp',
   targets: [{ id: '1', name: 'Alice' }], message: 'hello', vcards: [], tagAll: false,
@@ -27,6 +28,9 @@ assert.match(source, /state: scheduledAt <= Date\.now\(\) \? 'queued' : 'schedul
 assert.match(source, /manager\.hasActive\(current\.accountId\)/, 'schedule collision must be scoped to the same account');
 assert.match(source, /manager\.transition\(current\.id, 'queued'\)/, 'same-account collision must queue the job');
 assert.match(source, /runtime\.runJob\(due\.id\)/, 'restored due job must execute through the shared account-scoped runtime');
+assert.match(source, /attempts > MAX_RESTORE_ATTEMPTS/, 'restored due jobs must not retry forever');
+assert.match(source, /manager\.markFailed\(due\.id, error\)/, 'retry exhaustion must become a visible terminal failure');
+assert.match(source, /BROADCAST_SCHEDULE_ACCOUNT_UNAVAILABLE/, 'retry exhaustion needs a stable failure code');
 assert.ok(loader.indexOf("'./broadcast-schedule-persistence.js'") < loader.indexOf("'./broadcast-job-controller.js'"), 'schedule recovery must load before presentation');
 
 console.log('BROADCAST_SCHEDULE_PERSISTENCE_CONTRACT_OK');
