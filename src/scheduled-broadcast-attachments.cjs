@@ -67,7 +67,7 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
   const randomBytes = options.randomBytes || crypto.randomBytes;
   const limits = Object.freeze({ ...DEFAULT_LIMITS, ...(options.limits || {}) });
   const entries = new Map();
-  let initialized = false;
+  let initPromise = null;
   let persistQueue = Promise.resolve();
 
   function nextRef() {
@@ -83,10 +83,11 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
   }
 
   async function persist() {
+    const snapshot = serialize();
     const run = async () => {
       await fs.mkdir(pathModule.dirname(storePath), { recursive: true });
       const tempPath = `${storePath}.tmp`;
-      await fs.writeFile(tempPath, serialize(), { encoding: 'utf8', mode: 0o600 });
+      await fs.writeFile(tempPath, snapshot, { encoding: 'utf8', mode: 0o600 });
       await fs.rename(tempPath, storePath);
     };
     persistQueue = persistQueue.then(run, run);
@@ -94,34 +95,42 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
   }
 
   async function init() {
-    if (initialized) return;
-    initialized = true;
-    let raw = '';
-    try { raw = await fs.readFile(storePath, 'utf8'); }
-    catch (error) {
-      if (error && error.code === 'ENOENT') return;
+    if (initPromise) return initPromise;
+    initPromise = (async () => {
+      let raw = '';
+      try { raw = await fs.readFile(storePath, 'utf8'); }
+      catch (error) {
+        if (error && error.code === 'ENOENT') return;
+        throw error;
+      }
+      let parsed;
+      try { parsed = JSON.parse(raw || '{}'); }
+      catch { throw policyError('SCHEDULED_BROADCAST_ATTACHMENT_STORE_CORRUPT'); }
+      const records = Array.isArray(parsed?.entries) ? parsed.entries : [];
+      for (const entry of records) {
+        const ref = String(entry?.ref || '');
+        const accountId = String(entry?.accountId || '');
+        const taskId = String(entry?.taskId || '');
+        const canonicalPath = String(entry?.canonicalPath || '');
+        const size = Number(entry?.size);
+        const mtimeMs = Number(entry?.mtimeMs);
+        if (!/^[a-f0-9]{48}$/.test(ref) || !accountId || !taskId || !canonicalPath || !Number.isSafeInteger(size) || size < 0 || !Number.isFinite(mtimeMs)) continue;
+        entries.set(ref, {
+          ref, accountId, taskId, canonicalPath,
+          name: String(entry?.name || pathModule.basename(canonicalPath)),
+          size, mtimeMs,
+          mime: String(entry?.mime || guessMime(canonicalPath, pathModule)),
+          createdAt: Number(entry?.createdAt) || 0,
+        });
+      }
+    })();
+    try {
+      await initPromise;
+    } catch (error) {
+      initPromise = null;
       throw error;
     }
-    let parsed;
-    try { parsed = JSON.parse(raw || '{}'); }
-    catch { throw policyError('SCHEDULED_BROADCAST_ATTACHMENT_STORE_CORRUPT'); }
-    const records = Array.isArray(parsed?.entries) ? parsed.entries : [];
-    for (const entry of records) {
-      const ref = String(entry?.ref || '');
-      const accountId = String(entry?.accountId || '');
-      const taskId = String(entry?.taskId || '');
-      const canonicalPath = String(entry?.canonicalPath || '');
-      const size = Number(entry?.size);
-      const mtimeMs = Number(entry?.mtimeMs);
-      if (!/^[a-f0-9]{48}$/.test(ref) || !accountId || !taskId || !canonicalPath || !Number.isSafeInteger(size) || size < 0 || !Number.isFinite(mtimeMs)) continue;
-      entries.set(ref, {
-        ref, accountId, taskId, canonicalPath,
-        name: String(entry?.name || pathModule.basename(canonicalPath)),
-        size, mtimeMs,
-        mime: String(entry?.mime || guessMime(canonicalPath, pathModule)),
-        createdAt: Number(entry?.createdAt) || 0,
-      });
-    }
+    return initPromise;
   }
 
   async function registerPaths({ accountId, taskId, filePaths }) {
@@ -215,15 +224,21 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
     await init();
     const owner = requiredId(accountId, 'SCHEDULED_BROADCAST_ATTACHMENT_ACCOUNT_INVALID');
     const task = requiredId(taskId, 'SCHEDULED_BROADCAST_ATTACHMENT_TASK_INVALID');
-    let removed = 0;
+    const removedEntries = [];
     for (const [ref, entry] of entries) {
       if (entry.accountId === owner && entry.taskId === task) {
+        removedEntries.push([ref, entry]);
         entries.delete(ref);
-        removed += 1;
       }
     }
-    if (removed) await persist();
-    return removed;
+    if (!removedEntries.length) return 0;
+    try {
+      await persist();
+      return removedEntries.length;
+    } catch (error) {
+      for (const [ref, entry] of removedEntries) entries.set(ref, entry);
+      throw error;
+    }
   }
 
   function listTask(accountId, taskId) {
