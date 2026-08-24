@@ -31,7 +31,7 @@ jobs:
         run: npm test
 
   broadcast-test-installer:
-    if: github.event_name == 'pull_request' && github.head_ref == 'test/broadcast-real-client-installer'
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 168
     runs-on: [self-hosted, windows, x64, geek-real-client]
     timeout-minutes: 60
     env:
