@@ -9,8 +9,9 @@ Updated: 2026-08-24
 - `package.json.version`: `1.2.16`.
 - `.github/release-client-version`: `1.2.16`.
 - Broadcast integration PR #166: `ux/broadcast-account-jobs`, head `cc552c2dc0271cef00fcbffa7c250b3d9e9af489`.
-- Product-polish PR #175: `ux/broadcast-product-polish`, product head before the current regression fixes `4dfeef7e34be6ca22a5865c2d2ef04b7ef73c333`.
-- Validation PR #177 is closed without merge; its artifact is now rejected by real-client testing.
+- Product-polish PR #175: `ux/broadcast-product-polish`; cleanup head before the two focused root-cause fixes: `af9689700a23154c668f7cc62c540147499fc7ef`.
+- Cleanup removed the obsolete `broadcast-saved-collection-feedback.js` loader reference; standard PR CI run `32772903721` completed successfully on cleanup head.
+- Validation PR #177 is closed without merge; its artifact is rejected by real-client testing.
 - Formal client release has NOT been triggered; source integration and release remain separate actions.
 
 ## Task Queue
@@ -21,9 +22,10 @@ Updated: 2026-08-24
 - P0 done — Standard PR #175 CI run #559 (`32769300624`) passed on merge tree `b7f3b953aaa02b2541bf4fcb9aad0e8ce2b9d5fc`; 89/89 contracts.
 - P0 done — Windows validation run `32769410578` passed on Windows Server 2025; 89/89 contracts, Windows ACL integration and `npm run dist:test` succeeded.
 - P0 done — Reject artifact `9535717311` / `geek-1.2.16-broadcast-polish-final-08fa79c4.exe` after owner real-client testing found two regressions: Telegram photos send but pure text broadcast does not; the recipient-area `保存当前选择` action does not persist/apply the saved selection. CI/build success does not override these real-client failures.
-- P0 in_progress — Root-cause and fix Telegram pure-text broadcast without weakening existing Telegram attachment behavior, transport safety or target/composer guards.
-- P0 in_progress — Root-cause and fix recipient/group collection `保存当前选择`; preserve existing saved-group compatibility and avoid reintroducing blocking system alerts.
-- P0 planned — Add focused contracts that reproduce both regressions, then run the full standard PR CI on the final merge tree.
+- P0 done — Remove temporary saved-selection wrapper/runtime experiments from the final tree, including the stale loader reference. Do not reintroduce a parallel verifier/state machine.
+- P0 in_progress — Issue #178 / branch `fix/broadcast-telegram-text-submit`: fix Telegram pure-text submission at the `ui/app.js` platform transport abstraction by reusing the mature Telegram adapter send path; no Telegram special-case in `broadcast-runtime.js`.
+- P0 planned — Issue #179: fix the original `ui/app.js` `broadcast-save-group` handler directly: await persistence, render the new option before selecting it, preserve account isolation, and use non-blocking in-page success feedback.
+- P0 planned — Add focused contracts that reproduce both regressions, then run the full standard PR CI on each focused PR/final merge tree.
 - P0 planned — Build ONE fresh Windows private candidate from the final fixed product head. Do not reuse artifact `9535717311` or any earlier broadcast candidate.
 - P0 planned — Owner real-client revalidation: TG text-only, TG photo+caption, WA/LINE regression, save/reload/apply recipient collection, editor/workspace coexistence, task controls and terminal close.
 - P1 planned — Only after fresh product acceptance, resume #166 integration toward `master`.
@@ -36,11 +38,12 @@ Updated: 2026-08-24
 - Latest rejected candidate launches and Telegram attachment/photo broadcast succeeds.
 - Telegram pure-text broadcast does not send.
 - WA and LINE were reported normal in the same candidate.
-- Treat this as a transport/runtime regression until source inspection proves otherwise; do not generalize the failure to Telegram attachments.
+- Root cause track: Issue #178. The Job runtime reaches `platformTransportFor(...).sendText()` after target/composer guards; Telegram currently uses a narrower submit script instead of the mature `BROADCAST_ADAPTERS['telegram-z'].send` behavior.
 
 ### Saved recipient/group collection
 
 - In the broadcast recipient area, `保存当前选择` does not work in the latest candidate.
+- Root cause track: Issue #179. The original handler does not await sandbox persistence and sets `<select>.value` before `renderSavedGroups()` inserts the new option.
 - The intended behavior remains: save the current selected chat IDs as a reusable collection, then allow later selection/filtering without deleting real chats/groups.
 - System success `alert()` must not be restored as the completion UX.
 
