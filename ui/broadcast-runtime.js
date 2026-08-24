@@ -45,6 +45,12 @@
     return draftFilesByAccount.get(id);
   }
 
+  function resetDraftFiles(accountId = activeAccountId()) {
+    const id = String(accountId || '');
+    if (!id) return;
+    draftFilesByAccount.set(id, []);
+  }
+
   function renderDraftFiles(accountId = activeAccountId()) {
     const el = document.getElementById('broadcast-files');
     if (!el) return;
@@ -463,6 +469,7 @@
     } else {
       job = manager.start(seed);
     }
+    resetDraftFiles(accountId);
     document.getElementById('broadcast-overlay')?.classList.add('hidden');
     if (!isFuture) void runJob(job.id).catch(() => {});
     return job;
@@ -523,7 +530,11 @@
         return;
       }
       const open = event.target?.closest?.('#bc-menu-send');
-      if (open) setTimeout(() => renderDraftFiles(activeAccountId()), 0);
+      if (open) {
+        const accountId = activeAccountId();
+        if (!window.GeekBroadcastJobs?.hasActive(accountId)) resetDraftFiles(accountId);
+        setTimeout(() => renderDraftFiles(accountId), 0);
+      }
     }, true);
 
     window.GeekBroadcastRuntimeInstance = Object.freeze({
