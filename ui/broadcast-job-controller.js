@@ -230,6 +230,10 @@
     return document.querySelectorAll('#bc-selected-chips .bc-selected-chip').length;
   }
 
+  function setTextIfChanged(node, text) {
+    if (node && node.textContent !== text) node.textContent = text;
+  }
+
   function refreshSummary() {
     const send = document.getElementById('broadcast-send');
     const note = document.querySelector('#broadcast-overlay .bc-footer-note');
@@ -237,9 +241,9 @@
     const count = selectedCount();
     const files = document.querySelectorAll('#broadcast-files .bf-item').length;
     const lo = document.getElementById('broadcast-interval-min')?.value || '5';
-    const hi = document.getElementById('broadcast-interval-max')?.value || '10';
-    send.textContent = count ? `发送给 ${count} 个聊天` : '请选择发送对象';
-    note.textContent = `${files ? `${files} 个附件 · ` : ''}间隔 ${lo}–${hi} 秒`;
+    const hi = document.getElementById('broadcast-interval-max')?.value || Math.max(10, Number(lo) || 5);
+    setTextIfChanged(send, count ? `发送给 ${count} 个聊天` : '请选择发送对象');
+    setTextIfChanged(note, `${files ? `${files} 个附件 · ` : ''}间隔 ${lo}–${hi} 秒`);
   }
 
   function installAlertFilter() {
@@ -264,15 +268,23 @@
     applyCopyAndSemantics();
     installAlertFilter();
 
-    const runtime = { manager, unsubscribe: null, clock: null };
+    const runtime = { manager, unsubscribe: null, clock: null, summaryObserver: null, accountObserver: null };
     ensureBar(runtime);
     runtime.unsubscribe = manager.subscribe(() => render(runtime));
 
-    const observer = new MutationObserver(() => { refreshSummary(); render(runtime); });
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+    const summaryRoot = document.getElementById('broadcast-overlay');
+    if (summaryRoot) {
+      runtime.summaryObserver = new MutationObserver(refreshSummary);
+      runtime.summaryObserver.observe(summaryRoot, { subtree: true, childList: true });
+    }
+    const accountRoot = document.getElementById('nav-accounts');
+    if (accountRoot) {
+      runtime.accountObserver = new MutationObserver(() => render(runtime));
+      runtime.accountObserver.observe(accountRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+    }
     document.addEventListener('input', refreshSummary, true);
     document.addEventListener('change', refreshSummary, true);
-    document.addEventListener('click', () => queueMicrotask(refreshSummary), true);
+    document.addEventListener('click', () => queueMicrotask(() => { refreshSummary(); render(runtime); }), true);
 
     runtime.clock = setInterval(() => {
       const job = currentJob(runtime);

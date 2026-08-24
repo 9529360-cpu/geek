@@ -24,6 +24,10 @@ assert.match(source, /取消定时/, 'scheduled jobs need a cancel action');
 assert.match(source, /取消排队/, 'queued jobs need a cancel action');
 assert.match(source, /添加附件 · 最多10个，单个512 MiB/, 'attachment copy must match the active file boundary');
 assert.match(source, /添加电子名片/, 'vCard entry must use action semantics rather than a persistent switch concept');
+assert.match(source, /setTextIfChanged\(send,/, 'summary copy writes must be idempotent');
+assert.match(source, /getElementById\('broadcast-overlay'\)/, 'summary observer must stay scoped to the broadcast editor');
+assert.match(source, /getElementById\('nav-accounts'\)/, 'account visibility observer must stay scoped to the account list');
+assert.doesNotMatch(source, /observe\(document\.body/, 'controller must never observe the full document body because its own renders mutate DOM');
 
 assert.doesNotMatch(source, /parseCompletion\s*\(/, 'task state must not be parsed from legacy completion text');
 assert.doesNotMatch(source, /parseProgress\s*\(/, 'task progress must not be parsed from legacy progress DOM');
