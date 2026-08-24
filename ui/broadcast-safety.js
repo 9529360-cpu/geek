@@ -37,3 +37,13 @@
 
   return Object.freeze({ normalizeChatId, normalizeComposerText, sameChat, authorizeSend });
 });
+
+// Broadcast task presentation is split from app.js so UX state can evolve without
+// widening the platform transport/security surface. Browser-only; Node contracts
+// importing this file keep seeing only GeekBroadcastSafety.
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.GeekBroadcastJobController) {
+  const script = document.createElement('script');
+  script.src = './broadcast-job-controller.js';
+  script.defer = true;
+  document.head.appendChild(script);
+}
