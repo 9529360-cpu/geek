@@ -40,7 +40,7 @@
 
 // Broadcast runtime/presentation stays outside app.js so account-scoped task state can
 // evolve without widening the platform transport or safety surface. Load dependencies
-// in order; the runtime owns new sends before presentation compatibility hooks install.
+// in order; the runtime owns new sends before the task presentation installs.
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   function loadScript(src, marker, done) {
     if (window[marker]) { done?.(); return; }
@@ -60,9 +60,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
           loadScript('./broadcast-legacy-schedule-migration.js', 'GeekBroadcastLegacyScheduleMigration', () => {
             loadScript('./broadcast-schedule-persistence.js', 'GeekBroadcastSchedulePersistence', () => {
               loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
-              loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
-                loadScript('./broadcast-taskbar-presenter.js', 'GeekBroadcastTaskbarPresenter');
-              });
+              loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController');
             });
           });
         });
