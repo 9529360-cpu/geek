@@ -10,10 +10,11 @@
 
   const TERMINAL_STATES = Object.freeze(['completed', 'stopped', 'failed']);
   const TERMINAL = new Set(TERMINAL_STATES);
-  const ACTIVE = new Set(['scheduled', 'queued', 'starting', 'running', 'paused', 'stopping']);
+  const EXECUTING = new Set(['starting', 'running', 'paused', 'stopping']);
+  const PENDING = new Set(['scheduled', 'queued']);
   const TRANSITIONS = Object.freeze({
-    scheduled: new Set(['queued', 'starting', 'running', 'stopping', 'stopped', 'failed']),
-    queued: new Set(['starting', 'running', 'stopping', 'stopped', 'failed']),
+    scheduled: new Set(['queued', 'starting', 'running', 'stopped', 'failed']),
+    queued: new Set(['starting', 'running', 'stopped', 'failed']),
     starting: new Set(['running', 'paused', 'stopping', 'stopped', 'failed']),
     running: new Set(['paused', 'stopping', 'completed', 'stopped', 'failed']),
     paused: new Set(['running', 'stopping', 'stopped', 'failed']),
@@ -110,7 +111,7 @@
 
   function createManager(options = {}) {
     const jobs = new Map();
-    const activeByAccount = new Map();
+    const executingByAccount = new Map();
     const controls = new Map();
     const listeners = new Set();
     const clock = typeof options.now === 'function' ? options.now : now;
@@ -135,10 +136,10 @@
       return job;
     }
 
-    function activeJob(accountId) {
-      const id = activeByAccount.get(String(accountId || ''));
+    function executingJob(accountId) {
+      const id = executingByAccount.get(String(accountId || ''));
       const job = id ? jobs.get(id) : null;
-      return job && ACTIVE.has(job.state) ? job : null;
+      return job && EXECUTING.has(job.state) ? job : null;
     }
 
     function latestJob(accountId, includeDismissed = false) {
@@ -151,27 +152,48 @@
       return latest;
     }
 
+    function pendingJobs(accountId) {
+      const id = String(accountId || '');
+      return [...jobs.values()]
+        .filter(job => job.accountId === id && PENDING.has(job.state))
+        .sort((a, b) => {
+          const at = a.scheduledAt == null ? a.createdAt : a.scheduledAt;
+          const bt = b.scheduledAt == null ? b.createdAt : b.scheduledAt;
+          return at - bt || a.createdAt - b.createdAt;
+        });
+    }
+
+    function claimExecutionSlot(job) {
+      if (!EXECUTING.has(job.state)) return;
+      const other = executingJob(job.accountId);
+      if (other && other.id !== job.id) throw new Error(`account already has a running broadcast job: ${job.accountId}`);
+      executingByAccount.set(job.accountId, job.id);
+    }
+
     function register(seed = {}) {
       const job = createJob({ ...seed, createdAt: seed.createdAt == null ? clock() : seed.createdAt });
       if (jobs.has(job.id)) throw new Error(`broadcast job already exists: ${job.id}`);
-      const existing = activeJob(job.accountId);
-      if (existing && ACTIVE.has(job.state)) throw new Error(`account already has an active broadcast job: ${job.accountId}`);
+      claimExecutionSlot(job);
       jobs.set(job.id, job);
-      if (ACTIVE.has(job.state)) activeByAccount.set(job.accountId, job.id);
+      if (EXECUTING.has(job.state)) executingByAccount.set(job.accountId, job.id);
       return emit('created', job);
     }
 
     function start(seed = {}) {
       const state = seed.scheduledAt && finiteNumber(seed.scheduledAt, 0) > clock() ? 'scheduled' : 'running';
-      const snapshot = register({ ...seed, state, startedAt: state === 'running' ? clock() : null });
-      return snapshot;
+      return register({ ...seed, state, startedAt: state === 'running' ? clock() : null });
     }
 
     function transition(jobId, nextState, patch = {}) {
       const job = requireJob(jobId);
+      const previousState = job.state;
       const next = String(nextState || '');
       if (!TRANSITIONS[next]) throw new TypeError(`invalid broadcast job state: ${next}`);
-      if (job.state !== next && !TRANSITIONS[job.state].has(next)) throw new Error(`invalid broadcast transition: ${job.state} -> ${next}`);
+      if (previousState !== next && !TRANSITIONS[previousState].has(next)) throw new Error(`invalid broadcast transition: ${previousState} -> ${next}`);
+      if (EXECUTING.has(next) && !EXECUTING.has(previousState)) {
+        const other = executingJob(job.accountId);
+        if (other && other.id !== job.id) throw new Error(`account already has a running broadcast job: ${job.accountId}`);
+      }
       if (patch.current !== undefined) job.current = nonNegativeInt(patch.current, job.current);
       if (patch.total !== undefined) job.total = nonNegativeInt(patch.total, job.total);
       if (patch.ok !== undefined) job.ok = nonNegativeInt(patch.ok, job.ok);
@@ -184,14 +206,15 @@
       if (TERMINAL.has(next)) {
         job.finishedAt = patch.finishedAt == null ? clock() : finiteNumber(patch.finishedAt, clock());
         job.nextSendAt = null;
-        activeByAccount.delete(job.accountId);
-      } else if (ACTIVE.has(next)) {
-        const other = activeJob(job.accountId);
-        if (other && other.id !== job.id) throw new Error(`account already has an active broadcast job: ${job.accountId}`);
-        activeByAccount.set(job.accountId, job.id);
+        if (executingByAccount.get(job.accountId) === job.id) executingByAccount.delete(job.accountId);
+        controls.delete(job.id);
+      } else if (EXECUTING.has(next)) {
+        executingByAccount.set(job.accountId, job.id);
+      } else if (executingByAccount.get(job.accountId) === job.id) {
+        executingByAccount.delete(job.accountId);
       }
       touch(job);
-      return emit('state', job, { previousState: patch.previousState || null });
+      return emit('state', job, { previousState });
     }
 
     function update(jobId, patch = {}) {
@@ -208,13 +231,8 @@
       return emit('progress', job);
     }
 
-    function complete(jobId, patch = {}) {
-      return transition(jobId, 'completed', patch);
-    }
-
-    function markStopped(jobId, patch = {}) {
-      return transition(jobId, 'stopped', { ...patch, stopRequested: true });
-    }
+    function complete(jobId, patch = {}) { return transition(jobId, 'completed', patch); }
+    function markStopped(jobId, patch = {}) { return transition(jobId, 'stopped', { ...patch, stopRequested: true }); }
 
     function markFailed(jobId, error, patch = {}) {
       const failed = Array.isArray(patch.failed) ? patch.failed : requireJob(jobId).failed;
@@ -247,9 +265,12 @@
       }
       if (action === 'stop') {
         if (TERMINAL.has(job.state) || job.state === 'stopping') return publicSnapshot(job);
-        job.stopRequested = true;
+        if (PENDING.has(job.state)) {
+          if (handler) await handler(publicSnapshot(job));
+          return markStopped(job.id, { current: job.current, ok: job.ok, fail: job.fail });
+        }
         transition(job.id, 'stopping', { stopRequested: true });
-        if (handler) await handler(publicSnapshot(job));
+        if (handler) await handler(publicSnapshot(requireJob(job.id)));
         return publicSnapshot(requireJob(job.id));
       }
       throw new TypeError(`unsupported broadcast action: ${action}`);
@@ -264,9 +285,13 @@
     }
 
     function get(jobId) { return publicSnapshot(jobs.get(String(jobId || ''))); }
-    function getActive(accountId) { return publicSnapshot(activeJob(accountId)); }
-    function getCurrent(accountId) { return publicSnapshot(activeJob(accountId) || latestJob(accountId)); }
-    function hasActive(accountId) { return !!activeJob(accountId); }
+    function getActive(accountId) { return publicSnapshot(executingJob(accountId)); }
+    function hasActive(accountId) { return !!executingJob(accountId); }
+    function getPending(accountId) { return pendingJobs(accountId).map(publicSnapshot); }
+    function getNextPending(accountId) { return publicSnapshot(pendingJobs(accountId)[0] || null); }
+    function getCurrent(accountId) {
+      return publicSnapshot(executingJob(accountId) || pendingJobs(accountId)[0] || latestJob(accountId));
+    }
     function list(accountId) {
       const wanted = accountId == null ? null : String(accountId);
       return [...jobs.values()]
@@ -294,6 +319,8 @@
       get,
       getActive,
       getCurrent,
+      getPending,
+      getNextPending,
       hasActive,
       list,
       subscribe,
