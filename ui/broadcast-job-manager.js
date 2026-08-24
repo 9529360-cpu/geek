@@ -72,6 +72,7 @@
       targets,
       message: String(seed.message || ''),
       files: freezeList(seed.files),
+      attachmentRefs: freezeList(seed.attachmentRefs),
       vcards: freezeList(seed.vcards),
       tagAll: !!seed.tagAll,
       intervalMin,
@@ -100,6 +101,7 @@
       ...job,
       targets: Object.freeze(job.targets.slice()),
       files: Object.freeze(job.files.slice()),
+      attachmentRefs: Object.freeze(job.attachmentRefs.slice()),
       vcards: Object.freeze(job.vcards.slice()),
       failed: Object.freeze(job.failed.slice()),
     });
