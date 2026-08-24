@@ -30,14 +30,21 @@
     style.id = 'broadcast-job-style';
     style.textContent = `
       #broadcast-job-bar{position:fixed;top:46px;right:18px;z-index:88;width:min(350px,calc(100vw - 36px));padding:11px 12px;border:1px solid var(--border-standard);border-radius:10px;background:color-mix(in srgb,var(--bg-surface) 94%,transparent);box-shadow:0 14px 38px rgba(0,0,0,.34);backdrop-filter:blur(18px);color:var(--text-primary);font:12px/1.4 var(--font-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
-      #broadcast-job-bar.hidden{display:none!important}.bc-job-head{display:flex;align-items:center;gap:8px}.bc-job-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-      .bc-job-title{font-size:12.5px;font-weight:650;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc-job-close{border:0;background:transparent;color:var(--text-tertiary);font-size:17px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:5px}.bc-job-close:hover{background:var(--bg-hover);color:var(--text-primary)}
-      .bc-job-meta{margin:5px 0 0 15px;color:var(--text-tertiary);font-size:11px}.bc-job-progress{height:4px;margin:8px 0 0 15px;border-radius:999px;background:var(--bg-elevated);overflow:hidden}.bc-job-progress>i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s ease}
-      .bc-job-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:9px}.bc-job-actions button{height:27px;padding:3px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:11px;cursor:pointer}.bc-job-actions button:hover{color:var(--text-primary);background:var(--bg-hover)}.bc-job-actions .danger{color:#ff7d74}
+      #broadcast-job-bar.hidden{display:none!important}
+      .bc-job-head{display:flex;align-items:center;gap:8px}
+      .bc-job-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);flex:0 0 auto}
+      .bc-job-title{font-size:12.5px;font-weight:650;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .bc-job-close{border:0;background:transparent;color:var(--text-tertiary);font-size:17px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:5px}
+      .bc-job-close:hover{background:var(--bg-hover);color:var(--text-primary)}
+      .bc-job-meta{margin:5px 0 0 15px;color:var(--text-tertiary);font-size:11px}
+      .bc-job-progress{height:4px;margin:8px 0 0 15px;border-radius:999px;background:var(--bg-elevated);overflow:hidden}
+      .bc-job-progress>i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s ease}
+      .bc-job-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:9px}
+      .bc-job-actions button{height:27px;padding:3px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:11px;cursor:pointer}
+      .bc-job-actions button:hover{color:var(--text-primary);background:var(--bg-hover)}
+      .bc-job-actions .danger{color:#ff7d74}
+      .bc-job-actions [data-act="dismiss"]{background:var(--accent);border-color:var(--accent);color:#fff}
       .bc-job-failures{max-height:150px;overflow:auto;margin:8px 0 0 15px;padding:7px 8px;border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:10.5px;white-space:pre-wrap}
-      #broadcast-overlay .bc-action-trigger{display:inline-flex;align-items:center;min-height:28px;padding:4px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);cursor:pointer;width:max-content}
-      #broadcast-overlay .bc-action-trigger:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border-standard));background:var(--accent-soft);color:var(--accent)}
-      #broadcast-overlay .bc-action-trigger .bc-switch,#broadcast-overlay .bc-action-trigger input{display:none!important}#broadcast-overlay .bc-action-trigger .bc-switch-label{font-size:11px;font-weight:600}
     `;
     document.head.appendChild(style);
   }
@@ -51,6 +58,17 @@
     return button;
   }
 
+  function currentJob(runtime) {
+    return runtime.manager?.getCurrent(activeAccountId()) || null;
+  }
+
+  function dismissCurrent(runtime) {
+    const job = currentJob(runtime);
+    if (!job || !TERMINAL.has(job.state)) return;
+    try { runtime.manager.dismiss(job.id); } catch (_) {}
+    render(runtime);
+  }
+
   function ensureBar(runtime) {
     let bar = document.getElementById('broadcast-job-bar');
     if (bar) return bar;
@@ -59,6 +77,7 @@
     bar.id = 'broadcast-job-bar';
     bar.className = 'hidden';
     bar.setAttribute('aria-live', 'polite');
+    bar.setAttribute('aria-label', '群发任务');
 
     const head = document.createElement('div');
     head.className = 'bc-job-head';
@@ -72,6 +91,7 @@
     close.className = 'bc-job-close';
     close.title = '关闭';
     close.textContent = '×';
+    close.onclick = () => dismissCurrent(runtime);
     head.append(dot, title, close);
 
     const meta = document.createElement('div');
@@ -88,6 +108,7 @@
     const stop = createButton('stop', '停止后续发送', 'danger');
     const failures = createButton('failures', '查看失败', 'hidden');
     const dismiss = createButton('dismiss', '关闭', 'hidden');
+    dismiss.onclick = () => dismissCurrent(runtime);
     actions.append(pause, stop, failures, dismiss);
     bar.append(head, meta, progress, failureBox, actions);
     document.body.appendChild(bar);
@@ -117,28 +138,13 @@
       failureBox.classList.toggle('hidden');
     };
 
-    function dismissCurrent() {
-      const job = currentJob(runtime);
-      if (!job || !TERMINAL.has(job.state)) return;
-      try { runtime.manager.dismiss(job.id); } catch (_) {}
-      render(runtime);
-    }
-
-    close.onclick = dismissCurrent;
-    dismiss.onclick = dismissCurrent;
-
     return bar;
-  }
-
-  function currentJob(runtime) {
-    return runtime.manager?.getCurrent(activeAccountId()) || null;
   }
 
   function render(runtime) {
     const bar = ensureBar(runtime);
-    const accountId = activeAccountId();
     const job = currentJob(runtime);
-    const visible = visibleFor(job, accountId);
+    const visible = visibleFor(job, activeAccountId());
     bar.classList.toggle('hidden', !visible);
     if (!visible) return;
 
@@ -197,59 +203,14 @@
     close.style.visibility = terminal ? 'visible' : 'hidden';
   }
 
-  function applyCopyAndSemantics() {
-    const message = document.getElementById('broadcast-message');
-    if (message) message.placeholder = '输入要发送的消息，可用下方变量插入联系人名称或问候语';
-    const addFile = document.getElementById('broadcast-add-file');
-    const fileLabel = addFile?.closest('label');
-    if (fileLabel) {
-      fileLabel.classList.add('bc-action-trigger');
-      const text = fileLabel.querySelector('.bc-switch-label');
-      if (text) text.textContent = '＋ 添加附件 · 最多10个，单个512 MiB';
+  function closeEditorForNewJob(runtime) {
+    const job = currentJob(runtime);
+    const jobId = job?.id || '';
+    if (jobId && jobId !== runtime.lastJobId) {
+      const overlay = document.getElementById('broadcast-overlay');
+      if (overlay && !overlay.classList.contains('hidden')) overlay.classList.add('hidden');
     }
-    const addVcard = document.getElementById('broadcast-add-vcard');
-    const vcardLabel = addVcard?.closest('label');
-    if (vcardLabel) {
-      vcardLabel.classList.add('bc-action-trigger');
-      const text = vcardLabel.querySelector('.bc-switch-label');
-      if (text) text.textContent = '＋ 添加电子名片';
-    }
-    const saveGroup = document.getElementById('broadcast-save-group');
-    if (saveGroup) saveGroup.textContent = '保存当前选择';
-    const showAll = document.getElementById('broadcast-show-all-groups');
-    if (showAll) showAll.textContent = '清除集合筛选';
-    document.querySelectorAll('input[name="bc-sendto"]').forEach(input => {
-      const text = input.closest('label')?.querySelector('span');
-      if (!text) return;
-      if (input.value === 'exclude-contacts') text.textContent = '排除指定联系人（过滤条件）';
-      if (input.value === 'exclude-groups') text.textContent = '排除指定群组（过滤条件）';
-    });
-  }
-
-  function selectedCount() {
-    const mode = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
-    if (mode === 'paste') return Number(document.getElementById('bc-paste-total')?.textContent) || 0;
-    if (mode === 'excel') {
-      const text = document.getElementById('bc-excel-meta')?.textContent || '';
-      return Number((text.match(/已导入\s*(\d+)/) || [])[1]) || 0;
-    }
-    return document.querySelectorAll('#bc-selected-chips .bc-selected-chip').length;
-  }
-
-  function setTextIfChanged(node, text) {
-    if (node && node.textContent !== text) node.textContent = text;
-  }
-
-  function refreshSummary() {
-    const send = document.getElementById('broadcast-send');
-    const note = document.querySelector('#broadcast-overlay .bc-footer-note');
-    if (!send || !note) return;
-    const count = selectedCount();
-    const files = document.querySelectorAll('#broadcast-files .bf-item').length;
-    const lo = document.getElementById('broadcast-interval-min')?.value || '5';
-    const hi = document.getElementById('broadcast-interval-max')?.value || Math.max(10, Number(lo) || 5);
-    setTextIfChanged(send, count ? `发送给 ${count} 个聊天` : '请选择发送对象');
-    setTextIfChanged(note, `${files ? `${files} 个附件 · ` : ''}间隔 ${lo}–${hi} 秒`);
+    runtime.lastJobId = jobId;
   }
 
   function installAlertFilter() {
@@ -277,15 +238,10 @@
     ensureBar(runtime);
     runtime.lastJobId = currentJob(runtime)?.id || '';
     runtime.unsubscribe = manager.subscribe(() => {
-      const job = currentJob(runtime);
-      const jobId = job?.id || '';
-      if (jobId && jobId !== runtime.lastJobId) {
-        const overlay = document.getElementById('broadcast-overlay');
-        if (overlay && !overlay.classList.contains('hidden')) overlay.classList.add('hidden');
-      }
-      runtime.lastJobId = jobId;
+      closeEditorForNewJob(runtime);
       render(runtime);
     });
+
     const accountRoot = document.getElementById('nav-accounts');
     if (accountRoot) {
       runtime.accountObserver = new MutationObserver(() => render(runtime));
