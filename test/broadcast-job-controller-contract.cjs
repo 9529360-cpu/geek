@@ -15,7 +15,7 @@ assert.equal(api.visibleFor({ ...running, dismissed: true }, 'account-a'), false
 assert.equal(typeof api.formatScheduledAt(Date.now()), 'string');
 
 assert.match(source, /String\(job\.accountId\) === String\(activeAccountId/, 'task visibility must remain account-scoped');
-assert.match(source, /manager\.getCurrent\(activeAccountId\(\)\)/, 'task bar must read the current account job from BroadcastJobManager');
+assert.match(source, /manager\?*\.getCurrent\(activeAccountId\(\)\)/, 'task bar must read the current account job from BroadcastJobManager');
 assert.match(source, /manager\.invoke\(job\.id, job\.state === 'paused' \? 'resume' : 'pause'\)/, 'pause/resume must target the explicit job');
 assert.match(source, /manager\.invoke\(job\.id, 'stop'\)/, 'stop/cancel must target the explicit job');
 assert.match(source, /群发排队中/, 'queued jobs need dedicated task copy');
