@@ -38,12 +38,22 @@
   return Object.freeze({ normalizeChatId, normalizeComposerText, sameChat, authorizeSend });
 });
 
-// Broadcast task presentation is split from app.js so UX state can evolve without
-// widening the platform transport/security surface. Browser-only; Node contracts
-// importing this file keep seeing only GeekBroadcastSafety.
-if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.GeekBroadcastJobController) {
-  const script = document.createElement('script');
-  script.src = './broadcast-job-controller.js';
-  script.defer = true;
-  document.head.appendChild(script);
+// Broadcast runtime/presentation stays outside app.js so account-scoped task state can
+// evolve without widening the platform transport or safety surface. The runtime is
+// loaded first because the task UI is a pure consumer of account-owned BroadcastJobs.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  function loadScript(src, marker, done) {
+    if (window[marker]) { done?.(); return; }
+    const existing = document.querySelector(`script[data-geek-broadcast="${marker}"]`);
+    if (existing) { existing.addEventListener('load', () => done?.(), { once: true }); return; }
+    const script = document.createElement('script');
+    script.src = src;
+    script.defer = true;
+    script.dataset.geekBroadcast = marker;
+    if (done) script.addEventListener('load', done, { once: true });
+    document.head.appendChild(script);
+  }
+  loadScript('./broadcast-job-manager.js', 'GeekBroadcastJobManager', () => {
+    loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController');
+  });
 }
