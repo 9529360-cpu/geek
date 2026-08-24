@@ -381,6 +381,22 @@
     });
   }
 
+  async function runPendingWithRecovery(job) {
+    if (!job) return null;
+    const persistence = window.GeekBroadcastSchedulePersistenceInstance;
+    if (persistence && typeof persistence.startDueForAccount === 'function') {
+      return persistence.startDueForAccount(job.accountId);
+    }
+    try {
+      return await runJob(job.id);
+    } catch (error) {
+      const manager = window.GeekBroadcastJobs;
+      const current = manager?.get(job.id);
+      if (current && ['scheduled', 'queued'].includes(current.state)) manager.markFailed(job.id, error);
+      throw error;
+    }
+  }
+
   async function onScheduledDue(task) {
     const manager = window.GeekBroadcastJobs;
     const job = manager.get(task.jobId);
@@ -389,7 +405,7 @@
       if (job.state === 'scheduled') manager.transition(job.id, 'queued');
       return;
     }
-    try { await runJob(job.id); }
+    try { await runPendingWithRecovery(job); }
     catch (_) {}
   }
 
@@ -398,7 +414,7 @@
     if (manager.hasActive(accountId)) return;
     const next = manager.getPending(accountId).find(job => job.state === 'queued' || (job.state === 'scheduled' && job.scheduledAt != null && job.scheduledAt <= Date.now()));
     if (!next) return;
-    try { await runJob(next.id); } catch (_) {}
+    try { await runPendingWithRecovery(next); } catch (_) {}
   }
 
   function nextScheduledJobId() {
