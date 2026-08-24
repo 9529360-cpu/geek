@@ -40,7 +40,7 @@
 
 // Broadcast runtime/presentation stays outside app.js so account-scoped task state can
 // evolve without widening the platform transport or safety surface. Load dependencies
-// in order; the controller is the final browser consumer.
+// in order; presentation modules are final consumers of the shared manager.
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   function loadScript(src, marker, done) {
     if (window[marker]) { done?.(); return; }
@@ -56,6 +56,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   loadScript('./broadcast-job-manager.js', 'GeekBroadcastJobManager', () => {
     loadScript('./broadcast-schedule-registry.js', 'GeekBroadcastScheduleRegistry', () => {
       loadScript('./broadcast-executor.js', 'GeekBroadcastExecutor', () => {
+        loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
         loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController');
       });
     });
