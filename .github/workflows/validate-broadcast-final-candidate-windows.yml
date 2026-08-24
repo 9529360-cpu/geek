@@ -1,0 +1,55 @@
+# Private final-candidate validation only. Do not merge.
+name: validate-broadcast-final-candidate-windows
+
+on:
+  push:
+    branches:
+      - validation/broadcast-final-candidate-1.2.16
+  pull_request:
+    branches:
+      - fix/broadcast-observer-starvation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-broadcast-final-candidate-1.2.16
+  cancel-in-progress: true
+
+jobs:
+  validation:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Checkout exact validation revision
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run full repository contracts
+        run: npm test
+
+      - name: Build private Windows validation installer
+        run: npm run dist:test
+
+      - name: Prepare validation artifact and SHA-256
+        run: node scripts/prepare-broadcast-validation-artifact.cjs
+
+      - name: Upload private validation installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-1.2.16-broadcast-final-candidate-${{ github.sha }}
+          path: |
+            dist-validation/geek-1.2.16-broadcast-final-candidate-*.exe
+            dist-validation/validation-manifest.json
+          if-no-files-found: error
+          retention-days: 7
