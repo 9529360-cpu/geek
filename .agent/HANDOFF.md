@@ -6,71 +6,57 @@ Updated: 2026-08-24
 
 - Default branch: `master`
 - Verified master HEAD: `ddbc0d387b4ac061b44f94759aad6da3917f5019`
-- Latest broadcast product-code checkpoint: `57d2e4d78d7de33f2d51bdd73ce08f833a96cb3b`
-- Current broadcast branch HEAD before this doc checkpoint: `b5b865ee25f8a52dbdf61c3b4dc73d456c021255`
-- `package.json.version`: `1.2.16`
-- `.github/release-client-version`: `1.2.16`
-- Broadcast base PR: #166 (`ux/broadcast-account-jobs`)
-- Scheduled attachment child PR: #168 (`fix/scheduled-broadcast-attachments`, Draft)
-- Current private validation PR: #170 (`validation/broadcast-account-jobs-1.2.16`, Draft, do not merge)
-- Superseded validation experiment #171 is closed without merge.
-- Formal client release is NOT authorized by this task.
+- Current broadcast base PR: #166 (`ux/broadcast-account-jobs`, Draft), product fix head `e1e5b5b64c79086db5f235d8243556413dd4c4b1`.
+- Scheduled attachment child PR: #168 (`fix/scheduled-broadcast-attachments`, Draft), product fix checkpoint `8c26f6c3ed7c7ccd2b04ee63b6bc0bac47ec7287` before this HANDOFF-only commit.
+- `package.json.version`: `1.2.16`.
+- `.github/release-client-version`: `1.2.16`.
+- Private validation PR: #170 (`validation/broadcast-account-jobs-1.2.16`, Draft, do not merge).
+- #169 and #171 are closed without merge.
+- Formal client release is NOT authorized.
 
 ## Task Queue
 
-- P0 done — Remove the incorrect self-hosted PR build path from #168.
-- P0 done — Fix stale account-scoped attachment drafts; focused contract added; standard PR test run #528 passed.
-- P0 done — Fix live-session scheduled/queued jobs losing their one-shot timer when account WebView is transiently unavailable; runtime now reuses bounded recovery; standard PR run #531 passed.
-- P0 done — Rebuild the private Windows validation installer from the current #168 tree using the proven #170 GitHub-hosted Windows path. Refreshed validation run #10 (`32755801505`) completed successfully. Full repository contracts: 86/86 passed. `npm run dist:test` succeeded. Private installer + SHA-256 artifact uploaded.
-- P0 in_progress — Owner performs real-client WA/TG/LINE regression from the current validation installer in the normal logged-in Windows user profile.
-- P1 planned — After owner real-client acceptance, update #168 readiness and decide any separate release action. Do not change package version or release marker before explicit release authorization.
-- P2 done — Obsolete validation PR #169 closed without merge.
-- P2 done — Superseded validation PR #171 closed without merge.
-- P2 planned — Close #170 only after owner real-client acceptance is complete; never merge it.
+- P0 done — Fix stale account-scoped attachment drafts; standard PR test run #528 passed.
+- P0 done — Fix live-session scheduled/queued jobs losing their timer when an account WebView is transiently unavailable; standard PR run #531 passed.
+- P0 done — Build validation run #10 (`32755801505`): Windows 86/86 contracts passed and `npm run dist:test` succeeded, but owner real-client testing rejected that package because the renderer became effectively unresponsive.
+- P0 done — Root-cause the real-client freeze: `ui/broadcast-job-controller.js` observed all of `document.body`, while the observer callback itself rewrote task/summary DOM. This could continuously retrigger `MutationObserver` microtasks and starve renderer interaction. Base fix commits: `7ae228d8` + `e1e5b5b6`. #168 synchronized fix checkpoint: `8c26f6c3`.
+- P0 in_progress — Rebuild a NEW private Windows validation installer from #168 after the renderer-loop fix. #170 validation branch was refreshed to the fixed product tree and retriggered; do not reuse artifact `9530876594` or installer `geek-1.2.16-broadcast-validation-2c5ae792.exe`.
+- P0 planned — Owner first verifies basic UI responsiveness in a normal Windows profile, then performs WA/TG/LINE broadcast regression.
+- P1 planned — Only after owner acceptance, decide readiness; package version/release marker remain unchanged until separate explicit release authorization.
 
-## Current validation artifact
+## Rejected validation artifact
 
-- Validation PR: #170 (Draft, do not merge)
-- Windows run: #10 / `32755801505`
-- Validation merge commit actually checked out by Actions: `2c5ae79227682ca375863126afbd93f39b0c0eb2`
-- Validation branch head: `4e8b3a09192a0c84da15e76b1ffa5fbb9f343be1`
-- Product base embedded in validation tree: `fix/scheduled-broadcast-attachments@91fa44284209dc07a71cf09b3d7f54a9a5ca763d`
-- Product-code checkpoint inside that tree: `57d2e4d78d7de33f2d51bdd73ce08f833a96cb3b`
-- Build command: `npm run dist:test`
-- Package version: `1.2.16`
-- Installer: `geek-1.2.16-broadcast-validation-2c5ae792.exe`
-- Installer SHA-256: `bc0057833432b6a2bf10041faf30c531d4a9abc198909ce0e0e731d4a189c211`
-- Actions artifact ID: `9530876594`
-- Artifact ZIP digest: `fc444c2cfee7adf830a65979c9d32b1505387c3f9d18ab2605ff2d5bda5c94d2`
-- Artifact expires: 2026-08-31
-- `productionPublished`: false
+- Run: #10 / `32755801505`.
+- Artifact ID: `9530876594`.
+- Installer: `geek-1.2.16-broadcast-validation-2c5ae792.exe`.
+- Installer SHA-256: `bc0057833432b6a2bf10041faf30c531d4a9abc198909ce0e0e731d4a189c211`.
+- Status: **REJECTED by owner real-client test**. CI/build success does not override the observed renderer freeze. Never hand this artifact out again as a current candidate.
+- `productionPublished`: false.
 
-## Current constraints
+## Renderer-loop fix
 
-- Validation uses `dist:test`; `npm run dist` and `release-client` are not daily validation entrypoints.
-- No production upload/tag/release/updater metadata changes.
-- Do not modify `.github/release-client-version` for validation.
-- Keep `GeekBroadcastSafety`, WebView security, opaque attachment paths/owner binding, and existing WA/TG/LINE transport semantics unchanged.
-- Scheduled attachment refs remain main-process-only durable opaque references bound to account + job/task.
+- `refreshSummary()` now writes summary text only when content actually changed.
+- Removed the `MutationObserver` on the entire `document.body`.
+- Summary observation is scoped to `#broadcast-overlay`.
+- Account visibility observation is scoped to `#nav-accounts`.
+- Contract explicitly rejects `observe(document.body, ...)` and requires scoped observers/idempotent summary writes.
+- WA/TG/LINE transport semantics, WebView security, attachment opaque refs and release controls were not changed.
 
-## Evidence established
+## Validation boundary
 
-- Refreshed Windows validation run #10 `32755801505`: completed/success.
-- Windows actual full repository contracts: 86/86 passed.
-- `npm run dist:test`: actual success on GitHub-hosted Windows; Electron 43.4.0 / electron-builder 26.15.3 built NSIS `geek-setup-1.2.16.exe` before it was copied/renamed as the private validation installer.
-- Artifact preparation printed installer SHA-256 `bc0057833432b6a2bf10041faf30c531d4a9abc198909ce0e0e731d4a189c211`.
-- Artifact upload actual success: ID `9530876594`, ZIP digest `fc444c2cfee7adf830a65979c9d32b1505387c3f9d18ab2605ff2d5bda5c94d2`.
-- Standard PR test workflow for the same refreshed validation head also completed success (`32755801349`).
-- `master` remains `ddbc0d3` and no formal client release was triggered.
+- Test builds use `npm run dist:test` only.
+- No R2 upload, updater `latest.yml`, release tag, website version, package version, or `.github/release-client-version` change.
+- #170 is temporary private validation evidence and must never be merged.
 
-## Remaining real-client acceptance
+## Next acceptance order
 
-- Fresh editor session must not resurrect attachments selected in a previous broadcast; successful job creation must consume the editor attachment draft.
-- A due scheduled Job whose account view is briefly unavailable must retry and either execute or visibly fail after the bounded retry limit; it must not stay scheduled/queued forever.
-- A/B different accounts can run Broadcast Jobs concurrently; taskbar stays account-local; pause/resume/stop isolation holds.
-- Same-account active + due schedule queues and drains in order.
-- WA / Telegram / LINE scheduled attachment: create future task, quit app, restart, wait until due, verify original transport sends correctly.
-- Attachment-only and multi-file scheduled sends.
-- Delete/replace/modify source before due => visible failed state and no send.
-- Cancel/terminal cleanup does not delete another job's durable refs.
-- Immediate WA/TG/LINE attachment sending remains unchanged.
+1. App opens and normal sidebar/account/settings/translation controls remain clickable and responsive; no renderer freeze.
+2. Open/close group-send editor repeatedly; main chat remains usable.
+3. Start group send; editor closes and compact account-local taskbar remains, without covering the chat page.
+4. Terminal task has a working close/dismiss action.
+5. Fresh editor does not resurrect previous attachments; successful job creation consumes its draft.
+6. Due scheduled job retries or visibly fails after bounded WebView-unavailable retries; never sticks forever.
+7. A/B accounts can run concurrently; pause/resume/stop and taskbar state stay account-local.
+8. WA/TG/LINE scheduled attachments survive restart and use the existing transports.
+9. Source-file deletion/replacement/modification before due fails visibly and does not send.
+10. Immediate WA/TG/LINE attachment sending remains unchanged.
