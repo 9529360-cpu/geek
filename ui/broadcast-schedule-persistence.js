@@ -36,11 +36,11 @@
     await window.api.accountData.set(String(accountId), STORAGE_KEY, JSON.stringify(pending));
   }
 
-  function scheduleRetry(accountId) {
+  function scheduleRetry(accountId, previousAttempts = 0) {
     const id = String(accountId || '');
     const previous = restoreRetries.get(id);
     if (previous) clearTimeout(previous.handle);
-    const attempts = (previous?.attempts || 0) + 1;
+    const attempts = Math.max(Number(previous?.attempts) || 0, Number(previousAttempts) || 0) + 1;
     if (attempts > 20) { restoreRetries.delete(id); return; }
     const handle = setTimeout(() => {
       restoreRetries.delete(id);
