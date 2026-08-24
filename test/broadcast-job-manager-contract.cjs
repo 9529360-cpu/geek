@@ -84,7 +84,7 @@ manager.attachControls(a.id, {
   manager.complete(b.id, { current: 1, ok: 1, fail: 0 });
   assert.equal(manager.hasActive('account-b'), false);
   manager.dismiss(b.id);
-  assert.equal(manager.getCurrent('account-b').dismissed, true);
+  assert.equal(manager.getCurrent('account-b'), null, 'dismissed terminal task must leave the account task bar');
 
   assert.equal(Object.isFrozen(a.targets), true, 'job targets must be snapshotted');
   assert.equal(Object.isFrozen(a.files), true, 'job files must be snapshotted');
