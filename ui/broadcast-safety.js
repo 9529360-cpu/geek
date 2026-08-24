@@ -39,8 +39,8 @@
 });
 
 // Broadcast runtime/presentation stays outside app.js so account-scoped task state can
-// evolve without widening the platform transport or safety surface. The runtime is
-// loaded first because the task UI is a pure consumer of account-owned BroadcastJobs.
+// evolve without widening the platform transport or safety surface. Load dependencies
+// in order; the controller is the final browser consumer.
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   function loadScript(src, marker, done) {
     if (window[marker]) { done?.(); return; }
@@ -54,6 +54,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     document.head.appendChild(script);
   }
   loadScript('./broadcast-job-manager.js', 'GeekBroadcastJobManager', () => {
-    loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController');
+    loadScript('./broadcast-schedule-registry.js', 'GeekBroadcastScheduleRegistry', () => {
+      loadScript('./broadcast-executor.js', 'GeekBroadcastExecutor', () => {
+        loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController');
+      });
+    });
   });
 }
