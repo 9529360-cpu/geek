@@ -67,7 +67,7 @@
       .bc-job-account{margin:4px 0 0 15px;color:var(--text-tertiary);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc-job-meta{margin:3px 0 0 15px;color:var(--text-secondary);font-size:11px}.bc-job-progress{height:5px;margin:9px 0 0 15px;border-radius:999px;background:var(--bg-elevated);overflow:hidden}.bc-job-progress>i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s ease}
       .bc-job-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:9px 0 0 15px}.bc-job-stat{min-width:0;padding:5px 6px;border:1px solid var(--border-subtle);border-radius:7px;background:var(--bg-elevated)}.bc-job-stat small{display:block;color:var(--text-tertiary);font-size:9.5px;white-space:nowrap}.bc-job-stat strong{display:block;margin-top:1px;color:var(--text-primary);font-size:11px;font-weight:650;overflow:hidden;text-overflow:ellipsis}
       .bc-job-activity{display:flex;align-items:center;gap:8px;margin:8px 0 0 15px;padding:7px 8px;border-radius:7px;background:color-mix(in srgb,var(--accent) 6%,var(--bg-elevated));min-width:0}.bc-job-activity-label{color:var(--text-tertiary);font-size:10px;white-space:nowrap}.bc-job-activity-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);font-size:11px;font-weight:550}
-      .bc-job-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:9px}.bc-job-actions button{height:28px;padding:3px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:11px;cursor:pointer}.bc-job-actions button:hover{color:var(--text-primary);background:var(--bg-hover)}.bc-job-actions .danger{color:#ff7d74}
+      .bc-job-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:9px}.bc-job-actions button{height:28px;padding:3px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:11px;cursor:pointer}.bc-job-actions button:hover{color:var(--text-primary);background:var(--bg-hover)}.bc-job-actions .danger{color:#ff7d74}.bc-job-actions [data-act="dismiss"]{background:var(--accent);border-color:var(--accent);color:#fff}.bc-job-actions [data-act="dismiss"]:hover{background:var(--accent-hover);color:#fff}
       .bc-job-failures{max-height:150px;overflow:auto;margin:8px 0 0 15px;padding:7px 8px;border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:10.5px;white-space:pre-wrap}
       #broadcast-overlay .bc-action-trigger{display:inline-flex;align-items:center;min-height:28px;padding:4px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);cursor:pointer;width:max-content}
       #broadcast-overlay .bc-action-trigger:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border-standard));background:var(--accent-soft);color:var(--accent)}
@@ -150,7 +150,8 @@
     const pause = createButton('pause', '暂停');
     const stop = createButton('stop', '停止后续发送', 'danger');
     const failures = createButton('failures', '查看失败', 'hidden');
-    actions.append(pause, stop, failures);
+    const dismiss = createButton('dismiss', '关闭', 'hidden');
+    actions.append(pause, stop, failures, dismiss);
     bar.append(head, account, meta, progress, stats, activity, failureBox, actions);
     document.body.appendChild(bar);
 
@@ -172,19 +173,31 @@
 
     failures.onclick = () => {
       const job = currentJob(runtime);
-      const details = Array.isArray(job?.failed)
+      if (!job) return;
+      const details = Array.isArray(job.failed)
         ? job.failed.map(item => item?.message || item?.reason || String(item || '')).filter(Boolean)
         : [];
+      const expanded = bar.dataset.failureExpanded === job.id;
+      if (expanded) {
+        bar.dataset.failureExpanded = '';
+        failureBox.classList.add('hidden');
+        return;
+      }
       setTextIfChanged(failureBox, details.length ? details.join('\n') : '没有可用的失败明细。');
-      failureBox.classList.toggle('hidden');
+      bar.dataset.failureExpanded = job.id;
+      failureBox.classList.remove('hidden');
     };
 
-    close.onclick = () => {
+    function dismissCurrent() {
       const job = currentJob(runtime);
       if (!job || !TERMINAL.has(job.state)) return;
       try { runtime.manager.dismiss(job.id); } catch (_) {}
+      bar.dataset.failureExpanded = '';
       render(runtime);
-    };
+    }
+
+    close.onclick = dismissCurrent;
+    dismiss.onclick = dismissCurrent;
 
     return bar;
   }
@@ -224,6 +237,7 @@
     const pause = bar.querySelector('[data-act="pause"]');
     const stop = bar.querySelector('[data-act="stop"]');
     const failures = bar.querySelector('[data-act="failures"]');
+    const dismiss = bar.querySelector('[data-act="dismiss"]');
     const close = bar.querySelector('.bc-job-close');
     const failureBox = bar.querySelector('.bc-job-failures');
 
@@ -243,7 +257,7 @@
     const context = targetContext(job);
     setTextIfChanged(activityLabel, context.label);
     setTextIfChanged(activityValue, context.value);
-    failureBox.classList.add('hidden');
+    failureBox.classList.toggle('hidden', bar.dataset.failureExpanded !== job.id);
 
     if (job.state === 'completed') {
       setTextIfChanged(title, fail ? `群发完成 · ${percent}%` : '群发完成');
@@ -281,7 +295,9 @@
     stop.classList.toggle('hidden', terminal);
     setTextIfChanged(stop, job.state === 'scheduled' ? '取消定时' : job.state === 'queued' ? '取消排队' : '停止后续发送');
     failures.classList.toggle('hidden', !(terminal && (fail > 0 || job.state === 'failed')));
+    dismiss.classList.toggle('hidden', !terminal);
     close.style.visibility = terminal ? 'visible' : 'hidden';
+    if (!terminal) bar.dataset.failureExpanded = '';
   }
 
   function applyCopyAndSemantics() {
