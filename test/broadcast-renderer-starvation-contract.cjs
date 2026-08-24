@@ -13,10 +13,10 @@ const indicator = read('broadcast-account-indicator.js');
 const runtime = read('broadcast-runtime.js');
 const guard = read('broadcast-job-guard.js');
 
-// Controller observers are allowed only on narrow roots, and writes performed by their
-// callbacks must be idempotent so a render cannot manufacture another equivalent mutation.
-assert.match(controller, /setTextIfChanged\(send,/, 'controller summary writes must be idempotent');
-assert.match(controller, /getElementById\('broadcast-overlay'\)/, 'controller summary observer must be editor-scoped');
+// The controller owns task presentation only. It must not observe or rewrite the formal
+// broadcast editor, removing the entire self-trigger class that previously caused starvation.
+assert.doesNotMatch(controller, /summaryObserver|refreshSummary|setTextIfChanged\(send,/, 'controller must not maintain editor summaries');
+assert.doesNotMatch(controller, /observe\([^\n]*broadcast-overlay|summaryRoot\.observe/, 'controller must not observe the broadcast editor');
 assert.match(controller, /getElementById\('nav-accounts'\)/, 'controller account observer must be account-list scoped');
 assert.doesNotMatch(controller, /observe\(document\.body/, 'controller must not observe document.body');
 

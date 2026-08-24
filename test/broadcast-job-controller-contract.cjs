@@ -22,11 +22,11 @@ assert.match(source, /群发排队中/, 'queued jobs need dedicated task copy');
 assert.match(source, /已固定 \$\{total\} 个发送对象/, 'scheduled jobs must communicate fixed audience semantics');
 assert.match(source, /取消定时/, 'scheduled jobs need a cancel action');
 assert.match(source, /取消排队/, 'queued jobs need a cancel action');
-assert.match(source, /添加附件 · 最多10个，单个512 MiB/, 'attachment copy must match the active file boundary');
-assert.match(source, /添加电子名片/, 'vCard entry must use action semantics rather than a persistent switch concept');
-assert.match(source, /setTextIfChanged\(send,/, 'summary copy writes must be idempotent');
-assert.match(source, /getElementById\('broadcast-overlay'\)/, 'summary observer must stay scoped to the broadcast editor');
+assert.match(source, /createButton\('dismiss', '关闭', 'hidden'\)/, 'terminal jobs need an explicit Close action');
 assert.match(source, /getElementById\('nav-accounts'\)/, 'account visibility observer must stay scoped to the account list');
+assert.match(source, /getElementById\('broadcast-overlay'\)[\s\S]*classList\.add\('hidden'\)/, 'a new job must return the user to the chat workspace');
+assert.doesNotMatch(source, /#broadcast-overlay\s*\{/, 'task controller must not own formal editor geometry');
+assert.doesNotMatch(source, /applyCopyAndSemantics|refreshSummary|selectedCount\(/, 'task controller must not rewrite formal editor copy or summary');
 assert.doesNotMatch(source, /observe\(document\.body/, 'controller must never observe the full document body because its own renders mutate DOM');
 
 assert.doesNotMatch(source, /parseCompletion\s*\(/, 'task state must not be parsed from legacy completion text');
