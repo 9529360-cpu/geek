@@ -1,3 +1,4 @@
+# Temporary private validation only; do not merge.
 name: validate-broadcast-windows
 
 on:
