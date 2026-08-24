@@ -36,6 +36,9 @@ assert.match(runtime, /scheduledAttachmentApi\(\)\.cleanup/, 'terminal and cance
 assert.doesNotMatch(runtime, /当前版本先不允许带附件定时/, 'durable refs replace the old blanket rejection for scheduled attachments');
 assert.match(runtime, /manager\.hasActive\(job\.accountId\)/, 'scheduled jobs must queue only when their own account is executing');
 assert.match(runtime, /manager\.transition\(job\.id, 'queued'\)/, 'same-account schedule collision must become queued instead of disappearing');
+assert.match(runtime, /runPendingWithRecovery\(job\)/, 'in-session due jobs must enter the same recovery path instead of losing their timer on a transient account-view failure');
+assert.match(runtime, /GeekBroadcastSchedulePersistenceInstance[\s\S]*startDueForAccount/, 'runtime due/queue recovery must reuse the bounded schedule-persistence retry path');
+assert.match(runtime, /runPendingWithRecovery\(next\)/, 'same-account queued drain must also use bounded recovery instead of getting stuck after a transient account-view failure');
 assert.match(runtime, /drainQueued\(event\.job\.accountId\)/, 'terminal jobs must trigger a queue drain for the same account only');
 
 assert.ok(loader.indexOf("'./broadcast-runtime.js'") < loader.indexOf("'./broadcast-job-controller.js'"), 'runtime must load before presentation compatibility hooks');
