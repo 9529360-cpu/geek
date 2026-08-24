@@ -1688,7 +1688,6 @@
         return wv.executeJavaScript(script);
       },
       async sendText(text = '') {
-        if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const editor=document.querySelector('#editable-message-text'); const before=(editor?.innerText||'').trim(); if(!before)return 'EMPTY'; const count=document.querySelectorAll('.Message').length; const button=document.querySelector('button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"]'); if(!button)return 'NO_SEND_BUTTON'; button.click(); for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,250)); if(document.querySelectorAll('.Message').length>count && !(editor?.innerText||'').trim())return 'SENT';} return 'MAYBE';})()`);
         const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;
         return wv.executeJavaScript(script);
       },
