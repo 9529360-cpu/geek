@@ -1,0 +1,346 @@
+[
+  {
+    "id": 1,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "initiatorDomains": ["web.whatsapp.com", "localhost"],
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "set",
+          "header": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        }
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "initiatorDomains": ["web.whatsapp.com", "localhost"],
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "set",
+          "header": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "image", "other"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "remove",
+          "header": "Content-Security-Policy"
+        }
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "image", "other"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "remove",
+          "header": "Content-Security-Policy-Report-Only"
+        }
+      ]
+    }
+  },
+  {
+    "id": 5,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "image", "other"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "remove",
+          "header": "Permissions-Policy"
+        }
+      ]
+    }
+  },
+  {
+    "id": 6,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "image", "other"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "remove",
+          "header": "Access-Control-Allow-Origin"
+        }
+      ]
+    }
+  },
+  {
+    "id": 7,
+    "priority": 3,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "initiatorDomains": ["web.whatsapp.com", "localhost"],
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "set",
+          "header": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self' data: blob:;script-src 'self' data: blob: 'unsafe-eval' 'unsafe-inline' https://static.whatsapp.net https://maps.googleapis.com https://www.youtube.com https://pragmaz.ai;style-src 'self' data: blob: 'unsafe-inline' https://fonts.googleapis.com https://static.whatsapp.net;connect-src 'self' data: blob: https://*.whatsapp.net wss://web.whatsapp.com:5222 wss://*.whatsapp.com https://www.facebook.com https://crashlogs.whatsapp.net/wa_clb_data https://crashlogs.whatsapp.net/wa_fls_upload_check https://*.google-analytics.com wss://*.web.whatsapp.com wss://web.whatsapp.com https://www.whatsapp.com https://dyn.web.whatsapp.com https://graph.whatsapp.com/graphql/ https://graph.facebook.com/graphql https://*.tenor.co https://*.giphy.com https://pragmaz.ai https://*.pragmaz.ai https://web.whatsapp.com;font-src data: 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://static.whatsapp.net;img-src 'self' data: blob: * *.tenor.co media.tenor.com *.tenor.com *.giphy.com https://*.ytimg.com https://*.google-analytics.com https://cdn.jsdelivr.net https://pragmaz.ai;media-src 'self' data: blob: https://*.whatsapp.net https://*.cdninstagram.com https://*.fbcdn.net https://pragmaz.ai mediastream: https://*.giphy.com;child-src 'self' data: blob:;frame-src 'self' data: blob: https://www.youtube.com/embed/;block-all-mixed-content;upgrade-insecure-requests;"
+        }
+      ]
+    }
+  },
+  {
+    "id": 8,
+    "priority": 3,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "initiatorDomains": ["web.whatsapp.com", "localhost"],
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "set",
+          "header": "Content-Security-Policy",
+          "value": "default-src 'self' data: blob:;script-src 'self' data: blob: 'unsafe-eval' 'unsafe-inline' https://static.whatsapp.net https://maps.googleapis.com https://www.youtube.com https://pragmaz.ai;style-src 'self' data: blob: 'unsafe-inline' https://fonts.googleapis.com https://static.whatsapp.net;connect-src 'self' data: blob: https://*.whatsapp.net wss://web.whatsapp.com:5222 wss://*.whatsapp.com https://www.facebook.com https://crashlogs.whatsapp.net/wa_clb_data https://crashlogs.whatsapp.net/wa_fls_upload_check https://*.google-analytics.com wss://*.web.whatsapp.com wss://web.whatsapp.com https://www.whatsapp.com https://dyn.web.whatsapp.com https://graph.whatsapp.com/graphql/ https://graph.facebook.com/graphql https://*.tenor.co https://*.giphy.com https://pragmaz.ai https://*.pragmaz.ai https://web.whatsapp.com;font-src data: 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://static.whatsapp.net;img-src 'self' data: blob: * *.tenor.co media.tenor.com *.tenor.com *.giphy.com https://*.ytimg.com https://*.google-analytics.com https://cdn.jsdelivr.net https://pragmaz.ai;media-src 'self' data: blob: https://*.whatsapp.net https://*.cdninstagram.com https://*.fbcdn.net https://pragmaz.ai mediastream: https://*.giphy.com;child-src 'self' data: blob:;frame-src 'self' data: blob: https://www.youtube.com/embed/;block-all-mixed-content;upgrade-insecure-requests;"
+        }
+      ]
+    }
+  },
+  {
+    "id": 9,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "web.whatsapp.com/binary-transparency-manifest*.json",
+      "resourceTypes": ["main_frame", "script", "other"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "url": "https://web.whatsapp.com/binary-transparency-manifest-2.2407.2.json"
+      }
+    }
+  },
+  {
+    "id": 10,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "web.whatsapp.com/serviceworker.js",
+      "resourceTypes": ["main_frame", "script"]
+    },
+    "action": {
+      "type": "block"
+    }
+  },
+  {
+    "id": 11,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "web.whatsapp.com/sw.js",
+      "resourceTypes": ["main_frame", "script"]
+    },
+    "action": {
+      "type": "block"
+    }
+  },
+  {
+    "id": 12,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "web.whatsapp.com/killswitch",
+      "resourceTypes": ["main_frame", "script"]
+    },
+    "action": {
+      "type": "block"
+    }
+  },
+  {
+    "id": 13,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "crashlogs.whatsapp.net/*",
+      "resourceTypes": ["main_frame", "script"]
+    },
+    "action": {
+      "type": "block"
+    }
+  },
+  {
+    "id": 14,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "web.whatsapp.com/check-update*",
+      "resourceTypes": ["main_frame", "script"]
+    },
+    "action": {
+      "type": "block"
+    }
+  },
+  {
+    "id": 15,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "web.whatsapp.com/check-update",
+      "resourceTypes": ["main_frame", "script"]
+    },
+    "action": {
+      "type": "block"
+    }
+  },
+  {
+    "id": 16,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "chrome-extension://lddaflngpimiapnbfaindmghndbnjcgm/js/public/pragmaz-modules.js",
+      "resourceTypes": ["main_frame", "script"]
+    },
+    "action": {
+      "type": "block"
+    }
+  },
+  {
+    "id": 17,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "image"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "operation": "set",
+          "header": "origin",
+          "value": "https://web.whatsapp.com"
+        }
+      ]
+    }
+  },
+  {
+    "id": 18,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.net/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "image"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "operation": "set",
+          "header": "origin",
+          "value": "https://web.whatsapp.com"
+        }
+      ]
+    }
+  },
+  {
+    "id": 19,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "image", "other"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "operation": "set",
+          "header": "referer",
+          "value": "https://web.whatsapp.com"
+        }
+      ]
+    }
+  },
+  {
+    "id": 20,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.net/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "image"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "operation": "set",
+          "header": "referer",
+          "value": "https://web.whatsapp.com"
+        }
+      ]
+    }
+  },
+  {
+    "id": 21,
+    "priority": 3,
+    "condition": {
+      "urlFilter": "*://*.whatsapp.com/*",
+      "initiatorDomains": ["web.whatsapp.com", "localhost"],
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "image", "other"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "set",
+          "header": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    }
+  },
+  {
+    "id": 22,
+    "priority": 2,
+    "condition": {
+      "urlFilter": "*://pragmaz.ai/*",
+      "resourceTypes": ["main_frame", "sub_frame", "xmlhttprequest", "script", "image", "other"]
+    },
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "operation": "set",
+          "header": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    }
+  }
+]

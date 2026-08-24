@@ -1,0 +1,71 @@
+{
+  "name": "WhatsApp \u7f51\u9875\u7248",
+  "short_name": "WhatsApp \u7f51\u9875\u7248",
+  "description": "\u767b\u5f55 WhatsApp \u7f51\u9875\u7248\uff0c\u5728\u684c\u9762\u8bbe\u5907\u4e0a\u4ee5\u7b80\u5355\u3001\u53ef\u9760\u4e14\u79c1\u5bc6\u7684\u65b9\u5f0f\u6536\u53d1\u6d88\u606f\u3002\u8f7b\u677e\u6536\u53d1\u6d88\u606f\u548c\u6587\u4ef6\uff0c\u5b8c\u5168\u514d\u8d39\u3002",
+  "start_url": "\/",
+  "scope": "\/",
+  "display": "standalone",
+  "background_color": "#f7f5f3",
+  "theme_color": "#f7f5f3",
+  "icons": [
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yN\/r\/P246EbcSbqu.webp",
+      "sizes": "16x16",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/y7\/r\/beYQtBfDqsW.webp",
+      "sizes": "32x32",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yq\/r\/XxQHu4VkEVp.webp",
+      "sizes": "60x60",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yJ\/r\/mcZ9LabvIyq.webp",
+      "sizes": "64x64",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yM\/r\/0qoqUG-FA3k.webp",
+      "sizes": "90x90",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yc\/r\/-GhEsClAwwM.webp",
+      "sizes": "128x128",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yy\/r\/NHqvcz02g54.webp",
+      "sizes": "192x192",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yM\/r\/POaRPqLZvuP.webp",
+      "sizes": "512x512",
+      "type": "image\/png"
+    },
+    {
+      "src": "https:\/\/static.whatsapp.net\/rsrc.php\/yO\/r\/xGtlLpVL-Cq.svg",
+      "sizes": "512x512",
+      "type": "image\/svg",
+      "purpose": "maskable"
+    }
+  ],
+  "related_applications": [
+    {
+      "platform": "windows",
+      "url": "ms-windows-store:\/\/pdp\/?productid=9NKSQGP7F2NH&mode=mini"
+    },
+    {
+      "platform": "itunes",
+      "url": "https:\/\/apps.apple.com\/us\/app\/whatsapp-desktop\/id1147396723"
+    }
+  ],
+  "edge_side_panel": {
+    "preferred_width": 748
+  }
+}

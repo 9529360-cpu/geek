@@ -1,0 +1,14 @@
+{
+  "id": "facebookbusiness",
+  "logo": "facebookbusiness.png",
+  "name": "Facebook Business",
+  "url": "https://www.facebook.com/login/?next=https%3A%2F%2Fbusiness.facebook.com%2Flatest%2Fhome",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.3.2",
+  "number": 11
+}

@@ -1,0 +1,14 @@
+{
+  "id": "deepseek",
+  "logo": "deepseek.png",
+  "name": "DeepSeek",
+  "url": "https://chat.deepseek.com/",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.0",
+  "number": 23
+}

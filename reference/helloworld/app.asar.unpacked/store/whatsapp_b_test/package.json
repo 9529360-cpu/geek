@@ -1,0 +1,14 @@
+{
+  "id": "whatsapp_b_test",
+  "logo": "whatsapp_b_test.png",
+  "name": "WhatsApp备注版",
+  "url": "https://web.whatsapp.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.7.2",
+  "number": 2
+}

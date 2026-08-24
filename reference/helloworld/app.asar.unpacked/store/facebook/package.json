@@ -1,0 +1,14 @@
+{
+  "id": "facebook",
+  "logo": "facebook.png",
+  "name": "Facebook",
+  "url": "https://www.facebook.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.2.3",
+  "number": 7
+}

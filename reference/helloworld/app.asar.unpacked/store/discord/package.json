@@ -1,0 +1,14 @@
+{
+  "id": "discord",
+  "logo": "discord.png",
+  "name": "Discord",
+  "url": "https://www.discord.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.1",
+  "number": 13
+}

@@ -1,0 +1,14 @@
+{
+  "id": "line",
+  "logo": "line.png",
+  "name": "Line",
+  "url": "chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.8",
+  "number": 4
+}

@@ -1,0 +1,14 @@
+{
+  "id": "openphone",
+  "logo": "openphone.png",
+  "name": "Open Phone",
+  "url": "https://my.openphone.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.0",
+  "number": 19
+}

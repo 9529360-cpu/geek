@@ -1,0 +1,14 @@
+{
+  "id": "tiktok",
+  "logo": "tiktok.png",
+  "name": "Tiktok",
+  "url": "https://www.tiktok.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.1.2",
+  "number": 14
+}

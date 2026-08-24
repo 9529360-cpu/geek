@@ -1,0 +1,14 @@
+{
+  "id": "googlevoice",
+  "logo": "googlevoice.png",
+  "name": "Google Voice",
+  "url": "https://voice.google.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.5",
+  "number": 8
+}

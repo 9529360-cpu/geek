@@ -1,0 +1,14 @@
+{
+  "id": "textnow",
+  "logo": "textnow.png",
+  "name": "Text Now",
+  "url": "https://www.textnow.com/login",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.3",
+  "number": 20
+}

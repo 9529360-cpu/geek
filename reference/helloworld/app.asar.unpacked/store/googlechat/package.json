@@ -1,0 +1,14 @@
+{
+  "id": "googlechat",
+  "logo": "googlechat.png",
+  "name": "Google Chat",
+  "url": "https://chat.google.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.2",
+  "number": 9
+}

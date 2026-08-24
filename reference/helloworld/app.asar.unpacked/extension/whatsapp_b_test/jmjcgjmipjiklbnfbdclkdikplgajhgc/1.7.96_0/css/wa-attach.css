@@ -1,0 +1,103 @@
+/* 为顶部的 Navbar 留出空间 */
+/* #app ._1jJ70,
+#app ._aigs {
+  padding-top: 48px !important;
+  padding-right: 50px !important;
+  box-sizing: border-box !important;
+}
+._1VwoK,
+._ami8 {
+  display: flex;
+  align-items: center;
+}
+._2lSWV.copyable-area,
+._ak1k.copyable-area {
+  padding-right: 48px;
+  box-sizing: border-box;
+} */
+
+.trans-wrap {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+  margin-bottom: 12px;
+  white-space: pre-wrap;
+  min-width: 132px;
+  user-select: text;
+  word-wrap: break-word;
+}
+
+.trans--loading {
+  color: #2aa846;
+}
+
+.trans--done {
+  color: #aaaaaa;
+}
+
+.trans--error,
+.trans-wait {
+  color: #909399;
+}
+
+.trans-tip {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: start;
+  flex-direction: row-reverse;
+  column-gap: 5px;
+}
+
+.upgrade-plan-btn {
+  color: #2cae67;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 400;
+  font-style: normal;
+  border-radius: 12px;
+  border: 1px solid #2cae67;
+  padding: 4px 8px;
+  margin-left: 5px;
+  margin-right: 5px;
+}
+
+.upgrade-plan-btn:hover {
+  background-color: #2cae67;
+  color: #fff;
+}
+
+.trans-tip__btn {
+  font-size: 0;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.trans-tip__btn:hover {
+  color: #2aa846;
+}
+
+.svg-icon.fill:not([stroke]) {
+  fill: currentColor;
+}
+
+.svg-icon.fill [stroke] {
+  stroke: currentColor;
+  fill: none;
+}
+
+.error-tip {
+  color: #f56c6c;
+}
+
+.x10l6tqk.x13vifvy.x17qophe.x78zum5.xh8yej3.x5yr21d.x6ikm8r.x10wlt62.x47corl {
+  box-sizing: border-box;
+  padding-top: 50px;
+}
+
+[aria-label='chat-list-filters'] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 10px;
+}

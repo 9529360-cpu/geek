@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<!--
+Note: we have a separate .html page for the faq cause all other pages fit in the window's height, but the faq is
+scrollable. We need to have the _whole page_ scrollable, cause scrolling only a single div is very slow on mobile. On
+the other hand, if the faq page becomes scrollable, then mobile browsers hide the url bar, which changes the window's
+height and affect the other pages that use 100% height! Using separate .html files for fixed/scrollable stuff solves the
+issue.
+-->
+<html>
+<head>
+	<title>虚拟定位</title>
+	<meta charset="utf-8">
+
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+
+	<link rel="stylesheet" href="css/jquery.mobile-1.4.5.min.css"/>
+	<link rel="stylesheet" href="css/options.css">
+
+	<script src="js/common.js"></script>
+	<script src="js/common-gui.js"></script>
+	<script src="js/gui/faq.js"></script>
+</head>
+<body class="ui-alt-icon ui-nodisc-icon">
+	<div data-role="page" id="faq" data-title="Location Guard" class="page">
+		<div data-role="header">
+			<a href="#left-panel" class="ui-btn ui-btn-icon-notext ui-icon-bars"></a>
+			<h1>常见问题</h1>
+		</div>
+
+		<div role="main" class="ui-content no-vert-space">
+			<div data-role="collapsibleset" data-inset="false" data-collapsed-icon="carat-r" data-expanded-icon="carat-d" class="no-space">
+				<div id="faq-general" data-role="collapsible">
+					<h3>什么是虚拟定位</h3>
+
+					<p>网站可以要求浏览器提供你的位置（通过JavaScript）。当他们这样做时，浏览器
+						如果你接受，它就会检测你的位置（通常是通过传输一个可用的WIFI接入点的列表给地理定位供应商，如谷歌定位服务或其他）。
+						通常是通过向地理定位供应商（如谷歌定位服务）传输可用的WIFI接入点列表，或通过GPS（如果有的话）检测你的位置），并将其提供给你。
+						如果有的话，通过GPS），并将其提供给网站</p>
+
+					<p>虚拟定位是一个浏览器插件，可以拦截这一程序。权限对话框
+						照常出现，你仍然可以选择拒绝。如果你允许的话，那么虚拟定位
+						获得你的位置，并在其中添加 "随机噪音"，创建一个假的位置。只有这个假的
+						然后，只有假的位置被提供给网站。</p>
+				</div>
+				<div id="faq-privacy" data-role="collapsible">
+					<h3>虚拟定位提供什么样的隐私？</h3>
+
+					<p>虚拟定位在一定的保护区域内提供隐私，确保该区域内的所有位置看起来是真实的。
+						在这个区域内的所有位置看起来都是可信的，是真实的。这是通过添加
+						随机噪声的方式来实现的，这样保护区域内的所有位置都可以产生相同的假
+						的概率相似。因此，假的位置不提供任何信息给
+						网站提供任何信息来区分保护区域内的位置</p>
+
+					<p><b>警告:</b> 背景知识仍然可以被网站用来猜测保护区域内的真实
+						保护区内的真实位置。例如，如果保护区域在一个湖的中央，只包含一个小岛，那么很容易推断出真正的位置是在岛上。
+						只包含一个小岛，就很容易推断出真实位置在岛上。在
+						在这样的情况下，你应该选择一个更高的隐私级别，或拒绝披露你的位置
+						所有.
+				</div>
+				<div id="faq-levels" data-role="collapsible">
+					<h3>什么是 "隐私级别"？</h3>
+
+					<p>隐私级别决定了添加到你真实位置的噪音量。一个较高的级别会增加
+						更多的噪音，所以假的位置会离真实的位置更远。这提供了保护
+						在更大的范围内提供保护，但它可能使网站提供的服务不那么有用.</p>
+
+					<p>默认情况下，所有网站都使用 "中等 "级别 (这可以从 <a
+					href="options.html#options">定位选项</a>). 你可以为特定的网站选择一个不同的级别，使用
+						<img src="images/pin_19.png"/>图标为特定网站选择不同的级别. 例如，你可以为需要准确位置的网站（如地图）选择一个较低的隐私级别
+						需要准确位置的网站（如地图）选择较低的隐私级别，而对于只需要近似信息的网站（如天气预报）则选择较高的隐私级别。
+						近似的信息（如天气预报）</p>
+
+					<p>为了更加灵活，每个级别都可以从 <a href="options.html#levels">隐私级别
+					</a>. 红圈是<i>保护区域</i>: 该区域的位置看起来很合理
+						做一个真实的人（见“<a href="#privacy">虚拟定位有什么样的隐私
+							提供？</a>”） 蓝色圆圈是<i>准确度</i>：虚假位置将在这个圆圈内
+						概率很高（注意噪声是随机的）。使用滑块使这两个区域适应您的
+						需要。</p>
+				</div>
+				<div id="faq-fixed" data-role="collapsible">
+					<h3>什么是虚拟位置？</h3>
+
+					<p>定位级别可以设置为 "使用虚拟位置"。在这种情况下，虚拟定位总是向网站报告
+						一个预定义的虚拟位置，永远不会改变（而不是通过添加噪音来生成一个假的位置
+						而不是通过在真实位置上添加噪音来生成一个假的位置）。这提供了最高的隐私，因为报告的位置完全独立于真实的位置。
+						独立于真实的位置，但代价是精确度非常低.</p>
+
+					<p>你可以通过以下方式修改虚拟位置 <a href="options.html#fixedPos">虚拟位置</a>.</p>
+
+					<p>当使用一个固定的位置时，浏览器的地理定位根本就不执行. 这提供了
+						这提供了更好的隐私，因为wifi接入点的列表不会传输到谷歌的服务器
+						然而，它的副作用是，<i>许可对话框根本不显示</i>.
+						当固定位置是假的时，这种行为通常是可以接受的，但如果想修改的话，也可以修改。
+						如果你希望的话，可以修改.</p>
+				</div>
+
+			</div>
+		</div>
+	</div><!-- /page -->
+
+	<div data-role="panel" id="left-panel" data-position="left" data-display="overlay" data-theme="a">
+		<ul data-role="listview">
+			<li data-icon="none" class="menu-title" data-theme="b">虚拟定位</li>
+			<li data-icon="gear"><a href="options.html#options">定位选项</a></li>
+			<li data-icon="eye"><a href="options.html#levels">隐私级别</a></li>
+			<li data-icon="location"><a href="options.html#fixedPos">选择虚拟位置</a></li>
+			<li data-icon="info"><a href="#general">使用说明</a></li>
+		</ul>
+	</div><!-- /panel -->
+</body>
+</html>

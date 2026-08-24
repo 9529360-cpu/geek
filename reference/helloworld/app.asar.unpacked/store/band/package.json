@@ -1,0 +1,14 @@
+{
+  "id": "band",
+  "logo": "band.png",
+  "name": "Band",
+  "url": "https://band.us/",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.0",
+  "number": 24
+}

@@ -1,0 +1,5 @@
+provider: generic
+url: https://updates.signal.org/desktop
+updaterCacheDirName: signal-desktop-updater
+publisherName:
+  - Signal Messenger, LLC

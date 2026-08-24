@@ -1,0 +1,14 @@
+{
+  "id": "twitter",
+  "logo": "twitter.png",
+  "name": "Twitter",
+  "url": "https://www.twitter.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.1.0",
+  "number": 10
+}

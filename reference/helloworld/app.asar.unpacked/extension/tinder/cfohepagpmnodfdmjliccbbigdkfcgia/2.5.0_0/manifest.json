@@ -1,0 +1,43 @@
+{
+   "author": "Kostas Chatzikokolakis",
+   "background": {
+      "persistent": false,
+      "scripts": [ "js/common.js", "js/main.js" ]
+   },
+   "browser_action": {
+      "default_icon": {
+         "16": "images/pin_16.png",
+         "19": "images/pin_19.png",
+         "20": "images/pin_20.png",
+         "32": "images/pin_32.png",
+         "38": "images/pin_38.png",
+         "40": "images/pin_40.png",
+         "64": "images/pin_64.png"
+      },
+      "default_popup": "popup.html",
+      "default_title": "Location Guard"
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "js": [ "js/common.js", "js/content/content.js" ],
+      "matches": [ "\u003Call_urls>" ],
+      "run_at": "document_start"
+   } ],
+   "description": "Hide your geographic location from websites.",
+   "icons": {
+      "128": "images/pin_128.png",
+      "16": "images/pin_16.png",
+      "32": "images/pin_32.png",
+      "64": "images/pin_64.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsShUOLk9x+0w7gEKXAFGo9iRhjf5j54Umd7vxGbW4BF3QpI6kIlYVN1GA3OinZucjDLXKVCgh6icZUzp1CKPdkRAf3LDIvIg98Qh2A6VYYE8T8YPgGgHMxxUfPBSWJffBCrmuH0sHMnLiSXpZHNhyR8cKE2Ul5VY+2kRkcz5bp0ehsh0JHcIlRizWmkJy2lArpUrdfUIelLDhjLkwDSfJQYd2CVcKVR7aMNYX+C24MhLSrjkepYCMbkdnzdqSxUd8LJ/vrdbSP7D0WMAXe1/gvJ7IlpLyx2mEcq1D7zLHAQ/ZNBN5NXBz8nn0lsPAuOUG04OGSZcic2fk7/d0CPlvwIDAQAB",
+   "manifest_version": 2,
+   "name": "Location Guard",
+   "options_ui": {
+      "open_in_tab": true,
+      "page": "options.html"
+   },
+   "permissions": [ "http://*/*", "https://*/*", "storage" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "2.5.0"
+}

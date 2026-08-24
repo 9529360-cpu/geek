@@ -1,0 +1,14 @@
+{
+  "id": "linkedin",
+  "logo": "linkedin.png",
+  "name": "Linkedin",
+  "url": "https://www.linkedin.com",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.0",
+  "number": 18
+}

@@ -1,0 +1,14 @@
+{
+  "id": "textfree",
+  "logo": "textfree.png",
+  "name": "Text Free",
+  "url": "https://messages.textfree.us",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.2",
+  "number": 21
+}

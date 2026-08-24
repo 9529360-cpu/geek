@@ -1,0 +1,14 @@
+{
+  "id": "quora",
+  "logo": "quora.png",
+  "name": "Quora",
+  "url": "https://www.quora.com/",
+  "type": "messaging",
+  "allow_popups": false,
+  "manual_notifications": false,
+  "custom_domain": false,
+  "titleBlink": false,
+  "note": "",
+  "version": "1.0.0",
+  "number": 22
+}
