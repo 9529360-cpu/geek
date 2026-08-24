@@ -24,6 +24,9 @@ assert.match(runtime, /GeekBroadcastSafety\.authorizeSend/, 'new runtime must pr
 assert.match(runtime, /GeekPlatformTransports\?\.forAccount/, 'new runtime must reuse the existing platform transport rather than fork WA\/TG\/LINE adapters');
 assert.match(runtime, /window\.api\.file\.pick\(\{ multiple: true \}\)/, 'runtime attachment selection must keep using the existing main-process picker');
 assert.match(runtime, /currentDraftFiles\(accountId\)/, 'attachment drafts must be account-scoped before the Job snapshot is created');
+assert.match(runtime, /function resetDraftFiles\(accountId = activeAccountId\(\)\)/, 'runtime needs an explicit attachment-draft reset boundary');
+assert.match(runtime, /if \(!window\.GeekBroadcastJobs\?\.hasActive\(accountId\)\) resetDraftFiles\(accountId\)/, 'opening a fresh editor must not resurrect attachment drafts from the previous session');
+assert.match(runtime, /resetDraftFiles\(accountId\);\s*document\.getElementById\('broadcast-overlay'\)/, 'successfully creating a job must consume the attachment draft so the next job starts clean');
 assert.match(runtime, /scheduledAttachmentApi\(\)\.persist/, 'future attachment jobs must convert short picker tokens into durable refs before registration');
 assert.match(runtime, /attachmentRefs/, 'scheduled jobs must carry durable attachment refs in the immutable snapshot');
 assert.match(runtime, /files: isFuture \? \[\] : files/, 'future jobs must not keep ephemeral picker tokens in the Job snapshot');
