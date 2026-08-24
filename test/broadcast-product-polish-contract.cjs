@@ -47,6 +47,12 @@ assert.match(source, /job\.targets/, 'task context must use the frozen Job targe
 assert.match(source, /job\?\.nextSendAt/, 'task context must distinguish active sending from interval waiting');
 assert.match(source, /发送账号 · \$\{job\.accountName\}/, 'task panel must identify the sending account when available');
 
+// Terminal UX must end with explicit, stable in-app actions rather than tiny/ephemeral feedback.
+assert.match(source, /createButton\('dismiss', '关闭', 'hidden'\)/, 'terminal task must expose an explicit close button');
+assert.match(source, /dismiss\.classList\.toggle\('hidden', !terminal\)/, 'explicit close must appear only after the job ends');
+assert.match(source, /bar\.dataset\.failureExpanded === job\.id/, 'failure expansion must be tracked per job');
+assert.match(source, /failureBox\.classList\.toggle\('hidden', bar\.dataset\.failureExpanded !== job\.id\)/, 'normal rerenders must preserve an expanded failure panel');
+
 // Do not regress to the old sending-page-as-state model.
 assert.doesNotMatch(source, /getElementById\('bc-preview-name'\)/, 'task panel must not scrape the legacy current-target preview');
 assert.doesNotMatch(source, /getElementById\('bc-countdown'\)/, 'task panel must not scrape the legacy countdown');
