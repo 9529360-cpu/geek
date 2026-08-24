@@ -18,6 +18,16 @@
     return '';
   }
 
+  function setTextIfChanged(node, text) {
+    if (node && node.textContent !== text) node.textContent = text;
+  }
+
+  function setAttrIfChanged(node, name, value) {
+    if (!node) return;
+    const next = String(value || '');
+    if (node.getAttribute(name) !== next) node.setAttribute(name, next);
+  }
+
   function render(manager, rootNode = document) {
     rootNode.querySelectorAll('.nav-account[data-id]').forEach(item => {
       const accountId = item.dataset.id;
@@ -26,7 +36,7 @@
       const label = labelFor(job);
       if (!label || job?.dismissed) {
         badge?.remove();
-        item.removeAttribute('data-broadcast-state');
+        if (item.hasAttribute('data-broadcast-state')) item.removeAttribute('data-broadcast-state');
         return;
       }
       if (!badge) {
@@ -35,10 +45,20 @@
         const main = item.querySelector('.nav-account-main') || item;
         main.appendChild(badge);
       }
-      item.dataset.broadcastState = job.state;
-      badge.dataset.state = job.state;
-      badge.textContent = label;
-      badge.title = job.total ? `${label} · ${job.current || 0}/${job.total}` : label;
+      setAttrIfChanged(item, 'data-broadcast-state', job.state);
+      setAttrIfChanged(badge, 'data-state', job.state);
+      setTextIfChanged(badge, label);
+      setAttrIfChanged(badge, 'title', job.total ? `${label} · ${job.current || 0}/${job.total}` : label);
+    });
+  }
+
+  function isAccountStructureMutation(record) {
+    if (!record || record.type !== 'childList') return false;
+    const nodes = [...record.addedNodes, ...record.removedNodes];
+    return nodes.some(node => {
+      if (!node || node.nodeType !== 1) return false;
+      if (node.classList?.contains('bc-account-job-state')) return false;
+      return node.classList?.contains('nav-account') || !!node.querySelector?.('.nav-account');
     });
   }
 
@@ -58,13 +78,17 @@
     document.head.appendChild(style);
     const rerender = () => render(manager, document);
     manager.subscribe(rerender);
-    const observer = new MutationObserver(rerender);
-    const sidebar = document.getElementById('nav-accounts') || document.body;
-    observer.observe(sidebar, { childList: true, subtree: true });
+    const sidebar = document.getElementById('nav-accounts');
+    if (sidebar) {
+      const observer = new MutationObserver(records => {
+        if (records.some(isAccountStructureMutation)) rerender();
+      });
+      observer.observe(sidebar, { childList: true, subtree: true });
+    }
     rerender();
   }
 
-  return Object.freeze({ labelFor, render, install });
+  return Object.freeze({ labelFor, setTextIfChanged, setAttrIfChanged, isAccountStructureMutation, render, install });
 });
 
 if (typeof window !== 'undefined') {
