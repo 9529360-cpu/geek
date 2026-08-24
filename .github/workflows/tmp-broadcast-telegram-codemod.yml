@@ -1,0 +1,51 @@
+name: tmp-broadcast-telegram-codemod
+
+on:
+  push:
+    branches:
+      - fix/broadcast-telegram-text-submit
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply focused Telegram transport fix
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'ui/app.js';
+          const source = fs.readFileSync(path, 'utf8');
+          const lines = source.split('\n');
+          const matches = lines
+            .map((line, index) => ({ line, index }))
+            .filter(({ line }) => line.includes("if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const editor=") && line.includes("NO_SEND_BUTTON"));
+          if (matches.length !== 1) {
+            throw new Error(`Expected exactly one narrow Telegram sendText override, found ${matches.length}`);
+          }
+          lines.splice(matches[0].index, 1);
+          const next = lines.join('\n');
+          if (!next.includes("const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;")) {
+            throw new Error('Canonical transport.send path is missing');
+          }
+          fs.writeFileSync(path, next, 'utf8');
+          NODE
+          node --check ui/app.js
+          git diff --check -- ui/app.js
+      - name: Commit focused source fix
+        shell: bash
+        run: |
+          if git diff --quiet -- ui/app.js; then
+            echo "No source diff to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ui/app.js
+          git commit -m "fix: reuse telegram adapter send path"
+          git push origin HEAD:fix/broadcast-telegram-text-submit
