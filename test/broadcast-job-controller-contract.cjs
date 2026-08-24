@@ -8,48 +8,31 @@ const controllerPath = path.join(__dirname, '../ui/broadcast-job-controller.js')
 const source = fs.readFileSync(controllerPath, 'utf8');
 const api = require(controllerPath);
 
-const job = api.createJob('account-a', { total: 52 });
-assert.equal(job.accountId, 'account-a');
-assert.equal(job.total, 52);
-assert.equal(api.visibleFor(job, 'account-a'), true, 'task bar must be visible on owner account');
-assert.equal(api.visibleFor(job, 'account-b'), false, 'task bar must not follow user to another account');
-job.dismissed = true;
-assert.equal(api.visibleFor(job, 'account-a'), false, 'dismissed terminal task must stay hidden');
+const running = { accountId: 'account-a', state: 'running', dismissed: false };
+assert.equal(api.visibleFor(running, 'account-a'), true, 'task bar must be visible on owner account');
+assert.equal(api.visibleFor(running, 'account-b'), false, 'task bar must not follow user to another account');
+assert.equal(api.visibleFor({ ...running, dismissed: true }, 'account-a'), false, 'dismissed terminal task must stay hidden');
+assert.equal(typeof api.formatScheduledAt(Date.now()), 'string');
 
-assert.deepEqual(api.parseProgress('18 / 52 (34.62%)'), { current: 18, total: 52 });
-assert.deepEqual(api.parseCompletion('完成：成功 49，失败 3'), { ok: 49, fail: 3, stopped: false });
-assert.deepEqual(api.parseCompletion('完成：成功 18，失败 0（已停止）'), { ok: 18, fail: 0, stopped: true });
-
-const completed = api.createJob('account-a', { total: 52, ok: 49, fail: 3, createdAt: 10000 });
-const misplaced = { t: 12000, total: 52, ok: 49, fail: 3, files: 0, msgLen: 12 };
-const patches = api.reconcileHistoryOwner(
-  completed,
-  { 'account-a': '[]', 'account-b': '[]' },
-  { 'account-a': '[]', 'account-b': JSON.stringify([misplaced]) },
-);
-assert.equal(patches.length, 2, 'one unambiguous misplaced history entry should be repaired');
-assert.equal(patches[0].accountId, 'account-b');
-assert.deepEqual(JSON.parse(patches[0].value), []);
-assert.equal(patches[1].accountId, 'account-a');
-assert.deepEqual(JSON.parse(patches[1].value), [misplaced]);
-assert.deepEqual(
-  api.reconcileHistoryOwner(completed, { 'account-a': '[]', 'account-b': '[]' }, { 'account-a': JSON.stringify([misplaced]), 'account-b': '[]' }),
-  [],
-  'already-correct owner history must not be moved',
-);
-assert.deepEqual(
-  api.reconcileHistoryOwner(completed, { 'account-a': '[]', 'account-b': '[]', 'account-c': '[]' }, { 'account-a': '[]', 'account-b': JSON.stringify([misplaced]), 'account-c': JSON.stringify([misplaced]) }),
-  [],
-  'ambiguous cross-account history must fail closed',
-);
-
-assert.match(source, /String\(job\.accountId\) === String\(activeAccountId/, 'task visibility must be account-scoped');
-assert.match(source, /broadcast-overlay[^\n]*classList\.add\('hidden'\)/, 'started task must restore the account page');
-assert.match(source, /#bc-menu-send,#broadcast-send/, 'running task must guard repeat broadcast opens/starts');
+assert.match(source, /String\(job\.accountId\) === String\(activeAccountId/, 'task visibility must remain account-scoped');
+assert.match(source, /manager\.getCurrent\(activeAccountId\(\)\)/, 'task bar must read the current account job from BroadcastJobManager');
+assert.match(source, /manager\.invoke\(job\.id, job\.state === 'paused' \? 'resume' : 'pause'\)/, 'pause/resume must target the explicit job');
+assert.match(source, /manager\.invoke\(job\.id, 'stop'\)/, 'stop/cancel must target the explicit job');
+assert.match(source, /群发排队中/, 'queued jobs need dedicated task copy');
+assert.match(source, /已固定 \$\{total\} 个发送对象/, 'scheduled jobs must communicate fixed audience semantics');
+assert.match(source, /取消定时/, 'scheduled jobs need a cancel action');
+assert.match(source, /取消排队/, 'queued jobs need a cancel action');
 assert.match(source, /添加附件 · 最多10个，单个512 MiB/, 'attachment copy must match the active file boundary');
 assert.match(source, /添加电子名片/, 'vCard entry must use action semantics rather than a persistent switch concept');
-assert.match(source, /群发完成：/, 'legacy completion alert must be filtered from the normal completion path');
-assert.match(source, /window\.__lastFailDetail/, 'failure details must remain available without reopening a full-screen completion page');
-assert.match(source, /accountData\.set\(patch\.accountId, 'sendHistory'/, 'transition history repair must write an explicit account owner');
+
+assert.doesNotMatch(source, /parseCompletion\s*\(/, 'task state must not be parsed from legacy completion text');
+assert.doesNotMatch(source, /parseProgress\s*\(/, 'task progress must not be parsed from legacy progress DOM');
+assert.doesNotMatch(source, /reconcileHistoryOwner/, 'history owner repair must not remain in the presentation layer');
+assert.doesNotMatch(source, /installLegacyBridge/, 'legacy single-loop bridge must be removed');
+assert.doesNotMatch(source, /broadcast-progress-text/, 'task bar must not inspect the legacy sending page');
+assert.doesNotMatch(source, /broadcast-pause[^\n]*click/, 'task bar must not fall back to legacy pause controls');
+assert.doesNotMatch(source, /broadcast-stop[^\n]*click/, 'task bar must not fall back to legacy stop controls');
+assert.doesNotMatch(source, /window\.__lastFailDetail/, 'failure details must come from the Job state');
+assert.doesNotMatch(source, /sendHistory/, 'presentation controller must not rewrite send history');
 
 console.log('BROADCAST_JOB_CONTROLLER_CONTRACT_OK');
