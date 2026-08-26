@@ -1465,10 +1465,14 @@
             } catch (e) { /* 拿不到成员则普通发送 */ }
           }
           const r = await Promise.race([
-            W.chat.sendTextMessage(${JSON.stringify(chatId)}, ${JSON.stringify(msg)}, extra),
-            new Promise(res => setTimeout(() => res({ id: 'submitted' }), 8000))
+            W.chat.sendTextMessage(${JSON.stringify(chatId)}, ${JSON.stringify(msg)}, extra)
+              .then(value => ({ state: 'done', value }), error => ({ state: 'error', error: String(error && error.message || error) })),
+            new Promise(res => setTimeout(() => res({ state: 'timeout' }), 15000))
           ]);
-          return r && r.id ? 'SENT' : 'FAIL';
+          if (r && r.state === 'timeout') return 'UNKNOWN:SEND_TIMEOUT';
+          if (r && r.state === 'error') return 'ERR:' + r.error;
+          const value = r && r.value;
+          return value && (value.id || value.messageId || value._serialized) ? 'SENT' : 'FAIL';
         } catch (e) { return 'ERR:' + e.message; }
       })()`,
       // 电子名片：使用 WPP 4.3 官方 API，避免旧内部 SendAction 返回 Promise 但消息不落地
@@ -1640,7 +1644,8 @@
     if (!transport) throw new Error(`平台不支持群发：${family}`);
     const currentChatScripts = {
       whatsapp: `(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`,
-      telegram: `(() => String(location.hash || '').replace(/^#/, '').split('?')[0] || null)()`,
+      // 保留 ?p=...，由 GeekBroadcastSafety 统一归一化；截掉查询串会令所有 TG 聊天校验失败。
+      telegram: `(() => String(location.hash || '') || null)()`,
       line: `(() => { try { const hit=String(location.hash || '').match(/\\/chats\\/([^/?]+)/); return hit ? decodeURIComponent(hit[1]) : null; } catch { return null; } })()`,
     };
     const adapter = Object.freeze({
@@ -1716,6 +1721,10 @@
   const bcSelectedChips = document.getElementById('bc-selected-chips');
   const bcSenderAccount = document.getElementById('bc-sender-account');
   const bcFooterSummary = document.getElementById('bc-footer-summary');
+  // 群发运行时必须读取真实选择集合，不能从可裁剪、可筛选的展示 DOM 反推收件人。
+  window.__geekBroadcastSelection = Object.freeze({
+    ids: () => Object.freeze([...broadcastSelected].map(String)),
+  });
 
   function broadcastPlatformLabel(type) {
     if (type === 'telegram') return 'Telegram';
@@ -1731,7 +1740,8 @@
       bcSenderAccount.classList.toggle('is-missing', !account);
     }
     if (!bcFooterSummary) return;
-    const hasContent = !!bMessageEl.value.trim() || broadcastFiles.length > 0;
+    const runtimeFiles = window.GeekBroadcastRuntimeInstance?.filesFor?.(activeId) || [];
+    const hasContent = !!bMessageEl.value.trim() || broadcastFiles.length > 0 || runtimeFiles.length > 0 || (window.__vcardContacts?.length || 0) > 0;
     const mode = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
     let targetText = broadcastSelected.size ? `${broadcastSelected.size} 个对象` : '未选对象';
     if (mode === 'paste') {
@@ -1752,6 +1762,7 @@
     bcFooterSummary.textContent = `${hasContent ? '内容已就绪' : '未填写内容'} · ${targetText} · ${lo}–${hi} 秒间隔`;
     bcFooterSummary.classList.toggle('is-ready', hasContent && !targetText.startsWith('未'));
   }
+  window.__updateBroadcastComposerSummary = updateBroadcastComposerSummary;
 
   function openBroadcast() {
     // 没激活账号时自动激活第一个（体验改进）
@@ -2695,9 +2706,21 @@
   });
   const bcAddVcard = document.getElementById('broadcast-add-vcard');
   if (bcAddVcard) bcAddVcard.addEventListener('change', async () => {
+    const vlist = document.getElementById('bc-vcard-list');
+    if (!bcAddVcard.checked) {
+      window.__vcardContacts = [];
+      if (vlist) { vlist.replaceChildren(); vlist.style.display = 'none'; }
+      updateBroadcastComposerSummary();
+      return;
+    }
     if (bcAddVcard.checked) {
+      const account = accounts.find(item => item.id === activeId);
+      if (familyOf(account?.type).key !== 'whatsapp') {
+        alert('电子名片群发仅支持 WhatsApp');
+        bcAddVcard.checked = false;
+        return;
+      }
       const wv = wvMap.get(activeId);
-      const vlist = document.getElementById('bc-vcard-list');
       if (!wv || !vlist) { bcAddVcard.checked = false; return; }
       try {
         const contacts = await wv.executeJavaScript(`(async () => {
@@ -2731,11 +2754,13 @@
           vlist.querySelectorAll('.bc-vcard-item input').forEach(inp => inp.onchange = () => {
             if (inp.checked) selectedVcards.add(inp.value); else selectedVcards.delete(inp.value);
             window.__vcardContacts = list.filter(c => selectedVcards.has(c.id)).map(c => ({ id: c.id, name: c.name }));
+            updateBroadcastComposerSummary();
             renderVcardList(vlist.querySelector('#bc-vcard-search')?.value || '');
           });
           vlist.querySelectorAll('.bc-vcard-selected-chip button').forEach(btn => btn.onclick = () => {
             selectedVcards.delete(btn.dataset.id);
             window.__vcardContacts = list.filter(c => selectedVcards.has(c.id)).map(c => ({ id: c.id, name: c.name }));
+            updateBroadcastComposerSummary();
             renderVcardList(vlist.querySelector('#bc-vcard-search')?.value || '');
           });
         };
@@ -2766,8 +2791,8 @@
     if (v === 'all-contacts' || v === 'all-groups' || v === 'all') {
       // 模式切换必须先清空，避免把上一个模式的选择混进来
       broadcastSelected.clear();
-      const q = bSearchEl.value.trim().toLowerCase();
-      broadcastChats.filter(c => (v === 'all' || (v === 'all-contacts' && c.type === '联系人') || (v === 'all-groups' && c.type === '群组')) && (!q || (c.name || '').toLowerCase().includes(q))).forEach(c => broadcastSelected.add(c.id));
+      // “所有”模式的语义不能受搜索框中残留的关键词影响。
+      broadcastChats.filter(c => v === 'all' || (v === 'all-contacts' && c.type === '联系人') || (v === 'all-groups' && c.type === '群组')).forEach(c => broadcastSelected.add(c.id));
       renderBroadcastList();
     }
     updateBroadcastComposerSummary();

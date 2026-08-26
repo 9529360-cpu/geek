@@ -66,6 +66,7 @@
       item.appendChild(remove);
       el.appendChild(item);
     });
+    window.__updateBroadcastComposerSummary?.();
   }
 
   async function pickDraftFiles(accountId = activeAccountId()) {
@@ -83,10 +84,10 @@
     renderDraftFiles(accountId);
   }
 
-  function selectedChatIds() {
-    return [...document.querySelectorAll('#bc-selected-chips .bc-selected-chip button[data-id]')]
-      .map(button => String(button.dataset.id || ''))
-      .filter(Boolean);
+  function selectedChatIds(host = typeof window !== 'undefined' ? window : globalThis) {
+    const ids = host?.__geekBroadcastSelection?.ids?.();
+    if (!Array.isArray(ids)) throw new Error('收件人选择状态尚未就绪，请重新打开群发窗口');
+    return [...new Set(ids.map(value => String(value || '')).filter(Boolean))];
   }
 
   async function resolveGroupMembers(ctx) {
@@ -145,15 +146,21 @@
   }
 
   async function resolveNumberTargets(ctx, chats, mode) {
-    const numbers = mode === 'paste'
+    const rawNumbers = mode === 'paste'
       ? (document.getElementById('bc-paste-numbers')?.value || '').split(/\n+/).map(value => value.trim()).filter(Boolean)
       : (window.__excelNumbers || []).map(value => String(value).trim()).filter(Boolean);
+    const numbers = [...new Set(rawNumbers.map(value => value.replace(/\s+/g, '')).filter(Boolean))];
     let targets = numbers.map(number => {
       const clean = number.replace(/\s+/g, '');
       const hit = chats.find(chat => (chat.name || '').includes(clean) || String(chat.id).includes(clean));
       return hit || { id: clean, name: clean, isNumber: true };
     });
-    if (!(ctx.account.type === 'whatsapp' || ctx.account.type === 'whatsapp-pure') || !targets.length) return targets;
+    if (!(ctx.account.type === 'whatsapp' || ctx.account.type === 'whatsapp-pure')) {
+      const matched = targets.filter(target => !target.isNumber);
+      if (numbers.length && !matched.length) throw new Error('号码与 CSV 群发仅支持 WhatsApp；Telegram 和 LINE 请从已有聊天中选择对象');
+      return matched;
+    }
+    if (!targets.length) return targets;
     const result = await ctx.wv.executeJavaScript(`(async () => {
       try {
         const W = window.WAPLUS_WPP || window.WPP;
@@ -179,12 +186,22 @@
     if (mode === 'group-members') targets = await resolveGroupMembers(ctx);
     else if (mode === 'label') targets = await resolveLabelTargets(ctx, chats);
     else if (mode === 'paste' || mode === 'excel') targets = await resolveNumberTargets(ctx, chats, mode);
+    else if (mode === 'all') targets = chats.slice();
+    else if (mode === 'all-contacts') targets = chats.filter(chat => chat.type === '联系人');
+    else if (mode === 'all-groups') targets = chats.filter(chat => chat.type === '群组');
+    else if (mode === 'exclude-contacts' || mode === 'exclude-groups') targets = chats.slice();
     else {
       const ids = new Set(selectedChatIds());
       targets = chats.filter(chat => ids.has(String(chat.id)));
     }
+    const unique = new Map();
+    targets.forEach(target => {
+      const id = String(target?.id || '');
+      if (id && !unique.has(id)) unique.set(id, target);
+    });
+    targets = [...unique.values()];
     const excluded = window.__broadcastExcludeSet ? window.__broadcastExcludeSet() : new Set();
-    if (excluded.size) targets = targets.filter(target => !excluded.has(target.id));
+    if (excluded.size) targets = targets.filter(target => !excluded.has(String(target.id)));
     if (!targets.length) throw new Error('请先选择要发送的聊天');
     return targets;
   }
@@ -207,6 +224,28 @@
 
   function executionFiles(job) {
     return materializedFilesByJob.get(String(job?.id || '')) || job?.files || [];
+  }
+
+  async function sendDirectFiles(sendFile, job, target, files, message) {
+    let pending = files.map((file, index) => ({ file, index }));
+    const errors = new Map();
+    for (let attempt = 0; attempt < 2 && pending.length; attempt++) {
+      const retry = [];
+      for (const entry of pending) {
+        const { file, index } = entry;
+        try {
+          const result = await sendFile({ partition: job.partition, filePath: file.filePath, chatId: target.id, caption: index === files.length - 1 ? message : '', mime: file.mime, name: file.name });
+          const text = String(result || '');
+          if (text === 'SENT' || text === 'CLICKED') errors.delete(index);
+          else { errors.set(index, `${file.name}:${text || 'SEND_FAILED'}`); retry.push(entry); }
+        } catch (error) {
+          errors.set(index, `${file.name}:ERR:${String(error?.message || error)}`);
+          retry.push(entry);
+        }
+      }
+      pending = retry;
+    }
+    return pending.length ? `ERR:${[...errors.values()].join(' | ')}` : 'SENT';
   }
 
   function scheduledAttachmentApi() {
@@ -257,31 +296,20 @@
       try {
         if (adapter.sendDirect) {
           if (files.length) {
-            let mediaOk = true;
-            const details = [];
-            for (let index = 0; index < files.length; index++) {
-              const file = files[index];
-              const caption = index === files.length - 1 ? message : '';
-              try {
-                const result = await window.api.broadcast.sendFile({ partition: job.partition, filePath: file.filePath, chatId: target.id, caption, mime: file.mime, name: file.name });
-                const text = String(result || '');
-                details.push(`${file.name}:${text}`);
-                if (!(text === 'SENT' || text === 'CLICKED')) mediaOk = false;
-              } catch (error) {
-                mediaOk = false;
-                details.push(`${file.name}:ERR:${error.message}`);
-              }
-            }
-            sent = mediaOk ? 'SENT' : 'ERR:' + details.join(' | ');
+            sent = await sendDirectFiles(payload => window.api.broadcast.sendFile(payload), job, target, files, message);
           } else {
             sent = message.trim() ? await ctx.wv.executeJavaScript(adapter.sendDirect(target.id, message, job.tagAll)) : 'SENT';
-            if ((sent === 'SENT' || sent === 'CLICKED') && job.vcards.length && typeof adapter.sendVcards === 'function') {
-              const result = await ctx.wv.executeJavaScript(adapter.sendVcards(target.id, job.vcards));
-              if (String(result) !== 'SENT') sent = 'ERR:名片:' + String(result);
-            }
+          }
+          if ((sent === 'SENT' || sent === 'CLICKED') && job.vcards.length && typeof adapter.sendVcards === 'function') {
+            const result = await ctx.wv.executeJavaScript(adapter.sendVcards(target.id, job.vcards));
+            if (String(result) !== 'SENT') sent = 'ERR:名片:' + String(result);
           }
           if (sent === 'SENT' || sent === 'CLICKED') return { ok: true };
+          // 文件内部已经逐项重试；再次执行整组会重复发送此前成功的附件。
+          if (files.length) break;
           if (String(sent).startsWith('ERR:名片:')) break;
+          // 超时后无法确认消息是否已经进入平台队列，禁止自动重试造成重复发送。
+          if (String(sent).startsWith('UNKNOWN:')) break;
           continue;
         }
 
@@ -434,8 +462,12 @@
     const ctx = await contextForAccount(accountId);
     const files = currentDraftFiles(accountId).map(file => ({ ...file }));
     const message = document.getElementById('broadcast-message')?.value || '';
-    if (!message.trim() && !files.length) throw new Error('请输入消息内容或添加附件');
+    const vcards = Array.isArray(window.__vcardContacts) ? window.__vcardContacts.map(card => ({ ...card })) : [];
+    if (!message.trim() && !files.length && !vcards.length) throw new Error('请输入消息内容、添加附件或选择电子名片');
     const targets = await resolveTargets(ctx);
+    const tagAll = !!document.getElementById('broadcast-tagall')?.checked;
+    if (ctx.platform.family !== 'whatsapp' && vcards.length) throw new Error('电子名片群发仅支持 WhatsApp');
+    if (ctx.platform.family !== 'whatsapp' && tagAll) throw new Error('@全体群成员仅支持 WhatsApp 群组');
     const intervalMin = Math.max(5, Number(document.getElementById('broadcast-interval-min')?.value) || 5);
     const intervalMax = Math.max(intervalMin, Number(document.getElementById('broadcast-interval-max')?.value) || Math.max(10, intervalMin));
     const scheduledJobId = isFuture ? nextScheduledJobId() : null;
@@ -464,8 +496,8 @@
       message,
       files: isFuture ? [] : files,
       attachmentRefs,
-      vcards: Array.isArray(window.__vcardContacts) ? window.__vcardContacts.map(card => ({ ...card })) : [],
-      tagAll: !!document.getElementById('broadcast-tagall')?.checked,
+      vcards,
+      tagAll,
       intervalMin,
       intervalMax,
       scheduledAt: isFuture ? scheduledAt : null,
@@ -515,7 +547,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       const accountId = activeAccountId();
-      void pickDraftFiles(accountId).catch(() => {}).finally(() => { input.checked = false; });
+      void pickDraftFiles(accountId).catch(error => alert(String(error?.message || error))).finally(() => { input.checked = false; });
     }, true);
 
     document.addEventListener('click', event => {
@@ -530,7 +562,7 @@
       const dropzone = event.target?.closest?.('#broadcast-dropzone');
       if (dropzone) {
         event.preventDefault(); event.stopImmediatePropagation();
-        void pickDraftFiles().catch(() => {});
+        void pickDraftFiles().catch(error => alert(String(error?.message || error)));
         return;
       }
       const send = event.target?.closest?.('#broadcast-send');
@@ -563,7 +595,7 @@
     });
   }
 
-  return Object.freeze({ install, activeAccountId, personalize });
+  return Object.freeze({ install, activeAccountId, personalize, selectedChatIds, sendDirectFiles });
 });
 
 if (typeof window !== 'undefined') {
