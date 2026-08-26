@@ -6,25 +6,45 @@
 
 判断当前行为时按以下顺序取证：
 
-1. `master` 上的源码、配置、`package.json`、锁文件和 `.github/release-client-version`；
-2. 当前 contract、集成测试和 `.github/workflows/`；
-3. Issue #21/#23 的最新生产状态，以及对应 GitHub Actions run；
-4. Issue #50、README 和下列当前运维手册；
+1. 实时仓库内容与 Git 状态：默认/当前分支、HEAD、相关 diff、源码、配置、`package.json`、锁文件和 `.github/release-client-version`；
+2. 实际 contract、集成测试、构建结果、`.github/workflows/` 与对应 GitHub Actions run；
+3. `.agent/HANDOFF.md` 当前施工现场；生产状态另以 Issue #21/#23 及对应 Actions 为准；
+4. Issue #50 的长期 checkpoint/history、README 和下列当前运维手册；
 5. 历史事故、研究、旧发布交接与 UI 原型，只用于理解当时背景。
 
-若文档与当前源码或工作流冲突，以当前实现和测试为准，并通过独立文档 Issue/PR 修正文档漂移。
+若 HANDOFF、Issue 或文档与当前源码/工作流冲突，以真实仓库和实际验证为准，并先修正交接/文档漂移。不要反过来修改代码去迎合旧文档。
+
+## 跨会话恢复入口
+
+- [`../AGENTS.md`](../AGENTS.md)：长期稳定的 Agent 操作规则、安全边界和关键位置。
+- [`../.agent/HANDOFF.md`](../.agent/HANDOFF.md)：当前目标、HEAD 快照、Task Queue、测试结果、风险和下一步；新 Agent 应在开工和收工时与真实仓库对齐。
+- [`GEEK-MAINTAINER-PROMPT.md`](GEEK-MAINTAINER-PROMPT.md)：换电脑/换会话/换模型时可直接复制的启动提示词。
+- [Issue #50](https://github.com/9529360-cpu/geek/issues/50)：长期在线 checkpoint/history，用于追溯历史和提供仓库外恢复保险，不再作为唯一实时状态入口。
+
+新会话推荐顺序：`AGENTS.md` → `.agent/HANDOFF.md` → 实时 Git/版本/测试核对 → 当前任务文档 → 必要时 Issue #21/#23/#50。
 
 ## 当前运维文档
 
 - [`../README.md`](../README.md)：产品范围、当前运行时、WebView 安全边界、开发与验证入口。
-- [`../AGENTS.md`](../AGENTS.md)：自动化代理进入仓库后的最低操作和安全要求。
 - [`account-password-reset-operations.md`](account-password-reset-operations.md)：账号、忘记密码、Resend、D1 和相关生产验证。
 - [`github-control-plane.md`](github-control-plane.md)：GitHub Actions、Cloudflare 部署与非敏感状态通道。
 - [`release-security.md`](release-security.md)：Windows 客户端构建、签名、版本标记、发布与回滚边界。
 
-跨会话维护恢复以 [Issue #50](https://github.com/9529360-cpu/geek/issues/50) 的最新评论为入口。Cloudflare 部署结果以 [Issue #21](https://github.com/9529360-cpu/geek/issues/21) 为准，账号注册、登录、鉴权和测试账号清理结果以 [Issue #23](https://github.com/9529360-cpu/geek/issues/23) 为准。
+Cloudflare 部署结果以 [Issue #21](https://github.com/9529360-cpu/geek/issues/21) 和对应 Actions run 为准，账号注册、登录、鉴权和测试账号清理结果以 [Issue #23](https://github.com/9529360-cpu/geek/issues/23) 和对应 Actions run 为准。
 
 生产部署验证由执行 Wrangler 部署的同一个 GitHub-hosted job 完成。不要用本地临时容器能否解析域名替代 #21/#23 和对应 Actions run。
+
+## 动态事实不要硬编码
+
+以下信息变化频繁，不应在长期运维规则中复制成“当前永远如此”的事实：
+
+- 客户端版本和 release marker；
+- `master` HEAD；
+- contract/test 数量；
+- 最新 release/tag；
+- 最近一次生产部署或 smoke 结果。
+
+这些内容每轮从真实仓库、Actions、Issue #21/#23 和 `.agent/HANDOFF.md` 重新核对。运维文档可以解释“如何验证”，但应尽量避免复制一个很快过期的版本快照。
 
 ## 历史事故与交接资料
 
