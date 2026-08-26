@@ -16,7 +16,7 @@
 
 ## 开始工作前
 
-1. 先读本文件和 `.agent/HANDOFF.md`，再读 `docs/README.md` 及本次任务对应的当前运维文档。
+1. 先读本文件、`docs/GEEK-MAINTAINER-PROMPT.md` 和 `.agent/HANDOFF.md`，再读 `docs/README.md` 及本次任务对应的当前运维文档。
 2. 核对实时默认分支 HEAD、当前工作分支、`package.json.version`、`.github/release-client-version`、开放 PR/Issue，以及需要时 Issue #21/#23 的最新生产状态。Issue #50 用于补充自 HANDOFF checkpoint 之后的历史，不再要求新 Agent 从全部评论中自行猜最新状态。
 3. 使用本地 checkout 时运行 `git status -sb` 并检查相关 diff，保留用户已有改动，不得擅自回滚或清理。使用 GitHub connector 时，从已确认的实时基线建立独立分支；不得因为本地没有 `git`/`gh` CLI 就错误判断仓库无法维护。
 4. 如果 `.agent/HANDOFF.md` 与仓库状态不一致，先判断差异来源并按真实状态修正 HANDOFF。只有差异可能覆盖他人工作、涉及高风险意图或无法判断时才询问用户。
