@@ -2,7 +2,7 @@
 
 This repository is the daily operations control plane for the Geek project. Production credentials remain in GitHub Repository Actions Secrets or Cloudflare Worker secrets; plaintext secrets must never be committed, printed or copied into Issue comments.
 
-Current client/package version and `.github/release-client-version` are both `1.2.14`. Ordinary source and documentation changes must not modify the release marker. The normal new-version release path is marker-gated; explicit `workflow_dispatch` is reserved for an already authorized same-version recovery retry after a failed release attempt.
+The current client/package version is intentionally not hard-coded in this operations guide. Before maintenance or release work, read the live `package.json.version`, `.github/release-client-version`, current `master` HEAD and `.agent/HANDOFF.md`, then verify any production claim against the corresponding Actions run. Ordinary source and documentation changes must not modify the release marker. The normal new-version release path is marker-gated; explicit `workflow_dispatch` is reserved for an already authorized same-version recovery retry after a failed release attempt.
 
 ## Production components
 
@@ -59,7 +59,8 @@ Use this order when determining production state:
 1. the corresponding GitHub Actions run and its job/step conclusions;
 2. the latest matching Issue #21 deployment comment;
 3. for account behavior, the latest Issue #23 smoke comment;
-4. current `master` workflow/source configuration.
+4. current `master` workflow/source configuration;
+5. `.agent/HANDOFF.md` as the maintenance checkpoint, not as a substitute for production evidence.
 
 Do not use a local maintenance container's DNS resolution as production evidence. Local environments may have transient network or resolver limits that say nothing about the GitHub-hosted deployment job.
 
@@ -139,4 +140,4 @@ Do not add Billing Edit, Memberships Edit, API Tokens Edit, Account Settings Edi
 
 ## Agent handoff
 
-A future maintenance agent should first read `AGENTS.md`, Issue #50, this file and the relevant Wrangler/workflow configuration. Routine code, Worker deployment and CI can be managed through the repository. Infrastructure mutations must use the scoped infrastructure token through a purpose-built, reviewed workflow rather than exposing its value.
+A future maintenance agent should first read `AGENTS.md` and `.agent/HANDOFF.md`, reconcile them with the live repository state, then read this file and the relevant Wrangler/workflow configuration. Issue #50 remains the long-term checkpoint/history channel and should be consulted when historical context is needed. Routine code, Worker deployment and CI can be managed through the repository. Infrastructure mutations must use the scoped infrastructure token through a purpose-built, reviewed workflow rather than exposing its value.

@@ -1,9 +1,8 @@
 # Windows 客户端发布与安全边界
 
-当前正式客户端版本为 `1.2.14`，`package.json.version` 与 `.github/release-client-version` 均为 `1.2.14`。
+当前正式客户端版本**不在本手册硬编码**。开始任何发布相关工作前，必须实时核对 `package.json.version`、`.github/release-client-version`、当前 `master` HEAD、公开 updater 元数据以及最近一次正式发布证据；正常新版本发布时包版本与发布标记必须完全一致。
 
-
-1.2.14 从已实机验证的 1.2.12 LINE 兼容产品树恢复构建，仅叠加 LINE hash 路由翻译修复和原生 pasted-image 群发修复；已回滚的 1.2.13 LINE 白屏运行路径不重新引入。
+历史版本的具体修复范围应从对应 release/tag、提交、PR、Issue #50 checkpoint 和 Actions run 追溯，不要把旧版本说明当成当前产品树事实。
 
 正式客户端发布不是普通维护动作。正常发布新版本时，必须同步更新包版本和发布标记，并单独验证发布范围。普通源码、Worker 或文档修改不得改动 `.github/release-client-version`。已授权的发布若失败，只有在记录失败证据和恢复范围后，才可对同一版本执行显式重试；同版本重试不得再次改写版本或发布标记。
 
@@ -97,6 +96,7 @@ Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe`
 
 正式发布或同版本恢复重试前至少确认：
 
+- 已从实时仓库核对目标版本、`master` HEAD、包版本和发布标记，而不是依赖 HANDOFF/README 中的旧快照；
 - 发布版本、变更范围和用户影响已明确；
 - 同版本重试具有对应失败 run、根因记录和已有发布授权；
 - `package.json.version` 与发布标记一致；
