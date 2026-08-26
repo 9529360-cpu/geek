@@ -419,6 +419,7 @@
         <span class="bc-header__title">群发消息</span>
         <small>编辑内容并选择发送对象</small>
       </div>
+      <span id="bc-sender-account" class="bc-sender-account" title="本次群发使用的账号">当前账号</span>
       <button type="button" id="broadcast-close" class="bc-header__close">×</button>
     </header>
     <div class="bc-body">
@@ -597,7 +598,7 @@
         <div class="bc-sending-close"><button type="button" id="broadcast-sending-close" class="bc-btn bc-btn--plain">关闭</button></div>
       </div>
       <div class="bc-footer__btns">
-        <span class="bc-footer-note">发送前请确认对象与间隔</span>
+        <span id="bc-footer-summary" class="bc-footer-note" aria-live="polite">填写内容并选择发送对象</span>
         <button type="button" id="broadcast-export" class="bc-btn" style="display:none">导出失败名单</button>
         <button type="button" id="broadcast-cancel" class="bc-btn">取消</button>
         <button type="button" id="broadcast-send" class="bc-btn bc-btn--primary bc-btn--large">开始群发</button>

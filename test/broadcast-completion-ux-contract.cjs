@@ -1,0 +1,19 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const html = fs.readFileSync(path.join(__dirname, '../ui/index.html'), 'utf8');
+const app = fs.readFileSync(path.join(__dirname, '../ui/app.js'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '../ui/broadcast-original.css'), 'utf8');
+
+assert.match(html, /id="bc-sender-account"/, 'editor must identify the sending account');
+assert.match(html, /id="bc-footer-summary"[^>]*aria-live="polite"/, 'editor must expose a persistent live summary');
+assert.match(app, /selected\.slice\(0, 3\)/, 'selected chips must be capped so the modal cannot grow without bound');
+assert.match(app, /另 \$\{selected\.length - visible\.length\} 个/, 'hidden selected chips must be represented by a count');
+assert.doesNotMatch(app, /visibleBroadcastChats\(\)\.filter\(c => !broadcastSelected\.has\(c\.id\)\)/, 'selected recipients must remain available for direct unchecking');
+assert.match(app, /内容已就绪.*targetText.*秒间隔/, 'footer summary must cover content, recipients, and interval');
+assert.match(css, /\.bc-sender-account/, 'sending-account badge must be styled by the formal editor stylesheet');
+
+console.log('BROADCAST_COMPLETION_UX_CONTRACT_OK');

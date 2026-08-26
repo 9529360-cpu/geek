@@ -1714,6 +1714,44 @@
   const bcSelectizeControl = document.getElementById('bc-selectize-control');
   const bcSelectizeDropdown = document.getElementById('bc-selectize-dropdown');
   const bcSelectedChips = document.getElementById('bc-selected-chips');
+  const bcSenderAccount = document.getElementById('bc-sender-account');
+  const bcFooterSummary = document.getElementById('bc-footer-summary');
+
+  function broadcastPlatformLabel(type) {
+    if (type === 'telegram') return 'Telegram';
+    if (type === 'line') return 'LINE';
+    return 'WhatsApp';
+  }
+
+  function updateBroadcastComposerSummary() {
+    const account = accounts.find(a => a.id === activeId);
+    if (bcSenderAccount) {
+      const accountName = String(account?.name || '未选择账号');
+      bcSenderAccount.textContent = account ? `${broadcastPlatformLabel(account.type)} · ${accountName}` : accountName;
+      bcSenderAccount.classList.toggle('is-missing', !account);
+    }
+    if (!bcFooterSummary) return;
+    const hasContent = !!bMessageEl.value.trim() || broadcastFiles.length > 0;
+    const mode = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
+    let targetText = broadcastSelected.size ? `${broadcastSelected.size} 个对象` : '未选对象';
+    if (mode === 'paste') {
+      const count = (document.getElementById('bc-paste-numbers')?.value || '').split(/\n+/).map(s => s.trim()).filter(Boolean).length;
+      targetText = count ? `${count} 个号码` : '未粘贴号码';
+    } else if (mode === 'excel') {
+      const count = Array.isArray(window.__excelNumbers) ? window.__excelNumbers.length : 0;
+      targetText = count ? `${count} 个导入号码` : '未导入号码';
+    } else if (mode === 'group-members') {
+      const count = document.getElementById('bc-group-members-select')?.selectedOptions?.length || 0;
+      targetText = count ? `${count} 个群的成员` : '未选群组';
+    } else if (mode === 'label') {
+      const select = document.getElementById('bc-label-select');
+      targetText = select?.value ? `标签：${select.selectedOptions[0]?.textContent || '已选择'}` : '未选标签';
+    }
+    const lo = document.getElementById('broadcast-interval-min')?.value || 5;
+    const hi = document.getElementById('broadcast-interval-max')?.value || 10;
+    bcFooterSummary.textContent = `${hasContent ? '内容已就绪' : '未填写内容'} · ${targetText} · ${lo}–${hi} 秒间隔`;
+    bcFooterSummary.classList.toggle('is-ready', hasContent && !targetText.startsWith('未'));
+  }
 
   function openBroadcast() {
     // 没激活账号时自动激活第一个（体验改进）
@@ -1730,6 +1768,7 @@
     }
     const account = accounts.find(a => a.id === activeId);
     if (!account) { alert('请先切换到一个账号'); return; }
+    updateBroadcastComposerSummary();
     broadcastChats = [];
     broadcastSelected = new Set();
     broadcastSavedFilter = null;
@@ -1785,6 +1824,7 @@
     el.querySelectorAll('i').forEach((x) => {
       x.onclick = () => { broadcastFiles.splice(+x.dataset.i, 1); renderBroadcastFiles(); };
     });
+    updateBroadcastComposerSummary();
   }
   function closeBroadcast() { bOverlay.classList.add('hidden'); }
   async function loadBroadcastChats() {
@@ -1814,12 +1854,15 @@
   function renderBroadcastSelectedChips() {
     if (!bcSelectedChips) return;
     const selected = [...broadcastSelected].map(id => broadcastChats.find(c => c.id === id)).filter(Boolean);
-    bcSelectedChips.innerHTML = selected.map(c => `<span class="bc-selected-chip" title="${escapeHtml(c.name || c.id)}"><span>${escapeHtml(c.name || c.id)}</span><button type="button" data-id="${escapeHtml(c.id)}">×</button></span>`).join('');
+    const visible = selected.slice(0, 3);
+    bcSelectedChips.innerHTML = visible.map(c => `<span class="bc-selected-chip" title="${escapeHtml(c.name || c.id)}"><span>${escapeHtml(c.name || c.id)}</span><button type="button" data-id="${escapeHtml(c.id)}" aria-label="移除 ${escapeHtml(c.name || c.id)}">×</button></span>`).join('')
+      + (selected.length > visible.length ? `<span class="bc-selected-overflow" title="可在下拉列表中取消任意对象">另 ${selected.length - visible.length} 个</span>` : '');
+    bSearchEl.placeholder = selected.length ? `已选 ${selected.length} 个，继续搜索…` : '选择联系人或群组…';
     bcSelectedChips.querySelectorAll('button').forEach(btn => btn.onclick = e => { e.stopPropagation(); broadcastSelected.delete(btn.dataset.id); renderBroadcastList(); });
   }
   function renderBroadcastList() {
     const q = bSearchEl.value.trim().toLowerCase();
-    const list = visibleBroadcastChats().filter(c => !broadcastSelected.has(c.id));
+    const list = visibleBroadcastChats().sort((a, b) => Number(broadcastSelected.has(b.id)) - Number(broadcastSelected.has(a.id)));
     bListEl.innerHTML = '';
     list.forEach((c) => {
       const item = document.createElement('label');
@@ -1864,6 +1907,7 @@
   document.getElementById('broadcast-insert-var').onclick = () => {
     bMessageEl.value += '%nc';
     bMessageEl.focus();
+    updateBroadcastComposerSummary();
   };
   document.getElementById('broadcast-clear').onclick = () => {
     broadcastSelected.clear();
@@ -1978,6 +2022,7 @@
     const visible = visibleBroadcastChats().length;
     const scope = broadcastSavedFilter ? `标签内 ${visible} 个群` : `共 ${broadcastChats.length} 个聊天`;
     bMetaEl.innerHTML = `<span>${escapeHtml(account ? account.name : '')}</span><span> · ${scope}</span><strong class="bc-selected-count">已选 ${broadcastSelected.size} 个</strong>`;
+    updateBroadcastComposerSummary();
   }
   // 构造文件拖拽注入脚本（TG 接收 drop 后自动上传）
   function buildDropFileScript(file) {
@@ -2486,6 +2531,7 @@
       if (savedMessagesEl) savedMessagesEl.value = String(i);
       renderSavedMessages();
       bMessageEl.focus();
+      updateBroadcastComposerSummary();
     }
   }
   function removeSavedMessage(i) {
@@ -2724,6 +2770,7 @@
       broadcastChats.filter(c => (v === 'all' || (v === 'all-contacts' && c.type === '联系人') || (v === 'all-groups' && c.type === '群组')) && (!q || (c.name || '').toLowerCase().includes(q))).forEach(c => broadcastSelected.add(c.id));
       renderBroadcastList();
     }
+    updateBroadcastComposerSummary();
   }));
   // 标签发送：加载 WA 标签列表（LabelCollection）
   async function loadLabels() {
@@ -2754,11 +2801,11 @@
     if (el) el.textContent = total;
   });
   const insertSaBtn = document.getElementById('broadcast-insert-sa');
-  if (insertSaBtn) insertSaBtn.onclick = () => { bMessageEl.value += '%sa'; };
+  if (insertSaBtn) insertSaBtn.onclick = () => { bMessageEl.value += '%sa'; updateBroadcastComposerSummary(); };
   const insertNrBtn = document.getElementById('broadcast-insert-nr');
-  if (insertNrBtn) insertNrBtn.onclick = () => { bMessageEl.value += '%nr'; };
+  if (insertNrBtn) insertNrBtn.onclick = () => { bMessageEl.value += '%nr'; updateBroadcastComposerSummary(); };
   const multiVerBtn = document.getElementById('bc-multiversion');
-  if (multiVerBtn) multiVerBtn.onclick = () => { bMessageEl.value += ' {版本1|版本2|版本3}'; };
+  if (multiVerBtn) multiVerBtn.onclick = () => { bMessageEl.value += ' {版本1|版本2|版本3}'; updateBroadcastComposerSummary(); };
   const excelMeta = document.getElementById('bc-excel-meta');
   const importCsvBtn = document.getElementById('broadcast-import-csv');
   if (importCsvBtn) importCsvBtn.onclick = async () => {
@@ -2783,6 +2830,7 @@
       const numbers = lines.map(row => String(row[col] ?? '').trim()).filter(Boolean);
       // 核验：WA 联系人集合存在 = 已注册（原版 verificacontatosaguarde 逻辑）
       window.__excelNumbers = numbers;
+      updateBroadcastComposerSummary();
       const account = accounts.find(a => a.id === activeId);
       const wv = wvMap.get(activeId);
       if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码，正在核验…`;
@@ -3569,10 +3617,15 @@
     document.getElementById('broadcast-interval-max').value = hi;
     if (rangeValue) rangeValue.textContent = `${lo} 至 ${hi} 秒`;
     if (rangeFill) { rangeFill.style.left = (lo / 60 * 100) + '%'; rangeFill.style.width = ((hi - lo) / 60 * 100) + '%'; }
+    updateBroadcastComposerSummary();
   }
   rangeMin?.addEventListener('input', syncBroadcastRange);
   rangeMax?.addEventListener('input', syncBroadcastRange);
   syncBroadcastRange();
+  bMessageEl.addEventListener('input', updateBroadcastComposerSummary);
+  document.getElementById('bc-paste-numbers')?.addEventListener('input', updateBroadcastComposerSummary);
+  document.getElementById('bc-group-members-select')?.addEventListener('change', updateBroadcastComposerSummary);
+  document.getElementById('bc-label-select')?.addEventListener('change', updateBroadcastComposerSummary);
 
   // 原版 Alertify 弹窗：点击遮罩不关闭，必须使用取消/关闭按钮退出。
 
