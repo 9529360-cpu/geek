@@ -20,6 +20,14 @@
     const clock = typeof options.now === 'function' ? options.now : () => Date.now();
     const setTimer = typeof options.setTimeout === 'function' ? options.setTimeout : setTimeout;
     const clearTimer = typeof options.clearTimeout === 'function' ? options.clearTimeout : clearTimeout;
+    const beforeDue = typeof options.beforeDue === 'function'
+      ? options.beforeDue
+      : async task => {
+        if (typeof window === 'undefined') return true;
+        const persistence = window.GeekBroadcastSchedulePersistenceInstance;
+        if (!persistence || typeof persistence.awaitScheduledDurable !== 'function') return false;
+        return persistence.awaitScheduledDurable(task.jobId || task.id);
+      };
     const timersByAccount = new Map();
     const tasksByAccount = new Map();
 
@@ -93,8 +101,13 @@
             return;
           }
 
-          try { await onDue(task); }
-          finally {
+          try {
+            // A newly-created scheduled Job is not executable until its account-data
+            // record is durably written. The gate is awaited at the actual due edge,
+            // so even a near-immediate timer cannot race the encrypted store write.
+            if (!(await beforeDue(task))) return;
+            await onDue(task);
+          } finally {
             const tasks = tasksByAccount.get(task.accountId);
             tasks?.delete(task.id);
             if (tasks && !tasks.size) tasksByAccount.delete(task.accountId);
