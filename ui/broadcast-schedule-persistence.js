@@ -13,6 +13,7 @@
   const restoreRetries = new Map();
   const dearmedJobIds = new Set();
   const lifecycleByJob = new Map();
+  const durableCreationByJob = new Map();
 
   function serializableJob(job) {
     return {
@@ -110,18 +111,21 @@
       };
 
       if (PENDING.has(current.state)) {
-        // Pending cancellation is not allowed to become visible/terminal until the
-        // durable auto-replay record has been removed successfully.
+        // A user's cancel is not committed in memory/UI until the durable auto-replay
+        // record is removed. If storage rejects the write, manager.invoke propagates
+        // the error and leaves the Job pending rather than creating a resurrection gap.
         await dearmUnlocked(current);
         cancelTimers();
+        durableCreationByJob.delete(String(current.id));
         return manager.get(current.id);
       }
 
       // A due Job may have been durably de-armed and moved to `starting` while a
-      // user cancellation that began from the pending state was waiting for this
-      // lifecycle lock. Stop it here before runtime preflight can reach a target.
+      // cancellation that began from the pending state was waiting on the same lock.
+      // Stop it before runtime preflight can reach any target.
       if (current.state === 'starting' || current.state === 'stopping') {
         cancelTimers();
+        durableCreationByJob.delete(String(current.id));
         return manager.markStopped(current.id, {
           current: current.current,
           ok: current.ok,
@@ -169,6 +173,32 @@
     });
   }
 
+  function trackScheduledCreation(job) {
+    if (!job?.id || job.state !== 'scheduled') return null;
+    const id = String(job.id);
+    if (durableCreationByJob.has(id)) return durableCreationByJob.get(id);
+    // manager.emit is synchronous, so this Promise is installed while register() is
+    // still on the stack. Runtime may arm its timer immediately afterwards, but the
+    // registry's beforeDue gate can already await this exact durability result.
+    const tracked = ensureScheduledDurable(job).then(() => true, () => false);
+    durableCreationByJob.set(id, tracked);
+    return tracked;
+  }
+
+  async function awaitScheduledDurable(jobId) {
+    const id = String(jobId || '');
+    if (!id) return false;
+    const manager = window.GeekBroadcastJobs;
+    const current = manager?.get(id);
+    if (!current || TERMINAL.has(current.state) || dearmedJobIds.has(id)) return false;
+    let tracked = durableCreationByJob.get(id);
+    if (!tracked && PENDING.has(current.state)) tracked = trackScheduledCreation(current);
+    if (!tracked) return false;
+    const ok = await tracked;
+    const latest = manager?.get(id);
+    return ok && !!latest && PENDING.has(latest.state) && !dearmedJobIds.has(id);
+  }
+
   function duePendingJob(manager, accountId) {
     return manager?.getPending(accountId).find(job =>
       job.state === 'queued' || (job.state === 'scheduled' && Number(job.scheduledAt) <= Date.now())
@@ -213,6 +243,9 @@
       claimed = await withJobLifecycle(due.id, async () => {
         let current = manager.get(due.id);
         if (!current || TERMINAL.has(current.state) || !PENDING.has(current.state)) return null;
+        if (!(await awaitScheduledDurable(current.id))) return null;
+        current = manager.get(current.id);
+        if (!current || TERMINAL.has(current.state) || !PENDING.has(current.state)) return null;
         if (manager.hasActive(current.accountId)) {
           if (current.state === 'scheduled') current = manager.transition(current.id, 'queued');
           try { await persistAccount(current.accountId); } catch (_) {}
@@ -221,9 +254,10 @@
         if (current.state === 'scheduled') current = manager.transition(current.id, 'queued');
 
         // The durable record is removed and fsynced by accountData *before* the Job
-        // can become executable. A crash after this point may lose the scheduled run,
-        // but can never auto-replay it from target zero after restart.
+        // becomes executable. A crash after this point may require manual recreation,
+        // but it cannot auto-replay this scheduled Job from target zero after restart.
         await dearmUnlocked(current);
+        durableCreationByJob.delete(String(current.id));
         current = manager.transition(current.id, 'starting');
         return current;
       });
@@ -235,9 +269,8 @@
 
     if (!claimed) return null;
 
-    // Give a cancellation that started while the Job was still pending a chance to
-    // acquire the same lifecycle lock. Its provisional stop control marks `starting`
-    // terminal before runtime can reach the executor/sendTarget path.
+    // Give a cancellation that began while the Job was pending a chance to acquire
+    // the lifecycle lock before runtime enters executor/sendTarget.
     await Promise.resolve();
     const latestBeforeRun = manager.get(claimed.id);
     if (!latestBeforeRun || latestBeforeRun.state !== 'starting') return latestBeforeRun || null;
@@ -258,6 +291,7 @@
     const manager = window.GeekBroadcastJobs;
     if (!runtime || !manager || !job) return;
     attachPendingControls(job);
+    trackScheduledCreation(job);
     if (job.state === 'queued' || Number(job.scheduledAt) <= Date.now()) {
       setTimeout(() => void startDueForAccount(job.accountId).catch(() => {}), 1000);
       return;
@@ -332,15 +366,20 @@
     manager.subscribe(event => {
       const job = event?.job;
       if (!job?.accountId) return;
-      // Initial scheduled creation is deliberately excluded: startFromEditor must
-      // explicitly await ensureScheduledDurable() before arming any executable timer.
+      if (event.type === 'created' && job.state === 'scheduled') {
+        trackScheduledCreation(job);
+        return;
+      }
+      if (TERMINAL.has(job.state)) {
+        durableCreationByJob.delete(String(job.id || ''));
+      }
       if (job.state !== 'queued' && job.state !== 'running' && !TERMINAL.has(job.state)) return;
       queueMicrotask(() => {
         void persistAccount(job.accountId).then(() => {
           if (TERMINAL.has(job.state)) dearmedJobIds.delete(String(job.id || ''));
         }).catch(() => {
-          // Pending cancellation/execution has its own awaited durable de-arm. Other
-          // observer writes are best-effort mirrors and must never create a send path.
+          // Creation, cancellation and execution have awaited durable gates. Other
+          // subscriber writes are mirrors only and cannot authorize a send path.
         });
       });
     });
@@ -349,6 +388,7 @@
       restore,
       persistAccount,
       ensureScheduledDurable,
+      awaitScheduledDurable,
       dearmForExecution,
       cancelPendingDurably,
       startDueForAccount,
