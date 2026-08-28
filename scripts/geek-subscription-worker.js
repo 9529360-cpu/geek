@@ -4,6 +4,7 @@ import {
   scopePendingOrderReuse,
 } from './subscription-order-pay-method.mjs';
 import {
+  isLegacyRateLimitBypass,
   rateLimitRuleForRequest,
   requestRateLimited,
   scopeLegacyRateLimitBypass,
@@ -49,18 +50,16 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     let scopedEnv = env;
+    const db = env.geek_subscriptions;
 
-    // The core Worker still contains its legacy multi-statement limiter. Make the
-    // shared one-statement gate authoritative first, then scope only this request's
-    // rate-limit SQL to no-ops so the core cannot double-count the same attempt.
-    if (rateLimitRuleForRequest(request)) {
-      if (await requestRateLimited(request, env.geek_subscriptions)) {
+    // Direct calls to this wrapper still get the shared atomic gate. When the
+    // production outer entry already gated the request it passes the marked bypass
+    // database, so this layer must not consume a second attempt from the same bucket.
+    if (rateLimitRuleForRequest(request) && !isLegacyRateLimitBypass(db)) {
+      if (await requestRateLimited(request, db)) {
         return json({ error: 'rate_limited' }, 429);
       }
-      scopedEnv = withSubscriptionDatabase(
-        env,
-        scopeLegacyRateLimitBypass(env.geek_subscriptions)
-      );
+      scopedEnv = withSubscriptionDatabase(env, scopeLegacyRateLimitBypass(db));
     }
 
     if (request.method !== 'POST' || url.pathname !== '/api/orders') {
