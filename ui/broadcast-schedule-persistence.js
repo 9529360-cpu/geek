@@ -77,6 +77,16 @@
     return manager.markFailed(due.id, error);
   }
 
+  function failScheduledPersistence(job, cause) {
+    const manager = window.GeekBroadcastJobs;
+    const current = manager?.get(job?.id);
+    if (!current || current.state !== 'scheduled' || dearmedJobIds.has(String(current.id || ''))) return null;
+    const error = new Error('定时任务保存失败，任务已停止。请检查磁盘/系统安全存储后重新创建。');
+    error.code = 'BROADCAST_SCHEDULE_PERSIST_FAILED';
+    error.cause = cause;
+    return manager.markFailed(current.id, error);
+  }
+
   function scheduleRetry(accountId, previousAttempts = 0) {
     const id = String(accountId || '');
     const previous = restoreRetries.get(id);
@@ -198,10 +208,12 @@
         queueMicrotask(() => {
           void persistAccount(job.accountId).then(() => {
             if (['completed', 'stopped', 'failed'].includes(job.state)) dearmedJobIds.delete(String(job.id || ''));
-          }).catch(() => {
-            // Explicit scheduled creation and due execution both have awaited durable
-            // gates. Background state refreshes are best-effort and must not become
-            // unhandled renderer rejections.
+          }).catch(error => {
+            // Creation of a scheduled Job must not silently look durable when the
+            // encrypted account store rejected it. Mark it terminal; runtime terminal
+            // cleanup removes any persistent attachment refs and the scheduler guard
+            // cancels the corresponding timer.
+            failScheduledPersistence(job, error);
           });
         });
       }
