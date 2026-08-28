@@ -25,6 +25,8 @@ const LEGACY_RATE_LIMIT_SQL = Object.freeze({
   increment: 'UPDATE rate_limits SET count = count + 1, updated_at = ? WHERE bucket = ?',
 });
 
+const RATE_LIMIT_BYPASS_MARKER = Symbol.for('geek.atomicRateLimitBypass');
+
 function normalizeSql(value) {
   return String(value || '').replace(/\s+/g, ' ').trim().replace(/;$/, '');
 }
@@ -78,7 +80,7 @@ function createLegacyBypassStatement(kind) {
   const prepared = {
     bind() { return prepared; },
     async first() {
-      // Make the legacy core believe a zero-count row already exists so it reaches
+      // Make the legacy limiter believe a zero-count row already exists so it reaches
       // its UPDATE branch; that UPDATE is also a no-op here. The shared atomic gate
       // has already made the only authoritative decision for this request.
       return kind === 'selectCount' ? { count: 0 } : null;
@@ -96,10 +98,16 @@ function createLegacyBypassStatement(kind) {
   return prepared;
 }
 
+function isLegacyRateLimitBypass(db) {
+  try { return Boolean(db?.[RATE_LIMIT_BYPASS_MARKER]); } catch { return false; }
+}
+
 function scopeLegacyRateLimitBypass(db) {
   if (!db || typeof db.prepare !== 'function') throw new TypeError('D1 database is required');
+  if (isLegacyRateLimitBypass(db)) return db;
   return new Proxy(db, {
     get(target, property, receiver) {
+      if (property === RATE_LIMIT_BYPASS_MARKER) return true;
       if (property === 'prepare') {
         return (sql) => {
           const kind = LEGACY_SQL_KIND.get(normalizeSql(sql));
@@ -116,9 +124,11 @@ export {
   AUTH_RATE_LIMIT_RULES,
   ATOMIC_RATE_LIMIT_SQL,
   LEGACY_RATE_LIMIT_SQL,
+  RATE_LIMIT_BYPASS_MARKER,
   clientIp,
   rateLimitRuleForRequest,
   rateLimited,
   requestRateLimited,
+  isLegacyRateLimitBypass,
   scopeLegacyRateLimitBypass,
 };
