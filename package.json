@@ -8,8 +8,8 @@
     "test": "node scripts/run-tests.cjs",
     "start": "electron .",
     "electron:install": "install-electron --no",
-    "pack": "npm run electron:install && npm run integrity:generate && electron-builder --win --dir",
-    "dist:test": "npm run electron:install && npm run integrity:generate && electron-builder --win --publish never",
+    "pack": "npm run electron:install && npm run integrity:generate && electron-builder --config electron-builder.validation.yml --win --dir",
+    "dist:test": "npm run electron:install && npm run integrity:generate && electron-builder --config electron-builder.validation.yml --win --publish never",
     "dist": "node scripts/release-build.cjs",
     "integrity:generate": "node scripts/generate-unpacked-integrity.cjs"
   },
