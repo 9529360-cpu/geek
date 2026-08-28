@@ -68,9 +68,9 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
 
   function releaseMaterialized(ownerId, accountId, taskId) {
     const key = materializedKey(ownerId, accountId, taskId);
-    const tokens = materializedByTask.get(key) || [];
+    const record = materializedByTask.get(key);
     materializedByTask.delete(key);
-    return ephemeralRegistry.releaseMany(tokens, ownerId);
+    return record ? ephemeralRegistry.releaseMany(record.tokens, record.ownerId) : 0;
   }
 
   function releaseMaterializedAccount(accountId) {
