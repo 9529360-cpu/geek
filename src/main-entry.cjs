@@ -15,6 +15,7 @@ const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-bro
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
+const { installAccountScopedWebviewNavigationBoundary } = require('./webview-navigation-boundary.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -45,6 +46,12 @@ if (primaryInstance) {
   // Electron documents Session.storagePath instead. Install a narrow read-only
   // compatibility getter before main.cjs can create or classify any account guest.
   const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
+
+  // Legacy post-attach navigation uses a global host allowlist. Add a stricter
+  // account-guest boundary before any BrowserWindow/WebView is created: the first
+  // trusted attached destination fixes the platform/site family for that partition,
+  // and later navigation/popups cannot widen it to another account or platform.
+  installAccountScopedWebviewNavigationBoundary({ app });
 
   // The legacy external attachment transport selects the first platform target and
   // has no reliable account partition binding. Keep the developer remote-debug port
