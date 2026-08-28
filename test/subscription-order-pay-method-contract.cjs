@@ -65,7 +65,16 @@ function normalizeSql(value) {
     '兼容层锁定的旧 pending 查询必须继续对应核心 Worker 的实际查询'
   );
   assert.match(wrapperSource, /hasOwnProperty\.call\(body, 'pay_method'\)/, '必须区分省略字段与显式非法值');
-  assert.match(wrapperSource, /scopePendingOrderReuse\(env\.geek_subscriptions, payMethod\)/);
+  assert.match(
+    wrapperSource,
+    /scopePendingOrderReuse\(scopedEnv\.geek_subscriptions, payMethod\)/,
+    '支付方式兼容层必须叠加在当前请求已经建立的安全 D1 scope 上'
+  );
+  assert.match(
+    wrapperSource,
+    /return coreWorker\.fetch\(request, withSubscriptionDatabase\(scopedEnv, scopedDb\), ctx\)/,
+    '支付方式 scope 必须继续传入核心 Worker，不能丢失已有请求级 DB guard'
+  );
   assert.match(wrapperSource, /new URL\('\/api\/me', request\.url\)/, '非法支付方式不得绕过原有用户鉴权');
   assert.doesNotMatch(wrapperSource, /release-client-version|package\.json/, '后端修复不得触碰客户端发布边界');
 
