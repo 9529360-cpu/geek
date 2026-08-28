@@ -10,6 +10,7 @@
   const TERMINAL = new Set(['completed', 'stopped', 'failed']);
   const PENDING = new Set(['scheduled', 'queued']);
   let installed = false;
+  let restoringJob = false;
   const restoreRetries = new Map();
   const dearmedJobIds = new Set();
   const lifecycleByJob = new Map();
@@ -111,18 +112,17 @@
       };
 
       if (PENDING.has(current.state)) {
-        // A user's cancel is not committed in memory/UI until the durable auto-replay
-        // record is removed. If storage rejects the write, manager.invoke propagates
-        // the error and leaves the Job pending rather than creating a resurrection gap.
+        // Commit cancellation to durable storage before manager.invoke exposes stopped.
+        // If storage rejects the write, the Job remains pending instead of reappearing
+        // after restart despite a visible successful cancel.
         await dearmUnlocked(current);
         cancelTimers();
         durableCreationByJob.delete(String(current.id));
         return manager.get(current.id);
       }
 
-      // A due Job may have been durably de-armed and moved to `starting` while a
-      // cancellation that began from the pending state was waiting on the same lock.
-      // Stop it before runtime preflight can reach any target.
+      // A due Job may have become `starting` while a pending cancellation waited for
+      // this lifecycle lock. Stop it before runtime preflight can reach any target.
       if (current.state === 'starting' || current.state === 'stopping') {
         cancelTimers();
         durableCreationByJob.delete(String(current.id));
@@ -177,12 +177,17 @@
     if (!job?.id || job.state !== 'scheduled') return null;
     const id = String(job.id);
     if (durableCreationByJob.has(id)) return durableCreationByJob.get(id);
-    // manager.emit is synchronous, so this Promise is installed while register() is
-    // still on the stack. Runtime may arm its timer immediately afterwards, but the
-    // registry's beforeDue gate can already await this exact durability result.
+    // manager.emit is synchronous, so the Promise exists before register() returns.
+    // A near-immediate timer can therefore wait on the same durability result.
     const tracked = ensureScheduledDurable(job).then(() => true, () => false);
     durableCreationByJob.set(id, tracked);
     return tracked;
+  }
+
+  function markRestoredDurable(job) {
+    if (!job?.id || !PENDING.has(job.state)) return;
+    attachPendingControls(job);
+    durableCreationByJob.set(String(job.id), Promise.resolve(true));
   }
 
   async function awaitScheduledDurable(jobId) {
@@ -191,8 +196,7 @@
     const manager = window.GeekBroadcastJobs;
     const current = manager?.get(id);
     if (!current || TERMINAL.has(current.state) || dearmedJobIds.has(id)) return false;
-    let tracked = durableCreationByJob.get(id);
-    if (!tracked && PENDING.has(current.state)) tracked = trackScheduledCreation(current);
+    const tracked = durableCreationByJob.get(id);
     if (!tracked) return false;
     const ok = await tracked;
     const latest = manager?.get(id);
@@ -238,14 +242,17 @@
     const due = duePendingJob(manager, accountId);
     if (!due) return null;
 
+    // Initial creation durability is awaited outside the lifecycle lock. New scheduled
+    // jobs have a tracked Promise installed synchronously by their `created` event;
+    // restored jobs are explicitly marked durable from their already-persisted record.
+    if (!(await awaitScheduledDurable(due.id))) return null;
+
     let claimed;
     try {
       claimed = await withJobLifecycle(due.id, async () => {
         let current = manager.get(due.id);
         if (!current || TERMINAL.has(current.state) || !PENDING.has(current.state)) return null;
         if (!(await awaitScheduledDurable(current.id))) return null;
-        current = manager.get(current.id);
-        if (!current || TERMINAL.has(current.state) || !PENDING.has(current.state)) return null;
         if (manager.hasActive(current.accountId)) {
           if (current.state === 'scheduled') current = manager.transition(current.id, 'queued');
           try { await persistAccount(current.accountId); } catch (_) {}
@@ -253,9 +260,9 @@
         }
         if (current.state === 'scheduled') current = manager.transition(current.id, 'queued');
 
-        // The durable record is removed and fsynced by accountData *before* the Job
-        // becomes executable. A crash after this point may require manual recreation,
-        // but it cannot auto-replay this scheduled Job from target zero after restart.
+        // Remove the durable auto-replay record before the Job becomes executable.
+        // Crash after this boundary may require manual recreation but cannot replay
+        // the same scheduled Job from target zero on restart.
         await dearmUnlocked(current);
         durableCreationByJob.delete(String(current.id));
         current = manager.transition(current.id, 'starting');
@@ -269,8 +276,8 @@
 
     if (!claimed) return null;
 
-    // Give a cancellation that began while the Job was pending a chance to acquire
-    // the lifecycle lock before runtime enters executor/sendTarget.
+    // Let a cancellation already queued behind the lifecycle lock stop `starting`
+    // before runtime can enter executor/sendTarget.
     await Promise.resolve();
     const latestBeforeRun = manager.get(claimed.id);
     if (!latestBeforeRun || latestBeforeRun.state !== 'starting') return latestBeforeRun || null;
@@ -290,8 +297,7 @@
     const runtime = window.GeekBroadcastRuntimeInstance;
     const manager = window.GeekBroadcastJobs;
     if (!runtime || !manager || !job) return;
-    attachPendingControls(job);
-    trackScheduledCreation(job);
+    markRestoredDurable(job);
     if (job.state === 'queued' || Number(job.scheduledAt) <= Date.now()) {
       setTimeout(() => void startDueForAccount(job.accountId).catch(() => {}), 1000);
       return;
@@ -339,6 +345,7 @@
         const scheduledAt = Number(record.scheduledAt);
         if (!Number.isFinite(scheduledAt)) continue;
         try {
+          restoringJob = true;
           const job = manager.register({
             ...record,
             accountId: String(account.id),
@@ -350,10 +357,13 @@
             scheduledAt,
           });
           armRestored(job);
-        } catch (_) {}
+        } catch (_) {
+        } finally {
+          restoringJob = false;
+        }
       }
       // One damaged/unwritable account sandbox must not abort restoration for other
-      // accounts. Existing on-disk records remain the fail-closed source next launch.
+      // accounts. Existing records remain the fail-closed source on the next launch.
       try { await persistAccount(account.id); } catch (_) {}
     }
   }
@@ -366,13 +376,11 @@
     manager.subscribe(event => {
       const job = event?.job;
       if (!job?.accountId) return;
-      if (event.type === 'created' && job.state === 'scheduled') {
+      if (!restoringJob && event.type === 'created' && job.state === 'scheduled') {
         trackScheduledCreation(job);
         return;
       }
-      if (TERMINAL.has(job.state)) {
-        durableCreationByJob.delete(String(job.id || ''));
-      }
+      if (TERMINAL.has(job.state)) durableCreationByJob.delete(String(job.id || ''));
       if (job.state !== 'queued' && job.state !== 'running' && !TERMINAL.has(job.state)) return;
       queueMicrotask(() => {
         void persistAccount(job.accountId).then(() => {
