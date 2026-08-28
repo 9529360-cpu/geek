@@ -100,10 +100,6 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
       taskId,
       filePaths: selected.map(file => file.filePath),
     });
-    // Once durable refs are committed, the picker capabilities are no longer part
-    // of the scheduled Job. Release them immediately instead of holding registry
-    // slots until their idle TTL expires.
-    ephemeralRegistry.releaseMany(tokens, ownerId);
     return refs.map(ref => ({ ref: ref.ref, name: ref.name, size: ref.size, mime: ref.mime }));
   });
 
