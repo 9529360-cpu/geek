@@ -99,7 +99,7 @@
   // WhatsApp chat navigation rehydration is intentionally isolated from app.js.
   // The module only asks the already-installed translation renderer to rescan when
   // WhatsApp changes active chat; actual text/cache ownership remains in main process.
-  if (!document.querySelector('script[data-geek-translation-rehydrate]')) {
+  if (typeof document !== 'undefined' && !document.querySelector('script[data-geek-translation-rehydrate]')) {
     const script = document.createElement('script');
     script.src = './translation-whatsapp-rehydrate.js';
     script.defer = true;
