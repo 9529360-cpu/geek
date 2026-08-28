@@ -40,6 +40,12 @@
     return { account, wv, platform, adapter: platform.transport };
   }
 
+  function liveGuestId(ctx) {
+    if (!ctx?.wv || typeof ctx.wv.getWebContentsId !== 'function') return null;
+    const id = Number(ctx.wv.getWebContentsId());
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+
   function currentDraftFiles(accountId = activeAccountId()) {
     const id = String(accountId || '');
     if (!draftFilesByAccount.has(id)) draftFilesByAccount.set(id, []);
@@ -284,6 +290,7 @@
     const adapter = ctx.adapter;
     const files = executionFiles(job);
     const vcards = Array.isArray(job.vcards) ? job.vcards : [];
+    const guestId = liveGuestId(ctx);
     let sent = 'NO_SEND';
     let composer = 'NO_SET';
     if (adapter.sendDirect) {
@@ -316,11 +323,11 @@
         const openGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId, targetChatId: target.id, composerResult: 'NO_SET', needsComposer: false });
         if (!openGuard.ok) return { ok: false, reason: `ERR:${openGuard.reason}` };
         if (ctx.platform.family === 'telegram') {
-          sent = await window.api.broadcast.sendTelegramAttachments({ partition: job.partition, guestId: job.guestId, targetChatId: target.id, caption: message, files });
+          sent = await window.api.broadcast.sendTelegramAttachments({ partition: job.partition, guestId, targetChatId: target.id, caption: message, files });
           return sent === 'SENT' || sent === 'CLICKED' ? { ok: true } : { ok: false, reason: String(sent || 'TG_NATIVE_ATTACH_FAILED') };
         }
         for (const file of files) {
-          const dropped = await window.api.broadcast.dropFile({ partition: job.partition, filePath: file.filePath, mime: file.mime, platform: ctx.platform.family, guestId: ctx.platform.family === 'line' ? job.guestId : undefined });
+          const dropped = await window.api.broadcast.dropFile({ partition: job.partition, filePath: file.filePath, mime: file.mime, platform: ctx.platform.family, guestId: ctx.platform.family === 'line' ? guestId : undefined });
           if (dropped !== true) return { ok: false, reason: typeof dropped === 'string' ? dropped : 'ERR:文件未进入发送面板' };
           await new Promise(resolve => setTimeout(resolve, ctx.platform.family === 'line' ? 500 : 3000));
         }
@@ -605,7 +612,7 @@
     });
   }
 
-  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization });
+  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId });
 });
 
 if (typeof window !== 'undefined') {
