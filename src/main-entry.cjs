@@ -13,6 +13,7 @@ const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.c
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
 const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-broadcast-attachment-boundary.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
+const { externalDebuggingAllowed, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -37,7 +38,15 @@ if (primaryInstance) {
   const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
     getAllWebContents: () => webContents.getAllWebContents(),
   });
-  const externalDebuggingRequested = process.argv.some((arg) => /^--remote-debugging-port(?:=|$)/.test(String(arg || '')));
+  const externalDebuggingRequested = externalDebuggingAllowed({
+    isPackaged: app.isPackaged,
+    argv: process.argv,
+  });
+
+  // main.cjs still contains the legacy localhost probe for the explicit development
+  // debugger path. Fail closed before loading it: packaged clients and normal dev
+  // launches cannot switch transport merely because another local process owns 9344.
+  installExternalDebuggingProbeGuard({ allowed: externalDebuggingRequested });
 
   // Install the selected-file capability boundary before main.cjs registers IPC.
   const broadcastFileBoundary = installBroadcastFileBoundary({
