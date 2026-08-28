@@ -9,7 +9,7 @@ const runtime = fs.readFileSync(path.join(__dirname, '../ui/broadcast-runtime.js
 const controller = fs.readFileSync(path.join(__dirname, '../ui/broadcast-job-controller.js'), 'utf8');
 const index = fs.readFileSync(path.join(__dirname, '../ui/index.html'), 'utf8');
 
-assert.ok(index.indexOf('broadcast-ui-model.js') < index.indexOf('app.js'), 'the UI model must load before app handlers use it');
+assert.ok(index.indexOf('<script src="broadcast-ui-model.js"></script>') < index.indexOf('<script src="app.js"></script>'), 'the UI model must load before app handlers use it');
 assert.match(app, /accountData\.set\(accountId, key, raw\)\.then\(\(\) => true\)/, 'account writes must report confirmed success');
 assert.match(app, /accountSandboxWriteSequence\.get\(writeKey\) === sequence/, 'a stale failed write must not roll back a newer account-scoped value');
 assert.match(app, /persistBeforeCommit\(next,[\s\S]*accountStorageSetItem\('savedMessages'/, 'message templates must persist before UI commit');
