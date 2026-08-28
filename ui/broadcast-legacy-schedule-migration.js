@@ -59,9 +59,6 @@
         reviewRecord(needsReview, legacyId, task, task.groupId ? '群组集合已不存在' : '旧任务未持久化收件人，需要重新确认');
         continue;
       }
-      // Legacy saved group sets persisted chat IDs only. They did not persist the names
-      // needed by %nc/%nr, so auto-migrating those messages would either leak IDs into
-      // user copy or silently blank personalization. Fail closed and ask for review.
       if (usesRecipientNameVariables(task.message)) {
         reviewRecord(needsReview, legacyId, task, '旧群组集合只保存了聊天 ID，但消息使用了联系人名称变量，请重新确认收件人与消息');
         continue;
@@ -87,24 +84,52 @@
     return { legacy, migrated, needsReview };
   }
 
+  function interruptedReview(legacy, existingReview) {
+    const review = Array.isArray(existingReview) ? existingReview.map(item => ({ ...item })) : [];
+    for (const task of legacy) {
+      const scheduledAt = futureTime(task);
+      if (!scheduledAt || !task?.message) continue;
+      const legacyId = String(task.id || `legacy-${scheduledAt}`);
+      reviewRecord(review, legacyId, task, '旧定时任务迁移曾被中断；为避免重复发送，旧执行已停止，请确认后重新创建任务');
+    }
+    return review;
+  }
+
   async function migrateAccount(account) {
     const data = await window.api.accountData.getAll(account.id);
     const result = migrateRecords(account, data || {});
-    if (!result.legacy.length) return { changed: false, review: result.needsReview.length };
+    if (!result.legacy.length) return { changed: false, review: result.needsReview.length, interrupted: false };
+
     const backup = {
       migratedAt: Date.now(),
       source: OLD_KEY,
       tasks: result.legacy,
     };
+    const safetyReview = interruptedReview(result.legacy, result.needsReview);
+
+    // No cross-key transaction exists in accountData. Publish a durable backup and
+    // a conservative review record first. Only then disable the legacy executable
+    // key. The new executable schedule is written *after* old execution is disabled,
+    // so a crash can lose automatic execution (recoverable from backup/review) but
+    // can never leave legacy + new schedules simultaneously executable.
     await window.api.accountData.set(account.id, BACKUP_KEY, JSON.stringify(backup));
-    await window.api.accountData.set(account.id, NEW_KEY, JSON.stringify(result.migrated));
-    await window.api.accountData.set(account.id, REVIEW_KEY, JSON.stringify(result.needsReview));
-    // Clearing the old key is intentional only after a backup and replacement/review
-    // record are durable. This prevents legacy armScheduleTasks/fireScheduledTask from
-    // bypassing the account-scoped Job Manager.
-    await window.api.accountData.set(account.id, OLD_KEY, '[]');
-    await window.api.accountData.set(account.id, MARKER_KEY, String(Date.now()));
-    return { changed: true, review: result.needsReview.length };
+    await window.api.accountData.set(account.id, REVIEW_KEY, JSON.stringify(safetyReview));
+
+    let legacyDisabled = false;
+    try {
+      await window.api.accountData.set(account.id, OLD_KEY, '[]');
+      legacyDisabled = true;
+      await window.api.accountData.set(account.id, NEW_KEY, JSON.stringify(result.migrated));
+      await window.api.accountData.set(account.id, REVIEW_KEY, JSON.stringify(result.needsReview));
+      await window.api.accountData.set(account.id, MARKER_KEY, String(Date.now()));
+      return { changed: true, review: result.needsReview.length, interrupted: false };
+    } catch (error) {
+      if (!legacyDisabled) throw error;
+      // Old execution is already disabled. Keep the conservative review record and
+      // report changed=true so migrateAll clears any legacy timers already armed in
+      // this renderer session. Do not re-enable the old key and do not guess a retry.
+      return { changed: true, review: safetyReview.length, interrupted: true };
+    }
   }
 
   async function migrateAll() {
@@ -112,11 +137,13 @@
     const accounts = listed?.accounts || listed || [];
     let changed = false;
     let review = 0;
+    let interrupted = 0;
     for (const account of accounts) {
       try {
         const result = await migrateAccount(account);
         changed = changed || result.changed;
         review += result.review;
+        if (result.interrupted) interrupted += 1;
       } catch (_) {}
     }
     if (changed) {
@@ -126,7 +153,7 @@
       setTimeout(() => document.querySelector('.nav-account.active .nav-account-main')?.click(), 0);
       setTimeout(() => window.GeekBroadcastSchedulePersistenceInstance?.restore?.(), 50);
     }
-    return { changed, review };
+    return { changed, review, interrupted };
   }
 
   async function renderReviewNotice(accountId) {
@@ -170,7 +197,7 @@
     window.GeekBroadcastLegacyScheduleMigrationInstance = Object.freeze({ migrateAll, migrateAccount, renderReviewNotice });
   }
 
-  return Object.freeze({ OLD_KEY, NEW_KEY, BACKUP_KEY, REVIEW_KEY, MARKER_KEY, migrateRecords, usesRecipientNameVariables, install });
+  return Object.freeze({ OLD_KEY, NEW_KEY, BACKUP_KEY, REVIEW_KEY, MARKER_KEY, migrateRecords, interruptedReview, install });
 });
 
 if (typeof window !== 'undefined') {
