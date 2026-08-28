@@ -21,12 +21,19 @@ assert.equal(api.stepForCard({ classList: { contains: name => name === 'bc-revie
 assert.equal(typeof audienceApi.relabelRecipientPresets, 'function');
 assert.equal(typeof audienceApi.retireLegacyScheduler, 'function');
 
-assert.match(workbench, /closest\?\.\('#bc-menu-send'\)/, 'workbench must gate the real broadcast editor entrypoint');
-assert.match(workbench, /window\.WAPLUS_WPP\|\|window\.WPP/, 'WhatsApp readiness must use the existing injected WPP bridge');
-assert.match(workbench, /typeof W\.chat\.list!==['"]function['"]/, 'readiness requires the chat-list capability before opening the editor');
-assert.match(workbench, /await W\.chat\.list\(\)/, 'readiness must prove the chat-list call is executable, not only that a global exists');
-assert.match(workbench, /attempts[^\n]*18/, 'readiness retries must remain bounded');
-assert.match(workbench, /WhatsApp 群发组件仍在初始化，可直接重试/, 'bounded readiness timeout must be presented as initialization, not a false send failure');
+// Workbench is presentation only. It must never hold the legacy editor entrypoint
+// hostage while probing WPP/readiness. Contact loading belongs to the existing
+// broadcast app/runtime path and may update inline status after the modal opens.
+assert.doesNotMatch(workbench, /closest\?\.\('#bc-menu-send'\)/, 'workbench must not intercept the broadcast editor entrypoint');
+assert.doesNotMatch(workbench, /stopImmediatePropagation\s*\(/, 'workbench must not synchronously block the original broadcast open handler');
+assert.doesNotMatch(workbench, /preventDefault\s*\(/, 'workbench must not cancel the original broadcast open action');
+assert.doesNotMatch(workbench, /prepareAndReopen|awaitBroadcastReadiness|probeWhatsAppReadiness/, 'workbench must not duplicate transport/readiness orchestration');
+assert.doesNotMatch(workbench, /window\.WAPLUS_WPP\s*\|\|\s*window\.WPP/, 'presentation layer must not directly probe the WhatsApp runtime');
+assert.match(workbench, /getElementById\(['"]broadcast-overlay['"]\)/, 'workbench should enhance the already-open broadcast overlay');
+assert.match(workbench, /getElementById\(['"]broadcast-meta['"]\)/, 'contact readiness feedback should follow the existing broadcast loader state');
+assert.match(workbench, /正在后台同步联系人与群组，可继续编辑消息/, 'loading feedback must explicitly remain non-blocking');
+assert.match(workbench, /联系人暂未就绪，不影响编辑/, 'contact errors must stay scoped to the contact area instead of freezing the editor');
+
 assert.match(workbench, /\['content', 'audience', 'settings', 'review'\]/, 'the editor must expose the four-stage creation flow');
 assert.match(workbench, /固定受众快照/, 'review must preserve fixed-audience schedule semantics');
 assert.match(workbench, /GeekBroadcastJobs/, 'task center must consume the existing account-scoped Job manager');
@@ -35,7 +42,7 @@ assert.match(workbench, /accountData\.getAll\(accountId\)/, 'task center history
 assert.match(workbench, /sendHistory/, 'task center may summarize the existing encrypted send history');
 assert.doesNotMatch(workbench, /message\s*:\s*item\.message|history[^\n]*msg\b/, 'task history UI must not persist or reconstruct chat message bodies');
 assert.match(workbench, /prefers-reduced-motion:reduce/, 'motion must respect reduced-motion preferences');
-assert.match(workbench, /setAttribute\(['"]role['"],\s*['"]status['"]\)/, 'initialization feedback must be accessible status content');
+assert.match(workbench, /setAttribute\(['"]role['"],\s*['"]status['"]\)/, 'inline readiness feedback must be accessible status content');
 
 assert.match(audience, /保存收件人名单/, 'contacts and groups must have an explicit reusable recipient-list action');
 assert.match(audience, /保存群组集合/, 'group-only collections must be clearly named as group-only');
