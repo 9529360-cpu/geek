@@ -53,5 +53,5 @@ const accountBoundaryAt = mainEntry.indexOf('installAccountDataBoundary({');
 const mainAt = mainEntry.indexOf("require('./main.cjs')");
 assert.ok(profileAt >= 0 && setPathAt > profileAt && lockAt > setPathAt);
 assert.ok(fileBoundaryAt > lockAt && scheduledBoundaryAt > fileBoundaryAt && accountBoundaryAt > scheduledBoundaryAt && mainAt > accountBoundaryAt, 'all broadcast/account boundaries must remain behind the single-instance decision');
-assert.match(mainEntry, /if \(primaryInstance\) \{[\s\S]*installScheduledBroadcastAttachmentBoundary\([\s\S]*installAccountDataBoundary\([\s\S]*require\('\.\/main\.cjs'\);[\s\S]*\}/);
+assert.match(mainEntry, /if \(primaryInstance\) \{[\s\S]*installScheduledBroadcastAttachmentBoundary\([\s\S]*installAccountDataBoundary\([\s\S]*require\('\.\/main\.cjs'\)[\s\S]*\}/, 'legacy main bootstrap must remain inside the primary-instance boundary even when another startup gate awaits first');
 console.log('SINGLE_INSTANCE_CONTRACT_OK');

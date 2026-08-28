@@ -3,7 +3,7 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, webContents } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, webContents } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
@@ -14,6 +14,7 @@ const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
 const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-broadcast-attachment-boundary.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
+const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -39,6 +40,11 @@ if (primaryInstance) {
     getAllWebContents: () => webContents.getAllWebContents(),
   });
   const remoteDebuggingRequested = externalDebuggingRequested({ argv: process.argv });
+
+  // main.cjs still has legacy reads of webContents.session.partition, while current
+  // Electron documents Session.storagePath instead. Install a narrow read-only
+  // compatibility getter before main.cjs can create or classify any account guest.
+  const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
 
   // The legacy external attachment transport selects the first platform target and
   // has no reliable account partition binding. Keep the developer remote-debug port
@@ -95,5 +101,14 @@ if (primaryInstance) {
     },
   });
 
-  require('./main.cjs');
+  // Fail closed if Electron changes in a way that prevents safe partition recovery.
+  // Starting legacy main without the account partition key would collapse WPP and
+  // account-deletion bookkeeping back onto an empty partition string.
+  sessionPartitionCompat.ready
+    .then(() => require('./main.cjs'))
+    .catch((error) => {
+      const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'SESSION_PARTITION_COMPAT_FAILED');
+      console.error('[session-partition] startup blocked:', code.slice(0, 80));
+      app.quit();
+    });
 }
