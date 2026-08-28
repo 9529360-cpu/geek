@@ -52,12 +52,16 @@ function installAccountDataBoundary(options = {}) {
   if (!ipcMain || typeof ipcMain.handle !== 'function') throw new TypeError('ipcMain.handle is required');
   if (!BrowserWindow || typeof BrowserWindow.fromWebContents !== 'function') throw new TypeError('BrowserWindow is required');
   if (!uiEntryPath) throw new TypeError('uiEntryPath is required');
+  if (options.beforeAccountRemove !== undefined && typeof options.beforeAccountRemove !== 'function') {
+    throw new TypeError('beforeAccountRemove must be a function');
+  }
 
   const pathModule = options.pathModule || path;
   const fileURLToPathFn = options.fileURLToPath || fileURLToPath;
   const platform = options.platform || process.platform;
   const store = options.store || createAccountDataStore(options);
   const resolveAccountPartition = options.resolveAccountPartition || createAccountPartitionResolver(options);
+  const beforeAccountRemove = options.beforeAccountRemove || (async () => {});
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparablePath = (value) => platform === 'win32' ? value.toLowerCase() : value;
   const expectedRegistrations = new Set([...ACCOUNT_DATA_CHANNELS, REMOVE_ACCOUNT_CHANNEL]);
@@ -123,6 +127,10 @@ function installAccountDataBoundary(options = {}) {
       const partition = await resolveAccountPartition(accountId);
       await store.beginDelete(partition);
       try {
+        // Renderer has already stopped/cancelled this account's Jobs. Before the
+        // account partition is actually removed, clean durable main-process resources
+        // that live outside that partition. Any failure aborts account deletion.
+        await beforeAccountRemove({ event, accountId: String(accountId), partition });
         const response = await listener(event, accountId, ...rest);
         store.finalizeDelete(partition);
         return response;
