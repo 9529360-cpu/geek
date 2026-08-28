@@ -1,0 +1,40 @@
+# Validation-only Windows build. This identity must never replace or share
+# Chromium userData with the production Geek client.
+appId: com.stardust.geek.validation
+productName: 极客 验证版
+directories:
+  output: dist-validation-build
+electronDist: node_modules/electron/dist
+files:
+  - src/**/*
+  - ui/**/*
+  - resources/**/*
+  - build/icon.ico
+  - package.json
+  - '!data/**/*'
+  - '!resources/pragmaz-ext/**/*'
+asarUnpack:
+  - resources/extensions/**/*
+  - resources/bridge-preload.cjs
+icon: build/icon.ico
+
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
+# Intentionally no publish provider: validation builds must never connect to the
+# production updater channel or produce production updater metadata.
+extraMetadata:
+  geekRuntimeProfile: validation
+
+win:
+  target:
+    - nsis
+  artifactName: geek-validation-setup-${version}.exe
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
