@@ -1,111 +1,81 @@
 # Geek Agent Handoff
 
-> 当前施工现场只记录实时任务状态；长期规则见 `AGENTS.md`，可复制维护提示词见 `docs/GEEK-MAINTAINER-PROMPT.md`。任何旧 PR、Issue、测试安装包或本文件快照与实时 Git/CI 冲突时，以实时证据为准。HANDOFF 更新本身会产生新 HEAD，因此最终 CI 必须直接读取 GitHub Actions，不能由本文件自证。
-
 Updated: 2026-08-28
 
 ## 当前目标
 
-收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。当前优先恢复原群发附件/电子名片成熟行为，并封住新 Job Runtime 引入的整包重复发送、即时任务初始化卡死、跨账号草稿串用和重复 target 风险。只把 `ux/broadcast-account-jobs` 当作当前候选集成线；不得恢复、cherry-pick 或重新提供已被真实客户端否决的 `ux/broadcast-product-polish` 实现与测试安装包。
+继续收口 Draft PR #166 `feat: make broadcast runtime account-scoped`，把正式 1.2.16 当稳定参照。当前阶段是全库审计 + P0 根因修复，不提供旧否决测试包，不把 CI 绿灯等同于真实客户端通过。
 
-## 当前仓库状态
+## 实时仓库状态
 
-- 默认/基线分支：`master`。
-- 已验证 `master` HEAD：`4f6612dd30b00f0710cf0c51e2cee665948e2c80`。
-- `package.json.version`：`1.2.16`。
-- `.github/release-client-version`：`1.2.16`。
-- 当前任务分支：`ux/broadcast-account-jobs`。
-- 当前 PR：#166，Draft。
-- 已完成普通双父 merge `9c81a68059fd5a7219a54e17d34dddffaaa3573d`，把 `master@4f6612dd...` 的 PR #164 跨 Agent HANDOFF/运维文档体系并入本分支；未 force push、未历史重写。
-- merge 后 compare：ahead 115 / behind 0，merge base 已是最新 `master`；长期维护文档已与 `master` 对齐，业务 diff 仍是群发 runtime/contracts/docs，HANDOFF 保留当前任务现场。
-- #168 `feat: persist scheduled broadcast attachment refs` 已合并进本分支；当前 #166 已包含 durable scheduled attachment refs。
+- 默认分支：`master`
+- `master` HEAD：`b6e7a89d33f0f6504e9ba3bad6b5fa9960b0568b`
+- `package.json.version`：`1.2.16`
+- `.github/release-client-version`：`1.2.16`
+- 活跃集成分支：`ux/broadcast-account-jobs`
+- 当前 HEAD：`03ba3aa3cee4b2452c235409a3f4ec304430cf35`
+- PR：#166，Draft
+- compare：`master -> ux/broadcast-account-jobs` 为 ahead 147 / behind 0；merge base 已是当前 master。
+- `03ba3aa3` 是正常双父 merge commit：第一父 `f531d6ed...`（#206 内容对账结果），第二父 `master@b6e7a89d...`；未 force push、未历史重写。
 
 ## Task Queue
 
-| 优先级 | 状态 | 任务 | 完成条件 |
+| 优先级 | 状态 | 任务 | 证据/下一条件 |
 |---|---|---|---|
-| P0 | done | 修复群发 UI、常用消息、群组集合与受众模式 | 保存/删除真实落盘后提交 UI；无全局反馈吞噬；all/exclude 受众明确；新 Job 失败 CSV 可导出；GitHub 托管 CI 通过 |
-| P0 | done | 建立群发 UI 修复契约 | `docs/群发UI保存与标签修复契约-20260828.md` 覆盖 UI/数据/反馈/受众/失败导出与验收 oracle |
-| P0 | done | 修复 #166 附件回归与高风险发送状态 | WA 已成功附件不因后续失败重发；附件+名片/仅名片语义可用；即时初始化异常终态失败；target 去重；GitHub 托管 CI 通过 |
-| P0 | done | 建立本轮修复契约 | `docs/群发附件回归修复契约-20260828.md` 记录稳定需求 ID、验收 oracle、回滚和本机 CI 隔离边界 |
-| P1 | planned | 客户备注产品与数据设计 | 账号+平台+canonical chatId 隔离、仅本地加密、不会默认进入外发正文；独立于附件回归提交 |
-| P0 | done | 放弃被真实客户端否决的 `ux/broadcast-product-polish` 线 | 不合并、不 cherry-pick、不复用其实现和安装包 |
-| P0 | blocked | 删除已废弃远程 refs | 仅在存在正常 branch-delete 能力时删除；禁止 force-move 代替 |
-| P1 | done | 重新核对 #166 当前代码与 PR 描述 | runtime/contract、#168 合入事实、CI 和剩余实机门禁已对账 |
-| P1 | done | 将 #166 与最新 `master` 对账 | behind 0，冲突解决；`9c81a680...` 的 Linux/Windows CI 实际通过 |
-| P1 | blocked | #166 真实 Electron 客户端回归 | 当前 #166 基线完成多账号并发/切换/暂停继续停止/排队 drain/WebView 生命周期及 WA/TG/LINE 即时与定时附件路径验证 |
-| P1 | planned | #166 Ready / merge | 最终 HEAD CI 绿灯、仍与最新 `master` 对齐且真实客户端门禁满足 |
-| P1 | planned | 正式客户端发布 | 独立授权动作；本轮不发布 |
+| P0 | done | 验证/开发 profile 与正式 1.2.16 隔离 | #187 / #190；master 已包含 `geek-dev` / `geek-validation`、独立 validation appId/productName、无正式 updater publisher |
+| P0 | done | Electron 单实例保护 | #189 / #197；同 profile 不允许第二进程继续初始化 |
+| P0 | done | 远期定时 timer 溢出 | #191 / #193；长延迟分段 re-arm |
+| P0 | done | legacy schedule 迁移 fail-closed | #192 / #194；先禁旧执行再发布新任务，避免新旧双活 |
+| P0 | done | 新群发持久化 key 接入真实加密 account store | #195 / #196；不再只在 mock 层通过 |
+| P0 | done | 重启恢复 TG/LINE 附件重新绑定 live WebView guest | #198 / #199 |
+| P0 | done | scheduled attachment durable store 并发事务化 | #200 / #201；mutation/snapshot/write/rollback 串行 |
+| P0 | done | scheduled Job 创建/到期/取消 durable 生命周期门禁 | #202 / #203；创建先确认 durable，到期先 durable de-arm 再 `starting`，pending cancel 先 de-arm 再 terminal |
+| P0 | in_progress | 删除账号前停止/取消该账号 Broadcast Jobs 并清 durable refs | #204；已确认 `app.js` 当前先移除 WebView/UI account 再 `accounts.remove`，main-only barrier 会形成半删除状态；独立分支 `fix/204-account-removal-broadcast-barrier` 目前只实现 account-scoped attachment cleanup primitive，未合入 |
+| P1 | blocked | 当前最终候选真实 Windows Electron / WA / TG / LINE 回归 | 必须在最终 HEAD、独立 validation profile 上重新登录并验证 |
+| P1 | planned | #166 Ready / merge | 全库审计 P0 收口 + 当前 HEAD CI + 真实客户端 gate |
+| P1 | planned | 正式客户端发布 | 独立授权动作，本轮禁止 |
 
-## 已核对的实现事实
+## 本轮关键审计结论
 
-- 群发常用消息与群组集合改为 persist-before-commit：账号沙箱写入失败时不提交本地 UI 状态，并使用 single-flight guard 防止重复保存/删除。
-- `broadcast-ui-model.js` 统一规范化消息/集合记录，并明确 all/all-contacts/all-groups/exclude-contacts/exclude-groups 的基础受众；搜索框和旧 selection 不再决定全量/排除 Job 快照。
-- “清除集合筛选”只清筛选、不清当前 selected chats；Job controller 不再全局覆盖 `window.alert`。
-- 新 Job 任务条直接从 immutable Job failure records 展示并导出 CSV，不再依赖 legacy `broadcastFailed`。
-- 2026-08-28 修复线新增 `ui/broadcast-delivery.js`：WA direct 附件按单文件重试，已确认成功文件不重放；正文只绑定最后一个附件；附件全成功后名片只发送一次；仅名片是有效内容。
-- TG 原生附件批次和 LINE/其他非 direct 文件注入退出目标级整体重试循环，避免不明确结果导致整批重复发送。
-- 群发编辑器绑定打开时账号；新会话/成功创建 Job 后消费附件、Excel 和名片草稿；所有 target 在排除规则前统一按 chatId 稳定去重。
-- 即时 `running` Job 在账号/WebView/transport 初始化失败时转 `failed`；`scheduled/queued` 仍保留既有 20 次有界恢复语义。
-- `BroadcastJobManager` 支持不同账号 executing Job 并发；同账号最多一个 executing，同时允许 scheduled / queued。
-- Job 固定 `accountId / partition / platform / WebView / targets / message / files / attachmentRefs / vcards / tagAll / interval`；账号切换不改变 owner。
-- Runtime 使用显式 `job.accountId` 找账号与 WebView，`sendHistory` 写回 `job.accountId`。
-- 单 Job targets 串行发送并遵守随机间隔。
-- 继续使用 `GeekPlatformTransports.forAccount(...)` 与 `GeekBroadcastSafety.authorizeSend`，没有新增绕过 WA/TG/LINE 安全发送边界的旁路。
-- #168 的定时附件使用主进程 durable opaque refs：renderer 不获得 canonical path；ref 绑定 accountId + task/job；发送前重新 realpath/stat；materialize 后回到现有 short token/transport；terminal 后 cleanup。
-- 最终约束以 `docs/群发最终实现约束-20260824.md` 和当前代码/contracts 为准。
+1. 历史 validation 安装包曾与生产 Geek 1.2.16 共用 Chromium/userData 身份；现已在 master 修复并同步进 #166。
+2. 原仓库缺单实例锁；现已修复并同步进 #166。
+3. #166 新 schedule/migration keys 一度未进入真实 account-data 写入 allowlist，真实 IPC/store 链会直接拒绝；已修复。
+4. 超过约 24.8 天的定时任务原来直接交给单次 `setTimeout`，存在提前触发风险；已修复。
+5. legacy schedule 迁移原顺序存在崩溃后新旧双执行窗口；已改为 fail-closed。
+6. restored TG/LINE scheduled attachments 原来继续读取 process-local `job.guestId`；已改为运行时绑定当前固定账号 WebView。
+7. scheduled attachment store 原来只排队磁盘 write，不排队 Map mutation/rollback；多账号并发失败可造成内存/磁盘分叉；已修复。
+8. scheduled Job 原来创建、到期发送、取消都依赖 fire-and-forget 持久化，存在 crash/restart 自动重放或取消后复活风险；#203 已把三条路径收进 awaited durable gate。
+9. 新发现 #204：账号删除入口在 Broadcast 生命周期之前拆 WebView/UI owner；必须重排删除入口，不能只补 main cleanup。
 
-## 实际验证记录
+## 当前 CI / 验证
 
-- 本轮按用户要求不在本机运行 Geek 测试/CI，也没有启动本机 Geek self-hosted runner；没有触碰本机其他仓库 runner。
-- 本轮只执行了只读源码核对、远程分支快进核对和 `git diff --check`；`git diff --check` 通过。
-- UI 修复提交 `26e5bd728abf5cec4652a7508d4e79a00a19a948` 的首次 Linux run `33160317177` 因新增 integration contract 用宽泛 `indexOf('app.js')` 误命中 HTML 注释而失败；真实 script 顺序正确。失败 fixture 已保留并收窄为精确 `<script>` 标签匹配。
-- 修正后的 `f8f121a`：GitHub 托管 Linux `test` run `33160378781` completed/success；GitHub 托管 Windows `acl-windows` run `33160378739` completed/success。新增 `broadcast-ui-model-contract.cjs`、`broadcast-ui-integration-contract.cjs` 与更新后的 controller/runtime/DOM contracts 均进入全量测试。
-- UI 生命周期补强提交 `ff07e9d6fe40fe33d5c7bf88c941dcf9ab6d653c`：聊天列表加载绑定 editor owner + sequence，账号切换关闭并失效旧编辑器，未加载完成不能应用群组集合。GitHub 托管 Linux `test` run `33160603665` completed/success；Windows `acl-windows` run `33160603610` completed/success。
-- 修复提交 `4dc5287ba8a5e4c97886d8ffeddb0bbf2e21efbc` 的 GitHub 托管 Linux `test` run `33159328380` completed/success；日志实际执行 `broadcast-delivery-contract.cjs`（`BROADCAST_DELIVERY_CONTRACT_OK`）和 `broadcast-runtime-contract.cjs`（`BROADCAST_RUNTIME_CONTRACT_OK`）。
-- 同一修复提交的 GitHub 托管 Windows `acl-windows` run `33159328388` completed/success。
-- Actions 仅给出 `actions/checkout@v4` / `actions/setup-node@v4` 的 Node 20 弃用提醒，与本轮群发逻辑无关且未导致失败。
-- 对账前 head `0899b1ed41a6f8dc9b33120c65f1413e0b2cb649`：标准 Linux `test` run `32781409935` success；Windows `acl-windows` run `32781409939` success。
-- master 同步 head `9c81a68059fd5a7219a54e17d34dddffaaa3573d`：
-  - Linux `test` run `32973592803`：job `test` completed/success，`Run tests` step completed/success。
-  - Windows `acl-windows` run `32973592564`：job `acl-integration` completed/success，`Run ACL contract` 与 `Run real Windows ACL integration` 均 completed/success。
-- 本次 HANDOFF 记录会产生新的最终 PR HEAD；该 HEAD 仍须读取实时 Actions 结果，上一 HEAD 的绿灯不能替代。
-- 当前存在本地 checkout，但不把静态 diff 核对声称为测试或真实客户端验证。
-- 本轮没有执行真实 Electron/WA/TG/LINE 客户端回归。
-- 本轮没有 Cloudflare 生产部署。
-- 本轮没有正式客户端发布。
+- #203 最终 head `d1e4376687d7bc0413aa25c8da14ce99b77a4e8f`：GitHub `test` run `33177001707` completed/success。
+- #206 最终 head `3e0adeccd38361a2c3bfd1f95df07a5d153fbaaa`：GitHub `test` run `33177453724` completed/success。
+- 当前 #166 HEAD `03ba3aa3cee4b2452c235409a3f4ec304430cf35`：
+  - Linux `test` run `33177619875` completed/success。
+  - Windows `acl-windows` run `33177619864` completed/success。
+- 本轮没有本地运行 Geek / npm test；以上是 GitHub 托管 CI 实际结果。
+- 尚未进行当前最终 HEAD 的真实 Electron / WA / TG / LINE 登录、收发、附件、定时、重启恢复、多账号并发回归。
+- 没有 Cloudflare 生产部署。
+- 没有正式客户端发布。
 
-## 已否决实现与产物
-
-`ux/broadcast-product-polish` 和其验证/产品化衍生线已被真实客户端否决。以下测试安装包均不得恢复、复用或再次提供：
-
-- artifact `9530876594` / `geek-1.2.16-broadcast-validation-2c5ae792.exe`
-- artifact `9532121198` / `geek-1.2.16-broadcast-validation-738ff851.exe`
-- artifact `9534323810` / `geek-1.2.16-broadcast-final-candidate-da649219.exe`
-- artifact `9535717311` / `geek-1.2.16-broadcast-polish-final-08fa79c4.exe`
-- artifact `9538030486` / `geek-1.2.16-broadcast-product-fixed-1a35bbbc.exe`
-- artifact `9538979997` / `geek-1.2.16-broadcast-formal-ux-7f10234a.exe`
-
-PR #175 与 validation PR #186 已关闭且不得合并。产品衍生 Issues #174/#178/#179/#182/#184 已按 `not_planned` 收口。以后若再次出现相似问题，必须从当时实时 #166/master 基线重新复现，不能把旧产品线自动复活。
-
-## 安全与发布边界
+## 安全/发布边界
 
 - `sandbox=true`、`nodeIntegration=false`、`nodeIntegrationInSubFrames=false`、`webSecurity=true` 不得降低。
-- WA/TG 保持 `contextIsolation=true`；LINE 局部兼容例外不在本任务调整。
-- renderer 不获得真实附件路径；opaque token/ref 与 owner 校验保持。
-- 不修改 `package.json.version` 或 `.github/release-client-version`。
-- 不上传 R2 正式产物、不改 updater `latest.yml`、不建正式 tag/release、不执行正式客户端发布。
+- WA/TG 保持 `contextIsolation=true`；LINE 现有局部兼容例外不扩散、不在无真实回归时删除。
+- 继续复用 `GeekPlatformTransports` 与 `GeekBroadcastSafety.authorizeSend`。
+- renderer 不获得 canonical attachment path；opaque token/ref + owner 校验保持。
+- 不修改 `package.json.version` / `.github/release-client-version`。
+- 不上传正式 R2 安装包、不改 updater 元数据、不建正式 tag/release、不触发正式发布。
 
-## 风险与阻塞
+## 已否决产物
 
-- #166 仍是 Draft；自动 CI 绿灯不能覆盖真实客户端历史否决证据。
-- 当前唯一实质性产品门禁是当前 #166 基线的真实客户端回归；GitHub connector 无法替代真实 Electron/WA/TG/LINE 环境。
-- 已废弃远程 refs 仍存在，但当前 connector 没有正常 branch-delete 动作；不使用 force-move 或历史重写规避。
+`ux/broadcast-product-polish` 及其衍生 PR/测试安装包继续视为真实客户端否决证据，不得恢复、cherry-pick、重新提供。
 
-## 下一步
+## 下一真实目标
 
-1. 核对本次 HANDOFF-only 最新 HEAD 的标准 Linux/Windows CI、compare、版本和 release marker。
-2. 把最终 CI 结果更新到 PR #166 / Issue #165 的在线 checkpoint，不再为记录最终 SHA 制造自引用 HANDOFF commit。
-3. 保持 #166 Draft，等待当前基线真实客户端验收；不复用旧否决安装包。
-4. 实机门禁满足后，再检查最新 `master`、最终 diff 与 CI，才讨论 Ready/merge。
-5. 正式客户端发布始终是后续独立授权动作。
+1. 完成 #204：账号删除入口先通过 Broadcast pre-delete barrier，再拆 WebView/账号；失败必须阻止删除。
+2. 继续审计 account removal / scheduled cleanup / renderer-main lifecycle 以及其余 #166 兼容边界。
+3. 每个根因独立 Issue/branch/PR/CI；合入后重新检查 #166 当前 HEAD 与 master、版本/release marker。
+4. 全库 P0 收口后，从同一最终 HEAD 构建独立 `极客 验证版` Windows 安装包，再交给真实客户端回归。
+5. 真实客户端通过前保持 #166 Draft；正式发布仍需单独授权。
