@@ -9,7 +9,7 @@ function missingError() {
   return Object.assign(new Error('账号沙箱不存在'), { code: 'ACCOUNT_DATA_ACCOUNT_MISSING' });
 }
 
-function harness() {
+function configuredHarness(listener) {
   const handlers = new Map();
   const ipcMain = { handle(channel, handler) { handlers.set(channel, handler); } };
   const uiEntryPath = path.resolve('ui/index.html');
@@ -18,81 +18,35 @@ function harness() {
   const BrowserWindow = { fromWebContents(value) { return value === sender ? win : null; } };
   let accountExists = true;
   const calls = [];
+  const partition = 'persist:webview-page-A';
   const store = {
     async getAll() { return {}; },
     async set() { return true; },
     async remove() { return true; },
-    async beginDelete(partition) { calls.push(['begin', partition]); },
-    cancelDelete(partition) { calls.push(['cancel', partition]); },
-    finalizeDelete(partition) { calls.push(['finalize', partition]); },
-  };
-  const partition = 'persist:webview-page-A';
-  const resolveAccountPartition = async accountId => {
-    assert.equal(accountId, 'A');
-    if (!accountExists) throw missingError();
-    return partition;
+    async beginDelete(value) { calls.push(['begin', value]); },
+    cancelDelete(value) { calls.push(['cancel', value]); },
+    finalizeDelete(value) { calls.push(['finalize', value]); },
   };
   installAccountDataBoundary({
     ipcMain,
     BrowserWindow,
     uiEntryPath,
     store,
-    resolveAccountPartition,
-    beforeAccountRemove: async ({ accountId, partition: resolved }) => {
-      calls.push(['before', accountId, resolved]);
+    resolveAccountPartition: async accountId => {
+      assert.equal(accountId, 'A');
+      if (!accountExists) throw missingError();
+      return partition;
     },
+    beforeAccountRemove: async () => { calls.push(['before']); },
   });
-  return {
-    handlers,
-    event: { sender },
-    calls,
-    partition,
-    commitDelete() { accountExists = false; },
-  };
+  ipcMain.handle('accounts:remove', async (...args) => listener({
+    commit: () => { accountExists = false; },
+    args,
+  }));
+  return { handlers, event: { sender }, calls, partition };
 }
 
 (async () => {
-  {
-    const h = harness();
-    h.handlers.set('accounts:remove:legacy', async () => {});
-    // Register the legacy listener through the boundary interceptor, as main.cjs does.
-    const original = h.handlers;
-    // ipcMain itself is not exposed by the harness, so install a fresh harness variant
-    // via the captured handler registration side effect below.
-  }
-
-  function configuredHarness(listener) {
-    const handlers = new Map();
-    const ipcMain = { handle(channel, handler) { handlers.set(channel, handler); } };
-    const uiEntryPath = path.resolve('ui/index.html');
-    const sender = { id: 42 };
-    const win = { webContents: { id: 42, getURL: () => pathToFileURL(uiEntryPath).href }, isDestroyed: () => false };
-    const BrowserWindow = { fromWebContents(value) { return value === sender ? win : null; } };
-    let accountExists = true;
-    const calls = [];
-    const partition = 'persist:webview-page-A';
-    const store = {
-      async getAll() { return {}; }, async set() { return true; }, async remove() { return true; },
-      async beginDelete(value) { calls.push(['begin', value]); },
-      cancelDelete(value) { calls.push(['cancel', value]); },
-      finalizeDelete(value) { calls.push(['finalize', value]); },
-    };
-    installAccountDataBoundary({
-      ipcMain, BrowserWindow, uiEntryPath, store,
-      resolveAccountPartition: async accountId => {
-        assert.equal(accountId, 'A');
-        if (!accountExists) throw missingError();
-        return partition;
-      },
-      beforeAccountRemove: async () => { calls.push(['before']); },
-    });
-    ipcMain.handle('accounts:remove', async (...args) => listener({
-      commit: () => { accountExists = false; },
-      args,
-    }));
-    return { handlers, event: { sender }, calls, partition };
-  }
-
   const committed = configuredHarness(({ commit }) => {
     commit();
     throw new Error('账号已删除，但登录数据清理失败');
