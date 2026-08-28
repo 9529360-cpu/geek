@@ -38,6 +38,30 @@
   return Object.freeze({ normalizeChatId, normalizeComposerText, sameChat, authorizeSend });
 });
 
+// broadcast-safety.js is a static script immediately before app.js. Install the
+// future-schedule readiness barrier synchronously here, before either legacy app.js
+// or the dynamically loaded account-scoped runtime can handle the send click.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  document.addEventListener('click', event => {
+    const send = event.target?.closest?.('#broadcast-send');
+    if (!send) return;
+    const enabled = document.getElementById('broadcast-schedule-toggle')?.checked === true;
+    const raw = document.getElementById('broadcast-schedule-time')?.value || '';
+    const scheduledAt = raw ? new Date(raw).getTime() : NaN;
+    if (!enabled || !Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) return;
+
+    const registry = window.GeekBroadcastScheduleRegistry;
+    const persistenceReady = typeof registry?.schedulePersistenceReady === 'function'
+      ? registry.schedulePersistenceReady()
+      : !!window.GeekBroadcastSchedulePersistenceInstance?.awaitScheduledDurable;
+    if (persistenceReady) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.alert?.('定时任务持久化尚未就绪，请稍后重试。');
+  }, true);
+}
+
 // Broadcast runtime/presentation stays outside app.js so account-scoped task state can
 // evolve without widening the platform transport or safety surface. Load dependencies
 // in order; the runtime owns new sends before the task presentation installs.

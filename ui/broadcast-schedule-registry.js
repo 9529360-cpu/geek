@@ -16,10 +16,23 @@
     return id;
   }
 
+  function schedulePersistenceReady() {
+    if (typeof window === 'undefined') return true;
+    const persistence = window.GeekBroadcastSchedulePersistenceInstance;
+    return !!persistence && typeof persistence.awaitScheduledDurable === 'function';
+  }
+
+  function persistenceNotReadyError() {
+    const error = new Error('定时任务持久化尚未就绪，请稍后重试。');
+    error.code = 'BROADCAST_SCHEDULE_PERSISTENCE_NOT_READY';
+    return error;
+  }
+
   function createRegistry(options = {}) {
     const clock = typeof options.now === 'function' ? options.now : () => Date.now();
     const setTimer = typeof options.setTimeout === 'function' ? options.setTimeout : setTimeout;
     const clearTimer = typeof options.clearTimeout === 'function' ? options.clearTimeout : clearTimeout;
+    const canSchedule = typeof options.canSchedule === 'function' ? options.canSchedule : schedulePersistenceReady;
     const beforeDue = typeof options.beforeDue === 'function'
       ? options.beforeDue
       : async task => {
@@ -82,6 +95,11 @@
     function schedule(seed, onDue) {
       if (typeof onDue !== 'function') throw new TypeError('broadcast schedule requires onDue callback');
       const task = normalizeTask(seed);
+      // runtime.js currently loads before schedule persistence. Do not allow that
+      // short startup window to arm a timer for a Job whose first durable write has
+      // no subscriber yet. Runtime catches this synchronously, marks the Job failed,
+      // and cleans any durable attachment refs it created before scheduling.
+      if (!canSchedule(task)) throw persistenceNotReadyError();
       cancel(task.accountId, task.id);
       taskMap(task.accountId).set(task.id, task);
 
@@ -94,17 +112,12 @@
           timers?.delete(task.id);
           if (timers && !timers.size) timersByAccount.delete(task.accountId);
 
-          // Long schedules wake in bounded chunks. Recompute against the clock
-          // every time; never call onDue before the requested wall-clock time.
           if (task.scheduledAt > clock()) {
             arm();
             return;
           }
 
           try {
-            // A newly-created scheduled Job is not executable until its account-data
-            // record is durably written. The gate is awaited at the actual due edge,
-            // so even a near-immediate timer cannot race the encrypted store write.
             if (!(await beforeDue(task))) return;
             await onDue(task);
           } finally {
@@ -159,5 +172,5 @@
     return Object.freeze({ schedule, rearmAccount, cancel, cancelAccount, list, has, timerCount, normalizeTask });
   }
 
-  return Object.freeze({ MAX_TIMER_DELAY_MS, createRegistry });
+  return Object.freeze({ MAX_TIMER_DELAY_MS, schedulePersistenceReady, createRegistry });
 });
