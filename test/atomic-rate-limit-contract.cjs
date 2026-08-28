@@ -122,6 +122,16 @@ function createD1Adapter(sqlite) {
   const legacyUpdate = await bypassDb.prepare(policy.LEGACY_RATE_LIMIT_SQL.increment).bind('2026-08-28 20:00:00', 'anything').run();
   assert.equal(legacyUpdate.meta.changes, 0);
 
+  const brandedDb = {
+    prepare() { throw new Error('not used'); },
+    async batch(value) {
+      assert.equal(this, brandedDb, 'proxied D1 methods must keep the original binding receiver');
+      return value;
+    },
+  };
+  const brandedProxy = policy.scopeLegacyRateLimitBypass(brandedDb);
+  assert.deepEqual(await brandedProxy.batch(['ok']), ['ok']);
+
   sqlite.close();
   console.log('ATOMIC_RATE_LIMIT_CONTRACT_OK');
 })().catch((error) => {
