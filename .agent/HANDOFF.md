@@ -24,7 +24,7 @@ Updated: 2026-08-28
 
 | 优先级 | 状态 | 任务 | 完成条件 |
 |---|---|---|---|
-| P0 | in_progress | 修复群发 UI、常用消息、群组集合与受众模式 | 保存/删除真实落盘后提交 UI；无全局反馈吞噬；all/exclude 受众明确；新 Job 失败 CSV 可导出；GitHub 托管 CI 通过 |
+| P0 | done | 修复群发 UI、常用消息、群组集合与受众模式 | 保存/删除真实落盘后提交 UI；无全局反馈吞噬；all/exclude 受众明确；新 Job 失败 CSV 可导出；GitHub 托管 CI 通过 |
 | P0 | done | 建立群发 UI 修复契约 | `docs/群发UI保存与标签修复契约-20260828.md` 覆盖 UI/数据/反馈/受众/失败导出与验收 oracle |
 | P0 | done | 修复 #166 附件回归与高风险发送状态 | WA 已成功附件不因后续失败重发；附件+名片/仅名片语义可用；即时初始化异常终态失败；target 去重；GitHub 托管 CI 通过 |
 | P0 | done | 建立本轮修复契约 | `docs/群发附件回归修复契约-20260828.md` 记录稳定需求 ID、验收 oracle、回滚和本机 CI 隔离边界 |
@@ -59,6 +59,8 @@ Updated: 2026-08-28
 
 - 本轮按用户要求不在本机运行 Geek 测试/CI，也没有启动本机 Geek self-hosted runner；没有触碰本机其他仓库 runner。
 - 本轮只执行了只读源码核对、远程分支快进核对和 `git diff --check`；`git diff --check` 通过。
+- UI 修复提交 `26e5bd728abf5cec4652a7508d4e79a00a19a948` 的首次 Linux run `33160317177` 因新增 integration contract 用宽泛 `indexOf('app.js')` 误命中 HTML 注释而失败；真实 script 顺序正确。失败 fixture 已保留并收窄为精确 `<script>` 标签匹配。
+- 修正后的 `f8f121a`：GitHub 托管 Linux `test` run `33160378781` completed/success；GitHub 托管 Windows `acl-windows` run `33160378739` completed/success。新增 `broadcast-ui-model-contract.cjs`、`broadcast-ui-integration-contract.cjs` 与更新后的 controller/runtime/DOM contracts 均进入全量测试。
 - 修复提交 `4dc5287ba8a5e4c97886d8ffeddb0bbf2e21efbc` 的 GitHub 托管 Linux `test` run `33159328380` completed/success；日志实际执行 `broadcast-delivery-contract.cjs`（`BROADCAST_DELIVERY_CONTRACT_OK`）和 `broadcast-runtime-contract.cjs`（`BROADCAST_RUNTIME_CONTRACT_OK`）。
 - 同一修复提交的 GitHub 托管 Windows `acl-windows` run `33159328388` completed/success。
 - Actions 仅给出 `actions/checkout@v4` / `actions/setup-node@v4` 的 Node 20 弃用提醒，与本轮群发逻辑无关且未导致失败。
