@@ -135,11 +135,22 @@ function installAccountDataBoundary(options = {}) {
         store.finalizeDelete(partition);
         return response;
       } catch (error) {
+        let stateError = null;
         try {
           await resolveAccountPartition(accountId);
           store.cancelDelete(partition);
-        } catch {
+        } catch (probeError) {
+          stateError = probeError;
           store.finalizeDelete(partition);
+        }
+        // The legacy listener persists account removal before it performs best-effort
+        // session/partition cleanup. If the account is now definitively missing, the
+        // deletion commit already happened and cannot be rolled back. Treat that as a
+        // successful delete so the renderer reloads to backend truth; orphan partition
+        // data is retried by the existing startup cleanup path. Other state-read errors
+        // remain failures because they do not prove that the deletion committed.
+        if (stateError?.code === 'ACCOUNT_DATA_ACCOUNT_MISSING') {
+          return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
         }
         throw error;
       }
