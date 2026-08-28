@@ -24,6 +24,23 @@
     catch (_) { return '等待执行'; }
   }
 
+  function failureRows(job) {
+    return (Array.isArray(job?.failed) ? job.failed : []).map(item => ({
+      name: String(item?.name || ''),
+      targetId: String(item?.targetId || ''),
+      reason: String(item?.reason || item?.message || item || 'SEND_FAILED'),
+    })).filter(item => item.name || item.targetId || item.reason);
+  }
+
+  function csvCell(value) {
+    return `"${String(value || '').replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`;
+  }
+
+  function failureCsv(job) {
+    const rows = failureRows(job);
+    return '\uFEFF联系人,聊天ID,失败原因\n' + rows.map(row => [row.name, row.targetId, row.reason].map(csvCell).join(',')).join('\n');
+  }
+
   function injectStyles() {
     if (document.getElementById('broadcast-job-style')) return;
     const style = document.createElement('style');
@@ -87,7 +104,8 @@
     const pause = createButton('pause', '暂停');
     const stop = createButton('stop', '停止后续发送', 'danger');
     const failures = createButton('failures', '查看失败', 'hidden');
-    actions.append(pause, stop, failures);
+    const exportFailures = createButton('export-failures', '导出失败 CSV', 'hidden');
+    actions.append(pause, stop, failures, exportFailures);
     bar.append(head, meta, progress, failureBox, actions);
     document.body.appendChild(bar);
 
@@ -109,11 +127,23 @@
 
     failures.onclick = () => {
       const job = currentJob(runtime);
-      const details = Array.isArray(job?.failed)
-        ? job.failed.map(item => item?.message || item?.reason || String(item || '')).filter(Boolean)
-        : [];
+      const details = failureRows(job).map(item => [item.name || item.targetId || '任务', item.reason].join('：'));
       failureBox.textContent = details.length ? details.join('\n') : '没有可用的失败明细。';
       failureBox.classList.toggle('hidden');
+    };
+
+    exportFailures.onclick = async () => {
+      const job = currentJob(runtime);
+      if (!failureRows(job).length) return;
+      exportFailures.disabled = true;
+      try {
+        const saved = await window.api.file.save({ defaultName: `群发失败名单-${String(job.id || '').slice(0, 24)}.csv`, content: failureCsv(job) });
+        if (saved) window.alert(`已导出失败名单：${saved}`);
+      } catch (error) {
+        window.alert(`导出失败：${String(error?.message || error)}`);
+      } finally {
+        exportFailures.disabled = false;
+      }
     };
 
     close.onclick = () => {
@@ -144,6 +174,7 @@
     const pause = bar.querySelector('[data-act="pause"]');
     const stop = bar.querySelector('[data-act="stop"]');
     const failures = bar.querySelector('[data-act="failures"]');
+    const exportFailures = bar.querySelector('[data-act="export-failures"]');
     const close = bar.querySelector('.bc-job-close');
     const failureBox = bar.querySelector('.bc-job-failures');
 
@@ -187,7 +218,9 @@
     pause.textContent = job.state === 'paused' ? '继续' : '暂停';
     stop.classList.toggle('hidden', terminal);
     stop.textContent = job.state === 'scheduled' ? '取消定时' : job.state === 'queued' ? '取消排队' : '停止后续发送';
-    failures.classList.toggle('hidden', !(terminal && fail > 0));
+    const hasFailures = failureRows(job).length > 0;
+    failures.classList.toggle('hidden', !(terminal && hasFailures));
+    exportFailures.classList.toggle('hidden', !(terminal && hasFailures));
     close.style.visibility = terminal ? 'visible' : 'hidden';
   }
 
@@ -227,7 +260,16 @@
       const text = document.getElementById('bc-excel-meta')?.textContent || '';
       return Number((text.match(/已导入\s*(\d+)/) || [])[1]) || 0;
     }
+    if (['all', 'all-contacts', 'all-groups', 'exclude-contacts', 'exclude-groups'].includes(mode)) {
+      return Number(window.__geekBroadcastAudienceEstimate?.()) || 0;
+    }
     return document.querySelectorAll('#bc-selected-chips .bc-selected-chip').length;
+  }
+
+  function sendSummaryText(mode, count, hasModeSelection = true) {
+    if (mode === 'label') return hasModeSelection ? '发送到所选标签' : '请选择标签';
+    if (mode === 'group-members') return hasModeSelection ? '发送给所选群成员' : '请选择群组';
+    return count ? `发送给 ${count} 个聊天` : '请选择发送对象';
   }
 
   function setTextIfChanged(node, text) {
@@ -238,24 +280,18 @@
     const send = document.getElementById('broadcast-send');
     const note = document.querySelector('#broadcast-overlay .bc-footer-note');
     if (!send || !note) return;
+    const mode = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
     const count = selectedCount();
     const files = document.querySelectorAll('#broadcast-files .bf-item').length;
     const lo = document.getElementById('broadcast-interval-min')?.value || '5';
     const hi = document.getElementById('broadcast-interval-max')?.value || Math.max(10, Number(lo) || 5);
-    setTextIfChanged(send, count ? `发送给 ${count} 个聊天` : '请选择发送对象');
+    const hasModeSelection = mode === 'label'
+      ? !!document.getElementById('bc-label-select')?.value
+      : mode === 'group-members'
+        ? !!document.getElementById('bc-group-members-select')?.selectedOptions?.length
+        : true;
+    setTextIfChanged(send, sendSummaryText(mode, count, hasModeSelection));
     setTextIfChanged(note, `${files ? `${files} 个附件 · ` : ''}间隔 ${lo}–${hi} 秒`);
-  }
-
-  function installAlertFilter() {
-    if (window.__geekBroadcastAlertFilter) return;
-    window.__geekBroadcastAlertFilter = true;
-    const nativeAlert = window.alert.bind(window);
-    window.alert = message => {
-      const text = String(message || '');
-      if (text.startsWith('已保存群组标签')) return;
-      if (text.startsWith('群发完成：')) return;
-      nativeAlert(message);
-    };
   }
 
   function install() {
@@ -266,7 +302,6 @@
 
     injectStyles();
     applyCopyAndSemantics();
-    installAlertFilter();
 
     const runtime = { manager, unsubscribe: null, clock: null, summaryObserver: null, accountObserver: null };
     ensureBar(runtime);
@@ -296,7 +331,7 @@
     window.__geekBroadcastJobRuntime = runtime;
   }
 
-  return Object.freeze({ visibleFor, formatScheduledAt, install });
+  return Object.freeze({ visibleFor, formatScheduledAt, failureRows, failureCsv, sendSummaryText, install });
 });
 
 if (typeof window !== 'undefined') {

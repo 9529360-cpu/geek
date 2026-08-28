@@ -24,6 +24,8 @@ Updated: 2026-08-28
 
 | 优先级 | 状态 | 任务 | 完成条件 |
 |---|---|---|---|
+| P0 | in_progress | 修复群发 UI、常用消息、群组集合与受众模式 | 保存/删除真实落盘后提交 UI；无全局反馈吞噬；all/exclude 受众明确；新 Job 失败 CSV 可导出；GitHub 托管 CI 通过 |
+| P0 | done | 建立群发 UI 修复契约 | `docs/群发UI保存与标签修复契约-20260828.md` 覆盖 UI/数据/反馈/受众/失败导出与验收 oracle |
 | P0 | done | 修复 #166 附件回归与高风险发送状态 | WA 已成功附件不因后续失败重发；附件+名片/仅名片语义可用；即时初始化异常终态失败；target 去重；GitHub 托管 CI 通过 |
 | P0 | done | 建立本轮修复契约 | `docs/群发附件回归修复契约-20260828.md` 记录稳定需求 ID、验收 oracle、回滚和本机 CI 隔离边界 |
 | P1 | planned | 客户备注产品与数据设计 | 账号+平台+canonical chatId 隔离、仅本地加密、不会默认进入外发正文；独立于附件回归提交 |
@@ -37,6 +39,10 @@ Updated: 2026-08-28
 
 ## 已核对的实现事实
 
+- 群发常用消息与群组集合改为 persist-before-commit：账号沙箱写入失败时不提交本地 UI 状态，并使用 single-flight guard 防止重复保存/删除。
+- `broadcast-ui-model.js` 统一规范化消息/集合记录，并明确 all/all-contacts/all-groups/exclude-contacts/exclude-groups 的基础受众；搜索框和旧 selection 不再决定全量/排除 Job 快照。
+- “清除集合筛选”只清筛选、不清当前 selected chats；Job controller 不再全局覆盖 `window.alert`。
+- 新 Job 任务条直接从 immutable Job failure records 展示并导出 CSV，不再依赖 legacy `broadcastFailed`。
 - 2026-08-28 修复线新增 `ui/broadcast-delivery.js`：WA direct 附件按单文件重试，已确认成功文件不重放；正文只绑定最后一个附件；附件全成功后名片只发送一次；仅名片是有效内容。
 - TG 原生附件批次和 LINE/其他非 direct 文件注入退出目标级整体重试循环，避免不明确结果导致整批重复发送。
 - 群发编辑器绑定打开时账号；新会话/成功创建 Job 后消费附件、Excel 和名片草稿；所有 target 在排除规则前统一按 chatId 稳定去重。
