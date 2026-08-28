@@ -23,7 +23,7 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
   if (!BrowserWindow || typeof BrowserWindow.fromWebContents !== 'function') throw new TypeError('BrowserWindow is required');
   if (!fs) throw new TypeError('fs is required');
   if (!uiEntryPath) throw new TypeError('uiEntryPath is required');
-  if (!ephemeralRegistry || typeof ephemeralRegistry.resolve !== 'function' || typeof ephemeralRegistry.registerSelection !== 'function') {
+  if (!ephemeralRegistry || typeof ephemeralRegistry.resolve !== 'function' || typeof ephemeralRegistry.registerSelection !== 'function' || typeof ephemeralRegistry.releaseMany !== 'function') {
     throw new TypeError('ephemeralRegistry is required');
   }
   if (typeof getUserDataDir !== 'function') throw new TypeError('getUserDataDir is required');
@@ -33,6 +33,7 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
   const platform = options.platform || process.platform;
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparable = value => platform === 'win32' ? value.toLowerCase() : value;
+  const materializedByTask = new Map();
   let store = null;
 
   function assertMainRenderer(event) {
@@ -61,6 +62,28 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
     return store;
   }
 
+  function materializedKey(ownerId, accountId, taskId) {
+    return `${String(ownerId || '')}\0${String(accountId || '')}\0${String(taskId || '')}`;
+  }
+
+  function releaseMaterialized(ownerId, accountId, taskId) {
+    const key = materializedKey(ownerId, accountId, taskId);
+    const tokens = materializedByTask.get(key) || [];
+    materializedByTask.delete(key);
+    return ephemeralRegistry.releaseMany(tokens, ownerId);
+  }
+
+  function releaseMaterializedAccount(accountId) {
+    const account = String(accountId || '');
+    let released = 0;
+    for (const [key, record] of [...materializedByTask]) {
+      if (record.accountId !== account) continue;
+      materializedByTask.delete(key);
+      released += ephemeralRegistry.releaseMany(record.tokens, record.ownerId);
+    }
+    return released;
+  }
+
   ipcMain.handle(CHANNELS.persist, async (event, payload) => {
     const { ownerId } = assertMainRenderer(event);
     const source = payload && typeof payload === 'object' ? payload : {};
@@ -87,23 +110,41 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
     const taskId = String(source.taskId || '');
     const refs = Array.isArray(source.refs) ? source.refs.map(value => String(value || '')) : [];
     const resolved = await getStore().resolveMany(refs, { accountId, taskId });
+    releaseMaterialized(ownerId, accountId, taskId);
     const selected = await ephemeralRegistry.registerSelection(resolved.map(file => file.filePath), ownerId);
+    materializedByTask.set(materializedKey(ownerId, accountId, taskId), {
+      ownerId,
+      accountId,
+      taskId,
+      tokens: selected.map(file => String(file.token || '')),
+    });
     return selected.map(file => ({ token: file.token, name: file.name, size: file.size, mime: file.mime }));
   });
 
   ipcMain.handle(CHANNELS.cleanup, async (event, payload) => {
-    assertMainRenderer(event);
+    const { ownerId } = assertMainRenderer(event);
     const source = payload && typeof payload === 'object' ? payload : {};
-    return getStore().cleanupTask(String(source.accountId || ''), String(source.taskId || ''));
+    const accountId = String(source.accountId || '');
+    const taskId = String(source.taskId || '');
+    releaseMaterialized(ownerId, accountId, taskId);
+    return getStore().cleanupTask(accountId, taskId);
   });
 
   ipcMain.handle(CHANNELS.cleanupAccount, async (event, payload) => {
     assertMainRenderer(event);
     const source = payload && typeof payload === 'object' ? payload : {};
-    return getStore().cleanupAccount(String(source.accountId || ''));
+    const accountId = String(source.accountId || '');
+    releaseMaterializedAccount(accountId);
+    return getStore().cleanupAccount(accountId);
   });
 
-  return Object.freeze({ channels: CHANNELS, getStore });
+  async function cleanupAccount(accountId) {
+    const account = String(accountId || '');
+    releaseMaterializedAccount(account);
+    return getStore().cleanupAccount(account);
+  }
+
+  return Object.freeze({ channels: CHANNELS, getStore, cleanupAccount });
 }
 
 module.exports = { CHANNELS, installScheduledBroadcastAttachmentBoundary };
