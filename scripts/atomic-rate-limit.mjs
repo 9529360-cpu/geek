@@ -106,7 +106,7 @@ function scopeLegacyRateLimitBypass(db) {
   if (!db || typeof db.prepare !== 'function') throw new TypeError('D1 database is required');
   if (isLegacyRateLimitBypass(db)) return db;
   return new Proxy(db, {
-    get(target, property, receiver) {
+    get(target, property) {
       if (property === RATE_LIMIT_BYPASS_MARKER) return true;
       if (property === 'prepare') {
         return (sql) => {
@@ -115,7 +115,8 @@ function scopeLegacyRateLimitBypass(db) {
           return target.prepare(sql);
         };
       }
-      return Reflect.get(target, property, receiver);
+      const value = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
     },
   });
 }
