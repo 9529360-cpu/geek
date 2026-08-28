@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const scheduleApi = require('../ui/broadcast-schedule-registry.js');
 
 const originalWindow = global.window;
@@ -37,5 +39,15 @@ try {
   if (originalWindow === undefined) delete global.window;
   else global.window = originalWindow;
 }
+
+const safety = fs.readFileSync(path.join(__dirname, '../ui/broadcast-safety.js'), 'utf8');
+const gateIndex = safety.indexOf("document.addEventListener('click'");
+const loaderIndex = safety.indexOf("loadScript('./broadcast-job-manager.js'");
+assert.ok(gateIndex >= 0 && loaderIndex > gateIndex, 'future-schedule click gate must install before dynamic runtime loading starts');
+assert.match(safety, /closest\?\.\('#broadcast-send'\)/, 'gate must own the real broadcast send button in capture phase');
+assert.match(safety, /broadcast-schedule-toggle/, 'gate must read the real schedule enable control');
+assert.match(safety, /broadcast-schedule-time/, 'gate must read the real schedule timestamp control');
+assert.match(safety, /stopImmediatePropagation\(\)/, 'blocked future schedules must not reach legacy or runtime send handlers');
+assert.match(safety, /GeekBroadcastSchedulePersistenceInstance/, 'gate must require the installed persistence instance before allowing a future schedule');
 
 console.log('BROADCAST_SCHEDULE_READINESS_CONTRACT_OK');
