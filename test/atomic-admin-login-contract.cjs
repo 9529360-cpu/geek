@@ -52,12 +52,24 @@ function normalizeSql(value) {
   assert.match(policy.ATOMIC_ADMIN_LOGIN_SQL, /RETURNING fails, locked_until/i);
   assert.doesNotMatch(policy.ATOMIC_ADMIN_LOGIN_SQL, /SELECT\s+fails/i, 'admin admission must not use a check-then-increment read');
 
-  for (const sql of Object.values(policy.LEGACY_ADMIN_LOGIN_SQL)) {
-    assert.ok(
-      normalizeSql(core).includes(normalizeSql(sql)),
-      `legacy bypass SQL must stay pinned to the core query: ${sql}`
-    );
-  }
+  assert.ok(
+    normalizeSql(core).includes(normalizeSql(policy.LEGACY_ADMIN_LOGIN_SQL.select)),
+    'legacy admin SELECT must stay pinned to the bypass contract'
+  );
+  assert.ok(
+    normalizeSql(core).includes(normalizeSql(policy.LEGACY_ADMIN_LOGIN_SQL.lock)),
+    'legacy admin lock UPDATE must stay pinned to the bypass contract'
+  );
+  assert.match(
+    core,
+    /"INSERT INTO admin_login_attempts \(ip, fails, locked_until\) VALUES \(\?, 1, NULL\) "\s*\+/,
+    'legacy failure INSERT prefix must stay pinned to the bypass contract'
+  );
+  assert.match(
+    core,
+    /"ON CONFLICT\(ip\) DO UPDATE SET fails = fails \+ 1"/,
+    'legacy failure UPSERT suffix must stay pinned to the bypass contract'
+  );
 
   const reserveAt = outerEntry.indexOf('reserveAdminLoginAttempt(db, clientIp(request))');
   const delegateAt = outerEntry.indexOf('productionEntry.fetch(request, scopedEnv, ctx)');
