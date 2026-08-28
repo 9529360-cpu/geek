@@ -10,11 +10,17 @@ on:
       - 'scripts/geek-subscription-worker-core.js'
       - 'scripts/subscription-order-pay-method.mjs'
       - 'scripts/geek-subscription-entry.js'
+      - 'scripts/geek-subscription-atomic-entry.js'
+      - 'scripts/atomic-rate-limit.mjs'
+      - 'scripts/atomic-admin-login.mjs'
       - 'scripts/account-live-smoke.mjs'
       - 'scripts/cloudflare-deploy-report.cjs'
       - 'wrangler-subscription.toml'
       - 'test/account-*.cjs'
+      - 'test/atomic-rate-limit-contract.cjs'
+      - 'test/atomic-admin-login-contract.cjs'
       - 'test/subscription-order-pay-method-contract.cjs'
+      - 'test/subscription-deploy-path-contract.cjs'
       - 'test/cloudflare-deploy-observability-contract.cjs'
       - '.github/workflows/deploy-subscription.yml'
 
@@ -55,6 +61,9 @@ jobs:
           node --check scripts/geek-subscription-worker-core.js
           node --check scripts/subscription-order-pay-method.mjs
           node --check scripts/geek-subscription-entry.js
+          node --check scripts/geek-subscription-atomic-entry.js
+          node --check scripts/atomic-rate-limit.mjs
+          node --check scripts/atomic-admin-login.mjs
           node --check scripts/account-live-smoke.mjs
           node --check scripts/cloudflare-deploy-report.cjs
 
