@@ -88,7 +88,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
                   loadScript('./broadcast-account-removal.js', 'GeekBroadcastAccountRemoval');
                   loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
                   loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
-                    loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                    loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
+                      loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                    });
                   });
                 });
               });
