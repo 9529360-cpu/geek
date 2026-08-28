@@ -19,6 +19,8 @@ assert.deepEqual(api.dedupeTargets([{ id: 'same', name: 'First' }, { id: 'same',
 assert.equal(api.shouldFailContextInitialization({ state: 'running' }), true, 'an immediate job must fail terminally when initialization fails');
 assert.equal(api.shouldFailContextInitialization({ state: 'queued' }), false, 'a queued schedule must remain eligible for bounded recovery');
 assert.equal(api.shouldFailContextInitialization({ state: 'scheduled' }), false, 'a future schedule must remain eligible for bounded recovery');
+assert.equal(api.liveGuestId({ wv: { getWebContentsId: () => 321 } }), 321, 'execution must resolve the live WebView guest id');
+assert.equal(api.liveGuestId({ wv: { getWebContentsId: () => 0 } }), null, 'invalid guest ids must fail closed');
 assert.match(runtime, /addEventListener\('click',[\s\S]*true\);/, 'runtime send interception must use capture phase before legacy element handlers');
 assert.match(runtime, /closest\?\.\('#broadcast-send'\)/, 'runtime must own the broadcast send button');
 assert.match(runtime, /event\.stopImmediatePropagation\(\)/, 'new runtime must stop the legacy window-global sender from running');
@@ -50,6 +52,10 @@ assert.match(runtime, /runPendingWithRecovery\(job\)/, 'in-session due jobs must
 assert.match(runtime, /GeekBroadcastSchedulePersistenceInstance[\s\S]*startDueForAccount/, 'runtime due/queue recovery must reuse the bounded schedule-persistence retry path');
 assert.match(runtime, /runPendingWithRecovery\(next\)/, 'same-account queued drain must also use bounded recovery instead of getting stuck after a transient account-view failure');
 assert.match(runtime, /drainQueued\(event\.job\.accountId\)/, 'terminal jobs must trigger a queue drain for the same account only');
+assert.match(runtime, /const guestId = liveGuestId\(ctx\)/, 'attachment execution must bind to the currently validated account WebView');
+assert.match(runtime, /sendTelegramAttachments\(\{ partition: job\.partition, guestId,/, 'Telegram attachments must use the live guest id');
+assert.match(runtime, /platform: ctx\.platform\.family, guestId: ctx\.platform\.family === 'line' \? guestId : undefined/, 'LINE attachments must use the live guest id');
+assert.doesNotMatch(runtime, /guestId:\s*job\.guestId/, 'persisted or stale job guest ids must never drive attachment delivery');
 
 assert.ok(loader.indexOf("'./broadcast-runtime.js'") < loader.indexOf("'./broadcast-job-controller.js'"), 'runtime must load before presentation compatibility hooks');
 assert.ok(loader.indexOf("'./broadcast-delivery.js'") < loader.indexOf("'./broadcast-runtime.js'"), 'the executable delivery policy must load before runtime sends are enabled');
