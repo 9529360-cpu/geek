@@ -61,6 +61,7 @@ Updated: 2026-08-28
 - 本轮只执行了只读源码核对、远程分支快进核对和 `git diff --check`；`git diff --check` 通过。
 - UI 修复提交 `26e5bd728abf5cec4652a7508d4e79a00a19a948` 的首次 Linux run `33160317177` 因新增 integration contract 用宽泛 `indexOf('app.js')` 误命中 HTML 注释而失败；真实 script 顺序正确。失败 fixture 已保留并收窄为精确 `<script>` 标签匹配。
 - 修正后的 `f8f121a`：GitHub 托管 Linux `test` run `33160378781` completed/success；GitHub 托管 Windows `acl-windows` run `33160378739` completed/success。新增 `broadcast-ui-model-contract.cjs`、`broadcast-ui-integration-contract.cjs` 与更新后的 controller/runtime/DOM contracts 均进入全量测试。
+- UI 生命周期补强提交 `ff07e9d6fe40fe33d5c7bf88c941dcf9ab6d653c`：聊天列表加载绑定 editor owner + sequence，账号切换关闭并失效旧编辑器，未加载完成不能应用群组集合。GitHub 托管 Linux `test` run `33160603665` completed/success；Windows `acl-windows` run `33160603610` completed/success。
 - 修复提交 `4dc5287ba8a5e4c97886d8ffeddb0bbf2e21efbc` 的 GitHub 托管 Linux `test` run `33159328380` completed/success；日志实际执行 `broadcast-delivery-contract.cjs`（`BROADCAST_DELIVERY_CONTRACT_OK`）和 `broadcast-runtime-contract.cjs`（`BROADCAST_RUNTIME_CONTRACT_OK`）。
 - 同一修复提交的 GitHub 托管 Windows `acl-windows` run `33159328388` completed/success。
 - Actions 仅给出 `actions/checkout@v4` / `actions/setup-node@v4` 的 Node 20 弃用提醒，与本轮群发逻辑无关且未导致失败。
