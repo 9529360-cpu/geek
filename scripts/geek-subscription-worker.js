@@ -3,6 +3,12 @@ import {
   normalizeRequestedPayMethod,
   scopePendingOrderReuse,
 } from './subscription-order-pay-method.mjs';
+import {
+  isLegacyRateLimitBypass,
+  rateLimitRuleForRequest,
+  requestRateLimited,
+  scopeLegacyRateLimitBypass,
+} from './atomic-rate-limit.mjs';
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -43,18 +49,31 @@ async function invalidPayMethodResponse(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    let scopedEnv = env;
+    const db = env.geek_subscriptions;
+
+    // Direct calls to this wrapper still get the shared atomic gate. When the
+    // production outer entry already gated the request it passes the marked bypass
+    // database, so this layer must not consume a second attempt from the same bucket.
+    if (rateLimitRuleForRequest(request) && !isLegacyRateLimitBypass(db)) {
+      if (await requestRateLimited(request, db)) {
+        return json({ error: 'rate_limited' }, 429);
+      }
+      scopedEnv = withSubscriptionDatabase(env, scopeLegacyRateLimitBypass(db));
+    }
+
     if (request.method !== 'POST' || url.pathname !== '/api/orders') {
-      return coreWorker.fetch(request, env, ctx);
+      return coreWorker.fetch(request, scopedEnv, ctx);
     }
 
     const body = await request.clone().json().catch(() => ({}));
     const hasPayMethod = Boolean(body && typeof body === 'object' &&
       Object.prototype.hasOwnProperty.call(body, 'pay_method'));
     const payMethod = normalizeRequestedPayMethod(body?.pay_method, hasPayMethod);
-    if (!payMethod) return invalidPayMethodResponse(request, env, ctx);
+    if (!payMethod) return invalidPayMethodResponse(request, scopedEnv, ctx);
 
-    const scopedDb = scopePendingOrderReuse(env.geek_subscriptions, payMethod);
-    return coreWorker.fetch(request, withSubscriptionDatabase(env, scopedDb), ctx);
+    const scopedDb = scopePendingOrderReuse(scopedEnv.geek_subscriptions, payMethod);
+    return coreWorker.fetch(request, withSubscriptionDatabase(scopedEnv, scopedDb), ctx);
   },
 
   async scheduled(controller, env, ctx) {
