@@ -45,8 +45,6 @@
       source: c.source || base.source,
       messageTarget: c.messageTarget || base.messageTarget
     };
-    // 旧版/损坏的本地配置不能把请求送成 Worker 不接受的 provider/route。
-    // 服务端仍做最终校验，这里只把客户端状态收敛到公开协议值。
     merged.provider = VALID_PROVIDERS.has(String(merged.provider || '').toLowerCase())
       ? String(merged.provider).toLowerCase()
       : 'auto';
@@ -71,7 +69,6 @@
 
   function messageKey({ accountId, chatId, messageId, direction = 'unknown', text = '' } = {}) {
     const raw = [accountId, chatId, messageId, direction, String(text).trim()].join('\u001f');
-    // Stable non-cryptographic key for DOM/session dedupe; server/cache keys use main-process hashing.
     let h = 2166136261;
     for (let i = 0; i < raw.length; i++) { h ^= raw.charCodeAt(i); h = Math.imul(h, 16777619); }
     return `g${(h >>> 0).toString(16)}`;
@@ -98,4 +95,15 @@
     isChinese,
     assertMessage
   });
+
+  // WhatsApp chat navigation rehydration is intentionally isolated from app.js.
+  // The module only asks the already-installed translation renderer to rescan when
+  // WhatsApp changes active chat; actual text/cache ownership remains in main process.
+  if (typeof document !== 'undefined' && !document.querySelector('script[data-geek-translation-rehydrate]')) {
+    const script = document.createElement('script');
+    script.src = './translation-whatsapp-rehydrate.js';
+    script.defer = true;
+    script.dataset.geekTranslationRehydrate = '1';
+    document.head.appendChild(script);
+  }
 })();
