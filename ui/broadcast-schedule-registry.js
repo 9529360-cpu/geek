@@ -5,6 +5,11 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
+  // Browser/Node timers use a signed 32-bit delay. Keep a margin below the
+  // implementation limit and re-arm long schedules instead of allowing a
+  // far-future task to overflow into an immediate/short timeout.
+  const MAX_TIMER_DELAY_MS = 0x7fffffff - 1000;
+
   function asId(value, label) {
     const id = String(value == null ? '' : value).trim();
     if (!id) throw new TypeError(`broadcast schedule requires ${label}`);
@@ -71,19 +76,34 @@
       const task = normalizeTask(seed);
       cancel(task.accountId, task.id);
       taskMap(task.accountId).set(task.id, task);
-      const delay = Math.max(0, task.scheduledAt - clock());
-      const handle = setTimer(async () => {
-        const timers = timersByAccount.get(task.accountId);
-        timers?.delete(task.id);
-        if (timers && !timers.size) timersByAccount.delete(task.accountId);
-        try { await onDue(task); }
-        finally {
-          const tasks = tasksByAccount.get(task.accountId);
-          tasks?.delete(task.id);
-          if (tasks && !tasks.size) tasksByAccount.delete(task.accountId);
-        }
-      }, delay);
-      timerMap(task.accountId).set(task.id, handle);
+
+      const arm = () => {
+        if (!tasksByAccount.get(task.accountId)?.has(task.id)) return;
+        const remaining = Math.max(0, task.scheduledAt - clock());
+        const delay = Math.min(remaining, MAX_TIMER_DELAY_MS);
+        const handle = setTimer(async () => {
+          const timers = timersByAccount.get(task.accountId);
+          timers?.delete(task.id);
+          if (timers && !timers.size) timersByAccount.delete(task.accountId);
+
+          // Long schedules wake in bounded chunks. Recompute against the clock
+          // every time; never call onDue before the requested wall-clock time.
+          if (task.scheduledAt > clock()) {
+            arm();
+            return;
+          }
+
+          try { await onDue(task); }
+          finally {
+            const tasks = tasksByAccount.get(task.accountId);
+            tasks?.delete(task.id);
+            if (tasks && !tasks.size) tasksByAccount.delete(task.accountId);
+          }
+        }, delay);
+        timerMap(task.accountId).set(task.id, handle);
+      };
+
+      arm();
       return task;
     }
 
@@ -126,5 +146,5 @@
     return Object.freeze({ schedule, rearmAccount, cancel, cancelAccount, list, has, timerCount, normalizeTask });
   }
 
-  return Object.freeze({ createRegistry });
+  return Object.freeze({ MAX_TIMER_DELAY_MS, createRegistry });
 });
