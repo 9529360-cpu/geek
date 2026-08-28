@@ -24,7 +24,7 @@ Updated: 2026-08-28
 
 | 优先级 | 状态 | 任务 | 完成条件 |
 |---|---|---|---|
-| P0 | in_progress | 修复 #166 附件回归与高风险发送状态 | WA 已成功附件不因后续失败重发；附件+名片/仅名片语义可用；即时初始化异常终态失败；target 去重；GitHub 托管 CI 通过 |
+| P0 | done | 修复 #166 附件回归与高风险发送状态 | WA 已成功附件不因后续失败重发；附件+名片/仅名片语义可用；即时初始化异常终态失败；target 去重；GitHub 托管 CI 通过 |
 | P0 | done | 建立本轮修复契约 | `docs/群发附件回归修复契约-20260828.md` 记录稳定需求 ID、验收 oracle、回滚和本机 CI 隔离边界 |
 | P1 | planned | 客户备注产品与数据设计 | 账号+平台+canonical chatId 隔离、仅本地加密、不会默认进入外发正文；独立于附件回归提交 |
 | P0 | done | 放弃被真实客户端否决的 `ux/broadcast-product-polish` 线 | 不合并、不 cherry-pick、不复用其实现和安装包 |
@@ -51,8 +51,11 @@ Updated: 2026-08-28
 
 ## 实际验证记录
 
-- 本轮按用户要求不在本机运行 Geek 测试/CI，也没有启动本机 Geek self-hosted runner；新增可执行 contract 将在推送后由 GitHub 托管 CI 验证。
+- 本轮按用户要求不在本机运行 Geek 测试/CI，也没有启动本机 Geek self-hosted runner；没有触碰本机其他仓库 runner。
 - 本轮只执行了只读源码核对、远程分支快进核对和 `git diff --check`；`git diff --check` 通过。
+- 修复提交 `4dc5287ba8a5e4c97886d8ffeddb0bbf2e21efbc` 的 GitHub 托管 Linux `test` run `33159328380` completed/success；日志实际执行 `broadcast-delivery-contract.cjs`（`BROADCAST_DELIVERY_CONTRACT_OK`）和 `broadcast-runtime-contract.cjs`（`BROADCAST_RUNTIME_CONTRACT_OK`）。
+- 同一修复提交的 GitHub 托管 Windows `acl-windows` run `33159328388` completed/success。
+- Actions 仅给出 `actions/checkout@v4` / `actions/setup-node@v4` 的 Node 20 弃用提醒，与本轮群发逻辑无关且未导致失败。
 - 对账前 head `0899b1ed41a6f8dc9b33120c65f1413e0b2cb649`：标准 Linux `test` run `32781409935` success；Windows `acl-windows` run `32781409939` success。
 - master 同步 head `9c81a68059fd5a7219a54e17d34dddffaaa3573d`：
   - Linux `test` run `32973592803`：job `test` completed/success，`Run tests` step completed/success。
