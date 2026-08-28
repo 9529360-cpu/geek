@@ -67,7 +67,9 @@ function mapSelectedFiles(value) {
 
 function selectedFileTokens(value) {
   const files = Array.isArray(value) ? value : value ? [value] : [];
-  return files.map(file => String(file?.filePath || file?.token || '')).filter(Boolean);
+  return files.map(file => typeof file === 'string'
+    ? file
+    : String(file?.filePath || file?.token || '')).map(String).filter(Boolean);
 }
 
 async function releaseSelectedFiles(value) {
