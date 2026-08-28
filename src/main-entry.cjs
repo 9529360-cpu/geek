@@ -5,6 +5,8 @@ const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, webContents } = require('electron');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
+const { ACCOUNT_DATA_KEYS } = require('./account-data-store.cjs');
+const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
 const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-broadcast-attachment-boundary.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
@@ -48,6 +50,8 @@ installScheduledBroadcastAttachmentBoundary({
 
 // Keep account sandbox persistence outside the main orchestrator. The userData
 // path is resolved lazily because main.cjs fixes it immediately after bootstrap.
+// Broadcast adds only these explicit keys; the renderer still cannot select arbitrary
+// storage names, and all values keep the existing safeStorage/account partition boundary.
 installAccountDataBoundary({
   ipcMain,
   BrowserWindow,
@@ -55,6 +59,7 @@ installAccountDataBoundary({
   createReadStream: nodeFs.createReadStream,
   getUserDataDir: () => app.getPath('userData'),
   uiEntryPath,
+  allowedKeys: [...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS],
   isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
   encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
   decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),
