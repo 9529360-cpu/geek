@@ -30,18 +30,18 @@ function fakeFs() {
 
   await store.registerPaths({ accountId: 'A', taskId: 'A-1', filePaths: ['files/a.txt'] });
   await store.registerPaths({ accountId: 'B', taskId: 'B-1', filePaths: ['files/b.txt'] });
-  assert.equal(store.countAccount('A'), 1);
-  assert.equal(store.countAccount('B'), 1);
+  assert.equal(store.listTask('A', 'A-1').length, 1);
+  assert.equal(store.listTask('B', 'B-1').length, 1);
 
   const removed = await store.cleanupAccount('A');
   assert.equal(removed, 1);
-  assert.equal(store.countAccount('A'), 0);
-  assert.equal(store.countAccount('B'), 1, 'cleaning A must not remove B refs');
+  assert.equal(store.listTask('A', 'A-1').length, 0);
+  assert.equal(store.listTask('B', 'B-1').length, 1, 'cleaning A must not remove B refs');
 
   const restarted = createScheduledBroadcastAttachmentStore({ fs, storePath, randomBytes });
   await restarted.init();
-  assert.equal(restarted.countAccount('A'), 0, 'deleted account refs must remain absent after restart');
-  assert.equal(restarted.countAccount('B'), 1, 'other account refs must survive restart');
+  assert.equal(restarted.listTask('A', 'A-1').length, 0, 'deleted account refs must remain absent after restart');
+  assert.equal(restarted.listTask('B', 'B-1').length, 1, 'other account refs must survive restart');
 
   console.log('SCHEDULED_BROADCAST_ACCOUNT_CLEANUP_CONTRACT_OK');
 })().catch(error => {
