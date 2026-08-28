@@ -28,15 +28,23 @@ assert.equal(JSON.stringify(frozen).includes('canonicalPath'), false, 'schedule 
 assert.match(source, /attachmentRefs:/, 'durable attachment refs must be serialized with pending jobs');
 assert.match(source, /files: \[\],[\s\S]*attachmentRefs: refs/, 'restored jobs must keep execution tokens empty and restore only durable refs');
 assert.match(source, /accountData\.set\(String\(accountId\), STORAGE_KEY/, 'pending schedules must persist under an explicit account owner');
+assert.match(source, /event\.type === 'created'[\s\S]*job\.state === 'scheduled'[\s\S]*trackScheduledCreation\(job\)/, 'new scheduled jobs must start a durable creation write synchronously from the created event');
+assert.match(source, /awaitScheduledDurable/, 'schedule execution must expose an awaited creation durability gate');
+assert.match(source, /await dearmUnlocked\(current\)[\s\S]*manager\.transition\(current\.id, 'starting'\)/, 'a due job must durably de-arm before it becomes executable');
+assert.ok(source.indexOf('await dearmUnlocked(current)') < source.indexOf("manager.transition(current.id, 'starting')"), 'durable de-arm must precede starting state');
+assert.ok(source.indexOf("manager.transition(current.id, 'starting')") < source.indexOf('runtime.runJob(claimed.id)'), 'runtime send must start only after the de-arm boundary');
+assert.match(source, /cancelPendingDurably[\s\S]*await dearmUnlocked\(current\)[\s\S]*cancelTimers\(\)/, 'pending cancellation must durably de-arm before timer cancellation/terminal UI state');
+assert.match(source, /attachControls\(job\.id,[\s\S]*stop: pendingJob => cancelPendingDurably\(pendingJob\)/, 'scheduled and queued jobs need an awaited durable cancel control');
+assert.match(source, /restoringJob = true[\s\S]*manager\.register[\s\S]*armRestored\(job\)[\s\S]*restoringJob = false/, 'restored disk records must not be mistaken for new schedule creation writes');
+assert.match(source, /markRestoredDurable\(job\)/, 'restored scheduled and queued jobs must carry explicit durable provenance');
 assert.match(source, /accountData\.getAll\(account\.id\)/, 'restore must read each account sandbox explicitly');
 assert.match(source, /accountId: String\(account\.id\)/, 'restored job owner must come from the account being restored');
-assert.match(source, /state: scheduledAt <= Date\.now\(\) \? 'queued' : 'scheduled'/, 'overdue restored schedules must become queued, not silently disappear');
-assert.match(source, /manager\.hasActive\(current\.accountId\)/, 'schedule collision must be scoped to the same account');
-assert.match(source, /manager\.transition\(current\.id, 'queued'\)/, 'same-account collision must queue the job');
-assert.match(source, /runtime\.runJob\(due\.id\)/, 'restored due job must execute through the shared account-scoped runtime');
+assert.match(source, /state: scheduledAt <= Date\.now\(\) \? 'queued' : 'scheduled'/, 'overdue restored schedules must become queued, not disappear');
+assert.match(source, /try \{ await persistAccount\(account\.id\); \} catch \(_\) \{\}/, 'one account persistence failure must not abort restoration of other accounts');
 assert.match(source, /attempts > MAX_RESTORE_ATTEMPTS/, 'restored due jobs must not retry forever');
 assert.match(source, /manager\.markFailed\(due\.id, error\)/, 'retry exhaustion must become a visible terminal failure');
 assert.match(source, /BROADCAST_SCHEDULE_ACCOUNT_UNAVAILABLE/, 'retry exhaustion needs a stable failure code');
+assert.match(source, /BROADCAST_SCHEDULE_PERSIST_FAILED/, 'new schedule persistence failure needs a stable visible failure code');
 assert.ok(loader.indexOf("'./broadcast-schedule-persistence.js'") < loader.indexOf("'./broadcast-job-controller.js'"), 'schedule recovery must load before presentation');
 
 console.log('BROADCAST_SCHEDULE_PERSISTENCE_CONTRACT_OK');
