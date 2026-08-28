@@ -61,7 +61,8 @@ function createFakeFs() {
     getUserDataDir: () => path.dirname(storePath),
   });
   assert.deepEqual(boundary.channels, CHANNELS);
-  assert.equal(handlers.size, 3);
+  assert.equal(handlers.size, 4);
+  assert.equal(typeof handlers.get(CHANNELS.cleanupAccount), 'function', 'trusted account cleanup channel must be installed');
 
   const event = { sender };
   const persisted = await handlers.get(CHANNELS.persist)(event, { accountId: 'account-a', taskId: 'task-1', fileTokens: ['short-a'] });
@@ -88,6 +89,11 @@ function createFakeFs() {
   await assert.rejects(
     handlers.get(CHANNELS.persist)(badEvent, { accountId: 'account-a', taskId: 'task-2', fileTokens: ['short-a'] }),
     { code: 'SCHEDULED_BROADCAST_ATTACHMENT_OWNER_INVALID' },
+  );
+  await assert.rejects(
+    handlers.get(CHANNELS.cleanupAccount)(badEvent, { accountId: 'account-a' }),
+    { code: 'SCHEDULED_BROADCAST_ATTACHMENT_OWNER_INVALID' },
+    'account cleanup must retain the same trusted-renderer owner check',
   );
 
   console.log('SCHEDULED_BROADCAST_ATTACHMENT_BOUNDARY_CONTRACT_OK');
