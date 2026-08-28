@@ -91,7 +91,7 @@ if (primaryInstance) {
     getUserDataDir: () => app.getPath('userData'),
     uiEntryPath,
     allowedKeys: [...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS],
-    beforeAccountRemove: ({ accountId }) => scheduledAttachmentBoundary.getStore().cleanupAccount(accountId),
+    beforeAccountRemove: ({ accountId }) => scheduledAttachmentBoundary.cleanupAccount(accountId),
     isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
     encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
     decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),

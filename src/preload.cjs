@@ -65,6 +65,35 @@ function mapSelectedFiles(value) {
   return mapSelectedFile(value);
 }
 
+function selectedFileTokens(value) {
+  const files = Array.isArray(value) ? value : value ? [value] : [];
+  return files.map(file => typeof file === 'string'
+    ? file
+    : String(file?.filePath || file?.token || '')).map(String).filter(Boolean);
+}
+
+async function releaseSelectedFiles(value) {
+  const tokens = selectedFileTokens(value);
+  if (!tokens.length) return 0;
+  return ipcRenderer.invoke('file:release-tokens', tokens);
+}
+
+async function pickSelectedFiles(options) {
+  const mapped = mapSelectedFiles(await ipcRenderer.invoke('file:pick-token'));
+  if (!mapped || options?.multiple !== true || typeof document === 'undefined') return mapped;
+  const occupied = document.querySelectorAll('#broadcast-files .bf-item').length;
+  const remaining = Math.max(0, 10 - occupied);
+  if (Array.isArray(mapped)) {
+    const accepted = mapped.slice(0, remaining);
+    const overflow = mapped.slice(remaining);
+    if (overflow.length) await releaseSelectedFiles(overflow);
+    return Object.freeze(accepted);
+  }
+  if (remaining > 0) return mapped;
+  await releaseSelectedFiles(mapped);
+  return null;
+}
+
 function mapScheduledRef(file) {
   if (!file || typeof file !== 'object' || typeof file.ref !== 'string') return null;
   return Object.freeze({
@@ -218,7 +247,8 @@ contextBridge.exposeInMainWorld(
       },
     }),
     file: Object.freeze({
-      pick: async () => mapSelectedFiles(await ipcRenderer.invoke('file:pick-token')),
+      pick: (options) => pickSelectedFiles(options),
+      release: (value) => releaseSelectedFiles(value),
       pickCsv: () => ipcRenderer.invoke('file:pick-csv-limited'),
       save: (payload) => ipcRenderer.invoke('file:save', payload),
     }),

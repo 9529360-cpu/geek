@@ -55,9 +55,9 @@ function createManager() {
   assert.ok(source.indexOf('window.api.accounts.remove(accountId)') < source.indexOf('window.location.reload()'), 'renderer may rebuild UI only after backend deletion succeeds');
   assert.match(source, /catch\(error => \{[\s\S]*alert/, 'failed stop/delete must leave current renderer state intact and report an error');
   assert.match(safetyLoader, /broadcast-account-removal\.js/, 'account removal barrier must load with the account-scoped broadcast runtime');
-  assert.match(mainEntry, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.getStore\(\)\.cleanupAccount\(accountId\)/, 'main account deletion must clean durable attachment refs before partition removal');
+  assert.match(mainEntry, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.cleanupAccount\(accountId\)/, 'main account deletion must clean durable refs and materialized tokens before partition removal');
   assert.ok(accountBoundary.indexOf('await beforeAccountRemove') < accountBoundary.indexOf('await listener(event, accountId'), 'external durable resources must be cleaned before the real accounts:remove handler');
-  assert.match(attachmentBoundary, /cleanupAccount/, 'scheduled attachment boundary must own account-scoped cleanup');
+  assert.match(attachmentBoundary, /async function cleanupAccount\(accountId\)/, 'scheduled attachment boundary must own account-scoped ephemeral + durable cleanup');
   assert.match(attachmentStore, /async function cleanupAccount\(accountId\)/, 'durable store needs an account-scoped cleanup operation');
 
   console.log('BROADCAST_ACCOUNT_REMOVAL_CONTRACT_OK');
