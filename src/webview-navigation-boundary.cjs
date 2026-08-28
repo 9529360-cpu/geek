@@ -2,6 +2,7 @@
 
 const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-';
+const WA_LOCAL_ORIGIN = 'http://127.0.0.1:1843';
 
 function hostnameMatches(hostname, exactHosts = [], suffix = '') {
   const host = String(hostname || '').toLowerCase();
@@ -9,29 +10,69 @@ function hostnameMatches(hostname, exactHosts = [], suffix = '') {
   return Boolean(suffix && host.endsWith(suffix));
 }
 
-function classifyInitialUrl(value) {
-  let url;
-  try { url = new URL(String(value || '')); } catch { return null; }
-  const hostname = url.hostname.toLowerCase();
+function accountIdFromPartition(partitionValue) {
+  const partition = String(partitionValue || '');
+  if (!partition.startsWith(ACCOUNT_PARTITION_PREFIX)) return '';
+  const accountId = partition.slice(ACCOUNT_PARTITION_PREFIX.length);
+  return /^[a-zA-Z0-9_-]{1,100}$/.test(accountId) ? accountId : '';
+}
 
-  if (url.protocol === 'chrome-extension:' && hostname === LINE_EXTENSION_ID) {
-    return Object.freeze({ kind: 'line' });
-  }
-  if (url.protocol === 'http:' && hostname === '127.0.0.1' && url.port) {
-    return Object.freeze({ kind: 'whatsapp', localOrigin: url.origin });
-  }
-  if (url.protocol !== 'https:') return null;
+function policyForAccount(account, partitionValue) {
+  if (!account || typeof account !== 'object') return null;
+  const accountId = accountIdFromPartition(partitionValue);
+  if (!accountId || String(account.id || '') !== accountId) return null;
+  const expectedPartition = `${ACCOUNT_PARTITION_PREFIX}${accountId}`;
+  if (account.partition && String(account.partition) !== expectedPartition) return null;
 
-  if (hostnameMatches(hostname, ['web.telegram.org'], '.telegram.org')) {
-    return Object.freeze({ kind: 'telegram' });
+  const type = String(account.type || '');
+  if (type === 'whatsapp' || type === 'whatsapp-pure') {
+    return Object.freeze({
+      kind: 'whatsapp',
+      exactHosts: Object.freeze(['web.whatsapp.com']),
+      suffix: '.whatsapp.com',
+      localOrigin: WA_LOCAL_ORIGIN,
+    });
   }
-  if (hostnameMatches(hostname, ['web.whatsapp.com'], '.whatsapp.com')) {
-    return Object.freeze({ kind: 'whatsapp', localOrigin: '' });
+  if (type === 'telegram-z' || type === 'telegram-k') {
+    return Object.freeze({
+      kind: 'telegram',
+      exactHosts: Object.freeze(['web.telegram.org']),
+      suffix: '.telegram.org',
+    });
   }
-  if (hostnameMatches(hostname, ['manager.line.biz', 'access.line.me', 'line.me'], '.line.me')) {
-    return Object.freeze({ kind: 'line' });
+  if (type === 'line' || type === 'line-business') {
+    return Object.freeze({
+      kind: 'line',
+      exactHosts: Object.freeze(type === 'line-business'
+        ? ['manager.line.biz', 'access.line.me', 'line.me']
+        : ['access.line.me', 'line.me']),
+      suffix: '.line.me',
+      extensionId: LINE_EXTENSION_ID,
+    });
   }
-  return Object.freeze({ kind: 'website', hostname });
+  if (type === 'website') {
+    let custom;
+    try { custom = new URL(String(account.customUrl || '')); } catch { return null; }
+    if (custom.protocol !== 'https:' || !custom.hostname) return null;
+    return Object.freeze({ kind: 'website', hostname: custom.hostname.toLowerCase() });
+  }
+  return null;
+}
+
+function policyFromAccountState(partitionValue, stateValue) {
+  const accountId = accountIdFromPartition(partitionValue);
+  if (!accountId) return null;
+  let parsed = stateValue;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  const accounts = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.accounts)
+      ? parsed.accounts
+      : [];
+  const account = accounts.find(item => item && String(item.id || '') === accountId);
+  return policyForAccount(account, partitionValue);
 }
 
 function isNavigationAllowed(policy, value) {
@@ -41,15 +82,15 @@ function isNavigationAllowed(policy, value) {
   const hostname = url.hostname.toLowerCase();
 
   if (policy.kind === 'whatsapp') {
-    if (policy.localOrigin && url.protocol === 'http:' && url.origin === policy.localOrigin) return true;
-    return url.protocol === 'https:' && hostnameMatches(hostname, ['web.whatsapp.com'], '.whatsapp.com');
+    if (url.protocol === 'http:' && url.origin === policy.localOrigin) return true;
+    return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
   }
   if (policy.kind === 'telegram') {
-    return url.protocol === 'https:' && hostnameMatches(hostname, ['web.telegram.org'], '.telegram.org');
+    return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
   }
   if (policy.kind === 'line') {
-    if (url.protocol === 'chrome-extension:' && hostname === LINE_EXTENSION_ID) return true;
-    return url.protocol === 'https:' && hostnameMatches(hostname, ['manager.line.biz', 'access.line.me', 'line.me'], '.line.me');
+    if (url.protocol === 'chrome-extension:' && hostname === policy.extensionId) return true;
+    return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
   }
   if (policy.kind === 'website') {
     return url.protocol === 'https:'
@@ -58,56 +99,43 @@ function isNavigationAllowed(policy, value) {
   return false;
 }
 
-function isAccountGuest(contents) {
+function accountPartition(contents) {
   try {
-    return String(contents?.session?.partition || '').startsWith(ACCOUNT_PARTITION_PREFIX);
+    const partition = String(contents?.session?.partition || '');
+    return partition.startsWith(ACCOUNT_PARTITION_PREFIX) ? partition : '';
   } catch {
-    return false;
+    return '';
   }
 }
 
-function installAccountScopedWebviewNavigationBoundary({ app } = {}) {
+function installAccountScopedWebviewNavigationBoundary({ app, resolvePolicyForPartition } = {}) {
   if (!app || typeof app.on !== 'function') throw new TypeError('app.on is required');
+  if (typeof resolvePolicyForPartition !== 'function') throw new TypeError('resolvePolicyForPartition is required');
   const guarded = new WeakSet();
 
   app.on('web-contents-created', (_event, contents) => {
     if (!contents || guarded.has(contents)) return;
     guarded.add(contents);
+    const partition = accountPartition(contents);
+    if (!partition) return;
+
     let policy = null;
-
-    function arm(value) {
-      if (policy || !isAccountGuest(contents)) return policy;
-      policy = classifyInitialUrl(value);
-      return policy;
-    }
-
-    function currentPolicy() {
-      if (policy) return policy;
-      let current = '';
-      try { current = contents.getURL?.() || ''; } catch {}
-      return arm(current);
-    }
+    try { policy = resolvePolicyForPartition(partition) || null; } catch { policy = null; }
 
     function blockIfOutsidePolicy(event, targetUrl) {
-      if (!isAccountGuest(contents)) return;
-      const activePolicy = currentPolicy() || arm(targetUrl);
-      if (!activePolicy || !isNavigationAllowed(activePolicy, targetUrl)) event?.preventDefault?.();
+      if (!policy || !isNavigationAllowed(policy, targetUrl)) event?.preventDefault?.();
     }
 
     contents.on?.('will-navigate', blockIfOutsidePolicy);
     contents.on?.('will-redirect', blockIfOutsidePolicy);
-    contents.on?.('did-navigate', (_navEvent, url) => { arm(url); });
 
-    // Legacy main.cjs installs its own global allowlist through setWindowOpenHandler.
-    // Compose every downstream handler with this account-scoped gate so a later
-    // registration cannot widen popup navigation back to another platform/account.
+    // Legacy main.cjs installs its own wider global allowlist later. Compose that
+    // downstream handler with this fixed account/partition policy so it can only
+    // further restrict navigation, never widen it to another platform or account.
     if (typeof contents.setWindowOpenHandler === 'function') {
       const nativeSetWindowOpenHandler = contents.setWindowOpenHandler.bind(contents);
       contents.setWindowOpenHandler = (handler) => nativeSetWindowOpenHandler((details) => {
-        if (isAccountGuest(contents)) {
-          const activePolicy = currentPolicy();
-          if (!activePolicy || !isNavigationAllowed(activePolicy, details?.url)) return { action: 'deny' };
-        }
+        if (!policy || !isNavigationAllowed(policy, details?.url)) return { action: 'deny' };
         const response = typeof handler === 'function' ? handler(details) : null;
         return response && (response.action === 'allow' || response.action === 'deny')
           ? response
@@ -122,7 +150,10 @@ function installAccountScopedWebviewNavigationBoundary({ app } = {}) {
 module.exports = {
   ACCOUNT_PARTITION_PREFIX,
   LINE_EXTENSION_ID,
-  classifyInitialUrl,
+  WA_LOCAL_ORIGIN,
+  accountIdFromPartition,
+  policyForAccount,
+  policyFromAccountState,
   isNavigationAllowed,
   installAccountScopedWebviewNavigationBoundary,
 };
