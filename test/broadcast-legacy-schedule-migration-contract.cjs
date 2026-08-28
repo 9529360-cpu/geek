@@ -34,9 +34,15 @@ assert.equal(api.usesRecipientNameVariables('hello %nc'), true);
 assert.equal(api.usesRecipientNameVariables('hello %NR'), true);
 assert.equal(api.usesRecipientNameVariables('hello %sa'), false);
 
+const safetyReview = api.interruptedReview(converted.legacy, converted.needsReview);
+assert.ok(safetyReview.some(item => item.id === 'group-task' && /迁移曾被中断/.test(item.reason)), 'otherwise-migratable legacy task needs a durable fail-closed review record before disabling old execution');
+
 assert.match(source, /accountData\.set\(account\.id, BACKUP_KEY/, 'legacy tasks must be backed up before clearing');
 assert.ok(source.indexOf('BACKUP_KEY, JSON.stringify(backup)') < source.indexOf("OLD_KEY, '[]'"), 'backup must be durable before legacy key is cleared');
-assert.match(source, /accountData\.set\(account\.id, REVIEW_KEY/, 'unrecoverable recipient semantics must be preserved for user review');
+assert.ok(source.indexOf('REVIEW_KEY, JSON.stringify(safetyReview)') < source.indexOf("OLD_KEY, '[]'"), 'conservative recovery notice must be durable before old execution is disabled');
+assert.ok(source.indexOf("OLD_KEY, '[]'") < source.indexOf('NEW_KEY, JSON.stringify(result.migrated)'), 'legacy execution must be disabled before new executable schedules are published');
+assert.match(source, /legacyDisabled = true/, 'migration must remember when old execution has been disabled');
+assert.match(source, /return \{ changed: true, review: safetyReview\.length, interrupted: true \}/, 'interruption after disabling old execution must still force in-memory legacy timer cleanup');
 assert.match(source, /usesRecipientNameVariables\(task\.message\)/, 'legacy name variables must fail closed when names were not persisted');
 assert.match(source, /targets: ids\.map\(chatId => \(\{ id: chatId, name: '' \}\)\)/, 'legacy chat IDs must not become personalization names');
 assert.match(source, /document\.querySelector\('\.nav-account\.active \.nav-account-main'\)\?\.click\(\)/, 'migration must reselect current account so legacy timer registry clears through its own reload path');
