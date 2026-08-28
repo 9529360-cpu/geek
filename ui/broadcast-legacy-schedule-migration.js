@@ -197,7 +197,7 @@
     window.GeekBroadcastLegacyScheduleMigrationInstance = Object.freeze({ migrateAll, migrateAccount, renderReviewNotice });
   }
 
-  return Object.freeze({ OLD_KEY, NEW_KEY, BACKUP_KEY, REVIEW_KEY, MARKER_KEY, migrateRecords, interruptedReview, install });
+  return Object.freeze({ OLD_KEY, NEW_KEY, BACKUP_KEY, REVIEW_KEY, MARKER_KEY, migrateRecords, interruptedReview, usesRecipientNameVariables, install });
 });
 
 if (typeof window !== 'undefined') {
