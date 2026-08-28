@@ -35,6 +35,7 @@ function createFakeFs() {
   const storePath = path.resolve('user-data/scheduled-broadcast-attachments.json');
 
   let ephemeralCounter = 0;
+  const releaseCalls = [];
   const ephemeral = new Map([['short-a', { filePath: path.resolve('docs/a.pdf'), name: 'a.pdf', size: 4, mime: 'application/pdf' }]]);
   const ephemeralRegistry = {
     limits: { maxFiles: 10 },
@@ -48,7 +49,18 @@ function createFakeFs() {
       assert.equal(ownerId, '42');
       assert.deepEqual(filePaths, [path.resolve('docs/a.pdf')]);
       const token = `fresh-${++ephemeralCounter}`;
+      ephemeral.set(token, { filePath: path.resolve('docs/a.pdf'), name: 'a.pdf', size: 4, mime: 'application/pdf' });
       return [{ token, name: 'a.pdf', size: 4, mime: 'application/pdf' }];
+    },
+    releaseMany(tokens, ownerId) {
+      assert.equal(ownerId, '42');
+      const values = [...tokens];
+      releaseCalls.push(values);
+      let released = 0;
+      for (const token of values) {
+        if (ephemeral.delete(token)) released += 1;
+      }
+      return released;
     },
   };
 
@@ -61,18 +73,22 @@ function createFakeFs() {
     getUserDataDir: () => path.dirname(storePath),
   });
   assert.deepEqual(boundary.channels, CHANNELS);
+  assert.equal(typeof boundary.cleanupAccount, 'function');
   assert.equal(handlers.size, 4);
   assert.equal(typeof handlers.get(CHANNELS.cleanupAccount), 'function', 'trusted account cleanup channel must be installed');
 
   const event = { sender };
   const persisted = await handlers.get(CHANNELS.persist)(event, { accountId: 'account-a', taskId: 'task-1', fileTokens: ['short-a'] });
   assert.equal(persisted.length, 1);
+  assert.deepEqual(releaseCalls, [['short-a']], 'durable persist must release the original picker token');
+  assert.equal(ephemeral.has('short-a'), false);
   assert.deepEqual(Object.keys(persisted[0]).sort(), ['mime', 'name', 'ref', 'size']);
   assert.equal('filePath' in persisted[0], false, 'persistent response must not expose paths');
 
   const materialized = await handlers.get(CHANNELS.materialize)(event, { accountId: 'account-a', taskId: 'task-1', refs: [persisted[0].ref] });
   assert.deepEqual(materialized, [{ token: 'fresh-1', name: 'a.pdf', size: 4, mime: 'application/pdf' }]);
   assert.equal('filePath' in materialized[0], false, 'materialized response must still be opaque');
+  assert.equal(ephemeral.has('fresh-1'), true);
 
   await assert.rejects(
     handlers.get(CHANNELS.materialize)(event, { accountId: 'account-b', taskId: 'task-1', refs: [persisted[0].ref] }),
@@ -80,6 +96,8 @@ function createFakeFs() {
   );
 
   assert.equal(await handlers.get(CHANNELS.cleanup)(event, { accountId: 'account-a', taskId: 'task-1' }), 1);
+  assert.deepEqual(releaseCalls.at(-1), ['fresh-1'], 'terminal durable cleanup must release materialized short tokens');
+  assert.equal(ephemeral.has('fresh-1'), false);
   await assert.rejects(
     handlers.get(CHANNELS.materialize)(event, { accountId: 'account-a', taskId: 'task-1', refs: [persisted[0].ref] }),
     { code: 'SCHEDULED_BROADCAST_ATTACHMENT_REF_INVALID' },
