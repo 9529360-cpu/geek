@@ -4,9 +4,21 @@ const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, webContents } = require('electron');
+const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
+
+// Select the runtime profile before main.cjs resolves and fixes Electron userData.
+// Source development and validation installers must never touch production Chromium
+// storage. An explicit GEEK_USER_DATA_DIR remains the highest-priority test override.
+const packagedMetadata = require('../package.json');
+configureRuntimeEnvironment({
+  appDataDir: app.getPath('appData'),
+  isPackaged: app.isPackaged,
+  packagedProfile: packagedMetadata.geekRuntimeProfile,
+  env: process.env,
+});
 
 const uiEntryPath = path.join(__dirname, '../ui/index.html');
 const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
