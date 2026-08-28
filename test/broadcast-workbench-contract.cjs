@@ -33,6 +33,10 @@ assert.match(workbench, /getElementById\(['"]broadcast-overlay['"]\)/, 'workbenc
 assert.match(workbench, /getElementById\(['"]broadcast-meta['"]\)/, 'contact readiness feedback should follow the existing broadcast loader state');
 assert.match(workbench, /正在后台同步联系人与群组，可继续编辑消息/, 'loading feedback must explicitly remain non-blocking');
 assert.match(workbench, /联系人暂未就绪，不影响编辑/, 'contact errors must stay scoped to the contact area instead of freezing the editor');
+assert.match(workbench, /overlayObserver\.observe\(overlay, \{ attributes: true, attributeFilter: \['class'\] \}\)/, 'overlay observer must only watch open/close state');
+assert.match(workbench, /metaObserver\.observe\(meta, \{ subtree: true, childList: true, characterData: true \}\)/, 'contact status observer must be scoped to the legacy meta node');
+assert.doesNotMatch(workbench, /observer\.observe\(overlay, \{[^}]*subtree:\s*true/, 'workbench must not observe and mutate the same overlay subtree');
+assert.match(workbench, /span\.textContent !== text/, 'status writes must be idempotent even if status sync is invoked repeatedly');
 
 assert.match(workbench, /\['content', 'audience', 'settings', 'review'\]/, 'the editor must expose the four-stage creation flow');
 assert.match(workbench, /固定受众快照/, 'review must preserve fixed-audience schedule semantics');
