@@ -65,6 +65,33 @@ function mapSelectedFiles(value) {
   return mapSelectedFile(value);
 }
 
+function selectedFileTokens(value) {
+  const files = Array.isArray(value) ? value : value ? [value] : [];
+  return files.map(file => String(file?.filePath || file?.token || '')).filter(Boolean);
+}
+
+async function releaseSelectedFiles(value) {
+  const tokens = selectedFileTokens(value);
+  if (!tokens.length) return 0;
+  return ipcRenderer.invoke('file:release-tokens', tokens);
+}
+
+async function pickSelectedFiles(options) {
+  const mapped = mapSelectedFiles(await ipcRenderer.invoke('file:pick-token'));
+  if (!mapped || options?.multiple !== true || typeof document === 'undefined') return mapped;
+  const occupied = document.querySelectorAll('#broadcast-files .bf-item').length;
+  const remaining = Math.max(0, 10 - occupied);
+  if (Array.isArray(mapped)) {
+    const accepted = mapped.slice(0, remaining);
+    const overflow = mapped.slice(remaining);
+    if (overflow.length) await releaseSelectedFiles(overflow);
+    return Object.freeze(accepted);
+  }
+  if (remaining > 0) return mapped;
+  await releaseSelectedFiles(mapped);
+  return null;
+}
+
 function mapScheduledRef(file) {
   if (!file || typeof file !== 'object' || typeof file.ref !== 'string') return null;
   return Object.freeze({
@@ -150,31 +177,18 @@ contextBridge.exposeInMainWorld(
     app: Object.freeze({ version: () => ipcRenderer.invoke('app:get-version') }),
     accounts: Object.freeze({
       list: () => ipcRenderer.invoke(channels.accounts.list),
-
       add: (account) => ipcRenderer.invoke(channels.accounts.add, account),
-
-      remove: (accountId) =>
-        ipcRenderer.invoke(channels.accounts.remove, accountId),
-
-      switch: (accountId) =>
-        ipcRenderer.invoke(channels.accounts.switch, accountId),
-
-      update: (accountId, patch) =>
-        ipcRenderer.invoke(channels.accounts.update, accountId, patch),
-
-      move: (accountId, direction) =>
-        ipcRenderer.invoke(channels.accounts.move, accountId, direction),
-
-      moveTo: (accountId, targetIndex) =>
-        ipcRenderer.invoke('accounts:move-to', accountId, targetIndex),
+      remove: (accountId) => ipcRenderer.invoke(channels.accounts.remove, accountId),
+      switch: (accountId) => ipcRenderer.invoke(channels.accounts.switch, accountId),
+      update: (accountId, patch) => ipcRenderer.invoke(channels.accounts.update, accountId, patch),
+      move: (accountId, direction) => ipcRenderer.invoke(channels.accounts.move, accountId, direction),
+      moveTo: (accountId, targetIndex) => ipcRenderer.invoke('accounts:move-to', accountId, targetIndex),
     }),
     config: Object.freeze({
       get: () => ipcRenderer.invoke(channels.config.get),
       set: (patch) => ipcRenderer.invoke(channels.config.set, patch),
     }),
-    platforms: Object.freeze({
-      list: () => ipcRenderer.invoke('platforms:list'),
-    }),
+    platforms: Object.freeze({ list: () => ipcRenderer.invoke('platforms:list') }),
     line: Object.freeze({
       onExtensionReady: (callback) => {
         ipcRenderer.on('line:extension-ready', (_event, partition) => callback(partition));
@@ -188,9 +202,7 @@ contextBridge.exposeInMainWorld(
       register: (accountId, guestId, token) => ipcRenderer.invoke('webview:register', accountId, guestId, token),
       insertText: (accountId, guestId, text, token) => ipcRenderer.invoke('webview:insert-text', accountId, guestId, text, token),
     }),
-    bridge: Object.freeze({
-      preloadPath: () => ipcRenderer.invoke('bridge:get-preload-path'),
-    }),
+    bridge: Object.freeze({ preloadPath: () => ipcRenderer.invoke('bridge:get-preload-path') }),
     accountData: Object.freeze({
       getAll: (accountId) => ipcRenderer.invoke('account-data:get-all', accountId),
       set: (accountId, key, value) => ipcRenderer.invoke('account-data:set', accountId, key, value),
@@ -202,9 +214,7 @@ contextBridge.exposeInMainWorld(
       maximize: () => ipcRenderer.invoke('window:maximize'),
       close: () => ipcRenderer.invoke('window:close'),
     }),
-    notify: Object.freeze({
-      show: (payload) => ipcRenderer.invoke('notify:show', payload),
-    }),
+    notify: Object.freeze({ show: (payload) => ipcRenderer.invoke('notify:show', payload) }),
     updater: Object.freeze({
       install: () => ipcRenderer.invoke('updater:install'),
       onStatus: (callback) => {
@@ -218,7 +228,8 @@ contextBridge.exposeInMainWorld(
       },
     }),
     file: Object.freeze({
-      pick: async () => mapSelectedFiles(await ipcRenderer.invoke('file:pick-token')),
+      pick: (options) => pickSelectedFiles(options),
+      release: (value) => releaseSelectedFiles(value),
       pickCsv: () => ipcRenderer.invoke('file:pick-csv-limited'),
       save: (payload) => ipcRenderer.invoke('file:save', payload),
     }),
