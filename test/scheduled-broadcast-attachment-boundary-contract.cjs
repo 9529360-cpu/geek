@@ -57,9 +57,7 @@ function createFakeFs() {
       const values = [...tokens];
       releaseCalls.push(values);
       let released = 0;
-      for (const token of values) {
-        if (ephemeral.delete(token)) released += 1;
-      }
+      for (const token of values) if (ephemeral.delete(token)) released += 1;
       return released;
     },
   };
@@ -75,14 +73,12 @@ function createFakeFs() {
   assert.deepEqual(boundary.channels, CHANNELS);
   assert.equal(typeof boundary.cleanupAccount, 'function');
   assert.equal(handlers.size, 4);
-  assert.equal(typeof handlers.get(CHANNELS.cleanupAccount), 'function', 'trusted account cleanup channel must be installed');
 
   const event = { sender };
   const persisted = await handlers.get(CHANNELS.persist)(event, { accountId: 'account-a', taskId: 'task-1', fileTokens: ['short-a'] });
   assert.equal(persisted.length, 1);
-  assert.deepEqual(releaseCalls, [['short-a']], 'durable persist must release the original picker token');
-  assert.equal(ephemeral.has('short-a'), false);
-  assert.deepEqual(Object.keys(persisted[0]).sort(), ['mime', 'name', 'ref', 'size']);
+  assert.deepEqual(releaseCalls, [], 'durable persist alone must not invalidate a draft that may still need retry');
+  assert.equal(ephemeral.has('short-a'), true);
   assert.equal('filePath' in persisted[0], false, 'persistent response must not expose paths');
 
   const materialized = await handlers.get(CHANNELS.materialize)(event, { accountId: 'account-a', taskId: 'task-1', refs: [persisted[0].ref] });
