@@ -13,6 +13,12 @@ const preload = fs.readFileSync(preloadPath, 'utf8');
 const api = require(runtimePath);
 
 assert.equal(api.personalize('Hi %nc / %nr', { name: 'Alice', realName: 'A' }).includes('Alice / A'), true);
+assert.equal(api.validateContent('', [], [{ id: 'vcard-only' }]), true, 'vCard-only broadcasts are valid content');
+assert.equal(api.validateContent('', [], []), false, 'empty broadcasts remain invalid');
+assert.deepEqual(api.dedupeTargets([{ id: 'same', name: 'First' }, { id: 'same', name: 'Second' }, { id: 'other' }]), [{ id: 'same', name: 'First' }, { id: 'other' }], 'target de-duplication preserves first-seen order and metadata');
+assert.equal(api.shouldFailContextInitialization({ state: 'running' }), true, 'an immediate job must fail terminally when initialization fails');
+assert.equal(api.shouldFailContextInitialization({ state: 'queued' }), false, 'a queued schedule must remain eligible for bounded recovery');
+assert.equal(api.shouldFailContextInitialization({ state: 'scheduled' }), false, 'a future schedule must remain eligible for bounded recovery');
 assert.match(runtime, /addEventListener\('click',[\s\S]*true\);/, 'runtime send interception must use capture phase before legacy element handlers');
 assert.match(runtime, /closest\?\.\('#broadcast-send'\)/, 'runtime must own the broadcast send button');
 assert.match(runtime, /event\.stopImmediatePropagation\(\)/, 'new runtime must stop the legacy window-global sender from running');
@@ -25,8 +31,11 @@ assert.match(runtime, /GeekPlatformTransports\?\.forAccount/, 'new runtime must 
 assert.match(runtime, /window\.api\.file\.pick\(\{ multiple: true \}\)/, 'runtime attachment selection must keep using the existing main-process picker');
 assert.match(runtime, /currentDraftFiles\(accountId\)/, 'attachment drafts must be account-scoped before the Job snapshot is created');
 assert.match(runtime, /function resetDraftFiles\(accountId = activeAccountId\(\)\)/, 'runtime needs an explicit attachment-draft reset boundary');
-assert.match(runtime, /if \(!window\.GeekBroadcastJobs\?\.hasActive\(accountId\)\) resetDraftFiles\(accountId\)/, 'opening a fresh editor must not resurrect attachment drafts from the previous session');
-assert.match(runtime, /resetDraftFiles\(accountId\);\s*document\.getElementById\('broadcast-overlay'\)/, 'successfully creating a job must consume the attachment draft so the next job starts clean');
+assert.match(runtime, /if \(!window\.GeekBroadcastJobs\?\.hasActive\(accountId\)\) \{[\s\S]*resetDraftFiles\(accountId\);[\s\S]*resetTransientDraftGlobals\(\);/, 'opening a fresh editor must not resurrect attachment, Excel, or vCard drafts from the previous session');
+assert.match(runtime, /resetDraftFiles\(accountId\);[\s\S]*resetTransientDraftGlobals\(\);[\s\S]*document\.getElementById\('broadcast-overlay'\)/, 'successfully creating a job must consume all transient drafts so the next job starts clean');
+assert.match(runtime, /editorAccountId !== accountId/, 'the editor must fail closed if the active account changes before send');
+assert.match(runtime, /targets = dedupeTargets\(targets\)/, 'all target modes must pass through the same stable de-duplication boundary');
+assert.match(runtime, /shouldFailContextInitialization\(current\)[\s\S]*manager\.markFailed/, 'immediate context initialization errors must release the running slot through a failed terminal state');
 assert.match(runtime, /scheduledAttachmentApi\(\)\.persist/, 'future attachment jobs must convert short picker tokens into durable refs before registration');
 assert.match(runtime, /attachmentRefs/, 'scheduled jobs must carry durable attachment refs in the immutable snapshot');
 assert.match(runtime, /files: isFuture \? \[\] : files/, 'future jobs must not keep ephemeral picker tokens in the Job snapshot');
@@ -42,6 +51,7 @@ assert.match(runtime, /runPendingWithRecovery\(next\)/, 'same-account queued dra
 assert.match(runtime, /drainQueued\(event\.job\.accountId\)/, 'terminal jobs must trigger a queue drain for the same account only');
 
 assert.ok(loader.indexOf("'./broadcast-runtime.js'") < loader.indexOf("'./broadcast-job-controller.js'"), 'runtime must load before presentation compatibility hooks');
+assert.ok(loader.indexOf("'./broadcast-delivery.js'") < loader.indexOf("'./broadcast-runtime.js'"), 'the executable delivery policy must load before runtime sends are enabled');
 assert.match(preload, /filePath: file\.token/, 'renderer compatibility filePath must remain an opaque token');
 assert.match(preload, /delete result\.filePath/, 'main-process send payload must translate the compatibility field back to fileToken');
 assert.match(preload, /broadcastScheduled: Object\.freeze/, 'preload must expose a narrow scheduled attachment capability');

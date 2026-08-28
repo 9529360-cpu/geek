@@ -2,11 +2,11 @@
 
 > 当前施工现场只记录实时任务状态；长期规则见 `AGENTS.md`，可复制维护提示词见 `docs/GEEK-MAINTAINER-PROMPT.md`。任何旧 PR、Issue、测试安装包或本文件快照与实时 Git/CI 冲突时，以实时证据为准。HANDOFF 更新本身会产生新 HEAD，因此最终 CI 必须直接读取 GitHub Actions，不能由本文件自证。
 
-Updated: 2026-08-26
+Updated: 2026-08-28
 
 ## 当前目标
 
-收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。只把 `ux/broadcast-account-jobs` 当作当前候选集成线；不得恢复、cherry-pick 或重新提供已被真实客户端否决的 `ux/broadcast-product-polish` 实现与测试安装包。
+收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。当前优先恢复原群发附件/电子名片成熟行为，并封住新 Job Runtime 引入的整包重复发送、即时任务初始化卡死、跨账号草稿串用和重复 target 风险。只把 `ux/broadcast-account-jobs` 当作当前候选集成线；不得恢复、cherry-pick 或重新提供已被真实客户端否决的 `ux/broadcast-product-polish` 实现与测试安装包。
 
 ## 当前仓库状态
 
@@ -24,6 +24,9 @@ Updated: 2026-08-26
 
 | 优先级 | 状态 | 任务 | 完成条件 |
 |---|---|---|---|
+| P0 | in_progress | 修复 #166 附件回归与高风险发送状态 | WA 已成功附件不因后续失败重发；附件+名片/仅名片语义可用；即时初始化异常终态失败；target 去重；GitHub 托管 CI 通过 |
+| P0 | done | 建立本轮修复契约 | `docs/群发附件回归修复契约-20260828.md` 记录稳定需求 ID、验收 oracle、回滚和本机 CI 隔离边界 |
+| P1 | planned | 客户备注产品与数据设计 | 账号+平台+canonical chatId 隔离、仅本地加密、不会默认进入外发正文；独立于附件回归提交 |
 | P0 | done | 放弃被真实客户端否决的 `ux/broadcast-product-polish` 线 | 不合并、不 cherry-pick、不复用其实现和安装包 |
 | P0 | blocked | 删除已废弃远程 refs | 仅在存在正常 branch-delete 能力时删除；禁止 force-move 代替 |
 | P1 | done | 重新核对 #166 当前代码与 PR 描述 | runtime/contract、#168 合入事实、CI 和剩余实机门禁已对账 |
@@ -34,6 +37,10 @@ Updated: 2026-08-26
 
 ## 已核对的实现事实
 
+- 2026-08-28 修复线新增 `ui/broadcast-delivery.js`：WA direct 附件按单文件重试，已确认成功文件不重放；正文只绑定最后一个附件；附件全成功后名片只发送一次；仅名片是有效内容。
+- TG 原生附件批次和 LINE/其他非 direct 文件注入退出目标级整体重试循环，避免不明确结果导致整批重复发送。
+- 群发编辑器绑定打开时账号；新会话/成功创建 Job 后消费附件、Excel 和名片草稿；所有 target 在排除规则前统一按 chatId 稳定去重。
+- 即时 `running` Job 在账号/WebView/transport 初始化失败时转 `failed`；`scheduled/queued` 仍保留既有 20 次有界恢复语义。
 - `BroadcastJobManager` 支持不同账号 executing Job 并发；同账号最多一个 executing，同时允许 scheduled / queued。
 - Job 固定 `accountId / partition / platform / WebView / targets / message / files / attachmentRefs / vcards / tagAll / interval`；账号切换不改变 owner。
 - Runtime 使用显式 `job.accountId` 找账号与 WebView，`sendHistory` 写回 `job.accountId`。
@@ -44,12 +51,14 @@ Updated: 2026-08-26
 
 ## 实际验证记录
 
+- 本轮按用户要求不在本机运行 Geek 测试/CI，也没有启动本机 Geek self-hosted runner；新增可执行 contract 将在推送后由 GitHub 托管 CI 验证。
+- 本轮只执行了只读源码核对、远程分支快进核对和 `git diff --check`；`git diff --check` 通过。
 - 对账前 head `0899b1ed41a6f8dc9b33120c65f1413e0b2cb649`：标准 Linux `test` run `32781409935` success；Windows `acl-windows` run `32781409939` success。
 - master 同步 head `9c81a68059fd5a7219a54e17d34dddffaaa3573d`：
   - Linux `test` run `32973592803`：job `test` completed/success，`Run tests` step completed/success。
   - Windows `acl-windows` run `32973592564`：job `acl-integration` completed/success，`Run ACL contract` 与 `Run real Windows ACL integration` 均 completed/success。
 - 本次 HANDOFF 记录会产生新的最终 PR HEAD；该 HEAD 仍须读取实时 Actions 结果，上一 HEAD 的绿灯不能替代。
-- 当前 connector 环境没有本地 checkout，因此不声称执行过本地 `npm test`、`git status` 或 `git diff --check`。
+- 当前存在本地 checkout，但不把静态 diff 核对声称为测试或真实客户端验证。
 - 本轮没有执行真实 Electron/WA/TG/LINE 客户端回归。
 - 本轮没有 Cloudflare 生产部署。
 - 本轮没有正式客户端发布。

@@ -29,6 +29,7 @@
 - [`account-password-reset-operations.md`](account-password-reset-operations.md)：账号、忘记密码、Resend、D1 和相关生产验证。
 - [`github-control-plane.md`](github-control-plane.md)：GitHub Actions、Cloudflare 部署与非敏感状态通道。
 - [`release-security.md`](release-security.md)：Windows 客户端构建、签名、版本标记、发布与回滚边界。
+- [`群发附件回归修复契约-20260828.md`](群发附件回归修复契约-20260828.md)：Issue #165 / PR #166 的附件、名片、重试与账号草稿隔离验收契约。
 
 Cloudflare 部署结果以 [Issue #21](https://github.com/9529360-cpu/geek/issues/21) 和对应 Actions run 为准，账号注册、登录、鉴权和测试账号清理结果以 [Issue #23](https://github.com/9529360-cpu/geek/issues/23) 和对应 Actions run 为准。
 
