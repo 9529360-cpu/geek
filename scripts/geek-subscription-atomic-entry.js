@@ -1,9 +1,15 @@
 import productionEntry from './geek-subscription-entry.js';
 import {
+  clientIp,
   rateLimitRuleForRequest,
   requestRateLimited,
   scopeLegacyRateLimitBypass,
 } from './atomic-rate-limit.mjs';
+import {
+  isAdminLoginRequest,
+  reserveAdminLoginAttempt,
+  scopeLegacyAdminLoginBypass,
+} from './atomic-admin-login.mjs';
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -27,6 +33,19 @@ function withSubscriptionDatabase(env, db) {
 export default {
   async fetch(request, env, ctx) {
     const db = env.geek_subscriptions;
+
+    if (isAdminLoginRequest(request)) {
+      const admission = await reserveAdminLoginAttempt(db, clientIp(request));
+      if (admission.blocked) return json({ error: 'too_many_attempts' }, 429);
+
+      // The atomic admission above is now authoritative for this request. The scoped
+      // D1 proxy suppresses only the old admin SELECT/lock/failure-increment queries;
+      // the existing success DELETE is deliberately left real so a valid password
+      // still clears the lock/failure state exactly as before.
+      const scopedEnv = withSubscriptionDatabase(env, scopeLegacyAdminLoginBypass(db));
+      return productionEntry.fetch(request, scopedEnv, ctx);
+    }
+
     if (!rateLimitRuleForRequest(request)) {
       return productionEntry.fetch(request, env, ctx);
     }
