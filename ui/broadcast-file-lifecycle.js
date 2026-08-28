@@ -6,6 +6,7 @@
   'use strict';
 
   const TERMINAL = new Set(['completed', 'stopped', 'failed']);
+  const pendingScheduledDrafts = new Map();
   let installed = false;
 
   function fileTokens(files) {
@@ -26,6 +27,13 @@
     return true;
   }
 
+  function futureScheduleSelected() {
+    const enabled = document.getElementById('broadcast-schedule-toggle')?.checked === true;
+    const raw = document.getElementById('broadcast-schedule-time')?.value || '';
+    const scheduledAt = raw ? new Date(raw).getTime() : NaN;
+    return enabled && Number.isFinite(scheduledAt) && scheduledAt > Date.now();
+  }
+
   function install() {
     if (installed || typeof document === 'undefined') return;
     const manager = window.GeekBroadcastJobs;
@@ -33,7 +41,13 @@
     installed = true;
 
     manager.subscribe(event => {
-      if (!event?.job || !TERMINAL.has(String(event.job.state || ''))) return;
+      if (!event?.job) return;
+      const accountId = String(event.job.accountId || '');
+      if (event.type === 'created' && event.job.state === 'scheduled' && pendingScheduledDrafts.has(accountId)) {
+        releaseFiles(pendingScheduledDrafts.get(accountId));
+        pendingScheduledDrafts.delete(accountId);
+      }
+      if (!TERMINAL.has(String(event.job.state || ''))) return;
       // Immediate Jobs retain their short capabilities in job.files until terminal.
       // Scheduled Jobs use durable refs and their materialized tokens are owned by
       // the main-process scheduled attachment boundary instead.
@@ -41,8 +55,8 @@
     });
 
     // Register before broadcast-runtime.js. At event time runtime is installed, so
-    // this capture listener can release draft capabilities just before the runtime
-    // removes/reset its private draft array.
+    // this capture listener can snapshot/release capabilities around private draft
+    // mutations without exposing canonical paths or mutating runtime state itself.
     document.addEventListener('click', event => {
       const runtime = window.GeekBroadcastRuntimeInstance;
       if (!runtime || typeof runtime.filesFor !== 'function') return;
@@ -58,7 +72,14 @@
       }
 
       const open = event.target?.closest?.('#bc-menu-send');
-      if (open && !manager.hasActive(accountId)) releaseFiles(runtime.filesFor(accountId));
+      if (open && !manager.hasActive(accountId)) {
+        pendingScheduledDrafts.delete(accountId);
+        releaseFiles(runtime.filesFor(accountId));
+        return;
+      }
+
+      const send = event.target?.closest?.('#broadcast-send');
+      if (send && futureScheduleSelected()) pendingScheduledDrafts.set(accountId, runtime.filesFor(accountId));
     }, true);
   }
 
