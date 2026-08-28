@@ -93,9 +93,9 @@
   function setInlineStatus(text, state = 'ready') {
     const status = ensureInlineStatus();
     if (!status) return;
-    status.dataset.state = state;
+    if (status.dataset.state !== state) status.dataset.state = state;
     const span = status.querySelector('span');
-    if (span) span.textContent = text;
+    if (span && span.textContent !== text) span.textContent = text;
   }
 
   function selectedAudienceCount() {
@@ -326,15 +326,22 @@
   function installOverlayObserver() {
     const overlay = document.getElementById('broadcast-overlay');
     if (!overlay) return;
-    const sync = () => {
+    const meta = document.getElementById('broadcast-meta');
+    const syncOverlay = () => {
       const isOpen = !overlay.classList.contains('hidden');
       if (isOpen && !overlayWasOpen) resetWorkbenchOnOpen();
       overlayWasOpen = isOpen;
       if (isOpen) syncContactStatus();
     };
-    const observer = new MutationObserver(sync);
-    observer.observe(overlay, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true, characterData: true });
-    sync();
+    const overlayObserver = new MutationObserver(syncOverlay);
+    overlayObserver.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+    if (meta) {
+      const metaObserver = new MutationObserver(() => {
+        if (!overlay.classList.contains('hidden')) syncContactStatus();
+      });
+      metaObserver.observe(meta, { subtree: true, childList: true, characterData: true });
+    }
+    syncOverlay();
   }
 
   function install() {
