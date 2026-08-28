@@ -184,6 +184,11 @@ function createBroadcastFileRegistry(options = {}) {
       entries.delete(token);
       throw createPolicyError('BROADCAST_FILE_CHANGED', '所选文件已发生变化，请重新选择。');
     }
+    // Treat the TTL as an idle lease, not an absolute Job lifetime. Only a
+    // successful resolve by the original renderer owner, after file-integrity
+    // validation, renews it. Unused tokens still expire and invalid callers
+    // cannot keep another owner's capability alive.
+    entry.expiresAt = currentTime + limits.tokenTtlMs;
     return Object.freeze({
       filePath: entry.canonicalPath,
       name: entry.name,
