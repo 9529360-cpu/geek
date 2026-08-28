@@ -2,8 +2,7 @@
 
 const EXTERNAL_DEBUG_URL = 'http://127.0.0.1:9344/json';
 
-function externalDebuggingAllowed({ isPackaged, argv = [] } = {}) {
-  if (isPackaged === true) return false;
+function externalDebuggingRequested({ argv = [] } = {}) {
   return Array.isArray(argv) && argv.some((arg) => String(arg || '') === '--remote-debugging-port=9344');
 }
 
@@ -19,15 +18,14 @@ function isExternalDebugProbeTarget(input) {
   }
 }
 
-function installExternalDebuggingProbeGuard({ allowed, httpModule } = {}) {
-  if (allowed === true) return Object.freeze({ installed: false, restore() {} });
+function installExternalDebuggingProbeGuard({ httpModule } = {}) {
   const http = httpModule || require('node:http');
   if (!http || typeof http.get !== 'function') throw new TypeError('http.get is required');
   const originalGet = http.get;
   function guardedGet(input, ...args) {
     if (isExternalDebugProbeTarget(input)) {
-      const error = new Error('EXTERNAL_CDP_NOT_AUTHORIZED');
-      error.code = 'EXTERNAL_CDP_NOT_AUTHORIZED';
+      const error = new Error('EXTERNAL_BROADCAST_CDP_DISABLED');
+      error.code = 'EXTERNAL_BROADCAST_CDP_DISABLED';
       throw error;
     }
     return originalGet.call(this, input, ...args);
@@ -43,7 +41,7 @@ function installExternalDebuggingProbeGuard({ allowed, httpModule } = {}) {
 
 module.exports = {
   EXTERNAL_DEBUG_URL,
-  externalDebuggingAllowed,
+  externalDebuggingRequested,
   isExternalDebugProbeTarget,
   installExternalDebuggingProbeGuard,
 };
