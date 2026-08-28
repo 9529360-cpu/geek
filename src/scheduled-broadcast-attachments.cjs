@@ -68,7 +68,7 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
   const limits = Object.freeze({ ...DEFAULT_LIMITS, ...(options.limits || {}) });
   const entries = new Map();
   let initPromise = null;
-  let persistQueue = Promise.resolve();
+  let mutationQueue = Promise.resolve();
 
   function nextRef() {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -82,16 +82,17 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
     return JSON.stringify({ version: 1, entries: [...entries.values()] });
   }
 
-  async function persist() {
-    const snapshot = serialize();
-    const run = async () => {
-      await fs.mkdir(pathModule.dirname(storePath), { recursive: true });
-      const tempPath = `${storePath}.tmp`;
-      await fs.writeFile(tempPath, snapshot, { encoding: 'utf8', mode: 0o600 });
-      await fs.rename(tempPath, storePath);
-    };
-    persistQueue = persistQueue.then(run, run);
-    return persistQueue;
+  async function writeSnapshot(snapshot) {
+    await fs.mkdir(pathModule.dirname(storePath), { recursive: true });
+    const tempPath = `${storePath}.tmp`;
+    await fs.writeFile(tempPath, snapshot, { encoding: 'utf8', mode: 0o600 });
+    await fs.rename(tempPath, storePath);
+  }
+
+  function enqueueMutation(operation) {
+    const run = mutationQueue.catch(() => {}).then(operation);
+    mutationQueue = run.catch(() => {});
+    return run;
   }
 
   async function init() {
@@ -164,19 +165,21 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
       });
     }
 
-    const created = staged.map(item => {
-      const ref = nextRef();
-      const entry = { ref, accountId: owner, taskId: task, ...item, createdAt: Date.now() };
-      entries.set(ref, entry);
-      return publicRecord(entry);
+    return enqueueMutation(async () => {
+      const created = staged.map(item => {
+        const ref = nextRef();
+        const entry = { ref, accountId: owner, taskId: task, ...item, createdAt: Date.now() };
+        entries.set(ref, entry);
+        return publicRecord(entry);
+      });
+      try {
+        await writeSnapshot(serialize());
+        return Object.freeze(created);
+      } catch (error) {
+        for (const record of created) entries.delete(record.ref);
+        throw error;
+      }
     });
-    try {
-      await persist();
-      return Object.freeze(created);
-    } catch (error) {
-      for (const record of created) entries.delete(record.ref);
-      throw error;
-    }
   }
 
   async function resolve(refValue, { accountId, taskId } = {}) {
@@ -224,21 +227,23 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
     await init();
     const owner = requiredId(accountId, 'SCHEDULED_BROADCAST_ATTACHMENT_ACCOUNT_INVALID');
     const task = requiredId(taskId, 'SCHEDULED_BROADCAST_ATTACHMENT_TASK_INVALID');
-    const removedEntries = [];
-    for (const [ref, entry] of entries) {
-      if (entry.accountId === owner && entry.taskId === task) {
-        removedEntries.push([ref, entry]);
-        entries.delete(ref);
+    return enqueueMutation(async () => {
+      const removedEntries = [];
+      for (const [ref, entry] of entries) {
+        if (entry.accountId === owner && entry.taskId === task) {
+          removedEntries.push([ref, entry]);
+          entries.delete(ref);
+        }
       }
-    }
-    if (!removedEntries.length) return 0;
-    try {
-      await persist();
-      return removedEntries.length;
-    } catch (error) {
-      for (const [ref, entry] of removedEntries) entries.set(ref, entry);
-      throw error;
-    }
+      if (!removedEntries.length) return 0;
+      try {
+        await writeSnapshot(serialize());
+        return removedEntries.length;
+      } catch (error) {
+        for (const [ref, entry] of removedEntries) entries.set(ref, entry);
+        throw error;
+      }
+    });
   }
 
   function listTask(accountId, taskId) {
