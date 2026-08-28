@@ -15,6 +15,7 @@ const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-bro
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
+const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -36,6 +37,7 @@ try { app.setPath('userData', earlyUserDataDir); } catch {}
 const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
 if (primaryInstance) {
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
+  const accountsFilePath = runtimePaths.accountsFile(earlyUserDataDir);
   const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
     getAllWebContents: () => webContents.getAllWebContents(),
   });
@@ -45,6 +47,23 @@ if (primaryInstance) {
   // Electron documents Session.storagePath instead. Install a narrow read-only
   // compatibility getter before main.cjs can create or classify any account guest.
   const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
+
+  // Legacy post-attach navigation uses a global host allowlist. Add a stricter
+  // account-guest boundary before any BrowserWindow/WebView is created. Navigation
+  // policy comes from the authoritative account record that owns the fixed partition;
+  // missing/corrupt/mismatched account state fails closed instead of inferring owner
+  // from the first URL observed in the guest.
+  installAccountScopedWebviewNavigationBoundary({
+    app,
+    resolvePolicyForPartition: (partition) => {
+      try {
+        const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
+        return policyFromAccountState(partition, accountState);
+      } catch {
+        return null;
+      }
+    },
+  });
 
   // The legacy external attachment transport selects the first platform target and
   // has no reliable account partition binding. Keep the developer remote-debug port
