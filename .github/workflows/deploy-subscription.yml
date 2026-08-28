@@ -20,6 +20,7 @@ on:
       - 'test/atomic-rate-limit-contract.cjs'
       - 'test/atomic-admin-login-contract.cjs'
       - 'test/subscription-order-pay-method-contract.cjs'
+      - 'test/subscription-deploy-path-contract.cjs'
       - 'test/cloudflare-deploy-observability-contract.cjs'
       - '.github/workflows/deploy-subscription.yml'
 
