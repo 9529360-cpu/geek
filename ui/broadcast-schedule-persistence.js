@@ -9,6 +9,7 @@
   const MAX_RESTORE_ATTEMPTS = 20;
   let installed = false;
   const restoreRetries = new Map();
+  const dearmedJobIds = new Set();
 
   function serializableJob(job) {
     return {
@@ -34,13 +35,31 @@
     };
   }
 
+  function pendingForPersistence(manager, accountId) {
+    return manager.getPending(accountId)
+      .filter(job => !dearmedJobIds.has(String(job.id || '')))
+      .filter(job => !job.files?.length || job.attachmentRefs?.length)
+      .map(serializableJob);
+  }
+
   async function persistAccount(accountId) {
     const manager = window.GeekBroadcastJobs;
     if (!manager || !accountId) return;
-    const pending = manager.getPending(accountId)
-      .filter(job => !job.files?.length || job.attachmentRefs?.length)
-      .map(serializableJob);
+    const pending = pendingForPersistence(manager, accountId);
     await window.api.accountData.set(String(accountId), STORAGE_KEY, JSON.stringify(pending));
+  }
+
+  async function dearmForExecution(job) {
+    if (!job?.id || !job?.accountId) throw new TypeError('scheduled job owner is required');
+    const id = String(job.id);
+    dearmedJobIds.add(id);
+    try {
+      await persistAccount(job.accountId);
+      return true;
+    } catch (error) {
+      dearmedJobIds.delete(id);
+      throw error;
+    }
   }
 
   function duePendingJob(manager, accountId) {
@@ -70,7 +89,7 @@
     }
     const handle = setTimeout(() => {
       restoreRetries.delete(id);
-      void startDueForAccount(id, attempts);
+      void startDueForAccount(id, attempts).catch(() => {});
     }, Math.min(5000, 500 + attempts * 250));
     restoreRetries.set(id, { handle, attempts });
   }
@@ -84,11 +103,16 @@
     if (!due) return;
     if (due.state === 'scheduled') manager.transition(due.id, 'queued');
     try {
+      // Remove this Job from the auto-replay durable set *before* any target is sent.
+      // A crash after this point may require manual recreation, but it cannot replay
+      // the same scheduled Job from the first target on the next app launch.
+      await dearmForExecution(due);
       await runtime.runJob(due.id);
       restoreRetries.delete(String(accountId));
     } catch (error) {
       const job = manager.get(due.id);
       if (job && (job.state === 'queued' || job.state === 'scheduled')) scheduleRetry(accountId, attempts);
+      throw error;
     }
   }
 
@@ -97,7 +121,7 @@
     const manager = window.GeekBroadcastJobs;
     if (!runtime || !manager || !job) return;
     if (job.state === 'queued' || Number(job.scheduledAt) <= Date.now()) {
-      setTimeout(() => void startDueForAccount(job.accountId), 1000);
+      setTimeout(() => void startDueForAccount(job.accountId).catch(() => {}), 1000);
       return;
     }
     runtime.scheduler.schedule({
@@ -156,7 +180,9 @@
           armRestored(job);
         } catch (_) {}
       }
-      await persistAccount(account.id);
+      // One damaged/unwritable account sandbox must not abort restoration for other
+      // accounts. The existing on-disk records remain fail-closed inputs next launch.
+      try { await persistAccount(account.id); } catch (_) {}
     }
   }
 
@@ -169,11 +195,19 @@
       const job = event?.job;
       if (!job?.accountId) return;
       if (job.state === 'scheduled' || job.state === 'queued' || ['completed', 'stopped', 'failed', 'running'].includes(job.state)) {
-        queueMicrotask(() => void persistAccount(job.accountId));
+        queueMicrotask(() => {
+          void persistAccount(job.accountId).then(() => {
+            if (['completed', 'stopped', 'failed'].includes(job.state)) dearmedJobIds.delete(String(job.id || ''));
+          }).catch(() => {
+            // Explicit scheduled creation and due execution both have awaited durable
+            // gates. Background state refreshes are best-effort and must not become
+            // unhandled renderer rejections.
+          });
+        });
       }
     });
-    setTimeout(() => void restore(), 0);
-    window.GeekBroadcastSchedulePersistenceInstance = Object.freeze({ restore, persistAccount, startDueForAccount });
+    setTimeout(() => void restore().catch(() => {}), 0);
+    window.GeekBroadcastSchedulePersistenceInstance = Object.freeze({ restore, persistAccount, dearmForExecution, startDueForAccount });
   }
 
   return Object.freeze({ STORAGE_KEY, MAX_RESTORE_ATTEMPTS, serializableJob, install });
