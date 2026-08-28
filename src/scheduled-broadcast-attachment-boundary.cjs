@@ -8,6 +8,7 @@ const CHANNELS = Object.freeze({
   persist: 'broadcast-scheduled-attachments:persist',
   materialize: 'broadcast-scheduled-attachments:materialize',
   cleanup: 'broadcast-scheduled-attachments:cleanup',
+  cleanupAccount: 'broadcast-scheduled-attachments:cleanup-account',
 });
 
 function boundaryError(code) {
@@ -96,13 +97,13 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
     return getStore().cleanupTask(String(source.accountId || ''), String(source.taskId || ''));
   });
 
-  return Object.freeze({
-    channels: CHANNELS,
-    getStore,
+  ipcMain.handle(CHANNELS.cleanupAccount, async (event, payload) => {
+    assertMainRenderer(event);
+    const source = payload && typeof payload === 'object' ? payload : {};
+    return getStore().cleanupAccount(String(source.accountId || ''));
   });
+
+  return Object.freeze({ channels: CHANNELS, getStore });
 }
 
-module.exports = {
-  CHANNELS,
-  installScheduledBroadcastAttachmentBoundary,
-};
+module.exports = { CHANNELS, installScheduledBroadcastAttachmentBoundary };

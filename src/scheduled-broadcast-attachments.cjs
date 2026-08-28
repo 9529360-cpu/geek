@@ -246,6 +246,28 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
     });
   }
 
+  async function cleanupAccount(accountId) {
+    await init();
+    const owner = requiredId(accountId, 'SCHEDULED_BROADCAST_ATTACHMENT_ACCOUNT_INVALID');
+    return enqueueMutation(async () => {
+      const removedEntries = [];
+      for (const [ref, entry] of entries) {
+        if (entry.accountId === owner) {
+          removedEntries.push([ref, entry]);
+          entries.delete(ref);
+        }
+      }
+      if (!removedEntries.length) return 0;
+      try {
+        await writeSnapshot(serialize());
+        return removedEntries.length;
+      } catch (error) {
+        for (const [ref, entry] of removedEntries) entries.set(ref, entry);
+        throw error;
+      }
+    });
+  }
+
   function listTask(accountId, taskId) {
     const owner = String(accountId || '');
     const task = String(taskId || '');
@@ -261,6 +283,7 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
     resolve,
     resolveMany,
     cleanupTask,
+    cleanupAccount,
     listTask,
     size: () => entries.size,
   });

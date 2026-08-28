@@ -58,7 +58,7 @@ if (primaryInstance) {
 
   // Scheduled attachments keep canonical paths in main only. Durable refs are bound
   // to account + task and materialize back into fresh short-lived picker tokens.
-  installScheduledBroadcastAttachmentBoundary({
+  const scheduledAttachmentBoundary = installScheduledBroadcastAttachmentBoundary({
     ipcMain,
     BrowserWindow,
     fs,
@@ -77,6 +77,7 @@ if (primaryInstance) {
     getUserDataDir: () => app.getPath('userData'),
     uiEntryPath,
     allowedKeys: [...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS],
+    beforeAccountRemove: ({ accountId }) => scheduledAttachmentBoundary.getStore().cleanupAccount(accountId),
     isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
     encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
     decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),
