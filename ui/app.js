@@ -1720,6 +1720,8 @@
   let broadcastStop = false;
   let broadcastPaused = false;
   let broadcastFailed = [];     // 失败名单 [{name, reason}]
+  let broadcastChatLoadSequence = 0;
+  let broadcastChatsReady = false;
 
   const bOverlay = document.getElementById('broadcast-overlay');
   const bListEl = document.getElementById('broadcast-list');
@@ -1749,6 +1751,7 @@
     const account = accounts.find(a => a.id === activeId);
     if (!account) { alert('请先切换到一个账号'); return; }
     broadcastChats = [];
+    broadcastChatsReady = false;
     broadcastSelected = new Set();
     broadcastSavedFilter = null;
     broadcastFiles = [];
@@ -1774,7 +1777,8 @@
     const savedTagSel = document.getElementById('broadcast-saved-groups');
     if (savedTagSel) savedTagSel.value = '';
     renderBroadcastList();
-    loadBroadcastChats().then(() => armScheduleTasks());
+    const loadSequence = ++broadcastChatLoadSequence;
+    loadBroadcastChats(account.id, loadSequence).then(loaded => { if (loaded) armScheduleTasks(); });
   }
   // 附件：选择文件 + 列表（新界面用开关 change 触发——见下方群发绑定；此处移除避免重复弹窗）
   // CSV 导入联系人（每行：聊天名称或 ID，自动匹配勾选）
@@ -1804,22 +1808,33 @@
       x.onclick = () => { broadcastFiles.splice(+x.dataset.i, 1); renderBroadcastFiles(); };
     });
   }
-  function closeBroadcast() { bOverlay.classList.add('hidden'); }
-  async function loadBroadcastChats() {
+  function closeBroadcast() {
+    broadcastChatLoadSequence += 1;
+    broadcastChatsReady = false;
+    bOverlay.classList.add('hidden');
+  }
+  async function loadBroadcastChats(ownerAccountId, loadSequence) {
     bMetaEl.textContent = '加载聊天列表…';
-    const account = accounts.find(a => a.id === activeId);
-    const wv = wvMap.get(activeId);
-    if (!account || !wv) { bMetaEl.textContent = '当前账号不可用'; return; }
+    const account = accounts.find(a => a.id === ownerAccountId);
+    const wv = wvMap.get(ownerAccountId);
+    if (!account || !wv) { bMetaEl.textContent = '当前账号不可用'; return false; }
     const platform = platformTransportFor(account, wv);
     try {
-      broadcastChats = await platform.listChats();
+      const chats = await platform.listChats();
+      if (loadSequence !== broadcastChatLoadSequence || activeId !== ownerAccountId || bOverlay.classList.contains('hidden')) return false;
+      broadcastChats = chats;
+      broadcastChatsReady = true;
       bMetaEl.textContent = `共 ${broadcastChats.length} 个聊天（联系人和群组）`;
       renderBroadcastList();
       const excludeMode = document.querySelector('input[name="bc-sendto"]:checked')?.value;
       if (excludeMode === 'exclude-contacts') renderTypedExclude('contacts');
       if (excludeMode === 'exclude-groups') renderTypedExclude('groups');
+      return true;
     } catch (e) {
+      if (loadSequence !== broadcastChatLoadSequence || activeId !== ownerAccountId) return false;
+      broadcastChatsReady = false;
       bMetaEl.textContent = '读取聊天列表失败: ' + e.message;
+      return false;
     }
   }
   function visibleBroadcastChats() {
@@ -1957,6 +1972,7 @@
   }
   function applyBroadcastGroupTag(g) {
     if (!g) return;
+    if (!broadcastChatsReady) { alert('聊天列表仍在加载，请稍后再应用群组标签'); return; }
     const sel = document.getElementById('broadcast-saved-groups');
     if (sel) sel.value = g.id;
     broadcastSavedFilter = new Set(g.chatIds || []);
@@ -3692,6 +3708,7 @@
   settingsController.bind();
 
   function reloadAccountScopedUiState() {
+    if (bOverlay && !bOverlay.classList.contains('hidden')) closeBroadcast();
     const parse = (key, fallback) => { try { return JSON.parse(accountStorageGetItem(key) || JSON.stringify(fallback)); } catch { return fallback; } };
     const parseList = key => broadcastUiModel.listValue(accountStorageGetItem(key));
     scheduleTasks = parseList('scheduleTasks');

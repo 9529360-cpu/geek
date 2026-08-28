@@ -16,6 +16,9 @@ assert.match(app, /persistBeforeCommit\(next,[\s\S]*accountStorageSetItem\('save
 assert.match(app, /persistBeforeCommit\(next,[\s\S]*accountStorageSetItem\('broadcastGroups'/, 'group tags must persist before UI commit');
 assert.match(app, /savedMessageMutationPending/, 'message template mutations need a single-flight guard');
 assert.match(app, /groupTagMutationPending/, 'group tag mutations need a single-flight guard');
+assert.match(app, /loadSequence !== broadcastChatLoadSequence \|\| activeId !== ownerAccountId/, 'stale account chat loads must not replace the active editor UI');
+assert.match(app, /if \(!broadcastChatsReady\) \{ alert\('聊天列表仍在加载/, 'group tags must fail closed until the owner chat list is ready');
+assert.match(app, /reloadAccountScopedUiState\(\)[\s\S]*!bOverlay\.classList\.contains\('hidden'\)[\s\S]*closeBroadcast\(\)/, 'switching accounts must close and invalidate an open editor draft');
 
 const clearFilter = app.match(/function clearBroadcastGroupTagFilter\(\) \{([\s\S]*?)\n  \}/);
 assert.ok(clearFilter, 'group tag clear-filter boundary must exist');
