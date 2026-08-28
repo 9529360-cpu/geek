@@ -5,6 +5,8 @@ const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, webContents } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
+const runtimePaths = require('./runtime-paths.cjs');
+const { installSingleInstanceGuard } = require('./single-instance.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
@@ -19,6 +21,21 @@ configureRuntimeEnvironment({
   packagedProfile: packagedMetadata.geekRuntimeProfile,
   env: process.env,
 });
+
+// Electron's single-instance lock must be acquired against the same userData/profile
+// that the runtime will use. main.cjs repeats this idempotent setPath later.
+const earlyUserDataDir = runtimePaths.resolveUserDataDir({
+  appDataDir: app.getPath('appData'),
+  overrideDir: process.env.GEEK_USER_DATA_DIR,
+});
+try { app.setPath('userData', earlyUserDataDir); } catch {}
+
+const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
+if (!primaryInstance) {
+  // app.exit() has already been requested. Do not install IPC boundaries or load
+  // main.cjs in the duplicate process, so it cannot initialize Chromium sessions.
+  return;
+}
 
 const uiEntryPath = path.join(__dirname, '../ui/index.html');
 const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
