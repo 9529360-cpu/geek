@@ -38,9 +38,6 @@
   return Object.freeze({ normalizeChatId, normalizeComposerText, sameChat, authorizeSend });
 });
 
-// broadcast-safety.js is a static script immediately before app.js. Install the
-// future-schedule readiness barrier synchronously here, before either legacy app.js
-// or the dynamically loaded account-scoped runtime can handle the send click.
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   document.addEventListener('click', event => {
     const send = event.target?.closest?.('#broadcast-send');
@@ -62,9 +59,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   }, true);
 }
 
-// Broadcast runtime/presentation stays outside app.js so account-scoped task state can
-// evolve without widening the platform transport or safety surface. Load dependencies
-// in order; the runtime owns new sends before the task presentation installs.
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   function loadScript(src, marker, done) {
     if (window[marker]) { done?.(); return; }
@@ -89,7 +83,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
                   loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
                   loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
                     loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
-                      loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                      loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
+                        loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                      });
                     });
                   });
                 });
