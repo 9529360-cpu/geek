@@ -184,7 +184,10 @@
 
     document.addEventListener('click', event => {
       const addLegacy = event.target?.closest?.('#broadcast-add-schedule');
-      if (addLegacy) {
+      // Before the safe product closure is available, keep the deprecated handler
+      // completely inert. Once the closure is installed it owns this affordance and
+      // routes every click through account-scoped durable Broadcast Jobs.
+      if (addLegacy && !window.GeekBroadcastProductClosureInstance) {
         event.preventDefault();
         event.stopImmediatePropagation();
         return;

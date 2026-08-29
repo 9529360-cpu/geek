@@ -85,6 +85,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
                     loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
                       loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
                         loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
+                          loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
                           loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
                         });
                       });
