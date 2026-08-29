@@ -44,7 +44,18 @@
       const targetId = ${JSON.stringify(String(targetId || ''))};
       const href = '#' + targetId.replace(/^#/, '');
       const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-      const rows = () => [...document.querySelectorAll('.chat-item-clickable')];
+      const chatLists = () => [...document.querySelectorAll('.chat-list.custom-scroll, .custom-scroll')]
+        .filter((list, index, all) => all.indexOf(list) === index)
+        .filter(list => list.querySelector('.chat-item-clickable'));
+      const visibleList = list => {
+        try {
+          const style = getComputedStyle(list);
+          const rect = list.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        } catch (_) { return false; }
+      };
+      const list = chatLists().find(visibleList) || chatLists()[0] || null;
+      const rows = () => list ? [...list.querySelectorAll('.chat-item-clickable')] : [];
       const targetRow = () => rows().find(row => row.querySelector('a')?.getAttribute('href') === href) || null;
       const clickRow = row => {
         const a = row?.querySelector('a');
@@ -65,11 +76,9 @@
       const selected = row => !!row?.classList?.contains('selected');
 
       if (!targetId) return 'INVALID_TARGET';
+      if (!list) return 'NO_CHAT_LIST';
       let row = targetRow();
       if (!row) {
-        const list = document.querySelector('.chat-list.custom-scroll')
-          || [...document.querySelectorAll('.custom-scroll')].find(el => el.querySelector('.chat-item-clickable'));
-        if (!list) return 'NO_CHAT_LIST';
         const originalTop = Number(list.scrollTop) || 0;
         const maxTop = Math.max(0, Number(list.scrollHeight || 0) - Number(list.clientHeight || 0));
         const step = Math.max(220, Math.floor((Number(list.clientHeight) || 600) * 0.75));
