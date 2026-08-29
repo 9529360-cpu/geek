@@ -27,9 +27,7 @@
     }).filter(Boolean);
   }
 
-  function ensureSingleSurface(doc = document) {
-    // Remove both experimental surfaces from prior candidates. The broadcast plugin's
-    // own saved-list row is the one and only product entry for reusable recipient tags.
+  function ensureSurface(doc = document) {
     doc.getElementById('broadcast-recipient-tags')?.remove();
     doc.getElementById('broadcast-native-label-helper')?.remove();
     doc.getElementById('broadcast-native-label-style')?.remove();
@@ -40,120 +38,202 @@
     const remove = doc.getElementById('bc-delete-list');
     if (!row || !select || !save || !remove) return null;
 
-    row.style.display = 'flex';
+    row.style.display = 'grid';
     row.classList.add('bc-recipient-tag-row');
-    select.style.display = '';
+    select.style.display = 'none';
+    remove.style.display = 'none';
     save.style.display = '';
-    remove.style.display = '';
-
-    let title = row.querySelector('.bc-recipient-tag-title');
-    if (!title) {
-      title = doc.createElement('span');
-      title.className = 'bc-recipient-tag-title';
-      row.insertBefore(title, row.firstChild);
-    }
-    title.textContent = '群发名单标签';
-
     save.textContent = '＋ 保存当前名单';
-    save.title = '把当前群发已选联系人和群组保存为当前账号可复用的群发名单标签';
-    select.title = '选择已保存的群发名单标签；应用时会精确恢复该名单';
-    remove.textContent = '删除标签';
-    remove.title = '删除当前选择的群发名单标签';
+    save.title = '把当前选择的联系人和群组保存为一个自定义群发标签';
+
+    let head = row.querySelector('.bc-recipient-tag-head');
+    if (!head) {
+      head = doc.createElement('div');
+      head.className = 'bc-recipient-tag-head';
+      const title = doc.createElement('strong');
+      title.textContent = '群发名单标签';
+      const hint = doc.createElement('span');
+      hint.textContent = '选择联系人/群组后保存；下次点标签直接恢复这批收件人';
+      head.append(title, hint);
+      row.insertBefore(head, row.firstChild);
+    }
+
+    let list = row.querySelector('#broadcast-recipient-tag-list');
+    if (!list) {
+      list = doc.createElement('div');
+      list.id = 'broadcast-recipient-tag-list';
+      list.className = 'bc-original-tag-list bc-recipient-tag-list';
+      row.insertBefore(list, save);
+    }
 
     if (!doc.getElementById('broadcast-recipient-tag-style')) {
       const style = doc.createElement('style');
       style.id = 'broadcast-recipient-tag-style';
       style.textContent = `
-        #broadcast-overlay .bc-recipient-tag-row{display:grid!important;grid-template-columns:auto minmax(160px,1fr) auto auto;align-items:center;gap:6px;margin-top:7px;padding:7px;border:1px solid var(--border-subtle);border-radius:5px;background:color-mix(in srgb,var(--accent) 3%,var(--bg-surface))}
-        #broadcast-overlay .bc-recipient-tag-title{font-size:11.5px;font-weight:700;color:var(--text-primary);white-space:nowrap}
-        #broadcast-overlay .bc-recipient-tag-row .bc-input{min-width:0;height:28px}
-        #broadcast-overlay .bc-recipient-tag-row .bc-btn{height:28px;padding:2px 8px;white-space:nowrap}
-        @media (max-width:640px){#broadcast-overlay .bc-recipient-tag-row{grid-template-columns:1fr 1fr}.bc-recipient-tag-title{grid-column:1/-1}.bc-recipient-tag-row .bc-saved-select{grid-column:1/-1}}
+        #broadcast-overlay .bc-recipient-tag-row{display:grid!important;grid-template-columns:1fr auto;gap:7px;margin-top:7px;padding:8px;border:1px solid var(--border-subtle);border-radius:5px;background:color-mix(in srgb,var(--accent) 3%,var(--bg-surface))}
+        #broadcast-overlay .bc-recipient-tag-head{grid-column:1/-1;display:flex;align-items:baseline;gap:8px;min-width:0}
+        #broadcast-overlay .bc-recipient-tag-head strong{font-size:12px;color:var(--text-primary);white-space:nowrap}
+        #broadcast-overlay .bc-recipient-tag-head span{font-size:10.5px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        #broadcast-overlay .bc-recipient-tag-list{min-height:27px;align-content:center}
+        #broadcast-overlay .bc-recipient-tag-empty{font-size:11px;color:var(--text-tertiary)}
+        #broadcast-overlay .bc-recipient-tag-row>#bc-save-list{height:27px;padding:2px 9px;align-self:start;white-space:nowrap}
       `;
       doc.head.appendChild(style);
     }
-    return { row, select, save, remove };
+    return { row, select, save, remove, list };
   }
 
-  async function readPresets(doc = document) {
+  function optionPresets(select) {
+    if (!select) return [];
+    return [...select.options].slice(1).map((option, index) => ({
+      index,
+      name: String(option.textContent || '').replace(/（\d+）\s*$/, '').trim(),
+      count: Number((String(option.textContent || '').match(/（(\d+)）\s*$/) || [])[1] || 0),
+    }));
+  }
+
+  async function durablePresets(doc = document) {
     const accountId = activeAccountId(doc);
-    if (!accountId) return { accountId: '', presets: [] };
-    const data = await window.api.accountData.getAll(accountId);
-    if (activeAccountId(doc) !== accountId) return { accountId: '', presets: [] };
-    return { accountId, presets: parsePresets(data?.savedLists) };
+    if (!accountId) return [];
+    try {
+      const data = await window.api.accountData.getAll(accountId);
+      if (activeAccountId(doc) !== accountId) return [];
+      return parsePresets(data?.savedLists);
+    } catch (_) {
+      return [];
+    }
   }
 
-  async function verifySavedPreset(doc = document, previousCount = -1) {
-    const current = await readPresets(doc);
-    if (!current.accountId) return false;
-    const controls = ensureSingleSurface(doc);
-    const options = controls ? [...controls.select.options].slice(1) : [];
-    return current.presets.length > previousCount && options.length === current.presets.length;
+  function applyPreset(index, doc = document) {
+    const controls = ensureSurface(doc);
+    if (!controls) return false;
+    const option = controls.select.options[index + 1];
+    if (!option || typeof controls.select.onchange !== 'function') return false;
+    const clear = doc.getElementById('broadcast-clear');
+    if (clear && typeof clear.onclick === 'function') clear.onclick.call(clear);
+    controls.select.value = String(index);
+    controls.select.onchange.call(controls.select);
+    renderTags(doc, index);
+    return true;
   }
 
-  function wrapExactApply(doc = document) {
-    const controls = ensureSingleSurface(doc);
-    if (!controls || controls.select.dataset.exactApplyWrapped === '1') return;
-    const legacyApply = controls.select.onchange;
-    if (typeof legacyApply !== 'function') return;
-    controls.select.onchange = function () {
-      const value = String(controls.select.value || '');
-      if (value !== '') {
-        const clear = doc.getElementById('broadcast-clear');
-        if (clear && typeof clear.onclick === 'function') clear.onclick.call(clear);
-        controls.select.value = value;
-      }
-      return legacyApply.call(controls.select);
-    };
-    controls.select.dataset.exactApplyWrapped = '1';
+  function deletePreset(index, doc = document) {
+    const controls = ensureSurface(doc);
+    if (!controls) return false;
+    const option = controls.select.options[index + 1];
+    if (!option || typeof controls.remove.onclick !== 'function') return false;
+    controls.select.value = String(index);
+    controls.remove.onclick.call(controls.remove);
+    setTimeout(() => renderTags(doc), 0);
+    return true;
   }
 
-  async function saveCurrent(doc = document) {
-    const controls = ensureSingleSurface(doc);
-    const closure = window.GeekBroadcastProductClosureInstance;
-    if (!controls || typeof closure?.persistRecipientPreset !== 'function') {
-      window.alert?.('群发名单标签功能尚未就绪，请重新打开群发窗口');
+  function renderTags(doc = document, activeIndex = -1) {
+    const controls = ensureSurface(doc);
+    if (!controls) return [];
+    const presets = optionPresets(controls.select);
+    controls.list.replaceChildren();
+    if (!presets.length) {
+      const empty = doc.createElement('span');
+      empty.className = 'bc-recipient-tag-empty';
+      empty.textContent = '暂无标签。先勾选联系人或群组，再点“保存当前名单”。';
+      controls.list.appendChild(empty);
+      return presets;
+    }
+    presets.forEach(preset => {
+      const chip = doc.createElement('span');
+      chip.className = 'bc-original-tag' + (preset.index === activeIndex ? ' active' : '');
+      const open = doc.createElement('button');
+      open.type = 'button';
+      open.className = 'bc-original-tag__open';
+      open.textContent = preset.name || `标签${preset.index + 1}`;
+      const count = doc.createElement('em');
+      count.textContent = String(preset.count);
+      open.appendChild(count);
+      open.title = `恢复这个群发名单（${preset.count} 个收件人）`;
+      open.onclick = () => applyPreset(preset.index, doc);
+      const remove = doc.createElement('button');
+      remove.type = 'button';
+      remove.className = 'bc-original-tag__remove';
+      remove.textContent = '×';
+      remove.title = '删除这个群发名单标签';
+      remove.onclick = event => { event.stopPropagation(); deletePreset(preset.index, doc); };
+      chip.append(open, remove);
+      controls.list.appendChild(chip);
+    });
+    return presets;
+  }
+
+  async function verifyAndRender(doc = document) {
+    const controls = ensureSurface(doc);
+    if (!controls) return [];
+    const durable = await durablePresets(doc);
+    const ui = optionPresets(controls.select);
+    if (durable.length !== ui.length) {
+      // app.js owns the canonical in-memory list and select rendering. Do not invent a
+      // second state store here; surface the mismatch so it cannot look silently saved.
+      const empty = doc.createElement('span');
+      controls.list.replaceChildren(empty);
+      empty.className = 'bc-recipient-tag-empty';
+      empty.textContent = '标签数据正在同步，请重新打开群发窗口。';
+      return [];
+    }
+    return renderTags(doc);
+  }
+
+  function runOwnerSave(button, doc = document) {
+    if (!button || button.dataset.ownerSavePending === '1') return false;
+    if (typeof button.onclick !== 'function') {
+      window.alert?.('群发编辑器尚未初始化完成，请重新打开群发窗口');
       return false;
     }
-    const before = await readPresets(doc).catch(() => ({ accountId: '', presets: [] }));
-    const saved = await closure.persistRecipientPreset(controls.save);
-    if (!saved) return false;
-    const verified = await verifySavedPreset(doc, before.presets.length).catch(() => false);
-    if (!verified) {
-      window.alert?.('群发名单标签已写入，但界面未同步完成；请重新打开群发窗口确认。');
-      return false;
+    button.dataset.ownerSavePending = '1';
+    try {
+      // app.js is the state owner: it reads broadcastSelected, asks for the custom name,
+      // updates its private savedLists model, persists through accountStorageSetItem,
+      // and re-renders the canonical hidden select. We call that owner directly once.
+      button.onclick.call(button);
+    } finally {
+      button.dataset.ownerSavePending = '';
     }
-    const status = doc.getElementById('broadcast-workbench-status')?.querySelector('span');
-    if (status) status.textContent = '群发名单标签已保存，可在当前账号下直接复用';
+    setTimeout(() => { void verifyAndRender(doc); }, 0);
     return true;
   }
 
   function install(doc = document) {
     if (installed || typeof document === 'undefined') return;
     installed = true;
-    ensureSingleSurface(doc);
-    wrapExactApply(doc);
+    ensureSurface(doc);
+    renderTags(doc);
 
+    // This listener is intentionally capture-phase and this module is loaded before
+    // broadcast-product-closure. It gives the save click to the real app.js owner and
+    // prevents the old cross-module persist/replay interception from running.
     doc.addEventListener('click', event => {
+      const save = event.target?.closest?.('#bc-save-list');
+      if (save) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        runOwnerSave(save, doc);
+        return;
+      }
       const open = event.target?.closest?.('#bc-menu-send');
       const account = event.target?.closest?.('.nav-account[data-id]');
       if (open || account) setTimeout(() => {
-        ensureSingleSurface(doc);
-        wrapExactApply(doc);
+        ensureSurface(doc);
+        void verifyAndRender(doc);
       }, 0);
-    });
+    }, true);
 
-    // Product closure owns durable save interception. This module only exposes the
-    // existing plugin surface and verifies that durable state and legacy UI agree.
     window.GeekBroadcastRecipientTagsInstance = Object.freeze({
-      ensureSingleSurface: () => ensureSingleSurface(doc),
-      readPresets: () => readPresets(doc),
-      saveCurrent: () => saveCurrent(doc),
-      wrapExactApply: () => wrapExactApply(doc),
+      render: () => renderTags(doc),
+      verifyAndRender: () => verifyAndRender(doc),
+      apply: index => applyPreset(index, doc),
+      remove: index => deletePreset(index, doc),
     });
   }
 
-  return Object.freeze({ parsePresets, ensureSingleSurface, install });
+  return Object.freeze({ parsePresets, optionPresets, ensureSurface, install });
 });
 
 if (typeof window !== 'undefined') {

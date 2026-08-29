@@ -84,10 +84,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
                   loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
                     loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
                       loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
-                        loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
-                          loadScript('./broadcast-recipient-tags.js', 'GeekBroadcastRecipientTags');
-                          loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
-                          loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                        loadScript('./broadcast-recipient-tags.js', 'GeekBroadcastRecipientTags', () => {
+                          loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
+                            loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
+                            loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                          });
                         });
                       });
                     });
