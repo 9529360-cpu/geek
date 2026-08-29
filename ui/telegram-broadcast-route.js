@@ -5,9 +5,6 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  let installed = false;
-  let installTimer = null;
-
   function routeConfirmed(selected, currentChatId, targetChatId, sameChat) {
     return selected === true
       && typeof sameChat === 'function'
@@ -110,80 +107,50 @@
     })()`;
   }
 
-  function wrapFactory(factory) {
-    return function telegramRouteAwareFactory(account, wv) {
-      const platform = factory(account, wv);
-      if (!platform || platform.family !== 'telegram' || typeof platform.openChat !== 'function') return platform;
-      const baseOpenChat = platform.openChat.bind(platform);
-      return Object.freeze({
-        ...platform,
-        async openChat(chatId) {
-          setTrace('base-open');
-          const baseOpened = await baseOpenChat(chatId);
-          if (baseOpened) {
-            setTrace('base-verifying');
-            if (await confirmSelectedRoute(platform, wv, chatId)) {
-              setTrace('base-confirmed');
-              return true;
-            }
-            setTrace('base-unconfirmed');
-          }
+  // Dedicated saved-target recovery helper. This module deliberately has no
+  // install hook and never replaces GeekPlatformTransports.forAccount. Ordinary
+  // Telegram broadcasts therefore retain the real-client-proven platform.openChat
+  // path. A caller must opt into this helper for an explicit saved-tag fallback.
+  async function openSavedTarget(platform, wv, chatId) {
+    if (!platform || platform.family !== 'telegram' || typeof platform.openChat !== 'function') {
+      throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:INVALID_PLATFORM');
+    }
+    if (!wv || typeof wv.executeJavaScript !== 'function') {
+      throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:INVALID_WEBVIEW');
+    }
 
-          // A matching hash is only navigation intent. If the real Telegram row is
-          // not selected, continue through the bounded real-row route instead of
-          // treating the hash as proof that React opened the chat.
-          setTrace('virtual-search');
-          const result = await wv.executeJavaScript(realRouteScript(chatId));
-          if (result !== 'SELECTED') {
-            setTrace('route-failed:' + String(result || 'UNKNOWN'));
-            throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:' + String(result || 'UNKNOWN'));
-          }
+    setTrace('base-open');
+    const baseOpened = await platform.openChat(chatId);
+    if (baseOpened) {
+      setTrace('base-verifying');
+      if (await confirmSelectedRoute(platform, wv, chatId)) {
+        setTrace('base-confirmed');
+        return true;
+      }
+      setTrace('base-unconfirmed');
+    }
 
-          setTrace('selected-ui');
-          if (await confirmSelectedRoute(platform, wv, chatId, 30)) {
-            setTrace('confirmed');
-            return true;
-          }
+    setTrace('virtual-search');
+    const result = await wv.executeJavaScript(realRouteScript(chatId));
+    if (result !== 'SELECTED') {
+      setTrace('route-failed:' + String(result || 'UNKNOWN'));
+      throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:' + String(result || 'UNKNOWN'));
+    }
 
-          setTrace('identity-timeout');
-          throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:IDENTITY_TIMEOUT');
-        },
-      });
-    };
-  }
-
-  function install() {
-    if (installed || typeof window === 'undefined') return installed;
-    const current = window.GeekPlatformTransports;
-    const factory = current?.forAccount;
-    if (typeof factory !== 'function') return false;
-    if (factory.__geekTelegramRouteAware === true) {
-      installed = true;
+    setTrace('selected-ui');
+    if (await confirmSelectedRoute(platform, wv, chatId, 30)) {
+      setTrace('confirmed');
       return true;
     }
-    const wrapped = wrapFactory(factory);
-    Object.defineProperty(wrapped, '__geekTelegramRouteAware', { value: true });
-    window.GeekPlatformTransports = Object.freeze({ ...current, forAccount: wrapped });
-    installed = true;
-    setTrace('installed');
-    window.GeekTelegramBroadcastRouteInstalled = true;
-    return true;
+
+    setTrace('identity-timeout');
+    throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:IDENTITY_TIMEOUT');
   }
 
-  function installWhenReady() {
-    if (install()) return;
-    let attempts = 0;
-    installTimer = setInterval(() => {
-      attempts += 1;
-      if (install() || attempts >= 200) {
-        clearInterval(installTimer);
-        installTimer = null;
-        if (!installed) setTrace('install-timeout');
-      }
-    }, 25);
-  }
-
-  if (typeof window !== 'undefined') installWhenReady();
-
-  return Object.freeze({ install, routeConfirmed, realRouteScript, selectedRouteScript });
+  return Object.freeze({
+    routeConfirmed,
+    realRouteScript,
+    selectedRouteScript,
+    openSavedTarget,
+  });
 });
