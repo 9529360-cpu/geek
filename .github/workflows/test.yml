@@ -13,15 +13,8 @@ permissions:
 jobs:
   test:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, windows, x64, geek-real-client]
+    runs-on: [self-hosted, Linux, X64, geek-linux]
     timeout-minutes: 15
-    env:
-      GIT_CONFIG_COUNT: '1'
-      GIT_CONFIG_KEY_0: safe.directory
-      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
-    defaults:
-      run:
-        shell: cmd
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +23,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
