@@ -22,6 +22,23 @@
     });
   }
 
+  function selectedRouteScript(targetId) {
+    const targetHref = '#' + String(targetId || '').replace(/^#/, '');
+    return `(() => [...document.querySelectorAll('.chat-item-clickable')].some(row =>
+      row.classList.contains('selected') && row.querySelector('a')?.getAttribute('href') === ${JSON.stringify(targetHref)}
+    ))()`;
+  }
+
+  async function confirmSelectedRoute(platform, wv, chatId, attempts = 8) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const current = await platform.getCurrentChat();
+      const selected = await wv.executeJavaScript(selectedRouteScript(chatId));
+      if (routeConfirmed(selected, current, chatId, window.GeekBroadcastSafety?.sameChat)) return true;
+      await new Promise(resolve => setTimeout(resolve, 120));
+    }
+    return false;
+  }
+
   function realRouteScript(targetId) {
     return `(async () => {
       const targetId = ${JSON.stringify(String(targetId || ''))};
@@ -93,11 +110,19 @@
         ...platform,
         async openChat(chatId) {
           setTrace('base-open');
-          if (await baseOpenChat(chatId)) {
-            setTrace('base-confirmed');
-            return true;
+          const baseOpened = await baseOpenChat(chatId);
+          if (baseOpened) {
+            setTrace('base-verifying');
+            if (await confirmSelectedRoute(platform, wv, chatId)) {
+              setTrace('base-confirmed');
+              return true;
+            }
+            setTrace('base-unconfirmed');
           }
 
+          // A matching hash is only navigation intent. If the real Telegram row is
+          // not selected, continue through the bounded real-row route instead of
+          // treating the hash as proof that React opened the chat.
           setTrace('virtual-search');
           const result = await wv.executeJavaScript(realRouteScript(chatId));
           if (result !== 'SELECTED') {
@@ -106,19 +131,9 @@
           }
 
           setTrace('selected-ui');
-          for (let attempt = 0; attempt < 30; attempt += 1) {
-            const current = await platform.getCurrentChat();
-            const selected = await wv.executeJavaScript(`(() => {
-              const targetHref = ${JSON.stringify('#' + String(chatId || '').replace(/^#/, ''))};
-              return [...document.querySelectorAll('.chat-item-clickable')].some(row =>
-                row.classList.contains('selected') && row.querySelector('a')?.getAttribute('href') === targetHref
-              );
-            })()`);
-            if (routeConfirmed(selected, current, chatId, window.GeekBroadcastSafety?.sameChat)) {
-              setTrace('confirmed');
-              return true;
-            }
-            await new Promise(resolve => setTimeout(resolve, 120));
+          if (await confirmSelectedRoute(platform, wv, chatId, 30)) {
+            setTrace('confirmed');
+            return true;
           }
 
           setTrace('identity-timeout');
@@ -161,5 +176,5 @@
 
   if (typeof window !== 'undefined') installWhenReady();
 
-  return Object.freeze({ install, routeConfirmed, realRouteScript });
+  return Object.freeze({ install, routeConfirmed, realRouteScript, selectedRouteScript });
 });
