@@ -47,7 +47,7 @@ global.document = {
 assert.deepEqual(api.selectedChatTargets(), [
   { id: 'tg-peer-1', name: 'Telegram One' },
   { id: 'tg-peer-2', name: 'tg-peer-2' },
-], 'Telegram custom audiences must preserve the exact restored chip ids instead of re-filtering them through a second WebView chat-list read');
+], 'custom audiences must preserve the exact restored chip ids instead of re-filtering them through a second WebView chat-list read');
 if (previousDocument === undefined) delete global.document;
 else global.document = previousDocument;
 
@@ -67,7 +67,7 @@ assert.match(runtime, /if \(!window\.GeekBroadcastJobs\?\.hasActive\(accountId\)
 assert.match(runtime, /resetDraftFiles\(accountId\);[\s\S]*resetTransientDraftGlobals\(\);[\s\S]*document\.getElementById\('broadcast-overlay'\)/, 'successfully creating a job must consume all transient drafts so the next job starts clean');
 assert.match(runtime, /editorAccountId !== accountId/, 'the editor must fail closed if the active account changes before send');
 assert.match(runtime, /targets = dedupeTargets\(targets\)/, 'all target modes must pass through the same stable de-duplication boundary');
-assert.match(runtime, /mode === 'custom' && ctx\.platform\.family === 'telegram'[\s\S]*selectedChatTargets\(\)/, 'Telegram custom audiences must use the exact restored selection snapshot');
+assert.match(runtime, /if \(mode === 'custom'\) \{\s*targets = selectedChatTargets\(\);/, 'custom audiences must use the exact restored selection snapshot before transport execution');
 assert.match(runtime, /GeekBroadcastUiModel[\s\S]*resolveAudience/, 'all and exclusion modes must resolve from the explicit audience model instead of stale UI selection');
 assert.match(runtime, /shouldFailContextInitialization\(current\)[\s\S]*manager\.markFailed/, 'immediate context initialization errors must release the running slot through a failed terminal state');
 assert.match(runtime, /scheduledAttachmentApi\(\)\.persist/, 'future attachment jobs must convert short picker tokens into durable refs before registration');
