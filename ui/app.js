@@ -235,7 +235,7 @@
   let addSelectedType = null;
   let savedGroupLinks = [];
   let refreshGroupLinksUi = () => {};
-  const ACCOUNT_SANDBOX_KEYS = ['scheduleTasks','sendHistory','savedMessages','savedLists','broadcastExclude','broadcastExcludeContacts','broadcastExcludeGroups','broadcastGroups','savedGroups','groupLinks','gtAutoCfg','gtCmdCfg','gtCmdNames','translationGlobal','translationChats'];
+  const ACCOUNT_SANDBOX_KEYS = ['scheduleTasks','sendHistory','savedMessages','savedLists','broadcastExclude','broadcastExcludeContacts','broadcastExcludeGroups','broadcastGroups','savedGroups','groupLinks','gtAutoCfg','gtCmdCfg','gtCmdNames','translationGlobal','translationChats','contactNotes'];
   const accountSandboxById = new Map();
   async function loadAccountSandbox(accountId) {
     let data = await window.api.accountData.getAll(accountId);
@@ -1329,6 +1329,23 @@
     void translationSettings.refreshChat();
   }
   translationSettings.bind();
+
+  // ---------- 联系人备注（账号加密沙箱；不接触消息正文） ----------
+  const contactNotes = window.GeekContactNotes.create({
+    getContext: async () => {
+      const account = accounts.find(item => item.id === activeId);
+      const wv = wvMap.get(activeId);
+      if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
+      try {
+        const chatId = await platformTransportFor(account, wv).getCurrentChat();
+        return chatId ? { accountId: account.id, family: familyOf(account.type).key, chatId } : null;
+      } catch { return null; }
+    },
+    getStorage: () => accountStorageGetItem('contactNotes'),
+    setStorage: raw => accountStorageSetItem('contactNotes', raw),
+    removeStorage: () => accountStorageRemoveItem('contactNotes'),
+  });
+  contactNotes.bind();
 
   // 托盘菜单"锁屏" → 触发渲染层锁屏
   try {
