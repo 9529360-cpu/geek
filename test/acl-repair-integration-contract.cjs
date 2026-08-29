@@ -31,12 +31,33 @@ function aclText(p) {
   return run('icacls', [p]).replace(/\r\n/g, '\n');
 }
 
+function aclIdentitySids(p) {
+  const literalPath = p.replace(/'/g, "''");
+  return run('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    `$acl = [System.IO.Directory]::GetAccessControl('${literalPath}'); $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | ForEach-Object { $_.IdentityReference.Value }`,
+  ]);
+}
+
+function effectiveWindowsPrincipal() {
+  // Account names can be corrupted when Node decodes localized OEM output as UTF-8.
+  // The effective SID is ASCII-only and icacls accepts it with a leading '*'.
+  const identity = run('whoami', ['/user', '/fo', 'csv', '/nh']);
+  const sid = identity.match(/S-\d-(?:\d+-)+\d+/i)?.[0];
+  if (sid) return `*${sid}`;
+  return process.env.USERNAME || os.userInfo().username;
+}
+
 (async () => {
   if (process.platform !== 'win32') {
     console.log('ACL_REPAIR_INTEGRATION_SKIPPED (非 Windows)');
     return;
   }
-  const username = process.env.USERNAME || require('node:os').userInfo().username;
+  // Resolve the effective token SID so service accounts and localized machine names work.
+  const username = effectiveWindowsPrincipal();
 
   // 1. 构建模拟 userData：accounts.json（模拟账号数据）+ diagnostics/line-tokens.json（模拟凭据）
   //    + Partitions/Cookies/IndexedDB 哨兵（模拟 Chromium 会话数据，修复不得改写其显式 ACE）
@@ -94,7 +115,8 @@ function aclText(p) {
 
   // 4. 验证 diagnostics ACL 恢复 + 可写 + 标记存在
   const repairedAcl = aclText(diagDir);
-  assert.ok(repairedAcl.toLowerCase().includes(String(username).toLowerCase()), '修复后 ACL 必须包含当前用户');
+  const expectedSid = String(username).replace(/^\*/, '');
+  assert.ok(aclIdentitySids(diagDir).includes(expectedSid), '修复后 ACL 必须包含当前用户 SID');
   assert.match(repairedAcl, /\(F\)/, '修复后当前 ACL 必须包含完全控制权限');
   assert.equal(await isWritable(diagDir), true, '修复后 diagnostics 必须可写');
   assert.ok(await readMarker(ud), '修复后必须写入版本化标记');

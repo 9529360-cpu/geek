@@ -17,8 +17,11 @@ concurrency:
 
 jobs:
   build-and-publish:
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, X64, geek-real-client]
     timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +36,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Validate release trigger
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           $trigger = (Get-Content .github/release-client-version -Raw).Trim()
@@ -47,7 +50,7 @@ jobs:
         run: npm run dist
 
       - name: Validate release artifacts
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $base = "geek-setup-$env:RELEASE_VERSION.exe"
           $files = @(
@@ -65,7 +68,7 @@ jobs:
           }
 
       - name: Capture previous stable metadata
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           node scripts/release-public-check.cjs capture `
             --root 'https://geek-release.9529360.workers.dev' `
@@ -79,7 +82,7 @@ jobs:
           }
 
       - name: Upload installer and blockmap to R2
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -91,7 +94,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R2 blockmap upload failed' }
 
       - name: Snapshot rollback metadata
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -107,7 +110,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R2 versioned rollback snapshot failed' }
 
       - name: Publish latest metadata last
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -116,7 +119,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R2 latest.yml upload failed' }
 
       - name: Verify production and rollback on failure
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
