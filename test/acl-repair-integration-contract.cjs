@@ -31,12 +31,20 @@ function aclText(p) {
   return run('icacls', [p]).replace(/\r\n/g, '\n');
 }
 
+function effectiveWindowsPrincipal() {
+  const whoami = run('whoami', []).trim();
+  if (whoami) return whoami;
+  return process.env.USERNAME || os.userInfo().username;
+}
+
 (async () => {
   if (process.platform !== 'win32') {
     console.log('ACL_REPAIR_INTEGRATION_SKIPPED (非 Windows)');
     return;
   }
-  const username = process.env.USERNAME || require('node:os').userInfo().username;
+  // Service runners can expose a machine-account-style USERNAME that icacls cannot resolve.
+  // Query the effective token principal used by the current process instead.
+  const username = effectiveWindowsPrincipal();
 
   // 1. 构建模拟 userData：accounts.json（模拟账号数据）+ diagnostics/line-tokens.json（模拟凭据）
   //    + Partitions/Cookies/IndexedDB 哨兵（模拟 Chromium 会话数据，修复不得改写其显式 ACE）
