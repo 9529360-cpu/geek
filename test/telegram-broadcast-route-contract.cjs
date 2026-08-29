@@ -6,8 +6,10 @@ const path = require('node:path');
 
 const routePath = path.join(__dirname, '../ui/telegram-broadcast-route.js');
 const safetyPath = path.join(__dirname, '../ui/broadcast-safety.js');
+const runtimePath = path.join(__dirname, '../ui/broadcast-runtime.js');
 const source = fs.readFileSync(routePath, 'utf8');
 const safety = fs.readFileSync(safetyPath, 'utf8');
+const runtime = fs.readFileSync(runtimePath, 'utf8');
 const route = require(routePath);
 
 const sameChat = (a, b) => String(a || '').replace(/^#/, '') === String(b || '').replace(/^#/, '');
@@ -30,8 +32,10 @@ assert.match(script, /scrollTop/, 'fallback must remount off-screen virtualized 
 assert.match(script, /classList\?\.contains\('selected'\)/, 'fallback must require Telegram selected UI state');
 assert.doesNotMatch(script, /location\.hash\s*=/, 'fallback must never mutate location.hash to self-certify navigation');
 assert.match(script, /TARGET_NOT_MOUNTED/, 'unresolved virtualized targets must fail closed');
+assert.match(source, /async function openSavedTarget\(platform, wv, chatId\)/,
+  'saved-target recovery must be exposed as an explicit helper');
 assert.match(source, /throw new Error\('TG_CHAT_ROUTE_NOT_CONFIRMED:/,
-  'failed Telegram routing must throw so the legacy hash fallback cannot run');
+  'failed saved-target routing must fail closed');
 assert.match(source, /routeConfirmed\(selected, current, chatId, window\.GeekBroadcastSafety\?\.sameChat\)/,
   'final route confirmation must combine real UI state with the shared chat identity guard');
 assert.match(source, /__geekBroadcastTelegramRouteTrace/,
@@ -42,8 +46,12 @@ assert.doesNotMatch(traceFunction, /target|chatId|name|message|text/i,
   'diagnostic trace helper must not retain Telegram target identity or message content');
 
 assert.match(safety, /telegram-broadcast-route\.js/,
-  'broadcast bootstrap must load the Telegram real-route boundary');
-assert.match(source, /setInterval\([\s\S]*install\(\)/,
-  'route boundary must wait for app.js to publish GeekPlatformTransports before wrapping it');
+  'broadcast bootstrap must load the Telegram saved-target route helper before runtime use');
+assert.doesNotMatch(source,
+  /window\.GeekPlatformTransports\s*=|wrapFactory\(|installWhenReady\(|__geekTelegramRouteAware/,
+  'saved-target routing must not replace the globally shared Telegram platform factory');
+assert.match(runtime,
+  /const opened = await ctx\.platform\.openChat\(target\.id\);[\s\S]{0,260}?target\.telegramRouteFallback !== true\) return opened;/,
+  'ordinary Telegram broadcasts must preserve the original platform openChat path');
 
 console.log('TELEGRAM_BROADCAST_ROUTE_CONTRACT_OK');
