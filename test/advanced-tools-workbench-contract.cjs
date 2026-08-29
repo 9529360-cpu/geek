@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const api = require('../ui/advanced-tools-workbench.js');
-const { ACCOUNT_DATA_KEYS } = require('../src/account-data-store.cjs');
+const { BROADCAST_ACCOUNT_DATA_KEYS } = require('../src/broadcast-account-data-keys.cjs');
 
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'ui/advanced-tools-workbench.js'), 'utf8');
@@ -44,7 +44,7 @@ assert.equal(api.isGroupChat({ type: 'group' }), true);
 assert.equal(api.isGroupChat({ type: 'contact' }), false);
 
 for (const key of ['broadcastJobSchedules', 'broadcastLegacyScheduleBackup', 'broadcastLegacyScheduleNeedsReview', 'broadcastScheduleMigrationV2']) {
-  assert.ok(ACCOUNT_DATA_KEYS.includes(key), `account data store must allow ${key}`);
+  assert.ok(BROADCAST_ACCOUNT_DATA_KEYS.includes(key), `broadcast account-data extension must allow ${key}`);
 }
 assert.match(source, /GeekPlatformTransports\?\.forAccount/, 'contact export must reuse the canonical platform transport abstraction');
 assert.match(source, /window\.api\.accountData\.getAll/, 'backup/report must read account-scoped durable data');
