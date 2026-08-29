@@ -91,8 +91,15 @@
               <button type="button" id="contact-notes-close" class="contact-notes-close" aria-label="关闭联系人备注">×</button>
             </div>
             <div id="contact-notes-chat" class="contact-notes-chat" data-state="idle">请先打开一个聊天</div>
-            <label class="contact-notes-field" for="contact-notes-text">
-              <span>备注内容</span>
+            <div class="contact-notes-grid">
+              <label class="contact-notes-field contact-notes-field--wide" for="contact-notes-name"><span>客户名称</span><input id="contact-notes-name" maxlength="100" placeholder="极客内部称呼" disabled></label>
+              <label class="contact-notes-field" for="contact-notes-country"><span>国家/地区</span><input id="contact-notes-country" maxlength="80" placeholder="例如：德国" disabled></label>
+              <label class="contact-notes-field" for="contact-notes-source"><span>来源渠道</span><input id="contact-notes-source" maxlength="100" placeholder="例如：展会、转介绍" disabled></label>
+              <label class="contact-notes-field" for="contact-notes-follow-status"><span>跟进状态</span><select id="contact-notes-follow-status" disabled><option value="">未设置</option><option value="new">新客户</option><option value="following">跟进中</option><option value="quoting">待报价</option><option value="won">已成交</option><option value="paused">暂缓</option><option value="lost">已流失</option></select></label>
+              <label class="contact-notes-field" for="contact-notes-next-follow-up"><span>下次跟进时间</span><input id="contact-notes-next-follow-up" type="datetime-local" disabled></label>
+            </div>
+            <label class="contact-notes-field contact-notes-field--notes" for="contact-notes-text">
+              <span>备注</span>
               <textarea id="contact-notes-text" maxlength="2000" rows="7" placeholder="例如：客户偏好、跟进事项、沟通背景……" disabled></textarea>
             </label>
             <div class="contact-notes-meta"><span>不会写入或发送到聊天</span><span id="contact-notes-count">0 / 2000</span></div>
