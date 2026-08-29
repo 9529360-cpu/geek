@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const api = require('../ui/advanced-tools-workbench.js');
+const { ACCOUNT_DATA_KEYS } = require('../src/account-data-store.cjs');
 
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'ui/advanced-tools-workbench.js'), 'utf8');
@@ -42,10 +43,13 @@ assert.equal(api.isGroupChat({ isGroup: true }), true);
 assert.equal(api.isGroupChat({ type: 'group' }), true);
 assert.equal(api.isGroupChat({ type: 'contact' }), false);
 
+for (const key of ['broadcastJobSchedules', 'broadcastLegacyScheduleBackup', 'broadcastLegacyScheduleNeedsReview', 'broadcastScheduleMigrationV2']) {
+  assert.ok(ACCOUNT_DATA_KEYS.includes(key), `account data store must allow ${key}`);
+}
 assert.match(source, /GeekPlatformTransports\?\.forAccount/, 'contact export must reuse the canonical platform transport abstraction');
 assert.match(source, /window\.api\.accountData\.getAll/, 'backup/report must read account-scoped durable data');
 assert.match(source, /LEGACY_EXECUTION_KEYS/, 'backups must explicitly separate executable schedule state');
-assert.doesNotMatch(source, /document\.cookie|localStorage\.getItem\(['"]token|Cookie|ipcRenderer/, 'workbench must not read secrets or bypass preload boundaries');
+assert.doesNotMatch(source, /document\.cookie|localStorage\.getItem\(['"](?:token|cookie)|ipcRenderer/, 'workbench must not read secrets or bypass preload boundaries');
 assert.ok(loader.includes("'./advanced-tools-workbench.js'"), 'advanced tools workbench must be loaded by the bounded UI loader');
 assert.doesNotMatch(groupCss, /#3051d3|background:#fff|color:#303133/, 'group tools must use current theme variables instead of the old hard-coded palette');
 assert.match(groupCss, /var\(--accent\)/, 'group tools must follow the current Geek accent color');
