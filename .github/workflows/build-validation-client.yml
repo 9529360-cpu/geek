@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [self-hosted, windows, x64, geek-ci]
+    runs-on: [self-hosted, windows, x64, geek-real-client]
     timeout-minutes: 35
     steps:
       - name: Checkout exact candidate
@@ -57,6 +57,8 @@ jobs:
           $exe = @(Get-ChildItem -Path $out -Filter 'geek-validation-setup-*.exe' -File)
           if ($exe.Count -ne 1) { throw "Expected exactly one validation installer, found $($exe.Count)" }
 
+          # electron-builder may create local updater metadata even with --publish never.
+          # Validation builds must never export or retain updater-channel artifacts.
           Get-ChildItem -Path $out -File | Where-Object {
             $_.Name -match '^latest.*\.ya?ml$' -or $_.Name -like '*.blockmap'
           } | Remove-Item -Force
