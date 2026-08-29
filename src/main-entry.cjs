@@ -3,17 +3,21 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, webContents } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, webContents } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
+const { ACCOUNT_DATA_KEYS } = require('./account-data-store.cjs');
+const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
+const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-broadcast-attachment-boundary.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
+const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
+const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
+const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 
-// Select the runtime profile before main.cjs resolves and fixes Electron userData.
-// Source development and validation installers must never touch production Chromium
-// storage. An explicit GEEK_USER_DATA_DIR remains the highest-priority test override.
+// Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
 configureRuntimeEnvironment({
   appDataDir: app.getPath('appData'),
@@ -22,8 +26,8 @@ configureRuntimeEnvironment({
   env: process.env,
 });
 
-// Electron's single-instance lock must be acquired against the same userData/profile
-// that the runtime will use. main.cjs repeats this idempotent setPath later.
+// The single-instance lock is profile-scoped: production and the isolated validation
+// identity can coexist, while two processes may not concurrently open the same profile.
 const earlyUserDataDir = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
   overrideDir: process.env.GEEK_USER_DATA_DIR,
@@ -33,22 +37,50 @@ try { app.setPath('userData', earlyUserDataDir); } catch {}
 const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
 if (primaryInstance) {
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
+  const accountsFilePath = runtimePaths.accountsFile(earlyUserDataDir);
   const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
     getAllWebContents: () => webContents.getAllWebContents(),
   });
-  const externalDebuggingRequested = process.argv.some((arg) => /^--remote-debugging-port(?:=|$)/.test(String(arg || '')));
+  const remoteDebuggingRequested = externalDebuggingRequested({ argv: process.argv });
+
+  // main.cjs still has legacy reads of webContents.session.partition, while current
+  // Electron documents Session.storagePath instead. Install a narrow read-only
+  // compatibility getter before main.cjs can create or classify any account guest.
+  const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
+
+  // Legacy post-attach navigation uses a global host allowlist. Add a stricter
+  // account-guest boundary before any BrowserWindow/WebView is created. Navigation
+  // policy comes from the authoritative account record that owns the fixed partition;
+  // missing/corrupt/mismatched account state fails closed instead of inferring owner
+  // from the first URL observed in the guest.
+  installAccountScopedWebviewNavigationBoundary({
+    app,
+    resolvePolicyForPartition: (partition) => {
+      try {
+        const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
+        return policyFromAccountState(partition, accountState);
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  // The legacy external attachment transport selects the first platform target and
+  // has no reliable account partition binding. Keep the developer remote-debug port
+  // available for diagnostics, but never let broadcast attachment delivery switch to
+  // that unbound transport. A debugger-attached client may fail attachment delivery;
+  // it must never guess an account owner.
+  installExternalDebuggingProbeGuard();
 
   // Install the selected-file capability boundary before main.cjs registers IPC.
-  // The existing main orchestrator keeps the platform-specific CDP delivery logic;
-  // legacy picker/raw-path channels are intercepted and disabled by the boundary.
-  installBroadcastFileBoundary({
+  const broadcastFileBoundary = installBroadcastFileBoundary({
     ipcMain,
     dialog,
     BrowserWindow,
     fs,
     uiEntryPath,
     sendTelegramFiles: async ({ payload }) => {
-      if (externalDebuggingRequested) {
+      if (remoteDebuggingRequested) {
         const error = new Error('TG_NATIVE_ATTACH_EXTERNAL_DEBUG_UNSUPPORTED');
         error.code = 'TG_NATIVE_ATTACH_EXTERNAL_DEBUG_UNSUPPORTED';
         throw error;
@@ -57,8 +89,19 @@ if (primaryInstance) {
     },
   });
 
-  // Keep account sandbox persistence outside the main orchestrator. The userData
-  // path is resolved lazily because main.cjs fixes it immediately after bootstrap.
+  // Scheduled attachments keep canonical paths in main only. Durable refs are bound
+  // to account + task and materialize back into fresh short-lived picker tokens.
+  const scheduledAttachmentBoundary = installScheduledBroadcastAttachmentBoundary({
+    ipcMain,
+    BrowserWindow,
+    fs,
+    uiEntryPath,
+    ephemeralRegistry: broadcastFileBoundary.registry,
+    getUserDataDir: () => app.getPath('userData'),
+  });
+
+  // Broadcast persistence extends the encrypted per-account store with an explicit
+  // allowlist only; renderer callers still cannot choose arbitrary storage keys.
   installAccountDataBoundary({
     ipcMain,
     BrowserWindow,
@@ -66,6 +109,8 @@ if (primaryInstance) {
     createReadStream: nodeFs.createReadStream,
     getUserDataDir: () => app.getPath('userData'),
     uiEntryPath,
+    allowedKeys: [...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS],
+    beforeAccountRemove: ({ accountId }) => scheduledAttachmentBoundary.cleanupAccount(accountId),
     isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
     encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
     decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),
@@ -75,5 +120,14 @@ if (primaryInstance) {
     },
   });
 
-  require('./main.cjs');
+  // Fail closed if Electron changes in a way that prevents safe partition recovery.
+  // Starting legacy main without the account partition key would collapse WPP and
+  // account-deletion bookkeeping back onto an empty partition string.
+  sessionPartitionCompat.ready
+    .then(() => require('./main.cjs'))
+    .catch((error) => {
+      const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'SESSION_PARTITION_COMPAT_FAILED');
+      console.error('[session-partition] startup blocked:', code.slice(0, 80));
+      app.quit();
+    });
 }

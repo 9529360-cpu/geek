@@ -65,6 +65,65 @@ function mapSelectedFiles(value) {
   return mapSelectedFile(value);
 }
 
+function selectedFileTokens(value) {
+  const files = Array.isArray(value) ? value : value ? [value] : [];
+  return files.map(file => typeof file === 'string'
+    ? file
+    : String(file?.filePath || file?.token || '')).map(String).filter(Boolean);
+}
+
+async function releaseSelectedFiles(value) {
+  const tokens = selectedFileTokens(value);
+  if (!tokens.length) return 0;
+  return ipcRenderer.invoke('file:release-tokens', tokens);
+}
+
+async function pickSelectedFiles(options) {
+  const mapped = mapSelectedFiles(await ipcRenderer.invoke('file:pick-token'));
+  if (!mapped || options?.multiple !== true || typeof document === 'undefined') return mapped;
+  const occupied = document.querySelectorAll('#broadcast-files .bf-item').length;
+  const remaining = Math.max(0, 10 - occupied);
+  if (Array.isArray(mapped)) {
+    const accepted = mapped.slice(0, remaining);
+    const overflow = mapped.slice(remaining);
+    if (overflow.length) await releaseSelectedFiles(overflow);
+    return Object.freeze(accepted);
+  }
+  if (remaining > 0) return mapped;
+  await releaseSelectedFiles(mapped);
+  return null;
+}
+
+function mapScheduledRef(file) {
+  if (!file || typeof file !== 'object' || typeof file.ref !== 'string') return null;
+  return Object.freeze({
+    ref: file.ref,
+    name: String(file.name || ''),
+    size: Number(file.size) || 0,
+    mime: String(file.mime || 'application/octet-stream'),
+  });
+}
+
+function mapScheduledRefs(value) {
+  if (!Array.isArray(value)) return Object.freeze([]);
+  return Object.freeze(value.map(mapScheduledRef).filter(Boolean));
+}
+
+function mapMaterializedFile(file) {
+  if (!file || typeof file !== 'object' || typeof file.token !== 'string') return null;
+  return Object.freeze({
+    token: file.token,
+    name: String(file.name || ''),
+    size: Number(file.size) || 0,
+    mime: String(file.mime || 'application/octet-stream'),
+  });
+}
+
+function mapMaterializedFiles(value) {
+  if (!Array.isArray(value)) return Object.freeze([]);
+  return Object.freeze(value.map(mapMaterializedFile).filter(Boolean));
+}
+
 function toFileTokenPayload(payload) {
   const source = payload && typeof payload === 'object' ? payload : {};
   const result = { ...source, fileToken: String(source.fileToken || source.filePath || '') };
@@ -82,6 +141,36 @@ function toTelegramFilesTokenPayload(payload) {
     caption: String(source.caption || ''),
     fileTokens: files.map((file) => String(file?.fileToken || file?.filePath || '')),
   };
+}
+
+function toScheduledPersistPayload(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const files = Array.isArray(source.files) ? source.files : [];
+  const explicitTokens = Array.isArray(source.fileTokens) ? source.fileTokens : [];
+  return {
+    accountId: String(source.accountId || ''),
+    taskId: String(source.taskId || ''),
+    fileTokens: explicitTokens.length
+      ? explicitTokens.map(token => String(token || ''))
+      : files.map(file => String(file?.fileToken || file?.filePath || '')),
+  };
+}
+
+function toScheduledMaterializePayload(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const refs = Array.isArray(source.refs) ? source.refs : [];
+  return {
+    accountId: String(source.accountId || ''),
+    taskId: String(source.taskId || ''),
+    refs: refs.map(item => String(typeof item === 'string' ? item : item?.ref || '')),
+  };
+}
+
+function toScheduledCleanupPayload(payload, taskId) {
+  if (payload && typeof payload === 'object') {
+    return { accountId: String(payload.accountId || ''), taskId: String(payload.taskId || '') };
+  }
+  return { accountId: String(payload || ''), taskId: String(taskId || '') };
 }
 
 contextBridge.exposeInMainWorld(
@@ -158,7 +247,8 @@ contextBridge.exposeInMainWorld(
       },
     }),
     file: Object.freeze({
-      pick: async () => mapSelectedFiles(await ipcRenderer.invoke('file:pick-token')),
+      pick: (options) => pickSelectedFiles(options),
+      release: (value) => releaseSelectedFiles(value),
       pickCsv: () => ipcRenderer.invoke('file:pick-csv-limited'),
       save: (payload) => ipcRenderer.invoke('file:save', payload),
     }),
@@ -167,6 +257,11 @@ contextBridge.exposeInMainWorld(
       attachFile: (payload) => ipcRenderer.invoke('broadcast:attach-file-token', toFileTokenPayload(payload)),
       sendFile: (payload) => ipcRenderer.invoke('broadcast:send-file-token', toFileTokenPayload(payload)),
       sendTelegramAttachments: (payload) => ipcRenderer.invoke('broadcast:telegram-files-token', toTelegramFilesTokenPayload(payload)),
+    }),
+    broadcastScheduled: Object.freeze({
+      persist: async (payload) => mapScheduledRefs(await ipcRenderer.invoke('broadcast-scheduled-attachments:persist', toScheduledPersistPayload(payload))),
+      materialize: async (payload) => mapMaterializedFiles(await ipcRenderer.invoke('broadcast-scheduled-attachments:materialize', toScheduledMaterializePayload(payload))),
+      cleanup: (payload, taskId) => ipcRenderer.invoke('broadcast-scheduled-attachments:cleanup', toScheduledCleanupPayload(payload, taskId)),
     }),
     tray: Object.freeze({
       onLock: (callback) => {

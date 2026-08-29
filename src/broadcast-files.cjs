@@ -18,6 +18,7 @@ const DEFAULT_LIMITS = Object.freeze({
 const CHANNELS = Object.freeze({
   pickToken: 'file:pick-token',
   pickCsvLimited: 'file:pick-csv-limited',
+  releaseTokens: 'file:release-tokens',
   sendFileToken: 'broadcast:send-file-token',
   attachFileToken: 'broadcast:attach-file-token',
   dropFileToken: 'broadcast:drop-file-token',
@@ -184,12 +185,43 @@ function createBroadcastFileRegistry(options = {}) {
       entries.delete(token);
       throw createPolicyError('BROADCAST_FILE_CHANGED', '所选文件已发生变化，请重新选择。');
     }
+    // Treat the TTL as an idle lease, not an absolute Job lifetime. Only a
+    // successful resolve by the original renderer owner, after file-integrity
+    // validation, renews it. Unused tokens still expire and invalid callers
+    // cannot keep another owner's capability alive.
+    entry.expiresAt = currentTime + limits.tokenTtlMs;
     return Object.freeze({
       filePath: entry.canonicalPath,
       name: entry.name,
       size: entry.size,
       mime: entry.mime,
     });
+  }
+
+  function release(tokenValue, ownerId) {
+    const owner = normalizeOwnerId(ownerId);
+    const token = String(tokenValue || '');
+    if (!/^[a-f0-9]{48}$/.test(token)) return false;
+    const entry = entries.get(token);
+    if (!entry) return false;
+    const currentTime = now();
+    if (entry.expiresAt <= currentTime) {
+      entries.delete(token);
+      pruneExpired(currentTime);
+      return false;
+    }
+    pruneExpired(currentTime);
+    if (entry.owner !== owner) return false;
+    return entries.delete(token);
+  }
+
+  function releaseMany(tokenValues, ownerId) {
+    const tokens = Array.isArray(tokenValues) ? tokenValues : [];
+    let released = 0;
+    for (const token of new Set(tokens.map(value => String(value || '')))) {
+      if (release(token, ownerId)) released += 1;
+    }
+    return released;
   }
 
   async function readImportFile(selectedPath) {
@@ -232,6 +264,8 @@ function createBroadcastFileRegistry(options = {}) {
     limits,
     registerSelection,
     resolve,
+    release,
+    releaseMany,
     readImportFile,
     size: () => entries.size,
   });
@@ -305,6 +339,15 @@ function installBroadcastFileBoundary(options = {}) {
     } catch (error) {
       return warnAndReturnNull(win, error);
     }
+  });
+
+  callOriginalHandle(CHANNELS.releaseTokens, async (event, tokenValues) => {
+    const { ownerId } = assertMainRenderer(event);
+    const tokens = Array.isArray(tokenValues) ? tokenValues : [tokenValues];
+    if (tokens.length > registry.limits.maxRegistryEntries) {
+      throw createPolicyError('BROADCAST_FILE_TOKEN_INVALID');
+    }
+    return registry.releaseMany(tokens, ownerId);
   });
 
   const sendTelegramFiles = options.sendTelegramFiles;

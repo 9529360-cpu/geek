@@ -1,72 +1,105 @@
 # Geek Agent Handoff
 
-> 当前施工现场的结构化镜像，不是聊天记录或永久规范。永久规则见 `AGENTS.md`，可复制项目提示词见 `docs/GEEK-MAINTAINER-PROMPT.md`。真实仓库、实际测试/CI/生产结果始终优先。
+Updated: 2026-08-29
+
+## 2026-08-30 累计验证基线纠正
+
+- 用户指出联系人备注测试包不应遗漏其他尚未进入 master 的近期已验证能力；先前从 `origin/master` 构建孤立功能包的做法不适合作为日常累计测试版。
+- 当前集成分支：`integration/latest-notes-translation-fix`，以真实客户端通过的 `aed52c3` 为基线，叠加六字段联系人备注和翻译双回车修复。
+- Git 祖先核验：`aed52c3` 与 WhatsApp 翻译缓存恢复 `c7d7290` 均为当前 HEAD 祖先。
+- 聚焦测试：翻译缓存恢复、双回车、联系人备注均通过。完整本地测试仅被已知 Windows 中文用户名 `icacls` 乱码环境问题阻断。
+- 旧验证包 `02ec076` 作废；下一安装包必须从本集成分支 exact HEAD 生成。
+
+## 2026-08-30 Telegram 标签群发语义纠偏
+
+- 用户确认产品语义：保存标签只是批量恢复普通收件人选择，不是新的发送类型。Job、runtime 和 transport 都不得知道 target 是否来自标签。
+- 已撤销 `2ef88be` 的 saved-tag 专用路由方案；验证 artifact `9722230157` / `geek-validation-2ef88be...` 作废，不得用于验收。
+- 新边界：`app.js` 是 `broadcastSelected` 的唯一 owner，并提供统一 canonical target snapshot；手动勾选与标签恢复进入完全相同的 custom audience。
+- TG 的直接 `switchChat + chat identity` 成功路径保持不变。仅当通用 `platform.openChat` 找不到/无法确认目标时，才使用 provenance-free 的虚拟聊天列表滚动恢复；恢复仍要求真实选中行与 current chat identity 同时一致，否则 fail-closed。
+- 禁止重新引入 `telegramSavedTarget`、标签专用 Job 字段、全局 transport wrapper 或 `location.hash` 自证导航。
+- 下一门禁：完整本地 contract（已知本机 ACL 代码页问题单列）、exact-head CI/validation build；真实客户端必须分别验证普通 TG 群发和标签快捷恢复后群发，两者从 Job 创建起应没有行为差异。
+
+## 2026-08-30 联系人备注施工现场
+
+- Telegram 标签群发修复 `aed52c382ffb881ee16254490a4e4ff20df6f7ca` 已由用户在真实客户端确认通过：标签只恢复普通收件人选择，不再走专用发送路由。证据已记录在 Draft PR #166。
+- 当前分支：`feat/contact-notes`，基于在线 `origin/master` 的 `cc047df`；联系人备注与群发修复保持独立。
+- 当前实现：WhatsApp / Telegram / LINE 共用顶部“备注”入口，包含客户名称、国家/地区、来源渠道、跟进状态、下次跟进时间、备注六项；按账号加密数据仓 + 平台 + 当前聊天 ID 隔离，不进入消息正文或 WebView 注入链路。
+- 数据键：`contactNotes`；单条上限 2000 字、每账号最多 2000 条。支持查看、保存、删除及聊天切换时刷新。
+- 验证：`npm test` 全部 85 项通过；`git diff --check` 仅报告仓库既有 Windows 行尾提示，无空白错误。
+- 边界：尚未生成测试安装包、尚未做三平台真实客户端交互验证、尚未发布正式客户端。
+
+## 2026-08-30 翻译双回车修复
+
+- 当前叠加分支：`fix/translation-double-enter`，基于联系人备注提交 `65fd2c3`，方便生成同时包含备注和修复的验证安装包。
+- 根因：Telegram / LINE 翻译发送锁命中时直接返回，却没有吞掉第二次真实用户回车或发送按钮事件，导致事件落入平台原生发送链路并发出原文；该缺口早于本轮群发标签修复。
+- 修复：锁定期间只拦截 `isTrusted` 的用户重复发送；保留翻译完成后程序化提交译文的非可信事件。
+- 验证：新增 `translation-double-enter-contract.cjs`；`npm test` 全部 86 项通过。仍需真实客户端快速双击回车验证。
 
 ## 当前目标
 
-让 Geek 的跨 Agent 维护体系从“安全恢复上一任任务”升级为“恢复整个真实产品现场 + 自主判断并持续推进最高价值问题”，同时准确继承仓库已有的文档分层、自动 Worker 部署、真实客户端证据、账户安全和正式客户端发布边界。
+继续收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。群发执行层已账号级 Job 化；当前重点是用真实 Windows validation 客户端把编辑器、联系人加载、收件人名单、定时任务、附件和多账号恢复闭环验证。正式 `master` / Geek 1.2.16 继续作为稳定参照，真实客户端通过前 #166 保持 Draft。
 
-## 当前仓库状态
+## 实时仓库状态
 
-- Repository: `9529360-cpu/geek`
-- 正式基线：`master`
-- 本轮基线 master HEAD：`b6e7a89d33f0f6504e9ba3bad6b5fa9960b0568b`，`fix: prevent concurrent Electron instances per runtime profile (#197)`。
-- 当前维护分支：`docs/maintainer-product-agency`
-- 当前 PR：#225 `docs: make Geek maintenance product-first and autonomous`。
-- 本轮只修改 `AGENTS.md`、`docs/GEEK-MAINTAINER-PROMPT.md`、`.agent/HANDOFF.md`；不修改 runtime、Worker、workflow、依赖、数据库、package version 或 release marker。
-- `master` 当前未启用 branch protection required checks；维护者仍必须真实检查 PR CI。
+- `master`: `c7d7290bf3e45cf2e8782bf83d5870bfd5f23157`
+- `ux/broadcast-account-jobs`: 本 HANDOFF 提交前 `6ca645ae1233d0e9dd2fb71d60b4c99fc74caf4c`
+- PR #166: Draft
+- `package.json.version`: `1.2.16`
+- `.github/release-client-version`: `1.2.16`
+- 未 force push、未历史重写、未触发正式 `release-client`。
 
-## 已完成
+## 当前最高优先级
 
-- [x] 读取 master 递归仓库树，核对维护文档、src/scripts/ui/test/resources、Cloudflare/Windows workflow 和发布控制面的位置。
-- [x] 读取并核对 `README.md`、`docs/README.md`、`AGENTS.md`、旧 HANDOFF、`docs/github-control-plane.md`、`docs/release-security.md`、`docs/account-password-reset-operations.md`、`package.json`、`scripts/run-tests.cjs`、`src/main-entry.cjs`、`test.yml`、`release-client.yml`、`windows-real-client-regression.yml` 等关键事实源。
-- [x] 确认真实启动入口为 `src/main-entry.cjs`，它在进入 `src/main.cjs` 前建立 runtime profile/userData、single-instance、附件与账号数据边界。
-- [x] 确认仓库文档交接分层：AGENTS=长期规则；maintainer prompt=可复制启动词；HANDOFF=当前施工现场；docs/README=当前/历史索引；#21/#23=生产证据；#50=长期 checkpoint；ISSUES/事故/研究/UI 原型=历史背景。
-- [x] 将 Task Queue/Issue 降级为候选工作和事实来源，要求接手者重新评估真实产品优先级。
-- [x] 增加 Geek 专属主动产品体检与“存在 → 接通 → 验证 → 产品闭环”成熟度判断。
-- [x] 明确测试、测试安装包、真实客户端 evidence、Worker 生产部署和正式客户端发布五类证据不能混用。
-- [x] 明确 `test` 绿只代表 CI；`dist:test` 只代表测试安装包；`windows-real-client-regression` 只代表真实客户端 evidence；`deploy-*` 只代表对应 Worker 部署；只有 `release-client` 完成 promotion + public verification 才能称正式客户端发布成功。
-- [x] 明确现有 Worker path-filter 自动部署应继续自动工作：普通修复 merge master 后自然触发的对应 Worker deployment 属于仓库既有自动链路，不需要错误升级为每次人工批准。
-- [x] 保留正式 Windows 客户端发布独立授权：普通维护不改 release marker、不 dispatch release-client；新版本由已授权 marker 变更合入 master 后自动触发；同版本 dispatch 仅用于已授权失败恢复。
-- [x] 保留 Electron/WebView、LINE、群发、真实用户数据、账户密码、Workers Free、JWT_SECRET、D1 migration 等具体安全边界。
-
-## Task Queue
-
-| Priority | Status | Task | Completion condition |
+| 优先级 | 状态 | 任务 | 当前证据 / 下一条件 |
 |---|---|---|---|
-| P1 | done | Repository-wide maintenance/document/control-plane review | 关键架构、文档交接、自动化和发布边界已从真实 master 复核并进入规则 |
-| P1 | in_progress | Final review PR #225 | 最终 diff 仅 3 个维护文件；无 workflow/runtime/version/release marker 意外变化 |
-| P1 | planned | Observe exact-head PR CI | 最新 PR head 的标准 CI 真实通过；不复用旧 HEAD 绿灯 |
-| P1 | planned | Merge PR #225 normally | 可追踪合并 master；本维护 PR 本身不触发正式客户端发布 |
-| P1 | planned | Resume autonomous Geek product development | 新维护者从真实产品/PR/Issue/active code 自主选择最高价值未阻塞问题 |
+| P1 | real_client_fix | #231 群发编辑器产品闭环 | 用户在 exact validation `4ee50766...` 发现点击群发后“正在准备 WhatsApp 群发联系人”会把原入口拦住，页面表现为卡死。根因为 Workbench capture-phase `preventDefault + stopImmediatePropagation` 后异步等待 WPP。PR #236 已删除该错误边界：Workbench 不再探测 WPP/拦入口，只增强已打开弹窗；联系人状态仅 inline、非阻塞。PR CI `33219720307` success；已合 #166 为 `6ca645ae...`。需新 exact validation 实机确认。 |
+| P1 | code_done | 群发四步 Workbench | 内容→对象→设置→检查；保留高级收件方式、附件、名片、随机间隔和账号级任务中心。Workbench 现在仅负责 presentation，不再重复 transport/readiness。 |
+| P1 | code_done | 联系人/群组保存语义 | 主入口“保存收件人名单”支持联系人+群组；“保存群组集合”只表示群组筛选。需实机验证实际保存/恢复。 |
+| P1 | code_done | 定时任务主路径 | 旧 `scheduleTasks + setTimeout + 改写编辑器` UI 已退役；入口统一到 account-scoped `scheduled/queued BroadcastJob`、fixed targets、durable attachment ref、restart restore/cancel/recovery。需真实到点/重启验证。 |
+| P1 | real_client_pass | #233 WhatsApp 翻译缓存 A→B→A 回显 | #234 已合 master 并同步 #166。用户已在 `4ee50766...` 实机确认“翻译的那个倒是修好了”。继续保留主进程 partition safeStorage 缓存和独立 `translation-whatsapp-rehydrate.js`。 |
+| P1 | in_progress | exact HEAD CI + validation artifact | 本 HANDOFF 提交会产生最终 exact HEAD 并触发 test/acl-windows/validation-client-build；只使用该 HEAD 的新验证包。 |
+| P1 | blocked | #166 其余真实客户端回归 | WA/TG/LINE 登录/文本/附件；A/B/C 并发；pause/resume/stop；scheduled/queued；重启恢复；账号删除；附件源变更 fail-closed。 |
+| P1 | planned | #166 Ready / merge | 真实客户端 gate 通过后。 |
+| P1 | planned | 正式客户端发布 | 独立人工授权动作；当前禁止。 |
+| P2 | open | #230 website 账号入口不可达 | 独立处理，不阻塞当前 WA/TG/LINE gate。 |
 
-## 关键决策
+## 最近实际验证
 
-1. Geek 维护者首先是产品工程负责人，其次才是流程执行者。
-2. Task Queue、Issue、#50 和历史文档不能覆盖更高优先级的真实用户、安全或可靠性问题。
-3. 重要能力使用“存在/接通/验证/产品闭环”四层判断。
-4. 正常 Git/CI/merge 后台化；现有 path-filter Worker 自动部署保持自动；正式客户端发布/恢复、凭据轮换和高影响基础设施变更保持人工授权。
-5. Actions 绿色必须按 workflow/target 命名证据，禁止笼统写“发布成功”。
-6. 动态版本、HEAD、测试数量、latest release/deploy 不写进长期规则；每轮从真实仓库/Actions读取。
-7. HANDOFF 不自证最终 SHA，避免为记录自己刚产生的 commit 再制造无限自引用提交。
+### 群发入口回归与修复
 
-## 验证状态
+- 用户安装 exact validation HEAD `4ee507660cef021b07cc54bb4f8d259edd9be569` 后，点击群发出现“正在准备 WhatsApp 群发联系人”，随后整个页面看起来不动。
+- 代码根因已追到 `ui/broadcast-workbench.js`：capture-phase 拦截 `#bc-menu-send`，同步阻止原 handler，再异步 `awaitBroadcastReadiness()`；readiness 未按预期完成时原群发弹窗永远不会打开。
+- PR #236 `fix: keep broadcast contact loading non-blocking` 删除 `bypassNextOpen / probeWhatsAppReadiness / awaitBroadcastReadiness / prepareAndReopen` 及入口 capture 拦截。
+- Workbench 现在只观察已打开的 `broadcast-overlay` / `broadcast-meta`，联系人同步中提示“可继续编辑消息”；失败只提示“不影响编辑”，不会冻结主界面。
+- 新 contract 明确禁止 Workbench 再出现 `#bc-menu-send` 拦截、`preventDefault()`、`stopImmediatePropagation()`、WPP 直接 probe 或重复 readiness orchestration。
+- PR #236 head `69eb6525cd7377940908abe1def80471c531c239`，GitHub `test` run `33219720307`: success；merge `6ca645ae1233d0e9dd2fb71d60b4c99fc74caf4c` 已进入 #166。
+- 这只证明代码/CI 修复，尚需新 validation 客户端确认点击群发立即打开且联系人加载只局部异步。
 
-- 已实际读取实时 master 与递归仓库树；基线 HEAD `b6e7a89d33f0f6504e9ba3bad6b5fa9960b0568b`。
-- `package.json` 实时版本为 `1.2.16`；测试入口为 `node scripts/run-tests.cjs`，动态发现 `test/*.cjs` 并排除两个 CDP 开发工具。
-- `test.yml` 在 PR/master push 执行 `npm test`；`release-client.yml` 仅由 master release-marker 变化或显式 dispatch 进入正式客户端发布。
-- `windows-real-client-regression.yml` 是 self-hosted Windows evidence collector，不是 release。
-- `docs/github-control-plane.md` 明确 Worker deploy 与 client release 是独立操作；`docs/release-security.md` 明确 pack/dist:test/dist/release 的边界。
-- 当前环境通过 GitHub connector 修改文档，没有本地 checkout，因此不声称运行过本地 `npm test`、`git status` 或 `git diff --check`。
-- 本轮没有 runtime/Worker/workflow 行为变化，不声称真实客户端或生产行为已验证。
-- 未发生 Cloudflare 生产部署。
-- 未发生正式客户端发布。
+### 翻译回显
 
-## 已发现文档漂移
+- Issue #233 / PR #234 已修 WhatsApp A→B→A 后 DOM 重建不重新挂载缓存译文的问题。
+- 主进程加密翻译缓存未改；新增独立 `translation-whatsapp-rehydrate.js` 只在 chat identity 变化时调用既有 `__geekRefreshTranslationView()`。
+- PR #234 CI success，已合 master `c7d7290bf3e45cf2e8782bf83d5870bfd5f23157` 并同步 #166。
+- 用户已在 validation `4ee50766...` 真实客户端确认翻译修复有效。
 
-- master `README.md` 仍含 2026-08-20 的 `1.2.14` 静态维护基线，而实时 `package.json.version` 已是 `1.2.16`。`docs/README.md` 已明确动态版本不应硬编码；该 README 行属于已识别的文档漂移。为避免扩大本次 maintainer-rule PR 范围，暂未顺手改 README；后续应删除静态版本快照或改成实时核对说明。
-- `docs/account-password-reset-operations.md` 仍写“当前自动测试入口执行 62 项 contract”，而 `scripts/run-tests.cjs` 本身是动态发现。长期规则已禁止依赖硬编码测试数量；后续文档维护应把该数字改为以实时 CI 输出为准。
+## 关键产品/安全边界
+
+- Broadcast Job 固定 `accountId / partition / platform / WebView owner / targets / message / attachments / interval`；切换查看账号不能重定向 Job。
+- 不同账号可并发，同账号 executing Job 串行；定时碰撞进入 queued。
+- 定时附件使用主进程 durable opaque ref；renderer 不获得 canonical path。
+- 发送继续复用 `GeekPlatformTransports` 与 `GeekBroadcastSafety.authorizeSend`。
+- Workbench 只负责 UI/presentation，不直接访问 WPP readiness，不阻断原群发入口。
+- WebView 安全策略不降低；LINE 既有局部兼容例外不扩散。
+- 翻译正文/译文缓存继续位于账号 partition 并使用 `safeStorage`；DOM 不是缓存源。
+- 不记录/上传真实联系人、聊天正文、Cookie、Token、密码或用户数据作为诊断证据。
+- validation build 使用独立 appId/product/runtime profile，`--publish never`，只允许验证版 EXE artifact。
+- 普通维护禁止修改版本/release marker；正式 Windows release 仍需独立人工授权。
 
 ## 下一步
 
-获取 PR #225 最新 HEAD，检查最终三文件 diff、版本/release marker、与 master 的关系和 exact-head 标准 CI。若仅为预期维护文档且 CI 通过，正常合并 master。合并后重新从真实产品状态、开放 PR/Issue 和 active code 评估最高价值问题，不把“维护词升级”本身变成新的长期阶段。
+1. 以本 HANDOFF 提交后的 exact #166 HEAD 为唯一候选，核 Linux `test`、Windows `acl-windows`、`validation-client-build`。
+2. 核 validation artifact 只包含 `geek-validation-setup-1.2.16.exe`，记录 artifact id/digest/EXE SHA-256，并交用户安装。
+3. 第一优先实机验证：点击群发必须立即打开编辑器；联系人加载只能局部显示同步状态，页面和消息编辑始终可操作；联系人最终出现。
+4. 继续验证“保存收件人名单”和定时任务 scheduled/queued/cancel/到点/重启恢复。
+5. 再做附件、多账号并发、暂停/继续/停止、账号删除等 #166 全 gate。
+6. 真实 gate 通过前保持 Draft；正式 Windows 发布仍需用户独立授权。

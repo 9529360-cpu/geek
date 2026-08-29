@@ -235,8 +235,9 @@
   let addSelectedType = null;
   let savedGroupLinks = [];
   let refreshGroupLinksUi = () => {};
-  const ACCOUNT_SANDBOX_KEYS = ['scheduleTasks','sendHistory','savedMessages','savedLists','broadcastExclude','broadcastExcludeContacts','broadcastExcludeGroups','broadcastGroups','savedGroups','groupLinks','gtAutoCfg','gtCmdCfg','gtCmdNames','translationGlobal','translationChats'];
+  const ACCOUNT_SANDBOX_KEYS = ['scheduleTasks','sendHistory','savedMessages','savedLists','broadcastExclude','broadcastExcludeContacts','broadcastExcludeGroups','broadcastGroups','savedGroups','groupLinks','gtAutoCfg','gtCmdCfg','gtCmdNames','translationGlobal','translationChats','contactNotes'];
   const accountSandboxById = new Map();
+  const accountSandboxWriteSequence = new Map();
   async function loadAccountSandbox(accountId) {
     let data = await window.api.accountData.getAll(accountId);
     if (!data.__schema) {
@@ -270,13 +271,28 @@
   function accountStorageSetItem(key, value) {
     if (!activeId) return Promise.resolve(false);
     const accountId = activeId, raw = String(value), data = accountSandboxById.get(accountId) || {};
+    const writeKey = `${accountId}:${key}`, sequence = (accountSandboxWriteSequence.get(writeKey) || 0) + 1;
+    accountSandboxWriteSequence.set(writeKey, sequence);
     const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; data[key] = raw; accountSandboxById.set(accountId, data);
-    return window.api.accountData.set(accountId, key, raw).catch(error => { if (had) data[key] = previous; else delete data[key]; console.error('账号沙箱保存失败:', key, error.message); return false; });
+    return window.api.accountData.set(accountId, key, raw).then(() => true).catch(error => {
+      if (accountSandboxWriteSequence.get(writeKey) === sequence) {
+        if (had) data[key] = previous; else delete data[key];
+      }
+      console.error('账号沙箱保存失败:', key, error.message);
+      return false;
+    });
   }
   function accountStorageRemoveItem(key) {
     if (!activeId) return Promise.resolve(false);
-    const accountId = activeId, data = accountSandboxById.get(accountId) || {}; const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; delete data[key];
-    return window.api.accountData.remove(accountId, key).catch(error => { if (had) data[key] = previous; console.error('账号沙箱删除失败:', key, error.message); return false; });
+    const accountId = activeId, data = accountSandboxById.get(accountId) || {};
+    const writeKey = `${accountId}:${key}`, sequence = (accountSandboxWriteSequence.get(writeKey) || 0) + 1;
+    accountSandboxWriteSequence.set(writeKey, sequence);
+    const had = Object.prototype.hasOwnProperty.call(data, key), previous = data[key]; delete data[key];
+    return window.api.accountData.remove(accountId, key).then(() => true).catch(error => {
+      if (accountSandboxWriteSequence.get(writeKey) === sequence && had) data[key] = previous;
+      console.error('账号沙箱删除失败:', key, error.message);
+      return false;
+    });
   }
   const lastAccountByPlatform = {}; // 记住每个平台最后激活的账号
   const unreadPlatforms = new Set(); // 有未读消息的平台（闪烁状态持久，重绘不丢）
@@ -1330,6 +1346,23 @@
   }
   translationSettings.bind();
 
+  // ---------- 联系人备注（账号加密沙箱；不接触消息正文） ----------
+  const contactNotes = window.GeekContactNotes.create({
+    getContext: async () => {
+      const account = accounts.find(item => item.id === activeId);
+      const wv = wvMap.get(activeId);
+      if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
+      try {
+        const chatId = await platformTransportFor(account, wv).getCurrentChat();
+        return chatId ? { accountId: account.id, family: familyOf(account.type).key, chatId } : null;
+      } catch { return null; }
+    },
+    getStorage: () => accountStorageGetItem('contactNotes'),
+    setStorage: raw => accountStorageSetItem('contactNotes', raw),
+    removeStorage: () => accountStorageRemoveItem('contactNotes'),
+  });
+  contactNotes.bind();
+
   // 托盘菜单"锁屏" → 触发渲染层锁屏
   try {
     window.api.tray.onLock(() => lockScreen());
@@ -1649,11 +1682,15 @@
       async listChats() { const result = await wv.executeJavaScript(transport.getChats); const text = String(result || '[]'); if (text.startsWith('ERR:')) throw new Error(text.slice(4)); return JSON.parse(text); },
       async openChat(chatId) {
         const clicked = await wv.executeJavaScript(transport.switchChat(chatId));
-        if (clicked !== true) return false;
-        for (let attempt = 0; attempt < 40; attempt++) {
-          const current = await wv.executeJavaScript(currentChatScripts[family] || 'null');
-          if (window.GeekBroadcastSafety.sameChat(current, chatId)) return true;
-          await sleep(250);
+        if (clicked === true) {
+          for (let attempt = 0; attempt < 40; attempt++) {
+            const current = await wv.executeJavaScript(currentChatScripts[family] || 'null');
+            if (window.GeekBroadcastSafety.sameChat(current, chatId)) return true;
+            await sleep(250);
+          }
+        }
+        if (family === 'telegram' && typeof window.GeekTelegramBroadcastRoute?.openVirtualizedTarget === 'function') {
+          return window.GeekTelegramBroadcastRoute.openVirtualizedTarget(adapter, wv, chatId);
         }
         return false;
       },
@@ -1704,6 +1741,15 @@
   let broadcastStop = false;
   let broadcastPaused = false;
   let broadcastFailed = [];     // 失败名单 [{name, reason}]
+  let broadcastChatLoadSequence = 0;
+  let broadcastChatsReady = false;
+
+  window.__broadcastSelectedTargets = () => [...broadcastSelected].map(rawId => {
+    const id = String(rawId || '').trim();
+    if (!id) return null;
+    const chat = broadcastChats.find(item => String(item.id) === id);
+    return chat ? { ...chat, id } : { id, name: id };
+  }).filter(Boolean);
 
   const bOverlay = document.getElementById('broadcast-overlay');
   const bListEl = document.getElementById('broadcast-list');
@@ -1715,6 +1761,7 @@
   const bcSelectizeControl = document.getElementById('bc-selectize-control');
   const bcSelectizeDropdown = document.getElementById('bc-selectize-dropdown');
   const bcSelectedChips = document.getElementById('bc-selected-chips');
+  const broadcastUiModel = window.GeekBroadcastUiModel;
 
   function openBroadcast() {
     // 没激活账号时自动激活第一个（体验改进）
@@ -1732,6 +1779,7 @@
     const account = accounts.find(a => a.id === activeId);
     if (!account) { alert('请先切换到一个账号'); return; }
     broadcastChats = [];
+    broadcastChatsReady = false;
     broadcastSelected = new Set();
     broadcastSavedFilter = null;
     broadcastFiles = [];
@@ -1757,7 +1805,8 @@
     const savedTagSel = document.getElementById('broadcast-saved-groups');
     if (savedTagSel) savedTagSel.value = '';
     renderBroadcastList();
-    loadBroadcastChats().then(() => armScheduleTasks());
+    const loadSequence = ++broadcastChatLoadSequence;
+    loadBroadcastChats(account.id, loadSequence).then(loaded => { if (loaded) armScheduleTasks(); });
   }
   // 附件：选择文件 + 列表（新界面用开关 change 触发——见下方群发绑定；此处移除避免重复弹窗）
   // CSV 导入联系人（每行：聊天名称或 ID，自动匹配勾选）
@@ -1787,22 +1836,33 @@
       x.onclick = () => { broadcastFiles.splice(+x.dataset.i, 1); renderBroadcastFiles(); };
     });
   }
-  function closeBroadcast() { bOverlay.classList.add('hidden'); }
-  async function loadBroadcastChats() {
+  function closeBroadcast() {
+    broadcastChatLoadSequence += 1;
+    broadcastChatsReady = false;
+    bOverlay.classList.add('hidden');
+  }
+  async function loadBroadcastChats(ownerAccountId, loadSequence) {
     bMetaEl.textContent = '加载聊天列表…';
-    const account = accounts.find(a => a.id === activeId);
-    const wv = wvMap.get(activeId);
-    if (!account || !wv) { bMetaEl.textContent = '当前账号不可用'; return; }
+    const account = accounts.find(a => a.id === ownerAccountId);
+    const wv = wvMap.get(ownerAccountId);
+    if (!account || !wv) { bMetaEl.textContent = '当前账号不可用'; return false; }
     const platform = platformTransportFor(account, wv);
     try {
-      broadcastChats = await platform.listChats();
+      const chats = await platform.listChats();
+      if (loadSequence !== broadcastChatLoadSequence || activeId !== ownerAccountId || bOverlay.classList.contains('hidden')) return false;
+      broadcastChats = chats;
+      broadcastChatsReady = true;
       bMetaEl.textContent = `共 ${broadcastChats.length} 个聊天（联系人和群组）`;
       renderBroadcastList();
       const excludeMode = document.querySelector('input[name="bc-sendto"]:checked')?.value;
       if (excludeMode === 'exclude-contacts') renderTypedExclude('contacts');
       if (excludeMode === 'exclude-groups') renderTypedExclude('groups');
+      return true;
     } catch (e) {
+      if (loadSequence !== broadcastChatLoadSequence || activeId !== ownerAccountId) return false;
+      broadcastChatsReady = false;
       bMetaEl.textContent = '读取聊天列表失败: ' + e.message;
+      return false;
     }
   }
   function visibleBroadcastChats() {
@@ -1872,8 +1932,9 @@
   };
   // 群组标签：原版语义=保存一组群，点击后恢复并筛选这组群
   let broadcastSavedFilter = null;
+  let groupTagMutationPending = false;
   function currentBroadcastGroupTags() {
-    try { return JSON.parse(accountStorageGetItem('broadcastGroups') || '[]'); } catch { return []; }
+    return broadcastUiModel.normalizeGroupTags(accountStorageGetItem('broadcastGroups'));
   }
   function renderSavedGroups() {
     const sel = document.getElementById('broadcast-saved-groups');
@@ -1904,24 +1965,34 @@
     });
   }
   document.getElementById('broadcast-save-group').onclick = async () => {
+    const button = document.getElementById('broadcast-save-group');
+    if (button?.disabled || groupTagMutationPending) return;
     const selectedGroups = broadcastChats.filter(c => broadcastSelected.has(c.id) && c.type === '群组');
     if (!selectedGroups.length) { alert('请先勾选要保存的群组'); return; }
     const name = prompt('给这组群起个标签名：', `群组标签 ${(currentBroadcastGroupTags()).length + 1}`);
-    if (!name) return;
+    if (!name || !name.trim()) return;
+    const ownerId = activeId;
     const groups = currentBroadcastGroupTags();
-    const old = groups.find(g => g.name === name.trim());
-    const tag = { id: old ? old.id : 'bg' + Date.now(), name: name.trim(), chatIds: selectedGroups.map(c => c.id), createdAt: old?.createdAt || Date.now(), updatedAt: Date.now() };
-    const next = old ? groups.map(g => g.id === old.id ? tag : g) : [...groups, tag];
-    accountStorageSetItem('broadcastGroups', JSON.stringify(next));
-    broadcastSavedFilter = new Set(tag.chatIds);
-    document.getElementById('broadcast-saved-groups').value = tag.id;
-    renderSavedGroups();
-    renderBroadcastList();
-    alert(`已保存群组标签「${tag.name}」（${tag.chatIds.length} 个群）`);
+    const { groups: next, tag } = broadcastUiModel.upsertGroupTag(groups, { name, chatIds: selectedGroups.map(c => c.id) });
+    groupTagMutationPending = true;
+    if (button) button.disabled = true;
+    try {
+      const result = await broadcastUiModel.persistBeforeCommit(next, value => accountStorageSetItem('broadcastGroups', JSON.stringify(value)));
+      if (!result.ok) { alert('群组标签保存失败，原标签没有改变，请重试'); return; }
+      if (activeId !== ownerId) return;
+      broadcastSavedFilter = new Set(tag.chatIds);
+      renderSavedGroups();
+      document.getElementById('broadcast-saved-groups').value = tag.id;
+      renderSavedGroups();
+      renderBroadcastList();
+      alert(`已保存群组标签「${tag.name}」（${tag.chatIds.length} 个群）`);
+    } finally {
+      groupTagMutationPending = false;
+      if (button) button.disabled = false;
+    }
   };
   function clearBroadcastGroupTagFilter() {
     broadcastSavedFilter = null;
-    broadcastSelected.clear();
     const sel = document.getElementById('broadcast-saved-groups');
     if (sel) sel.value = '';
     renderSavedGroups();
@@ -1929,23 +2000,32 @@
   }
   function applyBroadcastGroupTag(g) {
     if (!g) return;
+    if (!broadcastChatsReady) { alert('聊天列表仍在加载，请稍后再应用群组标签'); return; }
     const sel = document.getElementById('broadcast-saved-groups');
     if (sel) sel.value = g.id;
     broadcastSavedFilter = new Set(g.chatIds || []);
     broadcastSelected.clear();
     // 原版 setValue 语义：整体替换当前集合，不追加
-    g.chatIds.forEach(id => { if (broadcastChats.some(c => c.id === id && c.type === '群组')) broadcastSelected.add(id); });
+    (g.chatIds || []).forEach(id => { if (broadcastChats.some(c => c.id === id && c.type === '群组')) broadcastSelected.add(id); });
     renderSavedGroups();
     renderBroadcastList();
     const missing = g.chatIds.filter(id => !broadcastChats.some(c => c.id === id));
     if (missing.length) alert(`标签「${g.name}」中有 ${missing.length} 个群当前不可用，已跳过`);
   }
   async function deleteBroadcastGroupTag(g) {
-    if (!g) return;
+    if (!g || groupTagMutationPending) return;
     if (!confirm(`删除群组标签「${g.name}」？不会删除真实群组。`)) return;
-    const next = currentBroadcastGroupTags().filter(x => x.id !== g.id);
-    accountStorageSetItem('broadcastGroups', JSON.stringify(next));
-    clearBroadcastGroupTagFilter();
+    const ownerId = activeId;
+    const next = broadcastUiModel.removeGroupTag(currentBroadcastGroupTags(), g.id);
+    groupTagMutationPending = true;
+    try {
+      const result = await broadcastUiModel.persistBeforeCommit(next, value => accountStorageSetItem('broadcastGroups', JSON.stringify(value)));
+      if (!result.ok) { alert('群组标签删除失败，原标签仍然保留'); return; }
+      if (activeId !== ownerId) return;
+      clearBroadcastGroupTagFilter();
+    } finally {
+      groupTagMutationPending = false;
+    }
   }
   document.getElementById('broadcast-saved-groups').onchange = (e) => {
     const g = currentBroadcastGroupTags().find(x => x.id === e.target.value);
@@ -2462,63 +2542,87 @@
   const savedMessageListEl = document.getElementById('bc-saved-message-list');
   const saveMessageBtn = document.getElementById('bc-save-message');
   const deleteMessageBtn = document.getElementById('bc-delete-message');
-  let savedMessages = JSON.parse(accountStorageGetItem('savedMessages') || '[]');
-  function applySavedMessage(i) {
-    if (savedMessages[i]) {
-      bMessageEl.value = savedMessages[i].msg;
-      if (savedMessagesEl) savedMessagesEl.value = String(i);
+  let savedMessages = broadcastUiModel.normalizeMessages(accountStorageGetItem('savedMessages'));
+  let savedMessageMutationPending = false;
+  function applySavedMessage(name) {
+    const item = savedMessages.find(message => message.name === name);
+    if (item) {
+      bMessageEl.value = item.msg;
+      if (savedMessagesEl) savedMessagesEl.value = item.name;
       renderSavedMessages();
       bMessageEl.focus();
     }
   }
-  function removeSavedMessage(i) {
-    const item = savedMessages[i];
+  async function removeSavedMessage(name) {
+    if (savedMessageMutationPending) return;
+    const item = savedMessages.find(message => message.name === name);
     if (!item || !confirm(`删除已保存消息「${item.name}」？`)) return;
-    savedMessages.splice(i, 1);
-    accountStorageSetItem('savedMessages', JSON.stringify(savedMessages));
-    renderSavedMessages();
+    const ownerId = activeId;
+    const next = broadcastUiModel.removeMessage(savedMessages, item.name);
+    savedMessageMutationPending = true;
+    try {
+      const result = await broadcastUiModel.persistBeforeCommit(next, value => accountStorageSetItem('savedMessages', JSON.stringify(value)));
+      if (!result.ok) { alert('常用消息删除失败，原消息仍然保留'); return; }
+      if (activeId !== ownerId) return;
+      savedMessages = next;
+      renderSavedMessages();
+    } finally {
+      savedMessageMutationPending = false;
+    }
   }
   function renderSavedMessages() {
     if (!savedMessagesEl || !savedMessageListEl) return;
-    savedMessagesEl.innerHTML = '<option value="">已保存消息…</option>' + savedMessages.map((m, i) => `<option value="${i}">${escapeHtml((m.name || '').slice(0, 24))}</option>`).join('');
+    const current = savedMessagesEl.value;
+    savedMessagesEl.innerHTML = '<option value="">已保存消息…</option>' + savedMessages.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name.slice(0, 24))}</option>`).join('');
+    if (savedMessages.some(message => message.name === current)) savedMessagesEl.value = current;
     savedMessageListEl.innerHTML = savedMessages.length ? '' : '<span class="bc-original-empty">暂无已保存消息</span>';
     savedMessages.forEach((m, i) => {
       const wrap = document.createElement('span');
-      wrap.className = 'bc-original-message-chip' + (savedMessagesEl.value === String(i) ? ' active' : '');
+      wrap.className = 'bc-original-message-chip' + (savedMessagesEl.value === m.name ? ' active' : '');
       const open = document.createElement('button');
       open.type = 'button';
       open.className = 'bc-original-message-chip__open';
       open.textContent = m.name || `消息${i + 1}`;
       open.title = m.msg || '';
-      open.onclick = () => applySavedMessage(i);
+      open.onclick = () => applySavedMessage(m.name);
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'bc-original-message-chip__remove';
       remove.textContent = '×';
       remove.title = '删除已保存消息';
-      remove.onclick = (e) => { e.stopPropagation(); removeSavedMessage(i); };
+      remove.onclick = (e) => { e.stopPropagation(); void removeSavedMessage(m.name); };
       wrap.append(open, remove);
       savedMessageListEl.appendChild(wrap);
     });
   }
-  if (saveMessageBtn) saveMessageBtn.onclick = () => {
+  if (saveMessageBtn) saveMessageBtn.onclick = async () => {
+    if (saveMessageBtn.disabled || savedMessageMutationPending) return;
     const msg = bMessageEl.value;
     if (!msg.trim()) { alert('请先输入消息内容'); return; }
     const name = prompt('保存为（名称）：', '消息' + (savedMessages.length + 1));
     if (!name || !name.trim()) return;
-    const old = savedMessages.findIndex(m => m.name === name.trim());
-    const item = { name: name.trim(), msg };
-    if (old >= 0) savedMessages[old] = item; else savedMessages.push(item);
-    accountStorageSetItem('savedMessages', JSON.stringify(savedMessages));
-    renderSavedMessages();
+    const ownerId = activeId;
+    const next = broadcastUiModel.upsertMessage(savedMessages, { name, msg });
+    savedMessageMutationPending = true;
+    saveMessageBtn.disabled = true;
+    try {
+      const result = await broadcastUiModel.persistBeforeCommit(next, value => accountStorageSetItem('savedMessages', JSON.stringify(value)));
+      if (!result.ok) { alert('常用消息保存失败，原消息没有改变，请重试'); return; }
+      if (activeId !== ownerId) return;
+      savedMessages = next;
+      renderSavedMessages();
+      alert(`已保存常用消息「${name.trim()}」`);
+    } finally {
+      savedMessageMutationPending = false;
+      saveMessageBtn.disabled = false;
+    }
   };
   if (savedMessagesEl) savedMessagesEl.onchange = () => {
-    const i = parseInt(savedMessagesEl.value);
-    if (i >= 0) applySavedMessage(i);
+    if (savedMessagesEl.value) applySavedMessage(savedMessagesEl.value);
   };
   if (deleteMessageBtn) deleteMessageBtn.onclick = () => {
-    const i = parseInt(savedMessagesEl?.value || '-1');
-    if (i >= 0) removeSavedMessage(i); else alert('请先选择要删除的消息');
+    const name = savedMessagesEl?.value || '';
+    if (name) void removeSavedMessage(name); else alert('请先选择要删除的消息');
   };
   // 保存列表（已选聊天 → 预设）
   const savedListsEl = document.getElementById('bc-saved-lists');
@@ -2601,6 +2705,15 @@
     };
   }
   window.__broadcastExcludeSet = () => new Set([...broadcastExclude, ...broadcastExcludeContacts, ...broadcastExcludeGroups]);
+  window.__geekBroadcastAudienceEstimate = () => {
+    const mode = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
+    return broadcastUiModel.resolveAudience({
+      mode,
+      chats: broadcastChats,
+      selectedIds: broadcastSelected,
+      excludedIds: window.__broadcastExcludeSet(),
+    }).length;
+  };
   renderSavedMessages();
   renderSavedLists();
 
@@ -3623,14 +3736,16 @@
   settingsController.bind();
 
   function reloadAccountScopedUiState() {
+    if (bOverlay && !bOverlay.classList.contains('hidden')) closeBroadcast();
     const parse = (key, fallback) => { try { return JSON.parse(accountStorageGetItem(key) || JSON.stringify(fallback)); } catch { return fallback; } };
-    scheduleTasks = parse('scheduleTasks', []);
-    savedMessages = parse('savedMessages', []);
-    savedLists = parse('savedLists', []);
-    broadcastExclude = new Set(parse('broadcastExclude', []));
-    broadcastExcludeContacts = new Set(parse('broadcastExcludeContacts', []));
-    broadcastExcludeGroups = new Set(parse('broadcastExcludeGroups', []));
-    savedGroupLinks = parse('groupLinks', []);
+    const parseList = key => broadcastUiModel.listValue(accountStorageGetItem(key));
+    scheduleTasks = parseList('scheduleTasks');
+    savedMessages = broadcastUiModel.normalizeMessages(parse('savedMessages', []));
+    savedLists = parseList('savedLists');
+    broadcastExclude = new Set(parseList('broadcastExclude'));
+    broadcastExcludeContacts = new Set(parseList('broadcastExcludeContacts'));
+    broadcastExcludeGroups = new Set(parseList('broadcastExcludeGroups'));
+    savedGroupLinks = parseList('groupLinks');
     broadcastSavedFilter = null; broadcastSelected.clear();
     armScheduleTasks(); renderScheduleList(); renderSavedMessages(); renderSavedLists(); renderSavedGroups(); refreshGroupLinksUi(); renderBroadcastList();
     renderTypedExclude('contacts'); renderTypedExclude('groups');

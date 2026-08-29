@@ -22,6 +22,7 @@ const ACCOUNT_DATA_KEYS = Object.freeze([
   'gtCmdNames',
   'translationGlobal',
   'translationChats',
+  'contactNotes',
 ]);
 
 const DEFAULT_LIMITS = Object.freeze({

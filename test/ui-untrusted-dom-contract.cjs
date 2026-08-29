@@ -48,7 +48,7 @@ const reviewedEncodedSinks = [
   [/sel\.innerHTML\s*=\s*'<option value="">全部群组[\s\S]*?escapeHtml\(g\.id\)[\s\S]*?escapeHtml\(g\.name\)/, '已保存群组下拉框'],
   [/open\.innerHTML[\s\S]*?escapeHtml\(g\.name\)/, '已保存群组标签'],
   [/bMetaEl\.innerHTML[\s\S]*?escapeHtml\(account \? account\.name : ''\)/, '群发账号名称'],
-  [/savedMessagesEl\.innerHTML[\s\S]*?escapeHtml\(\(m\.name \|\| ''\)\.slice\(0, 24\)\)/, '已保存消息名称'],
+  [/savedMessagesEl\.innerHTML[\s\S]*?escapeHtml\(m\.name\)[\s\S]*?escapeHtml\(m\.name\.slice\(0, 24\)\)/, '已保存消息名称与选项值'],
   [/sel\.innerHTML\s*=\s*broadcastChats\.filter[\s\S]*?escapeHtml\(c\.id\)[\s\S]*?escapeHtml\(c\.name \|\| c\.id\)/, '排除联系人/群组'],
   [/selectedHtml[\s\S]*?escapeHtml\(c\.name\)[\s\S]*?escapeHtml\(c\.id\)[\s\S]*?vlist\.innerHTML[\s\S]*?escapeHtml\(query\)[\s\S]*?escapeHtml\(c\.id\)[\s\S]*?escapeHtml\(c\.name\)/, '联系人名片选择器'],
   [/item\.innerHTML\s*=\s*`[\s\S]*?escapeHtml\(a\.name\)/, '账号侧栏名称'],

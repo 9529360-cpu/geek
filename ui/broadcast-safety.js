@@ -37,3 +37,69 @@
 
   return Object.freeze({ normalizeChatId, normalizeComposerText, sameChat, authorizeSend });
 });
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  document.addEventListener('click', event => {
+    const send = event.target?.closest?.('#broadcast-send');
+    if (!send) return;
+    const enabled = document.getElementById('broadcast-schedule-toggle')?.checked === true;
+    const raw = document.getElementById('broadcast-schedule-time')?.value || '';
+    const scheduledAt = raw ? new Date(raw).getTime() : NaN;
+    if (!enabled || !Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) return;
+
+    const registry = window.GeekBroadcastScheduleRegistry;
+    const persistenceReady = typeof registry?.schedulePersistenceReady === 'function'
+      ? registry.schedulePersistenceReady()
+      : !!window.GeekBroadcastSchedulePersistenceInstance?.awaitScheduledDurable;
+    if (persistenceReady) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.alert?.('定时任务持久化尚未就绪，请稍后重试。');
+  }, true);
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  function loadScript(src, marker, done) {
+    if (window[marker]) { done?.(); return; }
+    const existing = document.querySelector(`script[data-geek-broadcast="${marker}"]`);
+    if (existing) { existing.addEventListener('load', () => done?.(), { once: true }); return; }
+    const script = document.createElement('script');
+    script.src = src;
+    script.defer = true;
+    script.dataset.geekBroadcast = marker;
+    if (done) script.addEventListener('load', done, { once: true });
+    document.head.appendChild(script);
+  }
+  loadScript('./telegram-broadcast-route.js', 'GeekTelegramBroadcastRoute');
+  loadScript('./broadcast-job-manager.js', 'GeekBroadcastJobManager', () => {
+    loadScript('./broadcast-file-lifecycle.js', 'GeekBroadcastFileLifecycle', () => {
+      loadScript('./broadcast-schedule-registry.js', 'GeekBroadcastScheduleRegistry', () => {
+        loadScript('./broadcast-executor.js', 'GeekBroadcastExecutor', () => {
+          loadScript('./broadcast-delivery.js', 'GeekBroadcastDelivery', () => {
+            loadScript('./broadcast-runtime.js', 'GeekBroadcastRuntime', () => {
+              loadScript('./broadcast-legacy-schedule-migration.js', 'GeekBroadcastLegacyScheduleMigration', () => {
+                loadScript('./broadcast-schedule-persistence.js', 'GeekBroadcastSchedulePersistence', () => {
+                  loadScript('./broadcast-account-removal.js', 'GeekBroadcastAccountRemoval');
+                  loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
+                  loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
+                    loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
+                      loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
+                        loadScript('./broadcast-recipient-tags.js', 'GeekBroadcastRecipientTags', () => {
+                          loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
+                            loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
+                            loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                          });
+                        });
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+}

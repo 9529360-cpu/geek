@@ -52,12 +52,16 @@ function installAccountDataBoundary(options = {}) {
   if (!ipcMain || typeof ipcMain.handle !== 'function') throw new TypeError('ipcMain.handle is required');
   if (!BrowserWindow || typeof BrowserWindow.fromWebContents !== 'function') throw new TypeError('BrowserWindow is required');
   if (!uiEntryPath) throw new TypeError('uiEntryPath is required');
+  if (options.beforeAccountRemove !== undefined && typeof options.beforeAccountRemove !== 'function') {
+    throw new TypeError('beforeAccountRemove must be a function');
+  }
 
   const pathModule = options.pathModule || path;
   const fileURLToPathFn = options.fileURLToPath || fileURLToPath;
   const platform = options.platform || process.platform;
   const store = options.store || createAccountDataStore(options);
   const resolveAccountPartition = options.resolveAccountPartition || createAccountPartitionResolver(options);
+  const beforeAccountRemove = options.beforeAccountRemove || (async () => {});
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparablePath = (value) => platform === 'win32' ? value.toLowerCase() : value;
   const expectedRegistrations = new Set([...ACCOUNT_DATA_CHANNELS, REMOVE_ACCOUNT_CHANNEL]);
@@ -123,15 +127,30 @@ function installAccountDataBoundary(options = {}) {
       const partition = await resolveAccountPartition(accountId);
       await store.beginDelete(partition);
       try {
+        // Renderer has already stopped/cancelled this account's Jobs. Before the
+        // account partition is actually removed, clean durable main-process resources
+        // that live outside that partition. Any failure aborts account deletion.
+        await beforeAccountRemove({ event, accountId: String(accountId), partition });
         const response = await listener(event, accountId, ...rest);
         store.finalizeDelete(partition);
         return response;
       } catch (error) {
+        let stateError = null;
         try {
           await resolveAccountPartition(accountId);
           store.cancelDelete(partition);
-        } catch {
+        } catch (probeError) {
+          stateError = probeError;
           store.finalizeDelete(partition);
+        }
+        // The legacy listener persists account removal before it performs best-effort
+        // session/partition cleanup. If the account is now definitively missing, the
+        // deletion commit already happened and cannot be rolled back. Treat that as a
+        // successful delete so the renderer reloads to backend truth; orphan partition
+        // data is retried by the existing startup cleanup path. Other state-read errors
+        // remain failures because they do not prove that the deletion committed.
+        if (stateError?.code === 'ACCOUNT_DATA_ACCOUNT_MISSING') {
+          return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
         }
         throw error;
       }
