@@ -20,10 +20,11 @@ const chats = [
 assert.deepEqual(api.resolveCustomTargets(chats, ['tg-a'], 'telegram'), [
   { id: 'tg-a', name: 'A' },
 ], 'mounted manual TG recipients keep the established listChats-derived target shape');
-assert.deepEqual(api.resolveCustomTargets(chats, ['tg-a', 'tg-missing'], 'telegram'), [
+assert.deepEqual(api.resolveCustomTargets(chats, ['tg-a', 'tg-a', 'tg-missing'], 'telegram'), [
   { id: 'tg-a', name: 'A' },
   { id: 'tg-missing', name: 'tg-missing', telegramRouteFallback: true },
-], 'saved TG recipients missing only from the refreshed virtual list remain in the immutable Job snapshot');
+], 'saved TG recipients missing only from the refreshed virtual list remain in the immutable Job snapshot without duplication');
+assert.equal(api.resolveCustomTargets(chats, ['tg-a'], 'telegram')[0].telegramRouteFallback, undefined, 'mounted/manual TG targets must never opt into direct-route fallback');
 assert.deepEqual(api.resolveCustomTargets(chats, ['wa-missing'], 'whatsapp'), [], 'WA custom target behavior is unchanged');
 assert.deepEqual(api.resolveCustomTargets(chats, ['line-missing'], 'line'), [], 'LINE custom target behavior is unchanged');
 
