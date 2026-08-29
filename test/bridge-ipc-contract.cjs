@@ -44,7 +44,7 @@ assert.match(main, /concurrency|并发|MAX_CONCURRENT|Semaphore|queue/i, '20并�
 assert.match(adapters, /translateHistory|transOldHistory|history/, '历史消息策略必须保留');
 assert.doesNotMatch(adapters + main + app, /快捷话术|quickPhrase|quick-phrase/i, '不得恢复快捷话术');
 
-// 6. 账号沙箱数据：bootstrap 先安装持久化边界；renderer key 必须与主进程 allowlist 对齐。
+// 6. 账号沙箱数据：bootstrap 先安装持久化边界；旧 app 沙箱迁移 key 与模块自有 key 分开受约束。
 assert.match(mainEntry, /installAccountDataBoundary\(/, '启动入口必须安装账号数据持久化边界');
 assert.ok(
   mainEntry.indexOf('installAccountDataBoundary(') < mainEntry.indexOf("require('./main.cjs')"),
@@ -60,9 +60,20 @@ assert.equal(DEFAULT_LIMITS.maxValueBytes, 2 * 1024 * 1024, '单个账号数据�
 assert.equal(DEFAULT_LIMITS.compactRecordCount, 512, '账号数据日志必须在 512 条记录触发 compaction');
 assert.equal(DEFAULT_LIMITS.compactFileBytes, 64 * 1024 * 1024, '账号数据日志必须在 64 MiB 触发 compaction');
 const sandboxKeysMatch = app.match(/const ACCOUNT_SANDBOX_KEYS = \[([^\]]+)\]/);
-assert.ok(sandboxKeysMatch, 'renderer 必须显式列出账号沙箱 key');
+assert.ok(sandboxKeysMatch, 'renderer 必须显式列出旧 app 账号沙箱迁移 key');
 const rendererKeys = [...sandboxKeysMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1]).sort();
-const mainKeys = ACCOUNT_DATA_KEYS.filter((key) => key !== '__schema').sort();
-assert.deepEqual(rendererKeys, mainKeys, 'renderer 账号沙箱 key 必须与主进程 allowlist 完全一致');
+const moduleOwnedKeys = [
+  'broadcastJobSchedules',
+  'broadcastLegacyScheduleBackup',
+  'broadcastLegacyScheduleNeedsReview',
+  'broadcastScheduleMigrationV2',
+].sort();
+for (const key of moduleOwnedKeys) {
+  assert.ok(ACCOUNT_DATA_KEYS.includes(key), `模块自有账号数据 key 必须在主进程 allowlist：${key}`);
+}
+const legacyMainKeys = ACCOUNT_DATA_KEYS
+  .filter((key) => key !== '__schema' && !moduleOwnedKeys.includes(key))
+  .sort();
+assert.deepEqual(rendererKeys, legacyMainKeys, '旧 app 沙箱迁移 key 必须与主进程 legacy allowlist 一致');
 
 console.log('BRIDGE_IPC_CONTRACT_OK');
