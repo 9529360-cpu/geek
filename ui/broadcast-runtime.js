@@ -96,64 +96,6 @@
       .filter(Boolean);
   }
 
-  function normalizeIds(value) {
-    return [...new Set((Array.isArray(value) ? value : [])
-      .map(id => String(id || '').trim())
-      .filter(Boolean))];
-  }
-
-  function resolveSavedTagSelection(visibleIds, savedIds, ownerCount) {
-    const visible = normalizeIds(visibleIds);
-    const saved = normalizeIds(savedIds);
-    const savedSet = new Set(saved);
-    const unchanged = Number.isSafeInteger(ownerCount)
-      && ownerCount === saved.length
-      && visible.every(id => savedSet.has(id));
-    return Object.freeze({ ids: unchanged ? saved : visible, usesSavedTag: unchanged });
-  }
-
-  function currentOwnerSelectionCount() {
-    const text = String(document.querySelector('.bc-selected-count')?.textContent || '');
-    const match = text.match(/(\d+)/);
-    return match ? Number(match[1]) : null;
-  }
-
-  function activeSavedTagIndex() {
-    const activeTag = document.querySelector('#broadcast-recipient-tag-list .bc-original-tag.active');
-    const ownerSelect = document.getElementById('bc-saved-lists');
-    if (!activeTag || !ownerSelect) return -1;
-    const index = Number.parseInt(ownerSelect.value, 10);
-    return Number.isSafeInteger(index) && index >= 0 ? index : -1;
-  }
-
-  async function selectedCustomIds(ctx) {
-    const visible = selectedChatIds();
-    const index = activeSavedTagIndex();
-    if (index < 0 || !ctx?.account?.id || typeof window.api?.accountData?.getAll !== 'function') return visible;
-    try {
-      const data = await window.api.accountData.getAll(ctx.account.id);
-      let lists;
-      try { lists = JSON.parse(data?.savedLists || '[]'); } catch (_) { lists = []; }
-      const savedIds = Array.isArray(lists?.[index]?.ids) ? lists[index].ids : [];
-      if (!savedIds.length) return visible;
-      return resolveSavedTagSelection(visible, savedIds, currentOwnerSelectionCount()).ids;
-    } catch (_) {
-      return visible;
-    }
-  }
-
-  function resolveCustomTargets(chats, selectedIds, family = '') {
-    const ids = normalizeIds(selectedIds);
-    const byId = new Map((Array.isArray(chats) ? chats : []).map(chat => [String(chat?.id || ''), chat]));
-    const targets = [];
-    for (const id of ids) {
-      const live = byId.get(id);
-      if (live) targets.push(live);
-      else if (family === 'telegram') targets.push({ id, name: id, telegramRouteFallback: true });
-    }
-    return targets;
-  }
-
   function dedupeTargets(targets) {
     const seen = new Set();
     const unique = [];
@@ -276,7 +218,8 @@
       targets = model.resolveAudience({ mode, chats, selectedIds: selectedChatIds(), excludedIds: excluded });
     }
     else {
-      targets = resolveCustomTargets(chats, await selectedCustomIds(ctx), ctx.platform.family);
+      const ids = new Set(selectedChatIds());
+      targets = chats.filter(chat => ids.has(String(chat.id)));
     }
     targets = dedupeTargets(targets);
     if (excluded.size) targets = targets.filter(target => !excluded.has(target.id));
@@ -342,27 +285,6 @@
     }
   }
 
-  async function openTargetChat(ctx, target) {
-    const opened = await ctx.platform.openChat(target.id);
-    if (opened || ctx.platform.family !== 'telegram' || target.telegramRouteFallback !== true) return opened;
-    const routed = await ctx.wv.executeJavaScript(`(() => {
-      try {
-        const targetId = ${JSON.stringify(String(target.id || ''))};
-        if (!targetId) return false;
-        const targetHash = targetId.startsWith('#') ? targetId : '#' + targetId;
-        location.hash = targetHash;
-        return true;
-      } catch (_) { return false; }
-    })()`);
-    if (routed !== true) return false;
-    for (let attempt = 0; attempt < 40; attempt++) {
-      const current = await ctx.platform.getCurrentChat();
-      if (window.GeekBroadcastSafety.sameChat(current, target.id)) return true;
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-    return false;
-  }
-
   async function sendTarget(ctx, job, target) {
     const message = personalize(job.message, target);
     const adapter = ctx.adapter;
@@ -395,7 +317,7 @@
 
     if (files.length) {
       try {
-        const opened = await openTargetChat(ctx, target);
+        const opened = await ctx.platform.openChat(target.id);
         await new Promise(resolve => setTimeout(resolve, 900));
         const currentChatId = await ctx.platform.getCurrentChat();
         const openGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId, targetChatId: target.id, composerResult: 'NO_SET', needsComposer: false });
@@ -428,21 +350,21 @@
     if (!message.trim()) return { ok: false, reason: vcards.length ? 'ERR:名片:VCARD_TRANSPORT_UNAVAILABLE' : 'NO_CONTENT' };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const opened = await openTargetChat(ctx, target);
+        const opened = await ctx.platform.openChat(target.id);
         await new Promise(resolve => setTimeout(resolve, 900));
         const currentChatId = await ctx.platform.getCurrentChat();
         const openGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId, targetChatId: target.id, composerResult: 'NO_SET', needsComposer: false });
         if (!openGuard.ok) { sent = `ERR:${openGuard.reason}`; continue; }
-        composer = await ctx.platform.setComposerText(message);
-        const finalChatId = await ctx.platform.getCurrentChat();
-        const actualText = await ctx.platform.getComposerText();
-        const composerGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId: finalChatId, targetChatId: target.id, composerResult: composer, needsComposer: true, expectedComposerText: message, actualComposerText: actualText });
-        if (!composerGuard.ok) {
-          await ctx.platform.clearComposerText().catch(() => false);
-          sent = `ERR:${composerGuard.reason}`;
-          continue;
-        }
-        sent = await ctx.platform.sendText('');
+          composer = await ctx.platform.setComposerText(message);
+          const finalChatId = await ctx.platform.getCurrentChat();
+          const actualText = await ctx.platform.getComposerText();
+          const composerGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId: finalChatId, targetChatId: target.id, composerResult: composer, needsComposer: true, expectedComposerText: message, actualComposerText: actualText });
+          if (!composerGuard.ok) {
+            await ctx.platform.clearComposerText().catch(() => false);
+            sent = `ERR:${composerGuard.reason}`;
+            continue;
+          }
+          sent = await ctx.platform.sendText('');
         if (sent === 'SENT' || sent === 'CLICKED') return { ok: true };
       } catch (error) {
         sent = `ERR:${String(error?.message || error)}`;
@@ -690,7 +612,7 @@
     });
   }
 
-  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId, resolveCustomTargets, resolveSavedTagSelection });
+  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId });
 });
 
 if (typeof window !== 'undefined') {
