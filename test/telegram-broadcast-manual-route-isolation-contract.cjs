@@ -18,20 +18,20 @@ const runtimeSource = fs.readFileSync(runtimePath, 'utf8');
 
 assert.doesNotMatch(
   routeSource,
-  /window\.GeekPlatformTransports\s*=|forAccount:\s*wrapped|__geekTelegramRouteAware/,
+  /window\.GeekPlatformTransports\s*=|forAccount:\s*wrapped|__geekTelegramRouteAware|installWhenReady/,
   'saved-tag Telegram routing must not globally replace GeekPlatformTransports.forAccount or ordinary openChat'
 );
 
 assert.match(
   runtimeSource,
-  /if\s*\(ctx\.platform\.family\s*===\s*'telegram'\s*&&\s*target\.telegramRouteFallback\s*===\s*true\)[\s\S]{0,700}?GeekTelegramBroadcastRoute/,
-  'special Telegram route recovery must be entered only for explicit saved-tag fallback targets'
+  /const opened = await ctx\.platform\.openChat\(target\.id\);[\s\S]{0,260}?target\.telegramRouteFallback !== true\) return opened;/,
+  'ordinary/manual targets must return from the original platform.openChat path unless an explicit saved-tag fallback is required'
 );
 
 assert.match(
-  runtimeSource,
-  /return\s+ctx\.platform\.openChat\(target\.id\);/,
-  'ordinary/manual targets must keep the original platform.openChat path that was real-client proven'
+  routeSource,
+  /async function openSavedTarget\(platform, wv, chatId\)/,
+  'saved-tag recovery may remain available only as an explicit helper with no global installation side effect'
 );
 
 console.log('TELEGRAM_BROADCAST_MANUAL_ROUTE_ISOLATION_CONTRACT_OK');
