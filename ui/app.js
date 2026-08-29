@@ -1715,7 +1715,6 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let broadcastChats = [];      // 全部聊天
   let broadcastSelected = new Set(); // 勾选 id
-  let broadcastSavedRecipientTargets = new Map(); // 仅记录由“已保存列表”恢复的收件人快照
   let broadcastFiles = [];      // 附件 [{name, base64, mime}]
   let broadcastRunning = false;
   let broadcastStop = false;
@@ -1847,16 +1846,9 @@
   }
   function renderBroadcastSelectedChips() {
     if (!bcSelectedChips) return;
-    const selected = [...broadcastSelected]
-      .map(id => broadcastChats.find(c => c.id === id) || broadcastSavedRecipientTargets.get(String(id)))
-      .filter(Boolean);
+    const selected = [...broadcastSelected].map(id => broadcastChats.find(c => c.id === id)).filter(Boolean);
     bcSelectedChips.innerHTML = selected.map(c => `<span class="bc-selected-chip" title="${escapeHtml(c.name || c.id)}"><span>${escapeHtml(c.name || c.id)}</span><button type="button" data-id="${escapeHtml(c.id)}">×</button></span>`).join('');
-    bcSelectedChips.querySelectorAll('button').forEach(btn => btn.onclick = e => {
-      e.stopPropagation();
-      broadcastSelected.delete(btn.dataset.id);
-      broadcastSavedRecipientTargets.delete(String(btn.dataset.id || ''));
-      renderBroadcastList();
-    });
+    bcSelectedChips.querySelectorAll('button').forEach(btn => btn.onclick = e => { e.stopPropagation(); broadcastSelected.delete(btn.dataset.id); renderBroadcastList(); });
   }
   function renderBroadcastList() {
     const q = bSearchEl.value.trim().toLowerCase();
@@ -1869,13 +1861,8 @@
       const badge = c.type ? `<span class="bc-type-badge ${c.type === '群组' ? 'group' : ''}">${c.type === '群组' ? '群组' : '联系人'}</span>` : '';
       item.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''}><span class="broadcast-name">${escapeHtml(c.name || c.id)}</span>${badge}`;
       item.querySelector('input').onchange = (e) => {
-        if (e.target.checked) {
-          broadcastSelected.add(c.id);
-          broadcastSavedRecipientTargets.delete(String(c.id));
-        } else {
-          broadcastSelected.delete(c.id);
-          broadcastSavedRecipientTargets.delete(String(c.id));
-        }
+        if (e.target.checked) broadcastSelected.add(c.id);
+        else broadcastSelected.delete(c.id);
         renderBroadcastSelectedChips();
         const saveGroupBtn = document.getElementById('broadcast-save-group');
         if (saveGroupBtn) saveGroupBtn.style.display = broadcastChats.some(chat => broadcastSelected.has(chat.id) && chat.type === '群组') ? '' : 'none';
@@ -1913,7 +1900,6 @@
   };
   document.getElementById('broadcast-clear').onclick = () => {
     broadcastSelected.clear();
-    broadcastSavedRecipientTargets.clear();
     renderBroadcastList();
   };
   // 群组标签：原版语义=保存一组群，点击后恢复并筛选这组群
@@ -2631,24 +2617,10 @@
   if (savedListsEl) savedListsEl.onchange = () => {
     const i = parseInt(savedListsEl.value);
     if (i >= 0 && savedLists[i]) {
-      broadcastSavedRecipientTargets.clear();
-      (savedLists[i].ids || []).forEach(rawId => {
-        const id = String(rawId || '').trim();
-        if (!id) return;
-        broadcastSelected.add(id);
-        const live = broadcastChats.find(chat => String(chat.id) === id);
-        broadcastSavedRecipientTargets.set(id, Object.freeze({
-          id,
-          name: String(live?.name || id),
-          realName: String(live?.realName || live?.name || ''),
-          type: String(live?.type || ''),
-          telegramSavedTarget: true,
-        }));
-      });
+      (savedLists[i].ids || []).forEach(id => broadcastSelected.add(id));
       renderBroadcastList();
     }
   };
-  window.__broadcastSavedRecipientTargets = () => [...broadcastSavedRecipientTargets.values()].map(target => ({ ...target }));
   if (deleteListBtn) deleteListBtn.onclick = () => {
     const i = parseInt(savedListsEl?.value || '-1');
     if (i < 0) { alert('请先选择要删除的列表'); return; }
@@ -3746,7 +3718,7 @@
     broadcastExcludeContacts = new Set(parseList('broadcastExcludeContacts'));
     broadcastExcludeGroups = new Set(parseList('broadcastExcludeGroups'));
     savedGroupLinks = parseList('groupLinks');
-    broadcastSavedFilter = null; broadcastSelected.clear(); broadcastSavedRecipientTargets.clear();
+    broadcastSavedFilter = null; broadcastSelected.clear();
     armScheduleTasks(); renderScheduleList(); renderSavedMessages(); renderSavedLists(); renderSavedGroups(); refreshGroupLinksUi(); renderBroadcastList();
     renderTypedExclude('contacts'); renderTypedExclude('groups');
     const auto = parse('gtAutoCfg', {}), cmd = parse('gtCmdCfg', {}), names = parse('gtCmdNames', {});

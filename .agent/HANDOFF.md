@@ -2,16 +2,6 @@
 
 Updated: 2026-08-29
 
-## 2026-08-30 Telegram 标签群发接手
-
-- 在线基线已恢复到 `ux/broadcast-account-jobs@10c77cd`；旧本地 WhatsApp 开发改动已隔离到 Git stash，未混入本任务。
-- 真实用户症状：TG 保存收件人标签后的群发未闭环；此前保存标签路由修复曾全局接管 `platform.openChat`，导致已正常工作的普通 TG 群发回归并出现 `COMPOSER_FAILED:EMPTY`。
-- 当前修复策略：普通/手选 target 继续使用实时 `listChats()` + 原生 `platform.openChat`；只有从已保存列表恢复的 target 携带 `telegramSavedTarget` 来源，并显式调用 `GeekTelegramBroadcastRoute.openSavedTarget()`。
-- 保存标签 target 使用编辑器内不可变快照，不再因 Telegram 虚拟聊天列表未挂载而丢失；即使不在当前列表也保持可见、可单独移除。移除/清空/切换账号会同步撤销来源标记。
-- 专用 TG 路由必须同时确认真实选中行和 current chat identity；失败时 `TG_CHAT_ROUTE_NOT_CONFIRMED` fail-closed。没有恢复全局 transport 包装，也没有使用 `location.hash` 自证导航。
-- 本地验证：TG/群发聚焦契约与语法检查通过；除 `acl-repair-integration-contract.cjs` 外其余 120 项测试通过。完整 `npm test` 在该 ACL 项因本机中文 Windows 用户名传入 `icacls` 时发生代码页乱码而提前失败，与 TG 路径无关，但 exact-head CI 仍需实际核对。
-- 当前状态：代码与本地 contract 已完成，真实 Windows validation 客户端尚未验证。下一门禁是 exact-head CI/validation build，然后分别验证普通 TG 群发不回归、保存标签 TG 群发可发送。
-
 ## 当前目标
 
 继续收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。群发执行层已账号级 Job 化；当前重点是用真实 Windows validation 客户端把编辑器、联系人加载、收件人名单、定时任务、附件和多账号恢复闭环验证。正式 `master` / Geek 1.2.16 继续作为稳定参照，真实客户端通过前 #166 保持 Draft。

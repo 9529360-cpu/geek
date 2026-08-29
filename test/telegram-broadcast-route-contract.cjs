@@ -51,12 +51,9 @@ assert.doesNotMatch(source,
   /window\.GeekPlatformTransports\s*=|wrapFactory\(|installWhenReady\(|__geekTelegramRouteAware/,
   'saved-target routing must not replace the globally shared Telegram platform factory');
 assert.match(runtime,
-  /if \(ctx\.platform\.family !== 'telegram' \|\| target\?\.telegramSavedTarget !== true\) \{\s*return ctx\.platform\.openChat\(target\.id\);\s*\}/,
+  /const opened = await ctx\.platform\.openChat\(target\.id\);\s*await new Promise\(resolve => setTimeout\(resolve, 900\)\);/,
   'ordinary Telegram broadcasts must preserve the known-good direct platform.openChat path');
-assert.match(runtime,
-  /target\?\.telegramSavedTarget === true[\s\S]*?route\.openSavedTarget\(ctx\.platform, ctx\.wv, target\.id\)/,
-  'saved-target helper must be reachable only behind explicit saved-tag provenance');
-assert.doesNotMatch(runtime, /telegramRouteFallback|openTargetChat\(/,
-  'implicit saved-target fallback must not return');
+assert.doesNotMatch(runtime, /telegramRouteFallback|openSavedTarget|openTargetChat\(/,
+  'dormant saved-target helper must not be called from the ordinary runtime during containment');
 
 console.log('TELEGRAM_BROADCAST_ROUTE_CONTRACT_OK');

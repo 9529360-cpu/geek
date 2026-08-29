@@ -21,18 +21,6 @@ assert.equal(api.shouldFailContextInitialization({ state: 'queued' }), false, 'a
 assert.equal(api.shouldFailContextInitialization({ state: 'scheduled' }), false, 'a future schedule must remain eligible for bounded recovery');
 assert.equal(api.liveGuestId({ wv: { getWebContentsId: () => 321 } }), 321, 'execution must resolve the live WebView guest id');
 assert.equal(api.liveGuestId({ wv: { getWebContentsId: () => 0 } }), null, 'invalid guest ids must fail closed');
-assert.deepEqual(api.mergeCustomTargets(
-  [{ id: 'manual', name: 'Manual' }, { id: 'saved-visible', name: 'Stale live name' }],
-  ['manual', 'saved-visible'],
-  [
-    { id: 'saved-visible', name: 'Saved visible', telegramSavedTarget: true },
-    { id: 'saved-virtual', name: 'Saved virtual', telegramSavedTarget: true },
-  ],
-), [
-  { id: 'manual', name: 'Manual' },
-  { id: 'saved-visible', name: 'Saved visible', telegramSavedTarget: true },
-  { id: 'saved-virtual', name: 'Saved virtual', telegramSavedTarget: true },
-], 'saved-tag snapshots must survive Telegram virtual-list eviction without changing ordinary selected targets');
 assert.match(runtime, /addEventListener\('click',[\s\S]*true\);/, 'runtime send interception must use capture phase before legacy element handlers');
 assert.match(runtime, /closest\?\.\('#broadcast-send'\)/, 'runtime must own the broadcast send button');
 assert.match(runtime, /event\.stopImmediatePropagation\(\)/, 'new runtime must stop the legacy window-global sender from running');
