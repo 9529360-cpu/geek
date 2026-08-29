@@ -71,6 +71,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     if (done) script.addEventListener('load', done, { once: true });
     document.head.appendChild(script);
   }
+  loadScript('./telegram-broadcast-route.js', 'GeekTelegramBroadcastRoute');
   loadScript('./broadcast-job-manager.js', 'GeekBroadcastJobManager', () => {
     loadScript('./broadcast-file-lifecycle.js', 'GeekBroadcastFileLifecycle', () => {
       loadScript('./broadcast-schedule-registry.js', 'GeekBroadcastScheduleRegistry', () => {
