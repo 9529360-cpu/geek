@@ -14,8 +14,12 @@ permissions:
 
 jobs:
   acl-integration:
-    runs-on: windows-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, x64, geek-real-client]
     timeout-minutes: 5
+    defaults:
+      run:
+        shell: cmd
     steps:
       - name: Checkout
         uses: actions/checkout@v4

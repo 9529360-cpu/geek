@@ -26,8 +26,11 @@ concurrency:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64, geek-real-client]
     timeout-minutes: 35
+    defaults:
+      run:
+        shell: cmd
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
@@ -45,13 +48,12 @@ jobs:
         run: node test/validation-build-isolation-contract.cjs
 
       - name: Build isolated validation installer
-        shell: pwsh
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist:test
 
       - name: Sanitize validation artifacts
-        shell: pwsh
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $out = Join-Path $PWD 'dist-validation-build'
           $exe = @(Get-ChildItem -Path $out -Filter 'geek-validation-setup-*.exe' -File)
