@@ -8,10 +8,6 @@ const MiB = 1024 * 1024;
 const ACCOUNT_DATA_KEYS = Object.freeze([
   '__schema',
   'scheduleTasks',
-  'broadcastJobSchedules',
-  'broadcastLegacyScheduleBackup',
-  'broadcastLegacyScheduleNeedsReview',
-  'broadcastScheduleMigrationV2',
   'sendHistory',
   'savedMessages',
   'savedLists',
