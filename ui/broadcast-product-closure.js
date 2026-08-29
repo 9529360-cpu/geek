@@ -9,29 +9,8 @@
   let schedulePending = false;
   let managerUnsubscribe = null;
 
-  function parseList(raw) {
-    try {
-      const value = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw;
-      return Array.isArray(value) ? value : [];
-    } catch (_) { return []; }
-  }
-
   function activeAccountId(doc = document) {
     return String(doc.querySelector('.nav-account.active[data-id]')?.dataset.id || '');
-  }
-
-  function selectedRecipientIds(doc = document) {
-    return [...doc.querySelectorAll('#bc-selected-chips .bc-selected-chip button[data-id]')]
-      .map(button => String(button.dataset.id || '').trim())
-      .filter(Boolean);
-  }
-
-  function appendRecipientPreset(value, preset) {
-    const items = parseList(value).filter(item => item && typeof item === 'object');
-    const name = String(preset?.name || '').trim().slice(0, 80);
-    const ids = [...new Set((Array.isArray(preset?.ids) ? preset.ids : []).map(id => String(id || '').trim()).filter(Boolean))];
-    if (!name || !ids.length) throw new TypeError('recipient preset requires name and ids');
-    return [...items, { name, ids }];
   }
 
   function formatScheduleTime(value) {
@@ -45,6 +24,73 @@
     return manager.list(accountId)
       .filter(job => ['scheduled', 'queued'].includes(String(job?.state || '')))
       .sort((a, b) => Number(a.scheduledAt || a.createdAt || 0) - Number(b.scheduledAt || b.createdAt || 0));
+  }
+
+  function ensureRecipientTagNameInput(doc = document) {
+    const row = doc.querySelector('.bc-recipient-tag-canonical-row') || doc.querySelector('.bc-inline-group-save');
+    const save = doc.getElementById('broadcast-save-group');
+    if (!row || !save) return null;
+
+    let input = doc.getElementById('broadcast-recipient-tag-name');
+    if (!input) {
+      input = doc.createElement('input');
+      input.id = 'broadcast-recipient-tag-name';
+      input.className = 'bc-input bc-recipient-tag-name';
+      input.type = 'text';
+      input.maxLength = 80;
+      input.autocomplete = 'off';
+      input.placeholder = '标签名称';
+      input.setAttribute('aria-label', '自定义群发标签名称');
+      row.insertBefore(input, save);
+    }
+
+    if (!doc.getElementById('broadcast-recipient-tag-input-style')) {
+      const style = doc.createElement('style');
+      style.id = 'broadcast-recipient-tag-input-style';
+      style.textContent = `
+        #broadcast-overlay .bc-recipient-tag-canonical-row{grid-template-columns:auto minmax(120px,1fr) minmax(120px,180px) auto!important}
+        #broadcast-overlay .bc-recipient-tag-name{display:block!important;min-width:120px;height:27px;padding:3px 8px;font-size:11px}
+        @media (max-width:640px){#broadcast-overlay .bc-recipient-tag-canonical-row{grid-template-columns:1fr auto!important}#broadcast-overlay #broadcast-recipient-tag-label{grid-column:1/-1}#broadcast-overlay .bc-recipient-tag-list{grid-column:1/-1}#broadcast-overlay .bc-recipient-tag-name{min-width:0}}
+      `;
+      doc.head.appendChild(style);
+    }
+    return input;
+  }
+
+  function bindRecipientTagNameInput(doc = document) {
+    const save = doc.getElementById('broadcast-save-group');
+    const input = ensureRecipientTagNameInput(doc);
+    if (!save || !input) return false;
+    if (save.dataset.geekTagInputBound === '1') return true;
+    const owner = save.onclick;
+    if (typeof owner !== 'function') return false;
+
+    save.dataset.geekTagInputBound = '1';
+    save.onclick = () => {
+      const name = String(input.value || '').trim().slice(0, 80);
+      if (!name) {
+        const status = doc.getElementById('broadcast-recipient-tag-status');
+        if (status) {
+          status.dataset.state = 'warn';
+          status.textContent = '请先输入标签名称';
+        }
+        input.focus();
+        return;
+      }
+
+      // Electron does not support browser prompt(). app.js still owns the private
+      // broadcastSelected/savedLists state, so provide the already-collected name
+      // synchronously only while that owner runs, then restore the global immediately.
+      const originalPrompt = window.prompt;
+      try {
+        window.prompt = () => name;
+        owner.call(save);
+      } finally {
+        window.prompt = originalPrompt;
+      }
+      input.value = '';
+    };
+    return true;
   }
 
   function ensureScheduleControls(doc = document) {
@@ -122,41 +168,6 @@
     return jobs;
   }
 
-  async function persistRecipientPreset(button, doc = document) {
-    if (!button || button.dataset.durablePending === '1') return false;
-    const accountId = activeAccountId(doc);
-    const ids = selectedRecipientIds(doc);
-    if (!accountId) { window.alert?.('请先选择账号'); return false; }
-    if (!ids.length) { window.alert?.('请先勾选联系人或群组'); return false; }
-    const name = String(window.prompt?.('保存为可复用标签：', '收件人标签') || '').trim().slice(0, 80);
-    if (!name) return false;
-
-    button.dataset.durablePending = '1';
-    button.disabled = true;
-    try {
-      const data = await window.api.accountData.getAll(accountId);
-      const next = appendRecipientPreset(data?.savedLists, { name, ids });
-      await window.api.accountData.set(accountId, 'savedLists', JSON.stringify(next));
-      if (activeAccountId(doc) !== accountId) return true;
-
-      const originalPrompt = window.prompt;
-      try {
-        window.prompt = () => name;
-        if (typeof button.onclick === 'function') button.onclick.call(button);
-      } finally {
-        window.prompt = originalPrompt;
-      }
-      window.alert?.(`已保存收件人标签「${name}」，下次进入群发可直接选择复用。`);
-      return true;
-    } catch (error) {
-      window.alert?.(`保存收件人标签失败：${String(error?.message || error)}`);
-      return false;
-    } finally {
-      button.dataset.durablePending = '';
-      button.disabled = false;
-    }
-  }
-
   async function addCurrentScheduledMessage(doc = document) {
     if (schedulePending) return false;
     const accountId = activeAccountId(doc);
@@ -216,17 +227,12 @@
   function install(doc = document) {
     if (installed || typeof document === 'undefined') return;
     installed = true;
+    ensureRecipientTagNameInput(doc);
+    bindRecipientTagNameInput(doc);
     ensureScheduleControls(doc);
     renderPendingSchedules(doc);
 
     doc.addEventListener('click', event => {
-      const saveList = event.target?.closest?.('#bc-save-list');
-      if (saveList && saveList.dataset.durableReplay !== '1') {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        void persistRecipientPreset(saveList, doc);
-        return;
-      }
       const addSchedule = event.target?.closest?.('#broadcast-add-schedule');
       if (addSchedule) {
         event.preventDefault();
@@ -236,6 +242,8 @@
       }
       const open = event.target?.closest?.('#bc-menu-send');
       if (open) setTimeout(() => {
+        ensureRecipientTagNameInput(doc);
+        bindRecipientTagNameInput(doc);
         ensureScheduleControls(doc);
         renderPendingSchedules(doc);
       }, 0);
@@ -250,14 +258,15 @@
     }
 
     window.GeekBroadcastProductClosureInstance = Object.freeze({
-      persistRecipientPreset: button => persistRecipientPreset(button, doc),
+      ensureRecipientTagNameInput: () => ensureRecipientTagNameInput(doc),
+      bindRecipientTagNameInput: () => bindRecipientTagNameInput(doc),
       addCurrentScheduledMessage: () => addCurrentScheduledMessage(doc),
       renderPendingSchedules: () => renderPendingSchedules(doc),
       dispose: () => { managerUnsubscribe?.(); managerUnsubscribe = null; },
     });
   }
 
-  return Object.freeze({ parseList, selectedRecipientIds, appendRecipientPreset, formatScheduleTime, pendingJobsFor, install });
+  return Object.freeze({ activeAccountId, formatScheduleTime, pendingJobsFor, ensureRecipientTagNameInput, bindRecipientTagNameInput, install });
 });
 
 if (typeof window !== 'undefined') {
