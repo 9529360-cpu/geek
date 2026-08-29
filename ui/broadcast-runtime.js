@@ -96,6 +96,13 @@
       .filter(Boolean);
   }
 
+  function selectedTargets() {
+    const read = window.__broadcastSelectedTargets;
+    if (typeof read !== 'function') return [];
+    const targets = read();
+    return Array.isArray(targets) ? targets.filter(target => String(target?.id || '').trim()) : [];
+  }
+
   function dedupeTargets(targets) {
     const seen = new Set();
     const unique = [];
@@ -205,21 +212,24 @@
   }
 
   async function resolveTargets(ctx) {
-    const chats = await ctx.platform.listChats();
     const mode = document.querySelector('input[name="bc-sendto"]:checked')?.value || 'custom';
     const excluded = window.__broadcastExcludeSet ? window.__broadcastExcludeSet() : new Set();
     let targets;
-    if (mode === 'group-members') targets = await resolveGroupMembers(ctx);
-    else if (mode === 'label') targets = await resolveLabelTargets(ctx, chats);
-    else if (mode === 'paste' || mode === 'excel') targets = await resolveNumberTargets(ctx, chats, mode);
-    else if (['all', 'all-contacts', 'all-groups', 'exclude-contacts', 'exclude-groups'].includes(mode)) {
-      const model = window.GeekBroadcastUiModel;
-      if (!model || typeof model.resolveAudience !== 'function') throw new Error('群发受众解析组件尚未就绪');
-      targets = model.resolveAudience({ mode, chats, selectedIds: selectedChatIds(), excludedIds: excluded });
-    }
-    else {
-      const ids = new Set(selectedChatIds());
-      targets = chats.filter(chat => ids.has(String(chat.id)));
+    if (mode === 'custom') {
+      targets = selectedTargets();
+    } else {
+      const chats = await ctx.platform.listChats();
+      if (mode === 'group-members') targets = await resolveGroupMembers(ctx);
+      else if (mode === 'label') targets = await resolveLabelTargets(ctx, chats);
+      else if (mode === 'paste' || mode === 'excel') targets = await resolveNumberTargets(ctx, chats, mode);
+      else if (['all', 'all-contacts', 'all-groups', 'exclude-contacts', 'exclude-groups'].includes(mode)) {
+        const model = window.GeekBroadcastUiModel;
+        if (!model || typeof model.resolveAudience !== 'function') throw new Error('群发受众解析组件尚未就绪');
+        targets = model.resolveAudience({ mode, chats, selectedIds: selectedChatIds(), excludedIds: excluded });
+      } else {
+        const ids = new Set(selectedChatIds());
+        targets = chats.filter(chat => ids.has(String(chat.id)));
+      }
     }
     targets = dedupeTargets(targets);
     if (excluded.size) targets = targets.filter(target => !excluded.has(target.id));
@@ -612,7 +622,7 @@
     });
   }
 
-  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId });
+  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId, selectedTargets });
 });
 
 if (typeof window !== 'undefined') {

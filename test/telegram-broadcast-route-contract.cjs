@@ -10,6 +10,7 @@ const runtimePath = path.join(__dirname, '../ui/broadcast-runtime.js');
 const source = fs.readFileSync(routePath, 'utf8');
 const safety = fs.readFileSync(safetyPath, 'utf8');
 const runtime = fs.readFileSync(runtimePath, 'utf8');
+const app = fs.readFileSync(path.join(__dirname, '../ui/app.js'), 'utf8');
 const route = require(routePath);
 
 const sameChat = (a, b) => String(a || '').replace(/^#/, '') === String(b || '').replace(/^#/, '');
@@ -34,6 +35,8 @@ assert.doesNotMatch(script, /location\.hash\s*=/, 'fallback must never mutate lo
 assert.match(script, /TARGET_NOT_MOUNTED/, 'unresolved virtualized targets must fail closed');
 assert.match(source, /async function openSavedTarget\(platform, wv, chatId\)/,
   'saved-target recovery must be exposed as an explicit helper');
+assert.match(source, /async function openVirtualizedTarget\(platform, wv, chatId\)/,
+  'Telegram must expose one provenance-free virtual-list fallback for ordinary openChat failures');
 assert.match(source, /throw new Error\('TG_CHAT_ROUTE_NOT_CONFIRMED:/,
   'failed saved-target routing must fail closed');
 assert.match(source, /routeConfirmed\(selected, current, chatId, window\.GeekBroadcastSafety\?\.sameChat\)/,
@@ -55,5 +58,10 @@ assert.match(runtime,
   'ordinary Telegram broadcasts must preserve the known-good direct platform.openChat path');
 assert.doesNotMatch(runtime, /telegramRouteFallback|openSavedTarget|openTargetChat\(/,
   'dormant saved-target helper must not be called from the ordinary runtime during containment');
+assert.match(app,
+  /const clicked = await wv\.executeJavaScript\(transport\.switchChat\(chatId\)\);\s*if \(clicked === true\) \{[\s\S]*?sameChat\(current, chatId\)[\s\S]*?openVirtualizedTarget\(adapter, wv, chatId\)/,
+  'platform.openChat must preserve the direct fast path and use virtual-list recovery only after it fails');
+assert.doesNotMatch(app, /telegramSavedTarget|savedRecipientTargets|openSavedTarget\(/,
+  'platform routing must not branch on saved-tag provenance');
 
 console.log('TELEGRAM_BROADCAST_ROUTE_CONTRACT_OK');

@@ -1665,11 +1665,15 @@
       async listChats() { const result = await wv.executeJavaScript(transport.getChats); const text = String(result || '[]'); if (text.startsWith('ERR:')) throw new Error(text.slice(4)); return JSON.parse(text); },
       async openChat(chatId) {
         const clicked = await wv.executeJavaScript(transport.switchChat(chatId));
-        if (clicked !== true) return false;
-        for (let attempt = 0; attempt < 40; attempt++) {
-          const current = await wv.executeJavaScript(currentChatScripts[family] || 'null');
-          if (window.GeekBroadcastSafety.sameChat(current, chatId)) return true;
-          await sleep(250);
+        if (clicked === true) {
+          for (let attempt = 0; attempt < 40; attempt++) {
+            const current = await wv.executeJavaScript(currentChatScripts[family] || 'null');
+            if (window.GeekBroadcastSafety.sameChat(current, chatId)) return true;
+            await sleep(250);
+          }
+        }
+        if (family === 'telegram' && typeof window.GeekTelegramBroadcastRoute?.openVirtualizedTarget === 'function') {
+          return window.GeekTelegramBroadcastRoute.openVirtualizedTarget(adapter, wv, chatId);
         }
         return false;
       },
@@ -1722,6 +1726,13 @@
   let broadcastFailed = [];     // 失败名单 [{name, reason}]
   let broadcastChatLoadSequence = 0;
   let broadcastChatsReady = false;
+
+  window.__broadcastSelectedTargets = () => [...broadcastSelected].map(rawId => {
+    const id = String(rawId || '').trim();
+    if (!id) return null;
+    const chat = broadcastChats.find(item => String(item.id) === id);
+    return chat ? { ...chat, id } : { id, name: id };
+  }).filter(Boolean);
 
   const bOverlay = document.getElementById('broadcast-overlay');
   const bListEl = document.getElementById('broadcast-list');

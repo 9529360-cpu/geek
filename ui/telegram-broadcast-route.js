@@ -147,10 +147,33 @@
     throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:IDENTITY_TIMEOUT');
   }
 
+  async function openVirtualizedTarget(platform, wv, chatId) {
+    if (!platform || platform.family !== 'telegram' || typeof platform.getCurrentChat !== 'function') {
+      throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:INVALID_PLATFORM');
+    }
+    if (!wv || typeof wv.executeJavaScript !== 'function') {
+      throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:INVALID_WEBVIEW');
+    }
+    setTrace('virtual-search');
+    const result = await wv.executeJavaScript(realRouteScript(chatId));
+    if (result !== 'SELECTED') {
+      setTrace('route-failed:' + String(result || 'UNKNOWN'));
+      throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:' + String(result || 'UNKNOWN'));
+    }
+    setTrace('selected-ui');
+    if (await confirmSelectedRoute(platform, wv, chatId, 30)) {
+      setTrace('confirmed');
+      return true;
+    }
+    setTrace('identity-timeout');
+    throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:IDENTITY_TIMEOUT');
+  }
+
   return Object.freeze({
     routeConfirmed,
     realRouteScript,
     selectedRouteScript,
     openSavedTarget,
+    openVirtualizedTarget,
   });
 });
