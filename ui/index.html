@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./style-mac.css">
   <link rel="stylesheet" href="./translation-settings.css">
+  <link rel="stylesheet" href="./contact-notes.css">
   <link rel="stylesheet" href="./settings-controller.css">
   <link rel="stylesheet" href="./broadcast-original.css">
   <link rel="stylesheet" href="./group-tools-original.css">
@@ -80,6 +81,27 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span>设置</span>
           </button>
+          <button class="quick-btn" id="btn-contact-notes" title="联系人备注" aria-expanded="false">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+            <span>备注</span>
+          </button>
+          <div id="contact-notes-popover" class="contact-notes-popover hidden" role="dialog" aria-label="联系人备注">
+            <div class="contact-notes-head">
+              <div><strong>联系人备注</strong><small>仅保存在当前账号的本机加密数据中</small></div>
+              <button type="button" id="contact-notes-close" class="contact-notes-close" aria-label="关闭联系人备注">×</button>
+            </div>
+            <div id="contact-notes-chat" class="contact-notes-chat" data-state="idle">请先打开一个聊天</div>
+            <label class="contact-notes-field" for="contact-notes-text">
+              <span>备注内容</span>
+              <textarea id="contact-notes-text" maxlength="2000" rows="7" placeholder="例如：客户偏好、跟进事项、沟通背景……" disabled></textarea>
+            </label>
+            <div class="contact-notes-meta"><span>不会写入或发送到聊天</span><span id="contact-notes-count">0 / 2000</span></div>
+            <div class="contact-notes-actions">
+              <button type="button" id="contact-notes-delete" class="contact-notes-delete" disabled>删除备注</button>
+              <button type="button" id="contact-notes-save" class="contact-notes-save" disabled>保存</button>
+            </div>
+            <div id="contact-notes-status" class="contact-notes-status" aria-live="polite"></div>
+          </div>
           <button class="quick-btn" id="btn-translation" title="翻译通道" aria-expanded="false">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 4.2 6.2 4.2 9S15 17.8 12 21M12 3c-3 3.2-4.2 6.2-4.2 9S9 17.8 12 21"/></svg>
             <span>翻译</span>
@@ -821,6 +843,7 @@
 <script src="settings-controller.js"></script>
 <script src="log-url.js"></script>
 <script src="version-label.js"></script>
+<script src="contact-notes.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -11,6 +11,15 @@ Updated: 2026-08-29
 - 禁止重新引入 `telegramSavedTarget`、标签专用 Job 字段、全局 transport wrapper 或 `location.hash` 自证导航。
 - 下一门禁：完整本地 contract（已知本机 ACL 代码页问题单列）、exact-head CI/validation build；真实客户端必须分别验证普通 TG 群发和标签快捷恢复后群发，两者从 Job 创建起应没有行为差异。
 
+## 2026-08-30 联系人备注施工现场
+
+- Telegram 标签群发修复 `aed52c382ffb881ee16254490a4e4ff20df6f7ca` 已由用户在真实客户端确认通过：标签只恢复普通收件人选择，不再走专用发送路由。证据已记录在 Draft PR #166。
+- 当前分支：`feat/contact-notes`，基于在线 `origin/master` 的 `cc047df`；联系人备注与群发修复保持独立。
+- 当前实现：WhatsApp / Telegram / LINE 共用顶部“备注”入口，按账号加密数据仓 + 平台 + 当前聊天 ID 隔离；备注不会进入消息正文或 WebView 注入链路。
+- 数据键：`contactNotes`；单条上限 2000 字、每账号最多 2000 条。支持查看、保存、删除及聊天切换时刷新。
+- 验证：`npm test` 全部 85 项通过；`git diff --check` 仅报告仓库既有 Windows 行尾提示，无空白错误。
+- 边界：尚未生成测试安装包、尚未做三平台真实客户端交互验证、尚未发布正式客户端。
+
 ## 当前目标
 
 继续收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。群发执行层已账号级 Job 化；当前重点是用真实 Windows validation 客户端把编辑器、联系人加载、收件人名单、定时任务、附件和多账号恢复闭环验证。正式 `master` / Geek 1.2.16 继续作为稳定参照，真实客户端通过前 #166 保持 Draft。
