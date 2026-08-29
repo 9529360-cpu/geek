@@ -20,6 +20,13 @@ Updated: 2026-08-29
 - 验证：`npm test` 全部 85 项通过；`git diff --check` 仅报告仓库既有 Windows 行尾提示，无空白错误。
 - 边界：尚未生成测试安装包、尚未做三平台真实客户端交互验证、尚未发布正式客户端。
 
+## 2026-08-30 翻译双回车修复
+
+- 当前叠加分支：`fix/translation-double-enter`，基于联系人备注提交 `65fd2c3`，方便生成同时包含备注和修复的验证安装包。
+- 根因：Telegram / LINE 翻译发送锁命中时直接返回，却没有吞掉第二次真实用户回车或发送按钮事件，导致事件落入平台原生发送链路并发出原文；该缺口早于本轮群发标签修复。
+- 修复：锁定期间只拦截 `isTrusted` 的用户重复发送；保留翻译完成后程序化提交译文的非可信事件。
+- 验证：新增 `translation-double-enter-contract.cjs`；`npm test` 全部 86 项通过。仍需真实客户端快速双击回车验证。
+
 ## 当前目标
 
 继续收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。群发执行层已账号级 Job 化；当前重点是用真实 Windows validation 客户端把编辑器、联系人加载、收件人名单、定时任务、附件和多账号恢复闭环验证。正式 `master` / Geek 1.2.16 继续作为稳定参照，真实客户端通过前 #166 保持 Draft。

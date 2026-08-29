@@ -144,8 +144,15 @@
       Object.assign(notice.style, { position: 'fixed', left: '50%', bottom: '82px', transform: 'translateX(-50%)', zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318', color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)' });
       document.body.appendChild(notice); setTimeout(() => notice.remove(), 3200);
     };
+    const blockRepeatedUserSend = event => {
+      if (!event?.isTrusted) return false;
+      event.preventDefault(); event.stopImmediatePropagation();
+      return true;
+    };
     const translateAndSend = async (event, editor, button) => {
-      if (window.__geekTelegramSendLock) return;
+      // A synthetic click is how the verified translation is finally submitted.
+      // Only swallow repeated trusted user input while that translation is pending.
+      if (window.__geekTelegramSendLock) { blockRepeatedUserSend(event); return; }
       const cid = chatId(); const setting = settingFor(cid || '');
       if (!setting?.enabled || setting.autoSend === false) return;
       const original = messageText(editor).replace(/\n$/, '').trim();
@@ -261,12 +268,20 @@
       Object.assign(notice.style, { position: 'fixed', left: '50%', bottom: '72px', transform: 'translateX(-50%)', zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318', color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)' });
       document.body.appendChild(notice); setTimeout(() => notice.remove(), 3200);
     };
+    const blockRepeatedUserSend = event => {
+      if (!event?.isTrusted) return false;
+      event.preventDefault(); event.stopImmediatePropagation();
+      return true;
+    };
     const composerHost = event => {
       const path = event.composedPath?.() || [];
       return path.find(node => node?.tagName === 'TEXTAREA-EX') || document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
     };
     const translateAndSend = async (event, host, button = null) => {
-      if (window.__geekLineSendLock || !host) return;
+      // Keep the synthetic verified-text submit alive, but never let a second
+      // trusted Enter/click fall through to LINE while translation is pending.
+      if (window.__geekLineSendLock) { blockRepeatedUserSend(event); return; }
+      if (!host) return;
       const cid = chatId(); const setting = settingFor(cid || '');
       if (!setting.enabled || !setting.autoSend) return;
       const values = Array.isArray(host.value) ? host.value : [host.value];
