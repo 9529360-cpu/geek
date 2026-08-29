@@ -84,7 +84,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
                   loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
                     loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
                       loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
-                        loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                        loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
+                          loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                        });
                       });
                     });
                   });
