@@ -10,11 +10,9 @@ const routeSource = fs.readFileSync(routePath, 'utf8');
 const runtimeSource = fs.readFileSync(runtimePath, 'utf8');
 
 // BRT-20260829-TG-MANUAL-ROUTE-ISOLATION
-// Real-client boundary:
-// - ordinary/manual Telegram broadcasting was confirmed working before saved-tag
-//   route recovery was introduced;
-// - saved-tag work must not replace the platform openChat implementation used by
-//   ordinary/manual recipients.
+// Ordinary/manual Telegram broadcasting is the protected baseline. Saved-target
+// route recovery may exist as a dormant helper, but the runtime must not call it
+// or introduce any fallback flag/hash route while this containment is active.
 
 assert.doesNotMatch(
   routeSource,
@@ -24,14 +22,17 @@ assert.doesNotMatch(
 
 assert.match(
   runtimeSource,
-  /const opened = await ctx\.platform\.openChat\(target\.id\);[\s\S]{0,260}?target\.telegramRouteFallback !== true\) return opened;/,
-  'ordinary/manual targets must return from the original platform.openChat path unless an explicit saved-tag fallback is required'
+  /const opened = await ctx\.platform\.openChat\(target\.id\);\s*await new Promise\(resolve => setTimeout\(resolve, 900\)\);/,
+  'ordinary/manual targets must use the real-client-proven direct platform.openChat path'
 );
+
+assert.doesNotMatch(runtimeSource, /telegramRouteFallback|openSavedTarget|openTargetChat\(/,
+  'ordinary runtime must not opt into saved-target routing during containment');
 
 assert.match(
   routeSource,
   /async function openSavedTarget\(platform, wv, chatId\)/,
-  'saved-tag recovery may remain available only as an explicit helper with no global installation side effect'
+  'saved-tag recovery may remain available only as a dormant explicit helper with no global installation side effect'
 );
 
 console.log('TELEGRAM_BROADCAST_MANUAL_ROUTE_ISOLATION_CONTRACT_OK');
