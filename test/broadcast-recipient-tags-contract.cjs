@@ -36,7 +36,10 @@ assert.match(source, /ownerSelect\.onchange\.call\(controls\.ownerSelect\)/, 'ap
 assert.match(source, /ownerDelete/, 'deletion must reuse the established owner path');
 
 assert.doesNotMatch(source, /addEventListener\('click'[\s\S]*true\)/, 'recipient tags must not use a capture-phase click interceptor');
-assert.doesNotMatch(source, /stopImmediatePropagation|stopPropagation\(\).*broadcast-save-group/, 'recipient tags must not swallow the public save click');
+assert.doesNotMatch(source, /stopImmediatePropagation/, 'recipient tags must not stop other handlers globally');
+const publicSaveBinding = source.match(/controls\.publicSave\.onclick = \(\) => \{([\s\S]*?)\};/);
+assert.ok(publicSaveBinding, 'the visible public save button must have a direct onclick binding');
+assert.doesNotMatch(publicSaveBinding[1], /preventDefault|stopPropagation|stopImmediatePropagation/, 'the public save action must not swallow its own click');
 assert.doesNotMatch(source, /W\.labels|WAWebLabelCollection|addNewLabel|addOrRemoveLabels/, 'broadcast tags must never mutate WhatsApp-native labels');
 assert.doesNotMatch(source, /sendTextMessage|authorizeSend|scheduleTasks/, 'recipient-tag UI must not execute sending or scheduling');
 
