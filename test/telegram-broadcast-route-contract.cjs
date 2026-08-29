@@ -46,12 +46,14 @@ assert.doesNotMatch(traceFunction, /target|chatId|name|message|text/i,
   'diagnostic trace helper must not retain Telegram target identity or message content');
 
 assert.match(safety, /telegram-broadcast-route\.js/,
-  'broadcast bootstrap must load the Telegram saved-target route helper before runtime use');
+  'broadcast bootstrap may load the dormant saved-target helper');
 assert.doesNotMatch(source,
   /window\.GeekPlatformTransports\s*=|wrapFactory\(|installWhenReady\(|__geekTelegramRouteAware/,
   'saved-target routing must not replace the globally shared Telegram platform factory');
 assert.match(runtime,
-  /const opened = await ctx\.platform\.openChat\(target\.id\);[\s\S]{0,260}?target\.telegramRouteFallback !== true\) return opened;/,
-  'ordinary Telegram broadcasts must preserve the original platform openChat path');
+  /const opened = await ctx\.platform\.openChat\(target\.id\);\s*await new Promise\(resolve => setTimeout\(resolve, 900\)\);/,
+  'ordinary Telegram broadcasts must preserve the known-good direct platform.openChat path');
+assert.doesNotMatch(runtime, /telegramRouteFallback|openSavedTarget|openTargetChat\(/,
+  'dormant saved-target helper must not be called from the ordinary runtime during containment');
 
 console.log('TELEGRAM_BROADCAST_ROUTE_CONTRACT_OK');
