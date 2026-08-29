@@ -11,8 +11,8 @@ const runtimeSource = fs.readFileSync(runtimePath, 'utf8');
 
 // BRT-20260829-TG-MANUAL-ROUTE-ISOLATION
 // Ordinary/manual Telegram broadcasting is the protected baseline. Saved-target
-// route recovery may exist as a dormant helper, but the runtime must not call it
-// or introduce any fallback flag/hash route while this containment is active.
+// route recovery may be called only for an explicitly saved-tag target and must
+// never replace or decorate the ordinary platform transport.
 
 assert.doesNotMatch(
   routeSource,
@@ -22,17 +22,21 @@ assert.doesNotMatch(
 
 assert.match(
   runtimeSource,
-  /const opened = await ctx\.platform\.openChat\(target\.id\);\s*await new Promise\(resolve => setTimeout\(resolve, 900\)\);/,
+  /if \(ctx\.platform\.family !== 'telegram' \|\| target\?\.telegramSavedTarget !== true\) \{\s*return ctx\.platform\.openChat\(target\.id\);\s*\}/,
   'ordinary/manual targets must use the real-client-proven direct platform.openChat path'
 );
 
-assert.doesNotMatch(runtimeSource, /telegramRouteFallback|openSavedTarget|openTargetChat\(/,
-  'ordinary runtime must not opt into saved-target routing during containment');
+assert.match(runtimeSource,
+  /target\?\.telegramSavedTarget === true[\s\S]*?route\.openSavedTarget\(ctx\.platform, ctx\.wv, target\.id\)/,
+  'only an explicit saved-tag target may opt into the dedicated recovery helper');
+
+assert.doesNotMatch(runtimeSource, /telegramRouteFallback|openTargetChat\(/,
+  'retired implicit fallback routing must remain absent');
 
 assert.match(
   routeSource,
   /async function openSavedTarget\(platform, wv, chatId\)/,
-  'saved-tag recovery may remain available only as a dormant explicit helper with no global installation side effect'
+  'saved-tag recovery must remain an explicit helper with no global installation side effect'
 );
 
 console.log('TELEGRAM_BROADCAST_MANUAL_ROUTE_ISOLATION_CONTRACT_OK');

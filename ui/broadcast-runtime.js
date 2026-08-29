@@ -96,6 +96,25 @@
       .filter(Boolean);
   }
 
+  function savedRecipientTargets() {
+    const read = window.__broadcastSavedRecipientTargets;
+    if (typeof read !== 'function') return [];
+    const targets = read();
+    return Array.isArray(targets)
+      ? targets.map(target => ({ ...target, telegramSavedTarget: target?.telegramSavedTarget === true })).filter(target => String(target.id || '').trim())
+      : [];
+  }
+
+  function mergeCustomTargets(chats, selectedIds, savedTargets) {
+    const ids = new Set((selectedIds || []).map(id => String(id || '')).filter(Boolean));
+    const saved = Array.isArray(savedTargets) ? savedTargets.filter(target => String(target?.id || '').trim()) : [];
+    const savedIds = new Set(saved.map(target => String(target.id)));
+    return [
+      ...(Array.isArray(chats) ? chats : []).filter(chat => ids.has(String(chat?.id || '')) && !savedIds.has(String(chat?.id || ''))),
+      ...saved,
+    ];
+  }
+
   function dedupeTargets(targets) {
     const seen = new Set();
     const unique = [];
@@ -218,8 +237,8 @@
       targets = model.resolveAudience({ mode, chats, selectedIds: selectedChatIds(), excludedIds: excluded });
     }
     else {
-      const ids = new Set(selectedChatIds());
-      targets = chats.filter(chat => ids.has(String(chat.id)));
+      const saved = savedRecipientTargets();
+      targets = mergeCustomTargets(chats, selectedChatIds(), saved);
     }
     targets = dedupeTargets(targets);
     if (excluded.size) targets = targets.filter(target => !excluded.has(target.id));
@@ -293,6 +312,16 @@
     const guestId = liveGuestId(ctx);
     let sent = 'NO_SEND';
     let composer = 'NO_SET';
+    const openTarget = async () => {
+      if (ctx.platform.family !== 'telegram' || target?.telegramSavedTarget !== true) {
+        return ctx.platform.openChat(target.id);
+      }
+      const route = window.GeekTelegramBroadcastRoute;
+      if (!route || typeof route.openSavedTarget !== 'function') {
+        throw new Error('TG_CHAT_ROUTE_NOT_CONFIRMED:HELPER_UNAVAILABLE');
+      }
+      return route.openSavedTarget(ctx.platform, ctx.wv, target.id);
+    };
     if (adapter.sendDirect) {
       const delivery = window.GeekBroadcastDelivery;
       if (!delivery || typeof delivery.sendDirectBundle !== 'function') return { ok: false, reason: '群发附件发送组件尚未就绪' };
@@ -317,7 +346,7 @@
 
     if (files.length) {
       try {
-        const opened = await ctx.platform.openChat(target.id);
+        const opened = await openTarget();
         await new Promise(resolve => setTimeout(resolve, 900));
         const currentChatId = await ctx.platform.getCurrentChat();
         const openGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId, targetChatId: target.id, composerResult: 'NO_SET', needsComposer: false });
@@ -350,7 +379,7 @@
     if (!message.trim()) return { ok: false, reason: vcards.length ? 'ERR:名片:VCARD_TRANSPORT_UNAVAILABLE' : 'NO_CONTENT' };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const opened = await ctx.platform.openChat(target.id);
+        const opened = await openTarget();
         await new Promise(resolve => setTimeout(resolve, 900));
         const currentChatId = await ctx.platform.getCurrentChat();
         const openGuard = window.GeekBroadcastSafety.authorizeSend({ opened, currentChatId, targetChatId: target.id, composerResult: 'NO_SET', needsComposer: false });
@@ -612,7 +641,7 @@
     });
   }
 
-  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId });
+  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId, mergeCustomTargets });
 });
 
 if (typeof window !== 'undefined') {
