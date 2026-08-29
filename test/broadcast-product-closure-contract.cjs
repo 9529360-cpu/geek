@@ -9,7 +9,7 @@ const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'ui/broadcast-product-closure.js'), 'utf8');
 const loader = fs.readFileSync(path.join(root, 'ui/broadcast-safety.js'), 'utf8');
 const legacy = fs.readFileSync(path.join(root, 'ui/broadcast-legacy-schedule-migration.js'), 'utf8');
-const accountStore = fs.readFileSync(path.join(root, 'src/account-data-store.cjs'), 'utf8');
+const broadcastKeys = fs.readFileSync(path.join(root, 'src/broadcast-account-data-keys.cjs'), 'utf8');
 
 assert.deepEqual(api.parseList('not-json'), []);
 assert.deepEqual(api.appendRecipientPreset('[{"name":"A","ids":["1"]}]', { name: ' B ', ids: ['2', '2', ''] }), [
@@ -48,10 +48,10 @@ assert.doesNotMatch(source, /job\.message[^\n]*textContent|textContent[^\n]*job\
 assert.match(legacy, /#broadcast-add-schedule,#broadcast-schedule-list\{display:none!important\}/, 'legacy migration must continue disabling its deprecated UI by default');
 assert.match(legacy, /addLegacy && !window\.GeekBroadcastProductClosureInstance/, 'legacy capture guard must yield the reclaimed button once the safe product closure owns it');
 assert.match(source, /#broadcast-add-schedule\{display:inline-flex!important\}/, 'the new closure module must explicitly reclaim the existing add-task affordance after legacy retirement');
-assert.match(accountStore, /'broadcastJobSchedules'/, 'durable account storage must allow canonical scheduled jobs');
-assert.match(accountStore, /'broadcastLegacyScheduleBackup'/, 'legacy migration safety backup must be writable');
-assert.match(accountStore, /'broadcastLegacyScheduleNeedsReview'/, 'legacy migration review state must be writable');
-assert.match(accountStore, /'broadcastScheduleMigrationV2'/, 'legacy migration completion marker must be writable');
+assert.match(broadcastKeys, /'broadcastJobSchedules'/, 'broadcast account-data extension must allow canonical scheduled jobs');
+assert.match(broadcastKeys, /'broadcastLegacyScheduleBackup'/, 'legacy migration safety backup must be writable');
+assert.match(broadcastKeys, /'broadcastLegacyScheduleNeedsReview'/, 'legacy migration review state must be writable');
+assert.match(broadcastKeys, /'broadcastScheduleMigrationV2'/, 'legacy migration completion marker must be writable');
 assert.ok(loader.indexOf("'./broadcast-audience-ux.js'") < loader.indexOf("'./broadcast-product-closure.js'"), 'product closure must load after legacy audience relabel/retirement');
 assert.ok(loader.indexOf("'./broadcast-product-closure.js'") < loader.indexOf("'./broadcast-job-guard.js'"), 'product closure must be installed inside the bounded broadcast dependency chain');
 
