@@ -163,160 +163,309 @@ function createAccountDataStore(options = {}) {
 
     function applyRecord(record) {
       recordCount += 1;
+      needsCompaction ||= record.needsCompaction === true;
       if (record.ignored) {
-        needsCompaction = true;
         snapshotCompatible = false;
         return;
       }
-      if (record.corruptTail) {
-        needsCompaction = true;
-        snapshotCompatible = false;
-        return;
-      }
-      if (record.needsCompaction) needsCompaction = true;
+      if (record.deleted || cache.has(record.key)) snapshotCompatible = false;
       if (record.deleted) cache.delete(record.key);
       else cache.set(record.key, record.value);
     }
 
-    try {
-      for await (const chunk of input) {
-        buffer += decoder.write(chunk);
-        let newline;
-        while ((newline = buffer.indexOf('\n')) !== -1) {
-          const line = buffer.slice(0, newline).trim();
-          buffer = buffer.slice(newline + 1);
-          if (!line) continue;
-          applyRecord(decodeRecord(line, false));
-        }
+    function processCompleteLine(line) {
+      if (!line.trim()) return;
+      applyRecord(decodeRecord(line, false));
+    }
+
+    for await (const chunk of input) {
+      buffer += decoder.write(chunk);
+      if (Buffer.byteLength(buffer, 'utf8') > limits.maxRecordBytes && !buffer.includes('\n')) {
+        throw createStoreError('ACCOUNT_DATA_RECORD_TOO_LARGE', '账号数据记录过大');
       }
-      buffer += decoder.end();
-      const tail = buffer.trim();
-      if (tail) applyRecord(decodeRecord(tail, true));
+      let newline;
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        let line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (line.endsWith('\r')) line = line.slice(0, -1);
+        if (Buffer.byteLength(line, 'utf8') > limits.maxRecordBytes) {
+          throw createStoreError('ACCOUNT_DATA_RECORD_TOO_LARGE', '账号数据记录过大');
+        }
+        processCompleteLine(line);
+      }
+    }
+    buffer += decoder.end();
+    if (buffer) {
+      if (Buffer.byteLength(buffer, 'utf8') > limits.maxRecordBytes) {
+        throw createStoreError('ACCOUNT_DATA_RECORD_TOO_LARGE', '账号数据记录过大');
+      }
+      const tail = buffer.endsWith('\r') ? buffer.slice(0, -1) : buffer;
+      if (tail.trim()) {
+        const record = decodeRecord(tail, true);
+        if (record.corruptTail) {
+          needsCompaction = true;
+          repairRequired = true;
+          snapshotCompatible = false;
+        } else applyRecord(record);
+      }
+    }
+
+    return { cache, recordCount, needsCompaction, repairRequired, snapshotCompatible };
+  }
+
+  async function exists(file) {
+    try {
+      await fs.stat(file);
+      return true;
     } catch (error) {
-      if (error?.code === 'ENOENT') return { cache, recordCount: 0, fileBytes: 0, needsCompaction: false, repairRequired: false };
-      repairRequired = true;
+      if (error && error.code === 'ENOENT') return false;
       throw error;
     }
-
-    let fileBytes = 0;
-    try { fileBytes = Number((await fs.stat(file)).size) || 0; } catch (_) {}
-    return { cache, recordCount, fileBytes, needsCompaction, repairRequired, snapshotCompatible };
   }
 
-  async function ensureLoaded(state) {
-    if (state.loaded) return;
+  async function safeRemove(file) {
+    try {
+      await fs.rm(file, { force: true });
+    } catch {
+      // A stale temp file is harmless; the next load retries cleanup.
+    }
+  }
+
+  async function recoverTemp(partition) {
+    const target = fileFor(partition);
+    const temporary = tempFileFor(partition);
+    const tempExists = await exists(temporary);
+    if (!tempExists) return;
+    if (await exists(target)) {
+      await safeRemove(temporary);
+      return;
+    }
+    ensureEncryptionAvailable(isEncryptionAvailable);
+    const recovered = await readLogFile(temporary);
+    if (recovered.needsCompaction || !recovered.snapshotCompatible) {
+      throw createStoreError('ACCOUNT_DATA_TEMP_INVALID', '账号数据恢复文件损坏');
+    }
+    await fs.rename(temporary, target);
+  }
+
+  async function loadState(state) {
+    if (state.loaded) return state;
     if (state.loading) return state.loading;
+
     state.loading = (async () => {
-      const loaded = await readLogFile(fileFor(state.partition));
-      state.cache = loaded.cache;
-      state.recordCount = loaded.recordCount;
-      state.fileBytes = loaded.fileBytes;
-      state.needsCompaction = loaded.needsCompaction;
-      state.repairRequired = loaded.repairRequired;
+      assertWritableState(state);
+      ensureEncryptionAvailable(isEncryptionAvailable);
+      const file = fileFor(state.partition);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await recoverTemp(state.partition);
+      try {
+        const stat = await fs.stat(file);
+        const loaded = await readLogFile(file);
+        state.cache = loaded.cache;
+        state.recordCount = loaded.recordCount;
+        state.fileBytes = Number(stat.size) || 0;
+        state.needsCompaction = loaded.needsCompaction
+          || state.recordCount >= limits.compactRecordCount
+          || state.fileBytes >= limits.compactFileBytes;
+        state.repairRequired = loaded.repairRequired === true;
+      } catch (error) {
+        if (!error || error.code !== 'ENOENT') throw error;
+        state.cache = new Map();
+        state.recordCount = 0;
+        state.fileBytes = 0;
+        state.needsCompaction = false;
+        state.repairRequired = false;
+      }
       state.loaded = true;
-    })().finally(() => { state.loading = null; });
-    return state.loading;
+      return state;
+    })();
+
+    try {
+      return await state.loading;
+    } finally {
+      state.loading = null;
+    }
   }
 
-  async function ensureDir(file) {
+  function serializeRecord(key, value, deleted = false) {
+    const encrypted = encrypt(String(value ?? ''));
+    if (typeof encrypted !== 'string' || !encrypted) {
+      throw createStoreError('ACCOUNT_DATA_ENCRYPT_FAILED', '账号数据加密失败');
+    }
+    const line = JSON.stringify({ key, deleted, at: now(), value: encrypted }) + '\n';
+    if (Buffer.byteLength(line, 'utf8') > limits.maxRecordBytes) {
+      throw createStoreError('ACCOUNT_DATA_RECORD_TOO_LARGE', '账号数据记录过大');
+    }
+    return line;
+  }
+
+  async function appendLine(state, line) {
+    const file = fileFor(state.partition);
     await fs.mkdir(path.dirname(file), { recursive: true });
-  }
-
-  async function appendRecord(state, key, value, deleted) {
-    assertWritableState(state);
-    ensureEncryptionAvailable(isEncryptionAvailable);
-    const encrypted = encrypt(String(value));
-    const record = JSON.stringify({ key, value: encrypted, deleted: deleted === true, at: now() }) + '\n';
-    const recordBytes = Buffer.byteLength(record);
-    if (recordBytes > limits.maxRecordBytes) throw createStoreError('ACCOUNT_DATA_RECORD_TOO_LARGE', '账号数据记录过大');
-    const file = fileFor(state.partition);
-    await ensureDir(file);
-    await fs.appendFile(file, record, { encoding: 'utf8', mode: 0o600 });
+    let handle;
+    try {
+      handle = await fs.open(file, 'a');
+      await handle.writeFile(line, 'utf8');
+      await handle.sync();
+    } finally {
+      if (handle) await handle.close();
+    }
     state.recordCount += 1;
-    state.fileBytes += recordBytes;
-    if (deleted) state.cache.delete(key);
-    else state.cache.set(key, String(value));
+    state.fileBytes += Buffer.byteLength(line, 'utf8');
+    if (state.recordCount >= limits.compactRecordCount || state.fileBytes >= limits.compactFileBytes) {
+      state.needsCompaction = true;
+    }
   }
 
-  async function compactUnlocked(state) {
+  async function syncDirectory(directory) {
+    let handle;
+    try {
+      handle = await fs.open(directory, 'r');
+      await handle.sync();
+    } catch {
+      // Directory fsync is not supported on every Windows/filesystem combination.
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+    }
+  }
+
+  async function compact(state) {
     assertWritableState(state);
     ensureEncryptionAvailable(isEncryptionAvailable);
-    const file = fileFor(state.partition);
-    const temp = tempFileFor(state.partition);
-    await ensureDir(file);
+    const target = fileFor(state.partition);
+    const temporary = tempFileFor(state.partition);
     const lines = [];
     for (const [key, value] of state.cache) {
-      const encrypted = encrypt(String(value));
-      lines.push(JSON.stringify({ key, value: encrypted, deleted: false, at: now() }));
+      lines.push(serializeRecord(key, value, false));
     }
-    const body = lines.length ? `${lines.join('\n')}\n` : '';
-    await fs.writeFile(temp, body, { encoding: 'utf8', mode: 0o600 });
-    await fs.rename(temp, file);
-    state.recordCount = lines.length;
-    state.fileBytes = Buffer.byteLength(body);
-    state.needsCompaction = false;
-    state.repairRequired = false;
+    const snapshot = lines.join('');
+    let handle;
+    try {
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      handle = await fs.open(temporary, 'w');
+      await handle.writeFile(snapshot, 'utf8');
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      await fs.rename(temporary, target);
+      await syncDirectory(path.dirname(target));
+      state.recordCount = state.cache.size;
+      state.fileBytes = Buffer.byteLength(snapshot, 'utf8');
+      state.needsCompaction = false;
+      state.repairRequired = false;
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+    }
   }
 
-  async function maybeCompact(state) {
-    if (!state.needsCompaction && state.recordCount < limits.compactRecordCount && state.fileBytes < limits.compactFileBytes) return;
-    try { await compactUnlocked(state); } catch (error) { onCompactionError(error, state.partition); }
+  async function compactBestEffort(state) {
+    if (!state.needsCompaction || state.deleting) return false;
+    try {
+      await compact(state);
+      return true;
+    } catch (error) {
+      state.needsCompaction = true;
+      await safeRemove(tempFileFor(state.partition));
+      try { onCompactionError(error, state.partition); } catch {}
+      return false;
+    }
   }
 
   async function getAll(partition) {
     const state = stateFor(partition);
-    await ensureLoaded(state);
-    return Object.fromEntries(state.cache);
+    return enqueue(state, async () => {
+      assertWritableState(state);
+      await loadState(state);
+      assertWritableState(state);
+      if (state.needsCompaction) await compactBestEffort(state);
+      return Object.fromEntries(state.cache);
+    });
   }
 
   async function set(partition, key, value) {
-    const normalizedKey = assertAllowedKey(key, allowedKeys);
-    const normalizedValue = String(value ?? '');
-    if (Buffer.byteLength(normalizedValue) > limits.maxValueBytes) throw createStoreError('ACCOUNT_DATA_VALUE_TOO_LARGE', '账号数据值过大');
+    const allowedKey = assertAllowedKey(key, allowedKeys);
+    const raw = String(value ?? '');
+    if (Buffer.byteLength(raw, 'utf8') > limits.maxValueBytes) {
+      throw createStoreError('ACCOUNT_DATA_VALUE_TOO_LARGE', '账号数据过大');
+    }
     const state = stateFor(partition);
     return enqueue(state, async () => {
-      await ensureLoaded(state);
-      await appendRecord(state, normalizedKey, normalizedValue, false);
-      await maybeCompact(state);
+      assertWritableState(state);
+      await loadState(state);
+      assertWritableState(state);
+      let attemptedCompaction = false;
+      if (state.needsCompaction) {
+        await compactBestEffort(state);
+        attemptedCompaction = true;
+      }
+      if (state.repairRequired) {
+        throw createStoreError('ACCOUNT_DATA_REPAIR_REQUIRED', '账号数据尾记录需要修复后才能写入');
+      }
+      ensureEncryptionAvailable(isEncryptionAvailable);
+      const line = serializeRecord(allowedKey, raw, false);
+      await appendLine(state, line);
+      state.cache.set(allowedKey, raw);
+      if (state.needsCompaction && !attemptedCompaction) await compactBestEffort(state);
       return true;
     });
   }
 
   async function remove(partition, key) {
-    const normalizedKey = assertAllowedKey(key, allowedKeys);
+    const allowedKey = assertAllowedKey(key, allowedKeys);
     const state = stateFor(partition);
     return enqueue(state, async () => {
-      await ensureLoaded(state);
-      await appendRecord(state, normalizedKey, '', true);
-      await maybeCompact(state);
-      return true;
-    });
-  }
-
-  async function clear(partition) {
-    const state = stateFor(partition);
-    return enqueue(state, async () => {
-      state.deleting = true;
-      try {
-        await fs.rm(path.dirname(fileFor(partition)), { recursive: true, force: true });
-        state.cache.clear();
-        state.recordCount = 0;
-        state.fileBytes = 0;
-        state.needsCompaction = false;
-        state.repairRequired = false;
-        state.loaded = true;
-      } finally {
-        state.deleting = false;
+      assertWritableState(state);
+      await loadState(state);
+      assertWritableState(state);
+      let attemptedCompaction = false;
+      if (state.needsCompaction) {
+        await compactBestEffort(state);
+        attemptedCompaction = true;
       }
+      if (state.repairRequired) {
+        throw createStoreError('ACCOUNT_DATA_REPAIR_REQUIRED', '账号数据尾记录需要修复后才能写入');
+      }
+      ensureEncryptionAvailable(isEncryptionAvailable);
+      const line = serializeRecord(allowedKey, '', true);
+      await appendLine(state, line);
+      state.cache.delete(allowedKey);
+      if (state.needsCompaction && !attemptedCompaction) await compactBestEffort(state);
       return true;
     });
   }
 
-  return Object.freeze({ getAll, set, remove, clear, compact: (partition) => enqueue(stateFor(partition), async () => {
-    await ensureLoaded(stateFor(partition));
-    await compactUnlocked(stateFor(partition));
-    return true;
-  }) });
+  async function beginDelete(partition) {
+    const state = stateFor(partition);
+    state.deleting = true;
+    await state.queue.catch(() => {});
+  }
+
+  function cancelDelete(partition) {
+    const state = stateFor(partition);
+    state.deleting = false;
+  }
+
+  function finalizeDelete(partition) {
+    states.delete(String(partition || ''));
+  }
+
+  return Object.freeze({
+    allowedKeys: Object.freeze([...allowedKeys]),
+    limits,
+    fileFor,
+    tempFileFor,
+    getAll,
+    set,
+    remove,
+    beginDelete,
+    cancelDelete,
+    finalizeDelete,
+  });
 }
 
-module.exports = { ACCOUNT_DATA_KEYS, DEFAULT_LIMITS, createAccountDataStore, createStoreError, assertPartition, assertAllowedKey };
+module.exports = {
+  ACCOUNT_DATA_KEYS,
+  DEFAULT_LIMITS,
+  createAccountDataStore,
+  createStoreError,
+};
