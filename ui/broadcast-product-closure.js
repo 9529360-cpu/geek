@@ -66,7 +66,9 @@
       style.id = 'broadcast-product-closure-style';
       style.textContent = `
         #broadcast-add-schedule{display:inline-flex!important}
-        #broadcast-schedule-list{display:block!important;margin-top:8px}
+        #broadcast-schedule-list{display:block!important;max-height:230px;overflow:auto;margin-top:8px;padding-right:2px}
+        .bc-safe-schedule-summary{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 2px;background:var(--bg-surface);color:var(--text-tertiary);font-size:10.5px}
+        .bc-safe-schedule-summary strong{color:var(--text-primary);font-size:11px}
         .bc-safe-schedule-row{display:flex;align-items:center;gap:8px;padding:7px 9px;margin-top:6px;border:1px solid var(--border-standard);border-radius:8px;background:var(--bg-elevated);font-size:11px}
         .bc-safe-schedule-row span{flex:1;min-width:0}
         .bc-safe-schedule-row button{border:0;background:transparent;color:var(--text-tertiary);cursor:pointer}
@@ -90,6 +92,15 @@
       list.appendChild(empty);
       return jobs;
     }
+    const summary = doc.createElement('div');
+    summary.className = 'bc-safe-schedule-summary';
+    const count = doc.createElement('strong');
+    count.textContent = `待发送 ${jobs.length} 条`;
+    const hint = doc.createElement('span');
+    hint.textContent = '每条任务独立保存，可单独取消';
+    summary.append(count, hint);
+    list.appendChild(summary);
+    const fragment = doc.createDocumentFragment();
     jobs.forEach(job => {
       const row = doc.createElement('div');
       row.className = 'bc-safe-schedule-row';
@@ -105,8 +116,9 @@
         void manager.invoke(job.id, 'stop').catch(error => window.alert?.(String(error?.message || error))).finally(() => renderPendingSchedules(doc));
       };
       row.append(copy, cancel);
-      list.appendChild(row);
+      fragment.appendChild(row);
     });
+    list.appendChild(fragment);
     return jobs;
   }
 
@@ -127,9 +139,6 @@
       await window.api.accountData.set(accountId, 'savedLists', JSON.stringify(next));
       if (activeAccountId(doc) !== accountId) return true;
 
-      // The legacy editor owns its in-memory selection/list state. Only after the
-      // encrypted account write succeeds do we delegate once to that established
-      // handler so the current session and the durable store stay in sync.
       const originalPrompt = window.prompt;
       try {
         window.prompt = () => name;
@@ -177,10 +186,6 @@
       const latest = window.GeekBroadcastJobs?.get(job.id);
       if (!durable || latest?.state === 'failed') throw new Error('定时任务未能持久化，已停止；请重试');
 
-      // startFromEditor intentionally closes the one-shot editor. For the explicit
-      // multi-message action we reopen the same DOM without rerunning openBroadcast,
-      // preserving its current recipient Set while runtime already froze this Job's
-      // own targets/message/attachments snapshot.
       const overlay = doc.getElementById('broadcast-overlay');
       overlay?.classList.remove('hidden');
       runtime.renderDraftFiles?.(accountId);
