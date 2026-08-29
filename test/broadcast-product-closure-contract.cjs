@@ -6,17 +6,11 @@ const path = require('node:path');
 const api = require('../ui/broadcast-product-closure.js');
 
 const root = path.join(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'ui/broadcast-product-closure.js'), 'utf8');
-const loader = fs.readFileSync(path.join(root, 'ui/broadcast-safety.js'), 'utf8');
-const legacy = fs.readFileSync(path.join(root, 'ui/broadcast-legacy-schedule-migration.js'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'ui', 'broadcast-product-closure.js'), 'utf8');
+const loader = fs.readFileSync(path.join(root, 'ui', 'broadcast-safety.js'), 'utf8');
+const legacy = fs.readFileSync(path.join(root, 'ui', 'broadcast-legacy-schedule-migration.js'), 'utf8');
 const broadcastKeys = fs.readFileSync(path.join(root, 'src/broadcast-account-data-keys.cjs'), 'utf8');
 
-assert.deepEqual(api.parseList('not-json'), []);
-assert.deepEqual(api.appendRecipientPreset('[{"name":"A","ids":["1"]}]', { name: ' B ', ids: ['2', '2', ''] }), [
-  { name: 'A', ids: ['1'] },
-  { name: 'B', ids: ['2'] },
-]);
-assert.throws(() => api.appendRecipientPreset([], { name: '', ids: ['1'] }), /requires name and ids/);
 assert.deepEqual(api.pendingJobsFor({ list: () => [
   { id: 'running', state: 'running', scheduledAt: 1 },
   { id: 'late', state: 'queued', scheduledAt: 30 },
@@ -31,9 +25,10 @@ const many = Array.from({ length: 30 }, (_, index) => ({
 assert.equal(api.pendingJobsFor({ list: () => many }, 'account').length, 30, 'the canonical pending model must keep dozens of independent tasks');
 assert.equal(api.pendingJobsFor({ list: () => many }, 'account')[0].scheduledAt, 1000, 'dozens of tasks must remain time-sorted');
 
-assert.match(source, /accountData\.set\(accountId, 'savedLists'/, 'recipient presets must be written through account-scoped durable storage');
-assert.ok(source.indexOf("accountData.set(accountId, 'savedLists'") < source.indexOf("button.onclick.call(button)"), 'durable preset write must complete before the legacy in-memory UI is allowed to commit');
-assert.match(source, /下次进入群发可直接选择复用/, 'successful save must communicate cross-session reuse');
+assert.match(source, /broadcast-recipient-tag-name/, 'product closure must provide the Electron-safe tag-name input');
+assert.match(source, /bindRecipientTagNameInput/, 'product closure must bind the visible tag save action after recipient-tags installs');
+assert.doesNotMatch(source, /persistRecipientPreset|appendRecipientPreset|selectedRecipientIds/, 'product closure must not own recipient preset persistence');
+assert.doesNotMatch(source, /closest\?\.\('#bc-save-list'\)/, 'product closure must not capture the hidden saved-list button');
 assert.match(source, /GeekBroadcastRuntimeInstance/, 'multi-message scheduling must reuse the canonical broadcast runtime');
 assert.match(source, /runtime\.startFromEditor\(\)/, 'each added message must create a normal account-scoped Broadcast Job');
 assert.match(source, /awaitScheduledDurable\(job\.id\)/, 'the add-another flow must wait for durable schedule persistence');
@@ -53,6 +48,7 @@ assert.match(broadcastKeys, /'broadcastLegacyScheduleBackup'/, 'legacy migration
 assert.match(broadcastKeys, /'broadcastLegacyScheduleNeedsReview'/, 'legacy migration review state must be writable');
 assert.match(broadcastKeys, /'broadcastScheduleMigrationV2'/, 'legacy migration completion marker must be writable');
 assert.ok(loader.indexOf("'./broadcast-audience-ux.js'") < loader.indexOf("'./broadcast-product-closure.js'"), 'product closure must load after legacy audience relabel/retirement');
+assert.ok(loader.indexOf("'./broadcast-recipient-tags.js'") < loader.indexOf("'./broadcast-product-closure.js'"), 'Electron-safe input binding must load after recipient-tags owns the public save action');
 assert.ok(loader.indexOf("'./broadcast-product-closure.js'") < loader.indexOf("'./broadcast-job-guard.js'"), 'product closure must be installed inside the bounded broadcast dependency chain');
 
 console.log('BROADCAST_PRODUCT_CLOSURE_CONTRACT_OK');
