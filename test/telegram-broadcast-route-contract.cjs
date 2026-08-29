@@ -35,9 +35,11 @@ assert.match(source, /throw new Error\('TG_CHAT_ROUTE_NOT_CONFIRMED:/,
 assert.match(source, /routeConfirmed\(selected, current, chatId, window\.GeekBroadcastSafety\?\.sameChat\)/,
   'final route confirmation must combine real UI state with the shared chat identity guard');
 assert.match(source, /__geekBroadcastTelegramRouteTrace/,
-  'runtime diagnostics must expose only a stage trace for real-client localization');
-assert.doesNotMatch(source, /__geekBroadcastTelegramRouteTrace[\s\S]{0,300}targetId/,
-  'diagnostic trace must not retain a Telegram target id');
+  'runtime diagnostics must expose a stage trace for real-client localization');
+const traceFunction = source.match(/function setTrace\(stage\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+assert.ok(traceFunction, 'stage trace helper must exist');
+assert.doesNotMatch(traceFunction, /target|chatId|name|message|text/i,
+  'diagnostic trace helper must not retain Telegram target identity or message content');
 
 assert.match(safety, /telegram-broadcast-route\.js/,
   'broadcast bootstrap must load the Telegram real-route boundary');
