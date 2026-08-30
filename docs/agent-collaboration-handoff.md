@@ -79,7 +79,7 @@
 
 ```yaml
 task_id: ACCOUNT-CONTEXT-001
-status: implementing
+status: ready-for-user-test
 owner: web-gpt
 base: origin/master
 base_commit: 5245a710b429cf8454682fcf437517518b77c21f
@@ -117,7 +117,7 @@ completion_evidence:
   - 预计修改文件及禁止触碰文件
   - observed/intended/connected/verified/unknown/absent 能力表
   - 实际读取过的文件路径和 commit
-next_gate: v2 从稳定基线重新实现；代码/CI 通过后重新生成 Windows 验证构建，仍由阿豪亲自验收后决定是否接受
+next_gate: 阿豪安装 v2 Windows 验证版并完成真实点击验收；明确确认前不得 accepted、不得合并 PR #276
 ```
 
 > 网页版 GPT 不得自行把 `status` 改成 `accepted`。`accepted` 必须由星尘或阿豪确认。
@@ -755,3 +755,76 @@ job conclusion: success
 - 刷新只重载被右击实例 WebView；删除仍走既有安全删除路径；不伪造 relogin。
 - 先写会在稳定基线上失败的 v2 contract/runtime tests，再写产品代码。
 预计验证方式：红测试 → v2 实现 → npm test / diff review / GitHub CI → 独立 Windows validation build → 阿豪真实安装验收。用户确认前状态绝不 accepted，绝不合并。
+
+
+### [REPORT-005]
+
+日期时间：2026-08-31 02:57 Asia/Kuala_Lumpur
+任务 ID：ACCOUNT-CONTEXT-001 v2 rework
+状态：ready-for-user-test
+工作分支：feat/account-context-001-v2
+基线 commit：5245a710b429cf8454682fcf437517518b77c21f
+当前 commit：70728981a06eb195fea6cb14f74d5a2de8c48051
+Draft PR：#276（open / draft / unmerged）
+旧 PR：#275 继续保持 open / draft / unmerged，仅作为 rejected v1 evidence。
+
+本轮重新做了什么：
+- 用户明确打回 v1 后，没有继续在 d3a4ac6 上修补；从稳定 master 重新建 feat/account-context-001-v2。
+- 个人中心回归现有 ui/subscription.html 的 view-home，删除人类可见余额路径对 getQuota(true) fail-open sentinel 的依赖；网络失败/异常余额显示“未知”，不伪造大余额。
+- 普通 Settings 现在只拥有全局外观、启动通知、安全、全局代理；不再拥有实例账号选择、实例代理或实例显示字段。
+- 右键“账号设置”使用独立 account-settings-overlay，固定保存被右击 account.id 的名称、字号、字体颜色。
+- 右键“代理设置”保留独立 proxy-overlay，固定保存被右击 account.id 的实例代理。
+- 右键“刷新应用”只 reload wvMap.get(accountId)，不读取 activeId。
+- 删除仍走既有 removeAccount/accounts.remove 安全路径；未伪造 relogin capability。
+- src/main.cjs 只保留审计确认的两个窄修复：HTTP 协议可回切；关闭实例代理后立即回落到已启用的全局代理，否则直连。
+
+Gate 1 / 重做尝试证据：
+- Red-first commit：8137552da3b8d5e578a19f52ad511e185aac8162，仅新增 v2 contract。
+- 标准 test red run：33329037508 / job 99304167518，稳定基线上的 v2 contract 按预期失败。
+- 实现尝试 1：run 33329090007 / job 99304303340；产品变换执行后，v2 contract 因对 assignment 空格敏感而失败。仅把 oracle 改为 whitespace-insensitive，不降低产品要求。
+- 实现尝试 2：run 33329151288 / job 99304472388；v2 contract 已通过，但旧 settings-ux-contract 仍强制实例字段留在 Settings，与用户已打回的产品结构冲突。该旧 oracle 被迁移为“Settings 只测全局，实例 UI 由 v2 contract 测”。
+- 实现尝试 3：run 33329201976 / job 99304605960；npm test 成功、git diff --check 成功，提交产品实现 0984cf5afc9c9a6f99d508fb0a2e7ed8502479f1。
+- 当前精确 HEAD 70728981a06eb195fea6cb14f74d5a2de8c48051 的标准 PR CI：run 33329267245 / job 99304779822，npm ci --ignore-scripts 成功，npm test 成功，输出 ACCOUNT_CONTEXT_V2_CONTRACT_OK、SETTINGS_UX_CONTRACT_OK、All 124 tests passed。ACL_REPAIR_INTEGRATION_SKIPPED (非 Windows) 仍只是 Linux 环境跳过；WINDOWS_REAL_CLIENT_REGRESSION_CONTRACT_OK 仍只是 contract，不等于真实 Windows 点击验收。
+
+最终代码 diff（base 5245a710 → head 70728981）：
+- src/main.cjs
+- ui/subscription.html
+- ui/index.html
+- ui/app.js
+- ui/settings-controller.js
+- test/account-context-v2-contract.cjs
+- test/settings-ux-contract.cjs
+- ahead 9 / behind 0；merge base 精确为 5245a710。
+
+Windows v2 验证构建：
+- 构建源 branch：feat/account-context-001-v2
+- 构建源 commit：70728981a06eb195fea6cb14f74d5a2de8c48051
+- package version：1.2.17（未修改正式版本号）
+- 构建编排 branch：build/account-context-001-v2-validation
+- 编排 commit：17445f711d0ae435c17b2e48c349c16923c4b7d1
+- workflow：account-context-v2-validation-build
+- run：33329336089
+- job：99304962894
+- Windows runner：self-hosted windows x64 geek-real-client
+- 实际命令：npm ci；node test/validation-build-isolation-contract.cjs；npm run dist:test
+- 实际结果：全部构建步骤成功；VALIDATION_BUILD_ISOLATION_CONTRACT_OK；NSIS 验证版生成成功；正式 updater metadata/blockmap 在 artifact 边界被移除；artifact 上传成功。
+- 安装包：geek-validation-setup-1.2.17.exe
+- 安装包 SHA256：fdea889fa214f0c426831871144352cb3fccb99760661649d268a8f35231b800
+- GitHub artifact：geek-validation-v2-70728981a06eb195fea6cb14f74d5a2de8c48051
+- artifact ID：9737214349
+- artifact 下载地址：https://github.com/9529360-cpu/geek/actions/runs/33329336089/artifacts/9737214349
+- artifact ZIP SHA256：615199a017a523c624e9cca80c94d28813262560d922d758e3fd39fa628e7cbd
+- artifact retention：到 2026-09-06 左右（GitHub 记录 expires_at 2026-09-06T18:56:19Z）。
+- 下载后独立解压复算 EXE SHA256：fdea889fa214f0c426831871144352cb3fccb99760661649d268a8f35231b800，与 Windows runner 完全一致。
+
+真实 UI / 产品验收：
+- 已验证：代码所有权边界、静态/契约测试、标准 GitHub CI、Windows 验证安装包构建与 hash 身份。
+- 未验证 / unknown：阿豪真实登录后的邮箱和字符信息；网络失败显示；WhatsApp/Telegram/LINE 右键目标隔离；真实代理连接、HTTP/HTTPS/SOCKS4/SOCKS5 切换、全局回落和重启持久化；目标 WebView 真实刷新；全局设置和旧账号数据的真实 Windows 回归。
+- 当前结论：代码/CI/测试安装包可验收，但真实产品验收仍由阿豪确认。
+
+禁止事项确认：
+- master 仍为 5245a710b429cf8454682fcf437517518b77c21f，未修改。
+- PR #275 未合并；PR #276 未合并。
+- 未修改 .github/release-client-version。
+- 未触发 release-client，未发布正式版本。
+- 用户明确确认“没问题，可以合并”前，任务不得标记 accepted，不得合并。
