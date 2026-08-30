@@ -33,12 +33,11 @@ jobs:
           const fs = require('node:fs');
           const file = 'ui/settings-controller.js';
           let text = fs.readFileSync(file, 'utf8');
-          const before = `        const nextConfig = configPatch();
-          await deps.setConfig(nextConfig);
-          const accountId = value('acc-select');
-          if (accountId) await deps.updateAccount(accountId, accountPatch());
-          config = { ...config, ...nextConfig };
-          deps.applyTheme(nextConfig.theme, nextConfig.accent);`;
+          const saveAt = text.indexOf('    async function save()');
+          const start = text.indexOf('        const nextConfig = configPatch();', saveAt);
+          const endMarker = '        deps.applyTheme(nextConfig.theme, nextConfig.accent);';
+          const endAt = text.indexOf(endMarker, start);
+          if (saveAt < 0 || start < 0 || endAt < 0) throw new Error('settings save region not found');
           const after = `        const nextConfig = configPatch();
           const accountId = currentAccountId();
           if (lockedAccountId) {
@@ -48,8 +47,7 @@ jobs:
             config = { ...config, ...nextConfig };
             deps.applyTheme(nextConfig.theme, nextConfig.accent);
           }`;
-          if (!text.includes(before)) throw new Error('settings save block not found');
-          text = text.replace(before, after);
+          text = text.slice(0, start) + after + text.slice(endAt + endMarker.length);
           fs.writeFileSync(file, text, 'utf8');
           NODE
           node test/account-context-phase2-contract.cjs
