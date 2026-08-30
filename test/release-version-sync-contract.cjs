@@ -19,6 +19,13 @@ assert.match(workflow, /permissions:\s*\n\s*contents: write/, 'GitHub Release �
 const productionVerifyIndex = workflow.indexOf('- name: Verify production and rollback on failure');
 const githubMirrorIndex = workflow.indexOf('- name: Mirror verified release to GitHub Releases');
 assert.ok(productionVerifyIndex >= 0 && githubMirrorIndex > productionVerifyIndex, 'GitHub Release 只能在 R2 生产验证成功之后同步');
+const productionVerifySection = workflow.slice(productionVerifyIndex, githubMirrorIndex);
+assert.match(productionVerifySection, /node scripts\/release-public-integrity\.cjs/, '正式发布必须对 R2 公网产物执行完整 SHA-256 校验');
+assert.match(productionVerifySection, /--manifest 'dist-release\\release-manifest\.json'/, 'R2 完整性校验必须以本次正式构建 manifest 为权威');
+assert.ok(
+  productionVerifySection.indexOf('release-public-integrity.cjs') < productionVerifySection.indexOf('Published Geek'),
+  '只有完整产物 hash 通过后才能宣布 R2 正式发布成功',
+);
 const mirrorSection = workflow.slice(githubMirrorIndex, workflow.indexOf('- name: Report GitHub mirror failure', githubMirrorIndex));
 assert.match(mirrorSection, /continue-on-error:\s*true/, 'GitHub 镜像失败不得触发 R2 生产回滚');
 assert.match(mirrorSection, /node scripts\/github-release-mirror\.cjs/, '正式发布必须复用受测的 GitHub Release 镜像脚本');

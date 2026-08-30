@@ -134,7 +134,15 @@ jobs:
             --attempts 18 `
             --delay-ms 10000
           if ($LASTEXITCODE -eq 0) {
-            "Published Geek $env:RELEASE_VERSION to the production update source." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            node scripts/release-public-integrity.cjs `
+              --root $root `
+              --version $env:RELEASE_VERSION `
+              --manifest 'dist-release\release-manifest.json' `
+              --attempts 3 `
+              --delay-ms 5000
+          }
+          if ($LASTEXITCODE -eq 0) {
+            "Published Geek $env:RELEASE_VERSION to the production update source with full artifact SHA-256 verification." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             exit 0
           }
 
