@@ -1,0 +1,25 @@
+name: account-context-settings-personal-center-report-once
+on:
+  push:
+    branches: [docs/account-context-menu-scope]
+    paths:
+      - '.github/workflows/account-context-settings-personal-center-report-once.yml'
+permissions:
+  contents: write
+jobs:
+  report:
+    runs-on: [self-hosted, Linux, X64, geek-linux]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/account-context-menu-scope
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/account-context-settings-personal-center-report-once.cjs
+      - run: |
+          git config user.name 'Geek Phase 2 Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'docs: report application settings personal center'
+          git push origin HEAD:docs/account-context-menu-scope
