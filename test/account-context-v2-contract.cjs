@@ -8,6 +8,7 @@ const settings = read('ui/settings-controller.js');
 const subscription = read('ui/subscription.html');
 const main = read('src/main.cjs');
 
+// V2 intentionally rejects PR #275's duplicate personal-center/settings ownership model.
 // Personal center has one owner: the existing subscription home, not ordinary Settings.
 assert.match(subscription, /id="view-home"/);
 assert.doesNotMatch(html, /settings-account-center|geek-account-email|geek-account-quota|geek-account-status/);
