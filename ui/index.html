@@ -278,6 +278,26 @@
 <!-- 账号右键菜单 -->
 <div id="ctx-menu" class="ctx-menu hidden"></div>
 
+<!-- 实例账号设置：只属于被右击的具体实例，不复用全局 Settings -->
+<div id="account-settings-overlay" class="overlay hidden">
+  <div class="add-dialog" role="dialog" aria-modal="true" aria-label="账号设置">
+    <div class="settings-header">
+      <div class="settings-head-copy"><span>账号设置</span><small id="account-settings-target">—</small></div>
+      <button id="account-settings-close" class="settings-close" aria-label="关闭账号设置">×</button>
+    </div>
+    <div class="add-form">
+      <div class="row-item"><span>显示名</span><input type="text" id="account-settings-name" maxlength="80"></div>
+      <div class="row-item"><span>字体大小</span><input type="number" id="account-settings-fontSize" min="10" max="28" step="1"></div>
+      <div class="row-item"><span>字体颜色</span><input type="color" id="account-settings-fontColor"></div>
+      <div id="account-settings-status" class="settings-status" aria-live="polite"></div>
+    </div>
+    <div class="settings-footer">
+      <button id="account-settings-cancel" class="btn-plain">取消</button>
+      <button id="account-settings-save" class="btn-add">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- 独立代理IP 弹窗 -->
 <div id="proxy-overlay" class="overlay hidden">
   <div class="add-dialog">
@@ -353,17 +373,19 @@
 
 <!-- 设置面板 -->
 <div id="settings-overlay" class="overlay hidden">
-  <div class="settings-panel settings-panel--humanized" role="dialog" aria-modal="true" aria-label="设置">
+  <div class="settings-panel settings-panel--humanized" role="dialog" aria-modal="true" aria-label="应用设置">
     <div class="settings-header">
-      <div class="settings-head-copy"><span>设置</span><small>按使用场景调整，保存前可直接预览外观</small></div>
+      <div class="settings-head-copy"><span>应用设置</span><small>管理极客账户信息与应用级偏好</small></div>
       <button id="settings-close" class="settings-close" aria-label="关闭设置">×</button>
     </div>
-    <div class="settings-tabs">
-      <button class="settings-tab active" data-tab="global">应用设置</button>
-      <button class="settings-tab" data-tab="account">账号设置</button>
-    </div>
-
     <div id="settings-global" class="settings-body settings-body--cards">
+      <section id="settings-personal-center" class="settings-card">
+        <div class="settings-card-title">个人中心</div>
+        <div class="settings-card-sub">只读显示当前极客账户信息；账户状态仍由现有订阅服务统一管理。</div>
+        <div class="row-item"><span>邮箱</span><strong id="settings-account-email">正在读取…</strong></div>
+        <div class="row-item"><span>剩余字符</span><strong id="settings-account-quota">正在读取…</strong></div>
+      </section>
+
       <section class="settings-card">
         <div class="settings-card-title">外观</div>
         <div class="settings-card-sub">主题和强调色会即时预览；取消后恢复打开设置前的外观。</div>
@@ -398,39 +420,6 @@
           <div class="row-item"><span>密码</span><input type="password" id="cfg-password" placeholder="可选" autocomplete="new-password"></div>
         </div>
       </section>
-    </div>
-
-    <div id="settings-account" class="settings-body settings-body--cards hidden">
-      <section class="settings-card">
-        <div class="settings-card-title">选择账号</div>
-        <div class="settings-card-sub">每个账号的名称、显示和独立代理互不影响。</div>
-        <div class="row-item"><span>当前编辑</span><select id="acc-select"></select></div>
-      </section>
-      <div id="settings-account-empty" class="settings-account-empty hidden">当前没有可编辑的账号</div>
-      <div id="settings-account-content" class="settings-body--cards">
-        <section class="settings-card">
-          <div class="settings-card-title">基本信息</div>
-          <div class="settings-card-sub">这里只改变极客侧边栏中的显示方式，不修改聊天平台账号资料。</div>
-          <div class="row-item"><span>显示名</span><input type="text" id="acc-name" maxlength="80"></div>
-          <div class="row-item"><span>字体大小</span><input type="number" id="acc-fontSize" min="10" max="28" step="1"></div>
-          <div class="row-item"><span>字体颜色</span><input type="color" id="acc-fontColor"></div>
-        </section>
-        <section class="settings-card">
-          <div class="settings-card-title">当前账号网络</div>
-          <div class="settings-card-sub">独立代理优先于全局代理；关闭后自动回到全局代理或直连。</div>
-          <div class="settings-proxy-strategy">
-            <div class="settings-proxy-strategy-main"><strong>实际连接策略</strong><small id="settings-proxy-strategy-detail">正在读取…</small></div>
-            <span id="settings-proxy-strategy" class="settings-proxy-strategy-badge" data-state="direct">当前为直连</span>
-          </div>
-          <label class="settings-switch-row"><span class="settings-switch-copy"><strong>使用账号独立代理</strong><small>开启后只影响当前账号</small></span><input class="settings-switch-input" type="checkbox" id="acc-openProxy"></label>
-          <div id="settings-account-proxy-fields" class="settings-fields">
-            <div class="row-item"><span>主机</span><input type="text" id="acc-host" placeholder="127.0.0.1" autocomplete="off"></div>
-            <div class="row-item"><span>端口</span><input type="text" id="acc-port" inputmode="numeric" placeholder="7890" autocomplete="off"></div>
-            <div class="row-item"><span>用户名</span><input type="text" id="acc-huser" placeholder="可选" autocomplete="off"></div>
-            <div class="row-item"><span>密码</span><input type="password" id="acc-hpwd" placeholder="可选" autocomplete="new-password"></div>
-          </div>
-        </section>
-      </div>
     </div>
 
     <div class="settings-footer settings-footer--status">

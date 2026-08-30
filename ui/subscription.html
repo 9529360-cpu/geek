@@ -320,19 +320,27 @@
       $('#home-account-ref').textContent = state.account_ref ? '账号号 ' + state.account_ref : '账号号暂不可用';
       $('#home-email').textContent = state.email || '';
       try {
-        const quota = await window.api.subscription.getQuota(true);
-        const remaining = quota.remaining_chars ?? 0;
-        if (quota.account_ref) $('#home-account-ref').textContent = '账号号 ' + quota.account_ref;
-        $('#home-icon').textContent = remaining > 0 ? '🎁' : '🔋';
-        $('#home-title').textContent = remaining > 0 ? '免费用户' : '字符已用完';
-        $('#home-quota').textContent = '剩余 ' + remaining.toLocaleString() + ' 字符';
-        $('#home-sub').textContent = remaining > 0
-          ? '注册赠送 2 万字符，用完可购买字符包'
-          : '购买字符包即可继续翻译，买断不限时';
-      } catch (e) {
-        $('#home-quota').textContent = '—';
-        $('#home-sub').textContent = '';
-      }
+        const refreshed = await window.api.subscription.refresh();
+        if (!refreshed?.loggedIn) { show('view-login'); return; }
+        if (refreshed.account_ref) $('#home-account-ref').textContent = '账号号 ' + refreshed.account_ref;
+        if (refreshed.email) $('#home-email').textContent = refreshed.email;
+        if (refreshed.networkError) {
+          $('#home-icon').textContent = '📡';
+          $('#home-title').textContent = '账户信息暂不可用';
+          $('#home-quota').textContent = '字符余额未知';
+          $('#home-sub').textContent = '网络连接失败，请稍后重新打开或刷新；不会用虚假余额代替。';
+        } else {
+          const remaining = refreshed.remaining_chars;
+          if (!Number.isSafeInteger(remaining) || remaining < 0) {
+            $('#home-icon').textContent = '📡'; $('#home-title').textContent = '账户信息暂不可用'; $('#home-quota').textContent = '字符余额未知'; $('#home-sub').textContent = '暂时无法确认字符余额，请稍后再试。';
+          } else {
+            $('#home-icon').textContent = remaining > 0 ? '🎁' : '🔋';
+            $('#home-title').textContent = remaining > 0 ? '免费用户' : '字符已用完';
+            $('#home-quota').textContent = '剩余 ' + remaining.toLocaleString() + ' 字符';
+            $('#home-sub').textContent = remaining > 0 ? '注册赠送 2 万字符，用完可购买字符包' : '购买字符包即可继续翻译，买断不限时';
+          }
+        }
+      } catch (e) { $('#home-icon').textContent='📡'; $('#home-title').textContent='账户信息暂不可用'; $('#home-quota').textContent='字符余额未知'; $('#home-sub').textContent='网络连接失败，请稍后再试。'; }
       show('view-home');
     } catch (e) {
       show('view-login');
