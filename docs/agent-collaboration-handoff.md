@@ -595,3 +595,17 @@ All 125 tests passed.
 交付标准：有真实可下载测试安装包则状态写 `ready-for-user-test`；无法生成则写 `blocked`，附真实阻塞证据和最短下一步。绝不以“代码完成”替代安装包交付。
 
 <!-- 后续网页版 GPT 的 START/REPORT 继续追加在这里，不删除历史。 -->
+
+
+### [START-002]
+
+日期时间：2026-08-31 00:58 Asia/Kuala_Lumpur
+任务 ID：ACCOUNT-CONTEXT-001 Gate 3 测试安装包
+基线 commit：5245a710b429cf8454682fcf437517518b77c21f
+构建源 branch：feat/account-context-001
+构建源 commit：d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+package version：1.2.17
+当前工作区状态：通过 GitHub connector / Actions 远程执行；没有使用或清理用户本地 worktree。feat/account-context-001 当前 HEAD 已确认仍为 d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2；PR #275 为 Draft 且未合并；master 仍为 5245a710b429cf8454682fcf437517518b77c21f。
+本次允许修改：仅为生成测试安装包而临时调整 feat/account-context-001 上仓库既有 build-validation-client workflow 的触发/构建身份证据；不修改产品源码、package version、release marker。构建后恢复 workflow 内容。
+本次明确禁止修改：master；PR #275 合并状态；正式 release-client；.github/release-client-version；正式 updater metadata；产品源码和账号数据。
+预计验证方式：复用既有 Windows self-hosted validation-client-build 流程，精确 checkout d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2，执行 npm ci、validation-build-isolation contract、npm run dist:test，记录 run/job、文件名、SHA256、artifact 和实际结果。Windows 用户点击验收仍由阿豪安装后确认。
