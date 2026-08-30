@@ -26,16 +26,6 @@
       typeof document.createElement !== 'function' ||
       !document.head) return;
 
-  const simplifyAccountContextMenu = () => {
-    const menu = document.getElementById('ctx-menu');
-    const proxy = menu?.querySelector?.('.ctx-item[data-act="proxy"]');
-    proxy?.remove();
-  };
-  const menu = document.getElementById('ctx-menu');
-  if (menu && typeof MutationObserver === 'function') {
-    new MutationObserver(simplifyAccountContextMenu).observe(menu, { childList: true, subtree: true });
-  }
-
   if (!document.querySelector('script[data-geek-account-center]')) {
     const script = document.createElement('script');
     script.src = './account-center.js';

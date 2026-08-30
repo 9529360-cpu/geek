@@ -267,12 +267,6 @@
       }
     }
 
-    function decorateContextMenu() {
-      const menu = document.getElementById('ctx-menu');
-      const edit = menu?.querySelector('.ctx-item[data-act="edit"]');
-      if (edit) edit.textContent = '账号设置';
-    }
-
     profileTab.addEventListener('click', () => {
       applyMode('profile');
       void refreshProfile(true);
@@ -295,9 +289,6 @@
       button.addEventListener('click', () => createOrder(button.dataset.plan));
     });
 
-    const contextMenu = document.getElementById('ctx-menu');
-    if (contextMenu) new MutationObserver(decorateContextMenu).observe(contextMenu, { childList: true, subtree: true });
-
     const observer = new MutationObserver(() => {
       if (syncing) return;
       if (overlay.classList.contains('hidden')) {
@@ -316,7 +307,6 @@
     observer.observe(accountTab, { attributes: true, attributeFilter: ['class'] });
 
     applyMode('profile');
-    decorateContextMenu();
     return true;
   }
 

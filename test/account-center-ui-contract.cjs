@@ -16,6 +16,7 @@ assert.deepEqual(
 
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 const ui = read('ui/account-center.js');
+const css = read('ui/account-center.css');
 const loader = read('ui/version-label.js');
 const preload = read('src/preload.cjs');
 const entry = read('src/main-entry.cjs');
@@ -24,7 +25,7 @@ const boundary = read('src/account-center-boundary.cjs');
 assert.match(ui, /profileTab\.textContent = '个人中心'/);
 assert.match(ui, /globalTab\.textContent = '应用设置'/);
 assert.match(ui, /accountTab\.style\.display = 'none'/);
-assert.match(ui, /edit\.textContent = '账号设置'/);
+assert.doesNotMatch(ui, /decorateContextMenu|ctx-menu/, 'personal center must not own or mutate the navigation context menu');
 assert.match(ui, /字符只用于翻译；用完后 WhatsApp、Telegram、LINE 仍可正常使用/);
 assert.match(ui, /subscription\.getQuota/);
 assert.match(ui, /subscription\.myOrders/);
@@ -37,8 +38,9 @@ assert.match(ui, /meta\.textContent =/);
 assert.match(ui, /geek-profile-email'\)\.textContent =/);
 
 assert.match(loader, /script\.src = '\.\/account-center\.js'/);
-assert.match(loader, /\.ctx-item\[data-act="proxy"\]/);
-assert.match(loader, /proxy\?\.remove\(\)/);
+assert.doesNotMatch(loader, /ctx-menu|simplifyAccountContextMenu/, 'version label loader must not own or mutate the navigation context menu');
+assert.match(css, /#ctx-menu \.ctx-item\[data-act="edit"\]::after \{ content: '账号设置'/);
+assert.match(css, /#ctx-menu \.ctx-item\[data-act="proxy"\] \{ display: none; \}/);
 
 assert.match(preload, /myOrders: \(\) => invokeSubscription\('subscription:my-orders'\)/);
 assert.match(preload, /openPasswordReset: \(\) => invokeSubscription\('subscription:open-password-reset'\)/);
