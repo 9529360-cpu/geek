@@ -20,8 +20,10 @@ jobs:
           node-version: '22'
           cache: npm
       - name: Install dependencies
+        shell: cmd
         run: npm ci
       - name: Verify validation isolation contract
+        shell: cmd
         run: node test/validation-build-isolation-contract.cjs
       - name: Build isolated validation installer
         shell: cmd
