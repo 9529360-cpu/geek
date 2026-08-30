@@ -25,4 +25,4 @@ jobs:
           git add -A
           git commit -m 'feat: rebuild account context ownership'
           git push origin HEAD:feat/account-context-001-v2
-# retry after formatting-insensitive contract correction
+# retry 2 after product-approved settings ownership migration
