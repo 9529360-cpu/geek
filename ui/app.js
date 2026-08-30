@@ -1139,98 +1139,32 @@
     renderTabs();
   }
 
-  // ---------- 右键菜单（对齐原版：刷新应用/编辑应用/删除应用） ----------
+  // ---------- 右键实例操作：唯一 owner，固定绑定被右击 account.id ----------
   const ctxMenu = document.getElementById('ctx-menu');
+  async function refreshAccountInstance(accountId) {
+    const wv = wvMap.get(accountId);
+    if (wv) wv.reloadIgnoringCache();
+    try { const r = await window.api.accounts.list(); accounts = r?.accounts || r || []; renderSidebar(); renderTabs(); } catch {}
+  }
   function showContextMenu(x, y, account) {
-    ctxMenu.innerHTML = `
-      <div class="ctx-item" data-act="refresh">刷新应用</div>
-      <div class="ctx-item" data-act="edit">编辑应用</div>
-      <div class="ctx-item" data-act="proxy">代理设置</div>
-      <div class="ctx-item ctx-danger" data-act="delete">删除应用</div>`;
-    const mw = 150, mh = 132;
-    ctxMenu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
-    ctxMenu.style.top = Math.min(y, window.innerHeight - mh - 8) + 'px';
-    ctxMenu.dataset.accountId = account.id;
-    ctxMenu.classList.remove('hidden');
+    ctxMenu.innerHTML = `<div class="ctx-item" data-act="refresh">刷新应用</div><div class="ctx-item" data-act="edit">账号设置</div><div class="ctx-item" data-act="proxy">代理设置</div><div class="ctx-item ctx-danger" data-act="delete">删除应用</div>`;
+    const mw=150,mh=132; ctxMenu.style.left=Math.min(x,window.innerWidth-mw-8)+'px'; ctxMenu.style.top=Math.min(y,window.innerHeight-mh-8)+'px'; ctxMenu.dataset.accountId=account.id; ctxMenu.classList.remove('hidden');
   }
-  function hideContextMenu() { ctxMenu.classList.add('hidden'); }
+  function hideContextMenu(){ctxMenu.classList.add('hidden');}
+  ctxMenu.addEventListener('click', async e => { const item=e.target.closest('.ctx-item'); if(!item)return; const act=item.dataset.act, accountId=ctxMenu.dataset.accountId; hideContextMenu(); if(!accountId)return; const account=accounts.find(a=>a.id===accountId); if(act==='refresh') await refreshAccountInstance(accountId); else if(act==='edit'&&account) showAccountSettingsDialog(account); else if(act==='proxy'&&account) showProxyDialog(account); else if(act==='delete') removeAccount(accountId); });
+  document.addEventListener('click', hideContextMenu); window.addEventListener('blur', hideContextMenu);
 
-  ctxMenu.addEventListener('click', async (e) => {
-    const item = e.target.closest('.ctx-item');
-    if (!item) return;
-    const act = item.dataset.act;
-    const accountId = ctxMenu.dataset.accountId;
-    hideContextMenu();
-    if (!accountId) return;
-    if (act === 'refresh') {
-      // 原版 refreshApp：重新加载应用列表 + 重载页面
-      const wv = wvMap.get(accountId);
-      if (wv) wv.reloadIgnoringCache();
-      try {
-        const r = await window.api.accounts.list();
-        accounts = r?.accounts || r || [];
-        renderSidebar();
-        renderTabs();
-      } catch (err) { /* 列表刷新失败不影响页面刷新 */ }
-    } else if (act === 'edit') {
-      editAccount(accountId);
-    } else if (act === 'proxy') {
-      const account = accounts.find(a => a.id === accountId);
-      if (account) showProxyDialog(account);
-    } else if (act === 'delete') {
-      removeAccount(accountId);
-    }
-  });
-  document.addEventListener('click', hideContextMenu);
-  window.addEventListener('blur', hideContextMenu);
+  const accountSettingsOverlay = document.getElementById('account-settings-overlay');
+  let accountSettingsAccountId = null;
+  function showAccountSettingsDialog(account) { accountSettingsAccountId = account.id; document.getElementById('account-settings-target').textContent = `${account.name || '未命名账号'} · ${familyOf(account.type).label}`; document.getElementById('account-settings-name').value = account.name || ''; document.getElementById('account-settings-fontSize').value = account.fontSize || 16; document.getElementById('account-settings-fontColor').value = account.fontColor || '#18A058'; document.getElementById('account-settings-status').textContent=''; accountSettingsOverlay.classList.remove('hidden'); document.getElementById('account-settings-name').focus(); }
+  function closeAccountSettingsDialog(){ accountSettingsOverlay.classList.add('hidden'); accountSettingsAccountId=null; }
+  document.getElementById('account-settings-close').onclick=closeAccountSettingsDialog; document.getElementById('account-settings-cancel').onclick=closeAccountSettingsDialog; accountSettingsOverlay.onclick=e=>{if(e.target===accountSettingsOverlay)closeAccountSettingsDialog();};
+  document.getElementById('account-settings-save').onclick = async () => { if(!accountSettingsAccountId)return; const name=document.getElementById('account-settings-name').value.trim(); const fontSize=Number(document.getElementById('account-settings-fontSize').value); const status=document.getElementById('account-settings-status'); if(!name || name.length>80){status.textContent='显示名需要 1-80 个字符';return;} if(!Number.isInteger(fontSize)||fontSize<10||fontSize>28){status.textContent='字体大小必须是 10-28 的整数';return;} try { await window.api.accounts.update(accountSettingsAccountId,{name,fontSize,fontColor:document.getElementById('account-settings-fontColor').value}); await loadAccounts(); closeAccountSettingsDialog(); } catch(e){status.textContent='保存失败：'+String(e?.message||e).slice(0,100);} };
 
-  // ---------- 独立代理IP 弹窗（原版 Proxy IP） ----------
-  const proxyOverlay = document.getElementById('proxy-overlay');
-  let proxyAccountId = null;
-  function showProxyDialog(account) {
-    proxyAccountId = account.id;
-    document.getElementById('proxy-openProxy').checked = !!account.openProxy;
-    document.getElementById('proxy-protocal').value = account.protocal || 'http';
-    document.getElementById('proxy-host').value = account.host || '';
-    document.getElementById('proxy-port').value = account.port || '';
-    document.getElementById('proxy-user').value = account.huser || '';
-    document.getElementById('proxy-pwd').value = account.hpwd || '';
-    proxyOverlay.classList.remove('hidden');
-  }
-  function closeProxyDialog() { proxyOverlay.classList.add('hidden'); }
-  document.getElementById('proxy-close').onclick = closeProxyDialog;
-  document.getElementById('proxy-cancel').onclick = closeProxyDialog;
-  proxyOverlay.onclick = (e) => { if (e.target === proxyOverlay) closeProxyDialog(); };
-  document.getElementById('proxy-save').onclick = async () => {
-    if (!proxyAccountId) return;
-    try {
-      await window.api.accounts.update(proxyAccountId, {
-        openProxy: document.getElementById('proxy-openProxy').checked,
-        protocal: document.getElementById('proxy-protocal').value,
-        host: document.getElementById('proxy-host').value.trim(),
-        port: document.getElementById('proxy-port').value.trim(),
-        huser: document.getElementById('proxy-user').value.trim(),
-        hpwd: document.getElementById('proxy-pwd').value
-      });
-      closeProxyDialog();
-    } catch (e) {
-      alert('保存失败: ' + e.message);
-    }
-  };
-
-  // 编辑应用：打开设置 → 账号设置 tab → 选中该账号
-  function editAccount(id) {
-    const accountTab = [...settingsTabs].find(t => t.dataset.tab === 'account');
-    if (accountTab) {
-      settingsTabs.forEach(t => t.classList.remove('active'));
-      accountTab.classList.add('active');
-      settingsGlobal.classList.add('hidden');
-      settingsAccount.classList.remove('hidden');
-    }
-    accSelect.value = id;
-    loadAccountSettingsForm();
-    openSettings();
-  }
+  const proxyOverlay=document.getElementById('proxy-overlay'); let proxyAccountId=null;
+  function showProxyDialog(account){proxyAccountId=account.id; document.getElementById('proxy-openProxy').checked=!!account.openProxy; document.getElementById('proxy-protocal').value=account.protocal||'http'; document.getElementById('proxy-host').value=account.host||''; document.getElementById('proxy-port').value=account.port||''; document.getElementById('proxy-user').value=account.huser||''; document.getElementById('proxy-pwd').value=account.hpwd||''; proxyOverlay.classList.remove('hidden');}
+  function closeProxyDialog(){proxyOverlay.classList.add('hidden');proxyAccountId=null;} document.getElementById('proxy-close').onclick=closeProxyDialog; document.getElementById('proxy-cancel').onclick=closeProxyDialog; proxyOverlay.onclick=e=>{if(e.target===proxyOverlay)closeProxyDialog();};
+  document.getElementById('proxy-save').onclick=async()=>{if(!proxyAccountId)return; const enabled=document.getElementById('proxy-openProxy').checked, host=document.getElementById('proxy-host').value.trim(), port=document.getElementById('proxy-port').value.trim(); if(enabled&&(!host||!/^\d+$/.test(port)||Number(port)<1||Number(port)>65535)){alert('请填写有效的代理主机和 1-65535 端口');return;} try{await window.api.accounts.update(proxyAccountId,{openProxy:enabled,protocal:document.getElementById('proxy-protocal').value,host,port,huser:document.getElementById('proxy-user').value.trim(),hpwd:document.getElementById('proxy-pwd').value}); await loadAccounts(); closeProxyDialog();}catch(e){alert('保存失败: '+e.message);}};
 
   // ---------- 排序 ----------
   async function moveAccount(id, direction) {
@@ -3716,17 +3650,10 @@
   const settingsController = window.GeekSettingsController.create({
     getConfig: () => window.api.config.get(),
     setConfig: patch => window.api.config.set(patch),
-    getAccounts: () => window.api.accounts.list(),
-    updateAccount: (accountId, patch) => window.api.accounts.update(accountId, patch),
     applyTheme,
-    getActiveId: () => activeId,
-    familyLabel: type => familyOf(type).label,
     afterSave: async () => { await loadAccounts(); },
   });
-  function openSettings() {
-    const preferred = accSelect.value || activeId || '';
-    return settingsController.open(preferred);
-  }
+  function openSettings() { return settingsController.open(); }
   function closeSettings() {
     settingsController.close();
   }
