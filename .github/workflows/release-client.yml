@@ -19,6 +19,10 @@ jobs:
   build-and-publish:
     runs-on: [self-hosted, Windows, X64, geek-real-client]
     timeout-minutes: 60
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
