@@ -3,7 +3,7 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, webContents } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell, webContents } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
@@ -17,6 +17,8 @@ const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = requi
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
+const { installAccountCenterBoundary } = require('./account-center-boundary.cjs');
+const { createSubscriptionStore } = require('./subscription.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -38,6 +40,7 @@ try { app.setPath('userData', earlyUserDataDir); } catch {}
 const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
 if (primaryInstance) {
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
+  const subscriptionEntryPath = path.join(__dirname, '../ui/subscription.html');
   const accountsFilePath = runtimePaths.accountsFile(earlyUserDataDir);
   const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
     getAllWebContents: () => webContents.getAllWebContents(),
@@ -119,6 +122,20 @@ if (primaryInstance) {
       const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
       console.error('[account-data] compaction retry required:', code.slice(0, 80));
     },
+  });
+
+  // Main-window account center may read the current user's own orders and open only
+  // the fixed official password-reset URL. It never exposes the subscription token or
+  // a generic external-navigation primitive to renderer code.
+  installAccountCenterBoundary({
+    ipcMain,
+    BrowserWindow,
+    shell,
+    safeStorage,
+    createSubscriptionStore,
+    userDataDir: earlyUserDataDir,
+    uiEntryPath,
+    subscriptionEntryPath,
   });
 
   // main.cjs historically treats an unknown account type as WhatsApp. Wrap only the
