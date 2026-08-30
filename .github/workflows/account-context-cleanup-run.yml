@@ -1,0 +1,36 @@
+name: account-context-cleanup-run
+
+on:
+  push:
+    branches:
+      - feat/account-context-001
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: [self-hosted, Linux, X64, geek-linux]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/account-context-001
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply cleanup and run tests
+        run: |
+          node scripts/account-context-cleanup-once.cjs
+          node test/account-context-phase2-contract.cjs
+          npm test
+          git diff --check
+          rm -f scripts/account-context-cleanup-once.cjs
+          rm -f .github/workflows/account-context-cleanup.yml
+          rm -f .github/workflows/account-context-cleanup-run.yml
+      - name: Commit cleanup
+        run: |
+          git config user.name 'Geek Phase 2 Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git add ui/index.html ui/app.js ui/settings-controller.js test/account-context-phase2-contract.cjs scripts/account-context-cleanup-once.cjs .github/workflows/account-context-cleanup.yml .github/workflows/account-context-cleanup-run.yml
+          git commit -m 'fix: unify account context canonical handlers'
+          git push origin HEAD:feat/account-context-001
