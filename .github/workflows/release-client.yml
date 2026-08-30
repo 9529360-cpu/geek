@@ -9,7 +9,7 @@ on:
       - '.github/release-client-version'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-client-production
@@ -157,3 +157,21 @@ jobs:
           }
 
           throw "Release $env:RELEASE_VERSION failed verification and no verified rollback target was available"
+
+      - name: Mirror verified release to GitHub Releases
+        id: github_release_mirror
+        continue-on-error: true
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/github-release-mirror.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release mirror failed after production release succeeded' }
+          "Mirrored Geek $env:RELEASE_VERSION to GitHub Releases from the verified production build artifacts." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      - name: Report GitHub mirror failure without rolling back production
+        if: ${{ steps.github_release_mirror.outcome == 'failure' }}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          Write-Warning "Production release succeeded, but the GitHub Release mirror failed. R2 remains authoritative and is not rolled back for a mirror-only failure."
+          "GitHub Release mirror failed after production verification. R2 remains authoritative; no production rollback was attempted for the mirror-only failure." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
