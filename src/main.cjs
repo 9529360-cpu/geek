@@ -1186,7 +1186,7 @@ function registerIpcHandlers() {
     if (typeof raw.openProxy === 'boolean') {
       account.openProxy = raw.openProxy;
     }
-    if (raw.protocal === 'https' || raw.protocal === 'socks4' || raw.protocal === 'socks5') {
+    if (raw.protocal === 'http' || raw.protocal === 'https' || raw.protocal === 'socks4' || raw.protocal === 'socks5') {
       account.protocal = raw.protocal;
     }
     if (typeof raw.host === 'string') account.host = raw.host;
@@ -1197,7 +1197,7 @@ function registerIpcHandlers() {
     await persistAccounts();
     await applyProxyForPartition(
       account.partition,
-      account.openProxy ? account : null
+      account.openProxy ? account : (configState.openProxy ? configState : null)
     );
     notifyAccountsChanged();
 

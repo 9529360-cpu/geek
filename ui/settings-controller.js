@@ -3,7 +3,7 @@
   'use strict';
 
   const PROXY_GLOBAL_IDS = ['cfg-protocal','cfg-host','cfg-port','cfg-login','cfg-password'];
-  const PROXY_ACCOUNT_IDS = ['acc-host','acc-port','acc-huser','acc-hpwd'];
+  const PROXY_ACCOUNT_IDS = ['acc-protocal','acc-host','acc-port','acc-huser','acc-hpwd'];
   const APPEARANCE_DEFAULTS = Object.freeze({ theme: 'dark', accent: 'green' });
   const ACCOUNT_DISPLAY_DEFAULTS = Object.freeze({ fontSize: 16, fontColor: '#18A058' });
 
@@ -18,12 +18,14 @@
     let previewSnapshot = null;
     let statusTimer = null;
     let returnFocus = null;
+    let lockedAccountId = '';
 
     const el = id => document.getElementById(id);
     const checked = id => !!el(id)?.checked;
     const value = (id, fallback = '') => String(el(id)?.value ?? fallback);
     const setChecked = (id, next) => { const node = el(id); if (node) node.checked = !!next; };
     const setValue = (id, next) => { const node = el(id); if (node) node.value = String(next ?? ''); };
+    const currentAccountId = () => lockedAccountId || value('acc-select');
 
     function overlayVisible(id) {
       const node = el(id);
@@ -124,7 +126,7 @@
     }
 
     async function resetAccountDisplay() {
-      const accountId = value('acc-select');
+      const accountId = currentAccountId();
       if (!accountId) return false;
       if (!confirmReset('仅恢复当前账号的字体大小和字体颜色？账号名称、代理和登录状态不会改变。')) return false;
       setStatus('正在恢复当前账号显示…', 'working');
@@ -176,8 +178,12 @@
 
     function activateTab(name) {
       document.querySelectorAll('.settings-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === name));
+      el('settings-account-center')?.classList.toggle('hidden', name !== 'account-center');
       el('settings-global')?.classList.toggle('hidden', name !== 'global');
       el('settings-account')?.classList.toggle('hidden', name !== 'account');
+      const saveButton = el('settings-save');
+      if (saveButton) saveButton.classList.toggle('hidden', name === 'account-center');
+      if (name === 'account-center' && typeof deps.loadAccountCenter === 'function') void deps.loadAccountCenter();
     }
 
     function fillGlobal() {
@@ -197,22 +203,12 @@
     }
 
     function fillAccountSelect(preferredId = '') {
-      const select = el('acc-select');
-      if (!select) return;
-      const current = preferredId || select.value;
-      select.replaceChildren();
-      for (const account of accounts) {
-        const option = document.createElement('option');
-        option.value = account.id;
-        option.textContent = `${account.name || '未命名账号'} · ${familyLabel(account.type)}`;
-        select.appendChild(option);
-      }
-      if (current && accounts.some(item => item.id === current)) select.value = current;
-      else if (typeof deps.getActiveId === 'function' && accounts.some(item => item.id === deps.getActiveId())) select.value = deps.getActiveId();
+      const target = preferredId || lockedAccountId || (typeof deps.getActiveId === 'function' ? deps.getActiveId() : '');
+      setValue('acc-select', accounts.some(item => item.id === target) ? target : '');
     }
 
     function loadAccount() {
-      const account = accounts.find(item => item.id === value('acc-select'));
+      const account = accounts.find(item => item.id === currentAccountId());
       if (!account) {
         el('settings-account-empty')?.classList.remove('hidden');
         el('settings-account-content')?.classList.add('hidden');
@@ -220,10 +216,13 @@
       }
       el('settings-account-empty')?.classList.add('hidden');
       el('settings-account-content')?.classList.remove('hidden');
+      const targetLabel = el('acc-target-label');
+      if (targetLabel) targetLabel.textContent = `${account.name || '未命名账号'} · ${familyLabel(account.type)}`;
       setValue('acc-name', account.name || '');
       setValue('acc-fontSize', account.fontSize || 16);
       setValue('acc-fontColor', account.fontColor || '#18A058');
       setChecked('acc-openProxy', !!account.openProxy);
+      setValue('acc-protocal', account.protocal || 'http');
       setValue('acc-host', account.host || '');
       setValue('acc-port', account.port || '');
       setValue('acc-huser', account.huser || '');
@@ -242,19 +241,34 @@
     }
 
     async function open(preferredAccountId = '') {
-      if (overlayVisible('settings-overlay')) {
-        el('settings-close')?.focus();
-        return;
-      }
-      const activeTab = document.querySelector('.settings-tab.active')?.dataset.tab || 'global';
+      lockedAccountId = '';
       const active = document.activeElement;
       returnFocus = active && typeof active.focus === 'function' ? active : null;
       const before = await deps.getConfig() || {};
       previewSnapshot = { theme: before.theme || 'dark', accent: before.accent || 'green' };
       await load(preferredAccountId);
-      activateTab(activeTab);
+      activateTab('account-center');
       el('settings-overlay')?.classList.remove('hidden');
       el('settings-close')?.focus();
+    }
+
+    async function openAccount(accountId, options = {}) {
+      const targetId = String(accountId || '');
+      if (!targetId) return false;
+      lockedAccountId = targetId;
+      const active = document.activeElement;
+      returnFocus = active && typeof active.focus === 'function' ? active : null;
+      const before = await deps.getConfig() || {};
+      previewSnapshot = { theme: before.theme || 'dark', accent: before.accent || 'green' };
+      await load(targetId);
+      if (!accounts.some(item => item.id === targetId)) { lockedAccountId = ''; return false; }
+      setValue('acc-select', targetId);
+      loadAccount();
+      activateTab('account');
+      el('settings-overlay')?.classList.remove('hidden');
+      if (options.focus === 'proxy') el('acc-openProxy')?.focus();
+      else el('acc-name')?.focus();
+      return true;
     }
 
     function close({ restorePreview = false } = {}) {
@@ -289,6 +303,7 @@
         fontSize: Number(value('acc-fontSize')),
         fontColor: value('acc-fontColor', '#18A058'),
         openProxy: checked('acc-openProxy'),
+        protocal: value('acc-protocal', 'http'),
         host: value('acc-host').trim(),
         port: value('acc-port').trim(),
         huser: value('acc-huser').trim(),
@@ -309,17 +324,20 @@
       setStatus('正在保存…', 'working');
       try {
         const nextConfig = configPatch();
-        await deps.setConfig(nextConfig);
-        const accountId = value('acc-select');
-        if (accountId) await deps.updateAccount(accountId, accountPatch());
-        config = { ...config, ...nextConfig };
-        deps.applyTheme(nextConfig.theme, nextConfig.accent);
+const accountId = currentAccountId();
+if (lockedAccountId) {
+  await deps.updateAccount(accountId, accountPatch());
+} else {
+  await deps.setConfig(nextConfig);
+  config = { ...config, ...nextConfig };
+  deps.applyTheme(nextConfig.theme, nextConfig.accent);
+}
         if (typeof deps.afterSave === 'function') await deps.afterSave();
         const refreshed = await deps.getAccounts();
         accounts = refreshed?.accounts || refreshed || accounts;
         fillAccountSelect(accountId);
         loadAccount();
-        previewSnapshot = { theme: nextConfig.theme, accent: nextConfig.accent };
+        if (!lockedAccountId) previewSnapshot = { theme: nextConfig.theme, accent: nextConfig.accent };
         setStatus('已保存 ✓', 'ok');
         return true;
       } catch (error) {
@@ -372,7 +390,7 @@
       document.addEventListener('keydown', handleKeydown);
     }
 
-    return Object.freeze({ bind, open, close, load, loadAccount, save, validate, refreshProxyUi, resetAppearance, resetAccountDisplay });
+    return Object.freeze({ bind, open, openAccount, close, load, loadAccount, save, validate, refreshProxyUi, resetAppearance, resetAccountDisplay });
   }
 
   window.GeekSettingsController = Object.freeze({ create });

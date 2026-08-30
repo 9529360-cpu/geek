@@ -359,11 +359,21 @@
       <button id="settings-close" class="settings-close" aria-label="关闭设置">×</button>
     </div>
     <div class="settings-tabs">
-      <button class="settings-tab active" data-tab="global">应用设置</button>
-      <button class="settings-tab" data-tab="account">账号设置</button>
+      <button class="settings-tab active" data-tab="account-center" data-settings-tab="account-center">个人中心</button>
+      <button class="settings-tab" data-tab="global" data-settings-tab="global">应用设置</button>
     </div>
 
-    <div id="settings-global" class="settings-body settings-body--cards">
+    <div id="settings-account-center" class="settings-body settings-body--cards">
+      <section class="settings-card">
+        <div class="settings-card-title">极客账户</div>
+        <div class="settings-card-sub">只读取当前已登录极客账户的真实状态；无法刷新时会明确显示未知，不使用默认余额。</div>
+        <div class="row-item"><span>邮箱</span><strong id="geek-account-email">正在读取…</strong></div>
+        <div class="row-item"><span>翻译字符</span><strong id="geek-account-quota">正在读取…</strong></div>
+        <div class="row-item"><span>账户状态</span><strong id="geek-account-status" aria-live="polite">正在刷新…</strong></div>
+      </section>
+    </div>
+
+    <div id="settings-global" class="settings-body settings-body--cards hidden">
       <section class="settings-card">
         <div class="settings-card-title">外观</div>
         <div class="settings-card-sub">主题和强调色会即时预览；取消后恢复打开设置前的外观。</div>
@@ -401,12 +411,13 @@
     </div>
 
     <div id="settings-account" class="settings-body settings-body--cards hidden">
+      <input type="hidden" id="acc-select" value="">
       <section class="settings-card">
-        <div class="settings-card-title">选择账号</div>
-        <div class="settings-card-sub">每个账号的名称、显示和独立代理互不影响。</div>
-        <div class="row-item"><span>当前编辑</span><select id="acc-select"></select></div>
+        <div class="settings-card-title">当前实例</div>
+        <div class="settings-card-sub">此面板固定绑定你刚刚右击的应用实例，切换主界面账号不会改变保存目标。</div>
+        <div class="row-item"><span>实例</span><strong id="acc-target-label">—</strong></div>
       </section>
-      <div id="settings-account-empty" class="settings-account-empty hidden">当前没有可编辑的账号</div>
+      <div id="settings-account-empty" class="settings-account-empty hidden">当前账号不可编辑</div>
       <div id="settings-account-content" class="settings-body--cards">
         <section class="settings-card">
           <div class="settings-card-title">基本信息</div>
@@ -424,6 +435,7 @@
           </div>
           <label class="settings-switch-row"><span class="settings-switch-copy"><strong>使用账号独立代理</strong><small>开启后只影响当前账号</small></span><input class="settings-switch-input" type="checkbox" id="acc-openProxy"></label>
           <div id="settings-account-proxy-fields" class="settings-fields">
+            <div class="row-item"><span>协议</span><select id="acc-protocal"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks4">SOCKS4</option><option value="socks5">SOCKS5</option></select></div>
             <div class="row-item"><span>主机</span><input type="text" id="acc-host" placeholder="127.0.0.1" autocomplete="off"></div>
             <div class="row-item"><span>端口</span><input type="text" id="acc-port" inputmode="numeric" placeholder="7890" autocomplete="off"></div>
             <div class="row-item"><span>用户名</span><input type="text" id="acc-huser" placeholder="可选" autocomplete="off"></div>

@@ -1139,12 +1139,22 @@
     renderTabs();
   }
 
-  // ---------- 右键菜单（对齐原版：刷新应用/编辑应用/删除应用） ----------
+  // ---------- 右键菜单：唯一 owner，所有 action 都绑定被右击的实例 ID ----------
   const ctxMenu = document.getElementById('ctx-menu');
+  async function refreshAccountInstance(accountId) {
+    const wv = wvMap.get(accountId);
+    if (wv) wv.reloadIgnoringCache();
+    try {
+      const r = await window.api.accounts.list();
+      accounts = r?.accounts || r || [];
+      renderSidebar();
+      renderTabs();
+    } catch (err) { /* 列表刷新失败不影响目标 WebView 刷新 */ }
+  }
   function showContextMenu(x, y, account) {
     ctxMenu.innerHTML = `
       <div class="ctx-item" data-act="refresh">刷新应用</div>
-      <div class="ctx-item" data-act="edit">编辑应用</div>
+      <div class="ctx-item" data-act="edit">账号设置</div>
       <div class="ctx-item" data-act="proxy">代理设置</div>
       <div class="ctx-item ctx-danger" data-act="delete">删除应用</div>`;
     const mw = 150, mh = 132;
@@ -1163,20 +1173,11 @@
     hideContextMenu();
     if (!accountId) return;
     if (act === 'refresh') {
-      // 原版 refreshApp：重新加载应用列表 + 重载页面
-      const wv = wvMap.get(accountId);
-      if (wv) wv.reloadIgnoringCache();
-      try {
-        const r = await window.api.accounts.list();
-        accounts = r?.accounts || r || [];
-        renderSidebar();
-        renderTabs();
-      } catch (err) { /* 列表刷新失败不影响页面刷新 */ }
+      await refreshAccountInstance(accountId);
     } else if (act === 'edit') {
-      editAccount(accountId);
+      await settingsController.openAccount(accountId);
     } else if (act === 'proxy') {
-      const account = accounts.find(a => a.id === accountId);
-      if (account) showProxyDialog(account);
+      await settingsController.openAccount(accountId, { focus: 'proxy' });
     } else if (act === 'delete') {
       removeAccount(accountId);
     }
@@ -1217,20 +1218,6 @@
       alert('保存失败: ' + e.message);
     }
   };
-
-  // 编辑应用：打开设置 → 账号设置 tab → 选中该账号
-  function editAccount(id) {
-    const accountTab = [...settingsTabs].find(t => t.dataset.tab === 'account');
-    if (accountTab) {
-      settingsTabs.forEach(t => t.classList.remove('active'));
-      accountTab.classList.add('active');
-      settingsGlobal.classList.add('hidden');
-      settingsAccount.classList.remove('hidden');
-    }
-    accSelect.value = id;
-    loadAccountSettingsForm();
-    openSettings();
-  }
 
   // ---------- 排序 ----------
   async function moveAccount(id, direction) {
@@ -3712,7 +3699,41 @@
   document.getElementById('btn-win-max').onclick = () => window.api.window.maximize();
   document.getElementById('btn-win-close').onclick = () => window.api.window.close();
 
-  // ---------- 设置面板（体验层独立模块；沿用既有 config/accounts IPC） ----------
+  // ---------- 极客账户个人中心：复用现有 subscription state/refresh，不保存第二套状态 ----------
+  async function loadGeekAccountCenter() {
+    const emailNode = document.getElementById('geek-account-email');
+    const quotaNode = document.getElementById('geek-account-quota');
+    const statusNode = document.getElementById('geek-account-status');
+    if (!emailNode || !quotaNode || !statusNode) return;
+    emailNode.textContent = '正在读取…';
+    quotaNode.textContent = '正在刷新…';
+    statusNode.textContent = '正在刷新…';
+    try {
+      const state = await window.api.subscription.getState();
+      if (!state?.loggedIn) {
+        emailNode.textContent = '未登录'; quotaNode.textContent = '未知'; statusNode.textContent = '未登录'; return;
+      }
+      emailNode.textContent = state.email || '未知';
+      const refreshed = await window.api.subscription.refresh();
+      if (!refreshed?.loggedIn) {
+        quotaNode.textContent = '未知'; statusNode.textContent = '登录状态已失效'; return;
+      }
+      if (refreshed.networkError) {
+        quotaNode.textContent = '未知'; statusNode.textContent = '账户信息加载失败'; return;
+      }
+      const remaining = refreshed.remaining_chars;
+      if (!Number.isSafeInteger(remaining) || remaining < 0) {
+        quotaNode.textContent = '未知'; statusNode.textContent = '字符余额暂不可用'; return;
+      }
+      if (refreshed.email) emailNode.textContent = refreshed.email;
+      quotaNode.textContent = remaining.toLocaleString() + " 字符";
+      statusNode.textContent = refreshed.valid === false ? '字符已用完（仅影响翻译）' : '账户信息已更新';
+    } catch (error) {
+      quotaNode.textContent = '未知'; statusNode.textContent = '账户信息加载失败';
+    }
+  }
+
+  // ---------- 设置面板（全局设置 + 固定实例设置；沿用既有 config/accounts IPC） ----------
   const settingsController = window.GeekSettingsController.create({
     getConfig: () => window.api.config.get(),
     setConfig: patch => window.api.config.set(patch),
@@ -3722,10 +3743,10 @@
     getActiveId: () => activeId,
     familyLabel: type => familyOf(type).label,
     afterSave: async () => { await loadAccounts(); },
+    loadAccountCenter: loadGeekAccountCenter,
   });
   function openSettings() {
-    const preferred = accSelect.value || activeId || '';
-    return settingsController.open(preferred);
+    return settingsController.open();
   }
   function closeSettings() {
     settingsController.close();
