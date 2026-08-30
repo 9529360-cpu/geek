@@ -79,7 +79,7 @@
 
 ```yaml
 task_id: ACCOUNT-CONTEXT-001
-status: ready-for-user-test
+status: accepted
 owner: web-gpt
 base: origin/master
 base_commit: 5245a710b429cf8454682fcf437517518b77c21f
@@ -117,7 +117,7 @@ completion_evidence:
   - 预计修改文件及禁止触碰文件
   - observed/intended/connected/verified/unknown/absent 能力表
   - 实际读取过的文件路径和 commit
-next_gate: 阿豪安装 d0021ee... 对应的新 Windows validation 包，重点复验“应用设置 > 个人中心”的真实邮箱/剩余字符与失败态；明确确认可合并前 PR #276 保持 Draft/unmerged
+next_gate: ACCOUNT-CONTEXT-001 已由阿豪明确验收并授权合并/发布；Geek 1.2.18 已通过 release-client 正式发布与公网 updater 验证
 ```
 
 > 网页版 GPT 不得自行把 `status` 改成 `accepted`。`accepted` 必须由星尘或阿豪确认。
@@ -929,3 +929,40 @@ Windows validation 构建：
 下一步：
 - 阿豪只需使用 d0021ee... 对应的新 validation 包复验应用设置个人中心及快速回归。
 - 在阿豪明确确认“没问题，可以合并”或等价明确授权前，不得合并 PR #276；正式 Windows client 发布仍需独立授权。
+
+
+### [REPORT-007]
+
+日期时间：2026-08-30 22:37 +02:00
+任务 ID：ACCOUNT-CONTEXT-001 合并与正式发布
+状态：accepted
+决策者：阿豪
+用户授权：阿豪明确回复“可以合并发布了”。
+
+合并结果：
+- 原 Draft PR #276 因 GitHub connector 的 draft-to-ready GraphQL 兼容错误无法转 Ready；未绕过 Draft 门禁，#276 关闭并保留历史。
+- 以完全相同的 immutable head d0021ee31ae4749d15f7d277b2c47ae3a8bdca98 创建非 Draft PR #277，无代码增量；#277 正常合并。
+- 功能 merge commit：7bdfdbc5195cbf11114d4da0342f029671991ca1。
+- 合并后 master test run 33333782774：success。
+- path-filter deploy-subscription run 33333782719：部署、live account smoke、非敏感生产状态验证均 success；这是 subscription Worker 部署，不等同客户端发布。
+
+正式客户端发布：
+- 发布版本：Geek 1.2.18。
+- release PR #278 将 package.json、package-lock.json、.github/release-client-version 同步到 1.2.18，并把官网 FALLBACK_VERSION 更新到上一稳定版 1.2.17。
+- release PR #278 merge commit / 当前 master：ed21bca77290062c38e3a0b77be8c0f4c9ab216c。
+- release-client run 33333943332 / job 99317363700：success。
+- 正式 Windows release 构建执行完整 125 tests；Windows ACL integration 在真实 Windows runner 上通过。
+- 正式安装包：geek-setup-1.2.18.exe；installer + blockmap 上传 R2 success。
+- 发布前捕获并验证上一稳定版：1.2.17；rollback/latest.yml 与 rollback/latest-1.2.17.yml 快照上传 success。
+- latest.yml 最后发布 success；生产 updater 公网验证返回 public-release=1.2.18。
+- deploy-website run 33333943365：部署与 public website 验证 success。
+
+发布状态：
+- code merged：verified。
+- CI：verified。
+- artifact built：verified。
+- release published：verified。
+- updater production verification：verified，public-release=1.2.18。
+- 用户对本任务验证版体验：accepted。
+
+ACCOUNT-CONTEXT-001 至此闭环。
