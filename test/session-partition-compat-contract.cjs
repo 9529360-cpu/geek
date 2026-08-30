@@ -55,14 +55,10 @@ assert.equal(resolvePersistPartition(null), '');
 
   const entry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
   const installIndex = entry.indexOf('installSessionPartitionCompat({ app, sessionModule: session })');
-  const readyIndex = entry.indexOf('sessionPartitionCompat.ready');
-  const thenIndex = entry.indexOf('.then(', readyIndex);
   const mainIndex = entry.indexOf("require('./main.cjs')");
-  const catchIndex = entry.indexOf('.catch(', mainIndex);
-  assert.ok(installIndex >= 0 && readyIndex > installIndex, 'compat must be installed before its readiness gate is awaited');
-  assert.ok(thenIndex > readyIndex && mainIndex > thenIndex, 'legacy main.cjs must load only inside the partition compatibility readiness continuation');
-  assert.ok(catchIndex > mainIndex, 'partition compatibility startup must keep an explicit failure path');
-  assert.match(entry.slice(catchIndex), /app\.quit\(\)/, 'partition compatibility failure must fail closed instead of starting with empty owner keys');
+  assert.ok(installIndex >= 0 && mainIndex > installIndex, 'compat must be installed before legacy main.cjs loads');
+  assert.match(entry, /sessionPartitionCompat\.ready[\s\S]*\.then\(\(\) => require\('\.\/main\.cjs'\)\)/, 'main startup must await the partition compatibility boundary');
+  assert.match(entry, /\.catch\([\s\S]*app\.quit\(\)/, 'partition compatibility failure must fail closed instead of starting with empty owner keys');
 
   console.log('SESSION_PARTITION_COMPAT_CONTRACT_OK');
 })().catch((error) => {

@@ -3,7 +3,7 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell, webContents } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, webContents } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
@@ -16,9 +16,6 @@ const { createTelegramNativeAttachmentHandler } = require('./telegram-native-att
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
-const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
-const { installAccountCenterBoundary } = require('./account-center-boundary.cjs');
-const { createSubscriptionStore } = require('./subscription.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -40,7 +37,6 @@ try { app.setPath('userData', earlyUserDataDir); } catch {}
 const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
 if (primaryInstance) {
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
-  const subscriptionEntryPath = path.join(__dirname, '../ui/subscription.html');
   const accountsFilePath = runtimePaths.accountsFile(earlyUserDataDir);
   const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
     getAllWebContents: () => webContents.getAllWebContents(),
@@ -124,36 +120,11 @@ if (primaryInstance) {
     },
   });
 
-  // Main-window account center may read the current user's own orders and open only
-  // the fixed official password-reset URL. It never exposes the subscription token or
-  // a generic external-navigation primitive to renderer code.
-  installAccountCenterBoundary({
-    ipcMain,
-    BrowserWindow,
-    shell,
-    safeStorage,
-    createSubscriptionStore,
-    userDataDir: earlyUserDataDir,
-    uiEntryPath,
-    subscriptionEntryPath,
-  });
-
-  // main.cjs historically treats an unknown account type as WhatsApp. Wrap only the
-  // accounts:add registration so explicit unknown/new types fail closed, while old
-  // callers that omit type keep the established WhatsApp default.
-  const accountTypeBoundary = installAccountTypeBoundary({ ipcMain });
-
   // Fail closed if Electron changes in a way that prevents safe partition recovery.
   // Starting legacy main without the account partition key would collapse WPP and
   // account-deletion bookkeeping back onto an empty partition string.
   sessionPartitionCompat.ready
-    .then(() => {
-      try {
-        require('./main.cjs');
-      } finally {
-        accountTypeBoundary.restore();
-      }
-    })
+    .then(() => require('./main.cjs'))
     .catch((error) => {
       const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'SESSION_PARTITION_COMPAT_FAILED');
       console.error('[session-partition] startup blocked:', code.slice(0, 80));

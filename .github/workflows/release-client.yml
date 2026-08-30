@@ -9,7 +9,7 @@ on:
       - '.github/release-client-version'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-client-production
@@ -134,15 +134,7 @@ jobs:
             --attempts 18 `
             --delay-ms 10000
           if ($LASTEXITCODE -eq 0) {
-            node scripts/release-public-integrity.cjs `
-              --root $root `
-              --version $env:RELEASE_VERSION `
-              --manifest 'dist-release\release-manifest.json' `
-              --attempts 3 `
-              --delay-ms 5000
-          }
-          if ($LASTEXITCODE -eq 0) {
-            "Published Geek $env:RELEASE_VERSION to the production update source with full artifact SHA-256 verification." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            "Published Geek $env:RELEASE_VERSION to the production update source." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
             exit 0
           }
 
@@ -165,21 +157,3 @@ jobs:
           }
 
           throw "Release $env:RELEASE_VERSION failed verification and no verified rollback target was available"
-
-      - name: Mirror verified release to GitHub Releases
-        id: github_release_mirror
-        continue-on-error: true
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          node scripts/github-release-mirror.cjs
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release mirror failed after production release succeeded' }
-          "Mirrored Geek $env:RELEASE_VERSION to GitHub Releases from the verified production build artifacts." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-
-      - name: Report GitHub mirror failure without rolling back production
-        if: ${{ steps.github_release_mirror.outcome == 'failure' }}
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
-        run: |
-          Write-Warning "Production release succeeded, but the GitHub Release mirror failed. R2 remains authoritative and is not rolled back for a mirror-only failure."
-          "GitHub Release mirror failed after production verification. R2 remains authoritative; no production rollback was attempted for the mirror-only failure." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

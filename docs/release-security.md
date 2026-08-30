@@ -62,12 +62,9 @@ npm run pack
 6. 保存上一稳定版 `latest.yml` 的回滚快照；
 7. 最后上传新的 `latest.yml`，使客户端看到新版本；
 8. 从公开更新源反复验证新 `latest.yml`、安装包和 blockmap 均可访问；
-9. 若传播验证失败，恢复上一稳定版元数据并验证回滚结果；
-10. **只有第 8 步生产验证成功后**，才把同一批正式构建产物镜像到 GitHub Release；GitHub 镜像发布前逐项核对 `release-manifest.json` 的 SHA-256，上传后再次核对 GitHub asset 的大小和 SHA-256，再把 draft 转为正式 stable Release。
+9. 若传播验证失败，恢复上一稳定版元数据并验证回滚结果。
 
 不得先发布 `latest.yml` 再补传安装包，也不得覆盖旧版本化安装包来模拟回滚。上一稳定元数据和旧版本产物应保留，供自动回滚和人工处置使用。
-
-GitHub Releases 是**生产发布的镜像和人工下载/审计入口，不是 updater 权威源**。客户端自动更新继续只认 R2 + Release Worker。GitHub 镜像失败时不得回滚已经通过生产验证的 R2 发布；工作流必须显式记录镜像失败，后续可在已有发布授权范围内修复镜像，但不能把 GitHub 页面是否同步成功反过来改变生产 updater 状态。
 
 ## 产物验证
 
@@ -79,8 +76,6 @@ GitHub Releases 是**生产发布的镜像和人工下载/审计入口，不是 
 - `release-manifest.json`
 
 构建脚本会核对 `latest.yml` 版本、要求 blockmap 存在，并生成包含 SHA-256 的发布清单。发布工作流还会从公开更新端点验证元数据与版本化产物，而不是仅相信 R2 上传命令成功。
-
-GitHub Release 镜像必须复用 `dist-release` 中已经用于正式 R2 发布的同一批文件，不允许重新构建一份“GitHub 专用包”。镜像脚本会先核对本地 installer、blockmap、`latest.yml` 与 `release-manifest.json` 一致，再上传 `release-manifest.json` 本身；已有同版本 Release/asset 时只能在字节一致的情况下幂等复用，发现缺失、额外或 hash 不一致必须 fail-closed，不能静默覆盖一个已经公开的不同文件。
 
 Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe` 和 `.blockmap`。不得借客户端发布把它扩大为通用静态文件服务。
 
@@ -110,7 +105,6 @@ Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe`
 - 没有真实运行数据、凭据、临时日志或测试账号进入产物；
 - 更新 Worker 仍保持 updater-only allowlist；
 - 上一稳定版本和公开产物可访问，回滚路径可用；
-- 发布后公开传播检查通过；
-- GitHub Release 镜像权限只用于创建对应版本 tag/release 和上传同源正式产物，不得扩大到其他仓库写操作。
+- 发布后公开传播检查通过。
 
 没有这些证据时，不得通过修改发布标记“试运行”正式发布，也不得把 `workflow_dispatch` 当作绕过门禁的替代入口。
