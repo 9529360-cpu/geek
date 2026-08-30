@@ -24,11 +24,34 @@ jobs:
         run: |
           sed -n "/node <<'NODE'/,/^          NODE$/p" .github/workflows/account-context-apply.yml | sed '1d;$d;s/^          //' > /tmp/account-context-apply.cjs
           sed -i 's/quotaNode.textContent = `${remaining.toLocaleString()} 字符`;/quotaNode.textContent = remaining.toLocaleString() + " 字符";/' /tmp/account-context-apply.cjs
-          sed -i "s/if (count !== 1) throw new Error(/if (count !== 1 \&\& label !== 'account protocol') throw new Error(/" /tmp/account-context-apply.cjs
+          sed -i "s/if (count !== 1) throw new Error(/if (count !== 1 \&\& !['account protocol','save scope'].includes(label)) throw new Error(/" /tmp/account-context-apply.cjs
           node --check /tmp/account-context-apply.cjs
           node /tmp/account-context-apply.cjs
           grep -q 'id="settings-account-proxy-fields"' ui/index.html
           grep -q 'id="acc-protocal"' ui/index.html || sed -i '/<div id="settings-account-proxy-fields" class="settings-fields">/a\            <div class="row-item"><span>协议</span><select id="acc-protocal"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks4">SOCKS4</option><option value="socks5">SOCKS5</option></select></div>' ui/index.html
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = 'ui/settings-controller.js';
+          let text = fs.readFileSync(file, 'utf8');
+          const before = `        const nextConfig = configPatch();
+          await deps.setConfig(nextConfig);
+          const accountId = value('acc-select');
+          if (accountId) await deps.updateAccount(accountId, accountPatch());
+          config = { ...config, ...nextConfig };
+          deps.applyTheme(nextConfig.theme, nextConfig.accent);`;
+          const after = `        const nextConfig = configPatch();
+          const accountId = currentAccountId();
+          if (lockedAccountId) {
+            await deps.updateAccount(accountId, accountPatch());
+          } else {
+            await deps.setConfig(nextConfig);
+            config = { ...config, ...nextConfig };
+            deps.applyTheme(nextConfig.theme, nextConfig.accent);
+          }`;
+          if (!text.includes(before)) throw new Error('settings save block not found');
+          text = text.replace(before, after);
+          fs.writeFileSync(file, text, 'utf8');
+          NODE
           node test/account-context-phase2-contract.cjs
           git diff --check
           rm -f .github/workflows/account-context-apply.yml .github/workflows/account-context-run.yml
