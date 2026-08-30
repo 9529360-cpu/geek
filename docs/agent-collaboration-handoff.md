@@ -79,7 +79,7 @@
 
 ```yaml
 task_id: ACCOUNT-CONTEXT-001
-status: ready-for-user-test
+status: implementing
 owner: web-gpt
 base: origin/master
 base_commit: 5245a710b429cf8454682fcf437517518b77c21f
@@ -117,7 +117,7 @@ completion_evidence:
   - 预计修改文件及禁止触碰文件
   - observed/intended/connected/verified/unknown/absent 能力表
   - 实际读取过的文件路径和 commit
-next_gate: 阿豪安装 v2 Windows 验证版并完成真实点击验收；明确确认前不得 accepted、不得合并 PR #276
+next_gate: 在 v2 上增加应用设置内只读个人中心（邮箱 + 剩余字符），完成测试/CI/新 Windows validation 后交阿豪复验；不得合并 PR #276
 ```
 
 > 网页版 GPT 不得自行把 `status` 改成 `accepted`。`accepted` 必须由星尘或阿豪确认。
@@ -828,3 +828,18 @@ Windows v2 验证构建：
 - 未修改 .github/release-client-version。
 - 未触发 release-client，未发布正式版本。
 - 用户明确确认“没问题，可以合并”前，任务不得标记 accepted，不得合并。
+
+
+### [START-006]
+
+日期时间：2026-08-31 03:09 Asia/Kuala_Lumpur
+任务 ID：ACCOUNT-CONTEXT-001 v2 增量：应用设置个人中心
+基线 commit：5245a710b429cf8454682fcf437517518b77c21f
+工作分支：feat/account-context-001-v2
+当前实现 HEAD：70728981a06eb195fea6cb14f74d5a2de8c48051
+当前工作区状态：GitHub connector 远程执行；PR #276 Draft/open/未合并，master 仍为 5245a710b429cf8454682fcf437517518b77c21f；没有使用或清理用户本地 worktree。
+用户最新产品决策：阿豪明确认可 v2 当前结构，并要求把主界面的“设置”视为应用设置，在其中增加一个只读“个人中心”，只展示极客账户邮箱和剩余字符。
+本次允许修改：ui/index.html；ui/settings-controller.js；必要的 ui/settings-controller.css；直接相关测试；本交接/范围文档。
+本次明确禁止修改：实例右键菜单所有权；实例账号设置/代理设置路径；subscription 登录/注册流程；preload/main/Worker/账户存储；WebView partition；master；版本号/release marker；release-client。
+实现不变量：应用设置内个人中心只是现有 subscription.getState()/refresh() 的只读镜像，不新增账户状态、缓存、保存动作或第二套余额逻辑；网络失败/无可信余额必须显示未知，不得显示 MAX_SAFE_INTEGER、假 0 或假成功。
+预计验证方式：先扩展 contract 使当前 70728981... 失败；再最小实现；完整 npm test / PR CI；重新生成 exact-head Windows validation 安装包。阿豪复验前状态不 accepted、不合并。
