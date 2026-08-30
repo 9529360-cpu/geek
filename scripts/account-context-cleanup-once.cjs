@@ -62,14 +62,14 @@ fs.writeFileSync(settingsFile, settings, 'utf8');
 
 const testFile = 'test/account-context-phase2-contract.cjs';
 let test = fs.readFileSync(testFile, 'utf8');
-const proxyAnchor = "assert.match(app, /settingsController\\.openAccount\\(accountId,\\s*\\{\\s*focus:\\s*['\"]proxy['\"]\\s*\\}\\)/, '代理菜单必须复用同一个固定实例账号设置 handler');\n";
-if (!test.includes(proxyAnchor)) throw new Error('proxy contract anchor missing');
-test = test.replace(proxyAnchor, proxyAnchor +
+const ordinaryMarker = '// Ordinary Settings remains global/account-center only; instance editing is entered from the account context menu.';
+if (!test.includes(ordinaryMarker)) throw new Error('ordinary settings marker missing');
+test = test.replace(ordinaryMarker,
   "assert.doesNotMatch(html, /id=\\\"proxy-overlay\\\"/, '旧独立代理弹窗必须移除，避免第二套代理状态');\n" +
-  "assert.doesNotMatch(app, /showProxyDialog|proxyAccountId/, 'renderer 不得保留第二套代理保存 handler');\n");
-const settingsAnchor = "assert.match(settings, /lockedAccountId/, '实例设置必须保存固定 target，而不是依赖 active account');\n";
-if (!test.includes(settingsAnchor)) throw new Error('settings contract anchor missing');
-test = test.replace(settingsAnchor, settingsAnchor +
+  "assert.doesNotMatch(app, /showProxyDialog|proxyAccountId/, 'renderer 不得保留第二套代理保存 handler');\n\n" + ordinaryMarker);
+const personalMarker = '// Personal center must use real subscription state/refresh and expose an explicit unknown/error state.';
+if (!test.includes(personalMarker)) throw new Error('personal marker missing');
+test = test.replace(personalMarker,
   "assert.match(settings, /if \\(!lockedAccountId\\)[\\s\\S]{0,500}globalProxyError[\\s\\S]{0,500}return \\{ ok: true \\}/, '普通设置只校验全局字段');\n" +
-  "assert.match(settings, /const accountId = currentAccountId\\(\\);[\\s\\S]{0,500}账号显示名不能为空/, '实例设置必须只校验固定 target 字段');\n");
+  "assert.match(settings, /const accountId = currentAccountId\\(\\);[\\s\\S]{0,500}账号显示名不能为空/, '实例设置必须只校验固定 target 字段');\n\n" + personalMarker);
 fs.writeFileSync(testFile, test, 'utf8');
