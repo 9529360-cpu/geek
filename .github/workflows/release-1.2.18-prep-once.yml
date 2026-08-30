@@ -22,6 +22,7 @@ jobs:
         run: |
           npm version 1.2.18 --no-git-tag-version
           printf '1.2.18\n' > .github/release-client-version
+          node -e "const fs=require('fs'); const p='scripts/geek-website-worker.js'; let s=fs.readFileSync(p,'utf8'); s=s.replace(\"const FALLBACK_VERSION = '1.2.16';\", \"const FALLBACK_VERSION = '1.2.17';\"); fs.writeFileSync(p,s);"
       - name: Verify release candidate metadata and tests
         run: |
           npm test
@@ -31,6 +32,6 @@ jobs:
           git rm .github/workflows/release-1.2.18-prep-once.yml
           git config user.name 'Geek Release Agent'
           git config user.email 'actions@users.noreply.github.com'
-          git add package.json package-lock.json .github/release-client-version
+          git add package.json package-lock.json .github/release-client-version scripts/geek-website-worker.js
           git commit -m 'release: prepare Geek 1.2.18'
           git push origin HEAD:release/client-1.2.18
