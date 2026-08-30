@@ -42,13 +42,13 @@ Updated: 2026-08-30
 - draft 上传失败或 GitHub API 失败时不会 publish 半成品 Release。
 - workflow 既有语义不变：GitHub mirror 是 R2 成功后的非权威镜像，mirror-only failure 不回滚已验证成功的 R2 production release。
 - exact-head PR `test` run `33292391460`: success。
-- final `master` push test run `33292478411` 已创建；写入本 HANDOFF 时仍在队列中，下一维护者必须以 Actions 实时结果覆盖本行。
+- final `master` push test run `33292478411`: success。
 
 ## 当前证据等级
 
 - 代码判断：上述三项已进入 `master`。
 - 本地：R2 integrity helper 的聚焦 Node contract 在维护环境执行成功；其余以仓库 contract/CI 为准。
-- GitHub CI：三个 PR exact-head 均已取得成功；#267/#268 merge 后 master test 已成功，#269 final master test 在本文件写入时尚未结束。
+- GitHub CI：三个 PR exact-head 均已取得成功；三次 merge 后的 master test 也均成功，最终组合基线 run 为 `33292478411`。
 - Worker 生产：#267 触发既有 path-filter `deploy-release-worker`，run `33292441476` success。该部署不等于客户端发布。
 - 真实客户端：本轮未执行，也不是本轮验收边界。
 - 正式客户端生产发布：本轮未执行。
