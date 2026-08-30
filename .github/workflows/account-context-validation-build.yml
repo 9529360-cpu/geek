@@ -1,0 +1,67 @@
+name: account-context-validation-build
+on:
+  push:
+    branches: [build/account-context-001-validation]
+    paths:
+      - '.github/workflows/account-context-validation-build.yml'
+permissions:
+  contents: read
+concurrency:
+  group: geek-account-context-validation-build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: [self-hosted, windows, x64, geek-real-client]
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - name: Checkout exact ACCOUNT-CONTEXT-001 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify validation isolation contract
+        run: node test/validation-build-isolation-contract.cjs
+      - name: Build isolated validation installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:test
+      - name: Sanitize validation artifacts
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $out = Join-Path $PWD 'dist-validation-build'
+          $exe = @(Get-ChildItem -Path $out -Filter 'geek-validation-setup-*.exe' -File)
+          if ($exe.Count -ne 1) { throw "Expected exactly one validation installer, found $($exe.Count)" }
+          Get-ChildItem -Path $out -File | Where-Object {
+            $_.Name -match '^latest.*\.ya?ml$' -or $_.Name -like '*.blockmap'
+          } | Remove-Item -Force
+          $forbidden = @(Get-ChildItem -Path $out -File | Where-Object {
+            $_.Name -match '^latest.*\.ya?ml$' -or $_.Name -like '*.blockmap'
+          })
+          if ($forbidden.Count -gt 0) { throw 'Validation updater metadata cleanup failed' }
+          $remainingExe = @(Get-ChildItem -Path $out -Filter '*.exe' -File)
+          if ($remainingExe.Count -ne 1 -or $remainingExe[0].Name -ne $exe[0].Name) {
+            throw 'Unexpected executable present in validation artifact boundary'
+          }
+          $hash = (Get-FileHash -Path $exe[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "VALIDATION_INSTALLER_NAME=$($exe[0].Name)"
+          Write-Host "VALIDATION_INSTALLER_SHA256=$hash"
+          Write-Host "VALIDATION_SOURCE_BRANCH=feat/account-context-001"
+          Write-Host "VALIDATION_SOURCE_COMMIT=d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2"
+          Write-Host "VALIDATION_PACKAGE_VERSION=1.2.17"
+          "VALIDATION_INSTALLER=$($exe[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Upload validation installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-validation-d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+          path: ${{ env.VALIDATION_INSTALLER }}
+          if-no-files-found: error
+          retention-days: 7
