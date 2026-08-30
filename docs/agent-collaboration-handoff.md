@@ -79,7 +79,7 @@
 
 ```yaml
 task_id: ACCOUNT-CONTEXT-001
-status: implementing
+status: ready-for-user-test
 owner: web-gpt
 base: origin/master
 base_commit: 5245a710b429cf8454682fcf437517518b77c21f
@@ -117,7 +117,7 @@ completion_evidence:
   - 预计修改文件及禁止触碰文件
   - observed/intended/connected/verified/unknown/absent 能力表
   - 实际读取过的文件路径和 commit
-next_gate: 在 v2 上增加应用设置内只读个人中心（邮箱 + 剩余字符），完成测试/CI/新 Windows validation 后交阿豪复验；不得合并 PR #276
+next_gate: 阿豪安装 d0021ee... 对应的新 Windows validation 包，重点复验“应用设置 > 个人中心”的真实邮箱/剩余字符与失败态；明确确认可合并前 PR #276 保持 Draft/unmerged
 ```
 
 > 网页版 GPT 不得自行把 `status` 改成 `accepted`。`accepted` 必须由星尘或阿豪确认。
@@ -843,3 +843,89 @@ Windows v2 验证构建：
 本次明确禁止修改：实例右键菜单所有权；实例账号设置/代理设置路径；subscription 登录/注册流程；preload/main/Worker/账户存储；WebView partition；master；版本号/release marker；release-client。
 实现不变量：应用设置内个人中心只是现有 subscription.getState()/refresh() 的只读镜像，不新增账户状态、缓存、保存动作或第二套余额逻辑；网络失败/无可信余额必须显示未知，不得显示 MAX_SAFE_INTEGER、假 0 或假成功。
 预计验证方式：先扩展 contract 使当前 70728981... 失败；再最小实现；完整 npm test / PR CI；重新生成 exact-head Windows validation 安装包。阿豪复验前状态不 accepted、不合并。
+
+
+### [REPORT-006]
+
+日期时间：2026-08-31 03:25 Asia/Kuala_Lumpur
+任务 ID：ACCOUNT-CONTEXT-001 v2 增量：应用设置个人中心
+状态：ready-for-user-test
+基线 commit：5245a710b429cf8454682fcf437517518b77c21f
+工作分支：feat/account-context-001-v2
+当前候选 commit：d0021ee31ae4749d15f7d277b2c47ae3a8bdca98
+Draft PR：#276（open / draft / unmerged）
+master：5245a710b429cf8454682fcf437517518b77c21f，未修改
+package version：1.2.17，未修改 release marker / 未触发 release-client
+
+用户决策与产品调整：
+- 阿豪确认 v2 整体方向可接受，并补充要求：主界面的“设置”视为“应用设置”，其中增加只读“个人中心”，只展示极客账户邮箱和剩余字符。
+- 原 ui/subscription.html 登录前/进入主界面前账户流程继续是 canonical subscription 状态 owner；应用设置只镜像数据，不新增第二套账户 store、登录、余额计算或保存动作。
+- 实例账号设置、实例代理和目标刷新仍只属于导航栏目标实例右键，不迁回应用设置。
+
+实现内容：
+- ui/index.html：设置标题/aria 明确为“应用设置”；新增只读“个人中心”卡片，字段仅“邮箱”“剩余字符”。
+- ui/app.js：向 GeekSettingsController 注入现有 window.api.subscription.getState()/refresh()；未使用 getQuota。
+- ui/settings-controller.js：新增只读账户渲染和刷新；设置 overlay 先正常打开，随后 void refreshPersonalCenter() 异步刷新，不让账户网络请求阻塞其他应用设置。
+- 余额只有 refresh() 返回非 networkError 且 remaining_chars 为非负 safe integer 时才显示数字；网络失败、异常值或读取失败显示“字符余额未知/账户信息暂不可用”。
+- test/application-settings-personal-center-contract.cjs：新增应用设置个人中心、同源 subscription、fail-closed、非阻塞打开 contract。
+- test/account-context-v2-contract.cjs：仅更新产品所有权注释，实例 target 隔离 contract 未削弱。
+
+红灯证据：
+- red commit：41446dcc9a62d0c3516cf67021f350bacc78f78f（只有新 contract，产品实现尚未加入）。
+- GitHub Actions test run：33330344747，conclusion=failure，证明稳定 v2 70728981... 不满足新增的应用设置个人中心要求。
+
+实现/CI 证据：
+- 实现 commit：f9b398c674efe8dac9e045a9699fb3226672eb86。
+- 最终 contract 强化 commit / candidate HEAD：d0021ee31ae4749d15f7d277b2c47ae3a8bdca98。
+- 实现 runner：account-context-settings-personal-center-implement-once run 33330383945 / job 99307789222，npm test 与 git diff --check 均 success。
+- 标准 PR workflow：test run 33330444088 / job 99307946110，对 PR #276 merge-ref 执行。
+- 标准 CI 实际结果：APPLICATION_SETTINGS_PERSONAL_CENTER_CONTRACT_OK；ACCOUNT_CONTEXT_V2_CONTRACT_OK；SETTINGS_UX_CONTRACT_OK；All 125 tests passed。
+
+Windows validation 构建：
+- exact source checkout：d0021ee31ae4749d15f7d277b2c47ae3a8bdca98。
+- validation orchestration branch：build/account-context-001-v2-personal-center-validation。
+- 最终 orchestration commit：e01c31faa94248650dfa8e5864352f7ed8caa4e5（仅 workflow shell 修正，不进入产品 binary）。
+- workflow：account-context-v2-personal-center-validation-build。
+- 成功 run：33330675153。
+- job：99308551071，self-hosted Windows x64 geek-real-client，conclusion=success。
+- 命令：npm ci；node test/validation-build-isolation-contract.cjs；npm run dist:test。
+- 输出：VALIDATION_BUILD_ISOLATION_CONTRACT_OK；electron-builder 26.15.3 / Electron 43.4.0；NSIS geek-validation-setup-1.2.17.exe。
+- 安装包：geek-validation-setup-1.2.17.exe，大小 110180102 bytes。
+- EXE SHA256：ba6efbaeed4189d562b4552b44f71b9c77fd7b0ab650dba6e2623744bc9d375f。
+- artifact 名：geek-validation-v2-personal-center-d0021ee31ae4749d15f7d277b2c47ae3a8bdca98。
+- artifact ID：9737574291。
+- artifact ZIP 大小：110178381 bytes。
+- artifact ZIP SHA256：c30c8d5baefb09e042066a75f6005a96a3c6d770594b8ceec710543900c1ee64。
+- artifact URL：https://github.com/9529360-cpu/geek/actions/runs/33330675153/artifacts/9737574291
+- expires_at：2026-09-06T19:24:00Z。
+- artifact 下载后在独立容器再次计算：ZIP SHA256 与 GitHub digest 一致；EXE SHA256 与 Windows runner Get-FileHash 一致。
+
+构建基础设施说明：
+- run 33330492016 在 npm ci 前被 self-hosted Windows 默认 PowerShell ExecutionPolicy 阻断，没有执行产品构建。
+- run 33330554347 已成功 npm ci / isolation contract / npm run dist:test 并实际产出 NSIS，但后置 artifact inspection 步骤又被同一 ExecutionPolicy 阻断，因此没有 artifact 上传。
+- 仅修正 validation orchestration 的 shell：npm/Node 显式用 cmd，artifact inspection 显式 PowerShell -ExecutionPolicy Bypass；产品候选 commit 始终固定 d0021ee...。第三次 run 33330675153 全部成功。前两次失败归类为 build infrastructure，不是产品回归。
+- 最终 upload 后 setup-node cache save 仍出现 runner 缺 gzip warning；发生在 artifact finalized 之后，job conclusion=success，不属于产品/安装包失败。
+
+已验证：
+- code_changed：verified，候选 d0021ee... 包含应用设置个人中心。
+- local/self-hosted implementation checks：verified。
+- GitHub PR CI：verified，125 tests passed。
+- artifact_built：verified，Windows validation installer 已生成、上传、双重 SHA256 核验。
+- master 未修改；PR #276 仍 Draft/open/unmerged。
+
+仍为 unknown：
+- 阿豪机器上新包实际安装/启动。
+- 应用设置 > 个人中心在真实账户下展示的邮箱是否正确。
+- 应用设置 > 个人中心的真实剩余字符是否正确。
+- 断网/订阅服务异常时个人中心真实 UI 是否按预期显示“未知/暂不可用”。
+- 此增量后的整体 Windows UI 回归；上一版用户认可不能自动转移到新增 UI。
+
+当前结论：
+- release_published：未执行；这只是 validation artifact。
+- deployed：未执行/不适用。
+- runtime_health / 用户验收：unknown，等待阿豪复验新包。
+- 旧 70728981... v2 validation 包已被本次 UI 增量 supersede，不再作为最终验收候选。
+
+下一步：
+- 阿豪只需使用 d0021ee... 对应的新 validation 包复验应用设置个人中心及快速回归。
+- 在阿豪明确确认“没问题，可以合并”或等价明确授权前，不得合并 PR #276；正式 Windows client 发布仍需独立授权。
