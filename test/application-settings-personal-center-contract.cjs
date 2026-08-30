@@ -25,6 +25,8 @@ assert.match(controller, /settings-account-email/);
 assert.match(controller, /settings-account-quota/);
 assert.match(controller, /字符余额未知/);
 assert.match(controller, /账户信息暂不可用/);
+assert.match(controller, /void refreshPersonalCenter\(\)/, '应用设置打开后账户刷新必须异步进行，不能阻塞设置面板');
+assert.doesNotMatch(controller, /await refreshPersonalCenter\(\)/, '网络账户刷新不得阻塞应用设置打开');
 assert.doesNotMatch(controller, /MAX_SAFE_INTEGER|getQuota/, '应用设置个人中心不得复制 fail-open 余额逻辑');
 
 console.log('APPLICATION_SETTINGS_PERSONAL_CENTER_CONTRACT_OK');
