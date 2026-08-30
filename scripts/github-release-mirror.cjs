@@ -32,7 +32,13 @@ function loadReleaseArtifacts(distDir, version) {
     `geek-setup-${version}.exe.blockmap`,
     'latest.yml',
   ];
-  const manifestByName = new Map(manifest.files.map((entry) => [entry.name, entry]));
+  const manifestByName = new Map();
+  for (const entry of manifest.files) {
+    if (!entry || typeof entry.name !== 'string' || manifestByName.has(entry.name)) {
+      fail('release manifest contains invalid or duplicate entries');
+    }
+    manifestByName.set(entry.name, entry);
+  }
   const artifacts = expectedNames.map((name) => {
     const entry = manifestByName.get(name);
     if (!entry || !/^[a-f0-9]{64}$/.test(String(entry.sha256 || ''))) {
@@ -81,6 +87,33 @@ async function githubJson(url, { token, method = 'GET', body, allow404 = false }
   return response.json();
 }
 
+async function resolveTagCommitSha(apiRoot, tag, token, { allow404 = false } = {}) {
+  let ref = await githubJson(`${apiRoot}/git/ref/tags/${encodeURIComponent(tag)}`, { token, allow404 });
+  if (!ref) return null;
+  let object = ref.object;
+  for (let depth = 0; depth < 4; depth += 1) {
+    const type = String(object?.type || '');
+    const sha = String(object?.sha || '');
+    if (!/^[a-f0-9]{40}$/i.test(sha)) fail('GitHub tag target is invalid');
+    if (type === 'commit') return sha.toLowerCase();
+    if (type !== 'tag') fail(`GitHub tag resolves to unsupported object type: ${type || 'unknown'}`);
+    const tagObject = await githubJson(`${apiRoot}/git/tags/${sha}`, { token });
+    object = tagObject?.object;
+  }
+  fail('GitHub tag indirection is too deep');
+}
+
+async function assertTagTarget(apiRoot, tag, targetCommitish, token, { allowMissing = false } = {}) {
+  const actual = await resolveTagCommitSha(apiRoot, tag, token, { allow404: allowMissing });
+  if (!actual) {
+    if (allowMissing) return;
+    fail(`GitHub tag is missing after publish: ${tag}`);
+  }
+  if (actual !== targetCommitish.toLowerCase()) {
+    fail(`GitHub tag target mismatch: ${tag}`);
+  }
+}
+
 async function remoteAssetSha256(asset, token) {
   const digest = String(asset.digest || '');
   if (/^sha256:[a-f0-9]{64}$/.test(digest)) return digest.slice('sha256:'.length);
@@ -114,6 +147,22 @@ async function uploadAsset(release, local, token) {
   return response.json();
 }
 
+function assetMap(assets, label) {
+  const byName = new Map();
+  for (const asset of Array.isArray(assets) ? assets : []) {
+    const name = String(asset?.name || '');
+    if (!name || byName.has(name)) fail(`${label} contains invalid or duplicate assets`);
+    byName.set(name, asset);
+  }
+  return byName;
+}
+
+function rejectUnexpectedAssets(assets, artifacts, label) {
+  const expected = new Set(artifacts.map((local) => local.name));
+  const unexpected = (Array.isArray(assets) ? assets : []).filter((asset) => !expected.has(String(asset?.name || '')));
+  if (unexpected.length) fail(`${label} contains unexpected assets: ${unexpected.map((a) => a.name).join(', ')}`);
+}
+
 async function mirrorRelease(options = {}) {
   const repository = String(options.repository || process.env.GITHUB_REPOSITORY || '').trim();
   const version = String(options.version || process.env.RELEASE_VERSION || '').trim();
@@ -133,7 +182,9 @@ async function mirrorRelease(options = {}) {
     allow404: true,
   });
 
-  if (!release) {
+  if (release) {
+    await assertTagTarget(apiRoot, tag, targetCommitish, token, { allowMissing: release.draft === true });
+  } else {
     release = await githubJson(`${apiRoot}/releases`, {
       token,
       method: 'POST',
@@ -150,7 +201,8 @@ async function mirrorRelease(options = {}) {
 
   const publishedAlready = release.draft === false;
   const assets = Array.isArray(release.assets) ? [...release.assets] : [];
-  const byName = new Map(assets.map((asset) => [asset.name, asset]));
+  rejectUnexpectedAssets(assets, artifacts, 'GitHub release');
+  const byName = assetMap(assets, 'GitHub release');
 
   for (const local of artifacts) {
     let asset = byName.get(local.name);
@@ -162,9 +214,6 @@ async function mirrorRelease(options = {}) {
     await verifyExistingAsset(asset, local, token);
   }
 
-  const unexpected = assets.filter((asset) => !artifacts.some((local) => local.name === asset.name));
-  if (unexpected.length) fail(`GitHub release contains unexpected assets: ${unexpected.map((a) => a.name).join(', ')}`);
-
   if (release.draft) {
     release = await githubJson(`${apiRoot}/releases/${release.id}`, {
       token,
@@ -174,7 +223,10 @@ async function mirrorRelease(options = {}) {
   }
 
   const finalRelease = await githubJson(`${apiRoot}/releases/tags/${encodeURIComponent(tag)}`, { token });
-  const finalByName = new Map((finalRelease.assets || []).map((asset) => [asset.name, asset]));
+  await assertTagTarget(apiRoot, tag, targetCommitish, token);
+  const finalAssets = Array.isArray(finalRelease.assets) ? finalRelease.assets : [];
+  rejectUnexpectedAssets(finalAssets, artifacts, 'published GitHub release');
+  const finalByName = assetMap(finalAssets, 'published GitHub release');
   for (const local of artifacts) {
     const asset = finalByName.get(local.name);
     if (!asset) fail(`GitHub release verification missing asset: ${local.name}`);
@@ -194,5 +246,6 @@ if (require.main === module) {
 
 module.exports = {
   loadReleaseArtifacts,
+  resolveTagCommitSha,
   mirrorRelease,
 };
