@@ -1,0 +1,36 @@
+name: release-1.2.18-prep-once
+on:
+  push:
+    branches: [release/client-1.2.18]
+    paths:
+      - '.github/workflows/release-1.2.18-prep-once.yml'
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/client-1.2.18
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Synchronize release version
+        run: |
+          npm version 1.2.18 --no-git-tag-version
+          printf '1.2.18\n' > .github/release-client-version
+      - name: Verify release candidate metadata and tests
+        run: |
+          npm test
+          git diff --check
+      - name: Remove one-shot workflow and commit
+        run: |
+          git rm .github/workflows/release-1.2.18-prep-once.yml
+          git config user.name 'Geek Release Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git add package.json package-lock.json .github/release-client-version
+          git commit -m 'release: prepare Geek 1.2.18'
+          git push origin HEAD:release/client-1.2.18
