@@ -173,44 +173,6 @@ function toScheduledCleanupPayload(payload, taskId) {
   return { accountId: String(payload || ''), taskId: String(taskId || '') };
 }
 
-function installSubscriptionPageEnhancements() {
-  if (typeof document === 'undefined' || typeof location === 'undefined') return;
-  const isSubscriptionPage = /(?:^|\/)subscription\.html$/i.test(String(location.pathname || ''));
-  if (!isSubscriptionPage) return;
-
-  window.addEventListener('DOMContentLoaded', () => {
-    const loginView = document.getElementById('view-login');
-    const registerSwitch = loginView?.querySelector('.switch-row');
-    if (loginView && registerSwitch && !document.getElementById('subscription-forgot-password')) {
-      const row = document.createElement('div');
-      row.className = 'switch-row';
-      row.style.marginTop = '10px';
-      const link = document.createElement('a');
-      link.id = 'subscription-forgot-password';
-      link.textContent = '忘记密码？';
-      link.href = '#';
-      link.addEventListener('click', (event) => {
-        event.preventDefault();
-        void invokeSubscription('subscription:open-password-reset').catch(() => {
-          const error = document.getElementById('login-err');
-          if (error) error.textContent = '无法打开密码重置页面，请稍后重试';
-        });
-      });
-      row.appendChild(link);
-      loginView.insertBefore(row, registerSwitch);
-    }
-
-    // 登录/注册成功后旧页面会 reload。reload 后若本地 Geek 登录已经成立，
-    // 直接进入主客户端，不再把“剩余字符”当作进入工作区前的中间门槛。
-    void invokeSubscription('subscription:get-state')
-      .then((state) => {
-        if (state?.loggedIn) return invokeSubscription('subscription:enter-app');
-        return null;
-      })
-      .catch(() => {});
-  }, { once: true });
-}
-
 contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
@@ -312,14 +274,10 @@ contextBridge.exposeInMainWorld(
       login: (email, password) => invokeSubscription('subscription:login', email, password),
       register: (email, password) => invokeSubscription('subscription:register', email, password),
       createOrder: (plan) => invokeSubscription('subscription:create-order', plan),
-      myOrders: () => invokeSubscription('subscription:my-orders'),
       getQuota: (force) => invokeSubscription('subscription:get-quota', force === true),
-      openPasswordReset: () => invokeSubscription('subscription:open-password-reset'),
       logout: () => invokeSubscription('subscription:logout'),
       enterApp: () => invokeSubscription('subscription:enter-app'),
       closeWindow: () => invokeSubscription('subscription:close-window'),
     }),
   }),
 );
-
-installSubscriptionPageEnhancements();
