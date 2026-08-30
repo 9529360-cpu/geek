@@ -37,7 +37,7 @@ jobs:
       - name: Validate release trigger
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkg = Get-Content package.json -Raw -Encoding UTF8 | ConvertFrom-Json
           $trigger = (Get-Content .github/release-client-version -Raw).Trim()
           if ($trigger -ne $pkg.version) {
             throw "Release trigger $trigger does not match package version $($pkg.version)"
