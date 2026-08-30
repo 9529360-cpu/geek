@@ -31,7 +31,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npm run dist:test
       - name: Sanitize and identify validation artifact
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $out = Join-Path $PWD 'dist-validation-build'
           $exe = @(Get-ChildItem -Path $out -Filter 'geek-validation-setup-*.exe' -File)
