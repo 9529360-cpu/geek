@@ -27,12 +27,12 @@ assert.match(html, /id="account-settings-fontColor"/);
 assert.match(html, /id="proxy-overlay"/);
 assert.match(html, /id="proxy-protocal"/);
 
-assert.match(app, /ctxMenu\.dataset\.accountId = account\.id/);
+assert.match(app, /ctxMenu\.dataset\.accountId\s*=\s*account\.id/);
 assert.match(app, /function showAccountSettingsDialog\(account\)/);
-assert.match(app, /accountSettingsAccountId = account\.id/);
+assert.match(app, /accountSettingsAccountId\s*=\s*account\.id/);
 assert.match(app, /window\.api\.accounts\.update\(accountSettingsAccountId,/);
 assert.match(app, /function showProxyDialog\(account\)/);
-assert.match(app, /proxyAccountId = account\.id/);
+assert.match(app, /proxyAccountId\s*=\s*account\.id/);
 assert.match(app, /window\.api\.accounts\.update\(proxyAccountId,/);
 assert.match(app, /async function refreshAccountInstance\(accountId\)/);
 const refreshBody = app.match(/async function refreshAccountInstance\(accountId\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
