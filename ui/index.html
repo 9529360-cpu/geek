@@ -373,12 +373,19 @@
 
 <!-- 设置面板 -->
 <div id="settings-overlay" class="overlay hidden">
-  <div class="settings-panel settings-panel--humanized" role="dialog" aria-modal="true" aria-label="设置">
+  <div class="settings-panel settings-panel--humanized" role="dialog" aria-modal="true" aria-label="应用设置">
     <div class="settings-header">
-      <div class="settings-head-copy"><span>设置</span><small>按使用场景调整，保存前可直接预览外观</small></div>
+      <div class="settings-head-copy"><span>应用设置</span><small>管理极客账户信息与应用级偏好</small></div>
       <button id="settings-close" class="settings-close" aria-label="关闭设置">×</button>
     </div>
     <div id="settings-global" class="settings-body settings-body--cards">
+      <section id="settings-personal-center" class="settings-card">
+        <div class="settings-card-title">个人中心</div>
+        <div class="settings-card-sub">只读显示当前极客账户信息；账户状态仍由现有订阅服务统一管理。</div>
+        <div class="row-item"><span>邮箱</span><strong id="settings-account-email">正在读取…</strong></div>
+        <div class="row-item"><span>剩余字符</span><strong id="settings-account-quota">正在读取…</strong></div>
+      </section>
+
       <section class="settings-card">
         <div class="settings-card-title">外观</div>
         <div class="settings-card-sub">主题和强调色会即时预览；取消后恢复打开设置前的外观。</div>

@@ -3650,6 +3650,8 @@
   const settingsController = window.GeekSettingsController.create({
     getConfig: () => window.api.config.get(),
     setConfig: patch => window.api.config.set(patch),
+    getSubscriptionState: () => window.api.subscription.getState(),
+    refreshSubscription: () => window.api.subscription.refresh(),
     applyTheme,
     afterSave: async () => { await loadAccounts(); },
   });

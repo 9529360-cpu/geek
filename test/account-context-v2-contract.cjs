@@ -9,7 +9,7 @@ const subscription = read('ui/subscription.html');
 const main = read('src/main.cjs');
 
 // V2 intentionally rejects PR #275's duplicate personal-center/settings ownership model.
-// Personal center has one owner: the existing subscription home, not ordinary Settings.
+// Subscription state has one owner. The existing subscription home remains canonical; application Settings may expose a read-only mirror.
 assert.match(subscription, /id="view-home"/);
 assert.doesNotMatch(html, /settings-account-center|geek-account-email|geek-account-quota|geek-account-status/);
 assert.doesNotMatch(subscription, /getQuota\(true\)/, 'personal center must not display fail-open quota sentinel');
