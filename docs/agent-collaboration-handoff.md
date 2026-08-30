@@ -79,21 +79,28 @@
 
 ```yaml
 task_id: ACCOUNT-CONTEXT-001
-status: auditing
+status: implementing
 owner: web-gpt
 base: origin/master
-working_branch: to-be-reported
+base_commit: 5245a710b429cf8454682fcf437517518b77c21f
+working_branch: must-be-created-from-base
 scope_document: docs/account-and-app-context-menu-scope.md
 objective: >-
-  审计极客账户个人中心、导航栏应用实例右键菜单、
-  以及设置页账号设置中的实例级项目迁移边界。
-  第一阶段只读审计，不修改产品代码。
+  在不破坏 Geek 1.2.17 稳定基线的前提下，完成极客账户个人中心、
+  导航栏应用实例右键菜单整理、设置页实例级账号设置迁移，
+  并修复审计发现的代理协议、全局代理回落和余额 fail-open 风险。
+  允许自主进行架构判断、代码实现、测试、CI 和验收，但必须持续对照本文档。
 allowed_changes:
-  - 审计记录
-  - 本文档的执行日志和状态字段
+  - ui/index.html
+  - ui/app.js
+  - ui/settings-controller.js
+  - ui/settings-controller.css
+  - src/main.cjs（仅代理协议和全局代理回落相关）
+  - 相关新增或现有测试文件
+  - 与本任务直接相关的审计、测试和交接记录
 forbidden_changes:
   - master 分支
-  - 产品源码
+  - 允许范围之外的产品源码
   - 主导航结构
   - 登录恢复流程
   - WebView partition
@@ -327,4 +334,81 @@ next_gate: 星尘审阅审计结果后，才允许进入测试和实现
 - 个人中心数据来源。
 - 最小实现方案。
 
-<!-- 网页版 GPT 的后续报告从这里继续追加，不要删除历史记录。 -->
+### [REPORT-001]
+
+日期：2026-08-30
+任务：ACCOUNT-CONTEXT-001 第一阶段源码审计
+状态：accepted-for-next-phase
+作者：网页版 GPT
+
+审计结论摘要：
+
+- 现有导航栏账号右键菜单已经存在，唯一 owner 是 renderer/ui/app.js。
+- 右键菜单通过具体 account.id 绑定目标；刷新当前直接操作 wvMap.get(accountId)。
+- 现有设置页中的账号字段全部是实例级设置；全局设置应继续留在设置页。
+- 个人中心信息已有真实来源：subscription state、/api/status、/api/me；不能使用 getQuota(true) 的 MAX_SAFE_INTEGER fail-open 值作为余额。
+- 审计发现 HTTP 代理协议回切缺陷，以及关闭独立代理后的全局代理即时回落缺陷。
+- relogin/扫码登录当前没有平台 capability，不应本阶段伪造加入。
+- 删除账号和重命名已有 canonical handler，应复用。
+
+审计完整内容已写在此前本交接文档的审计报告中；产品定义文档与 1.2.17 基线对齐。
+
+星尘决策：审计通过，允许进入实施阶段。网页版 GPT 可以自主完成架构判断、产品实现、测试、CI 和真实验收，但不得突破本文档边界。
+
+### [NEXT-INSTRUCTION-001]
+
+日期：2026-08-30
+任务：ACCOUNT-CONTEXT-001 Phase 2 最小实现
+发布者：星尘
+执行者：网页版 GPT
+基线：5245a710b429cf8454682fcf437517518b77c21f
+
+现在开始实施，不再停留在审计。你可以自主做架构判断、拆任务、写代码、写测试、修 CI、运行验证和进行 Windows 验收；但所有判断必须以审计事实和产品定义为依据，不能把需求重新解释成一个模糊 Account Center。
+
+第一步：从精确基线 5245a710b429cf8454682fcf437517518b77c21f 创建独立实现分支，并将分支名、创建结果、工作区状态写入 START。不要在 master 或本 docs 分支实现，不要覆盖或清理未跟踪文件。
+
+第二步：先写失败 contract/test，再实现。测试至少覆盖：
+
+1. 右击 A 后即使 active account 切到 B，菜单 action 仍只作用 A。
+2. 多平台、多账号 proxy update 不串目标。
+3. HTTP/HTTPS/SOCKS4/SOCKS5 协议保存和回切正确。
+4. 关闭独立代理时即时遵守“跟随全局代理”语义，而不是错误直连。
+5. refreshAccountInstance(accountId) 只 reload 目标 wvMap 实例。
+6. 个人中心邮箱和字符/额度来自真实 subscription state/refresh 数据。
+7. 余额网络失败、无缓存或过期时显示失败/未知，不显示 MAX_SAFE_INTEGER、假 0 或假成功。
+8. 实例设置 target 固定，不允许 acc-select 造成目标漂移。
+9. 全局设置仍留在设置页，实例级设置迁移到右键“账号设置/设置代理”。
+10. 旧入口若保留，必须调用同一个 canonical handler。
+11. 账号数据、登录 token、partition、删除语义和敏感日志不回归。
+
+第三步：按最小垂直切片实现：
+
+- 主界面增加或整理个人中心，复用现有 subscription getState/refresh，不创建第二套账户状态。
+- 保留 ui/app.js 作为 #ctx-menu 唯一 owner。
+- 将“编辑应用”明确整理为当前实例的“账号设置”，固定 accountId。
+- 复用现有账号更新 handler，实现实例字段编辑。
+- 将代理表单的字段、校验和保存收敛到 canonical path。
+- 补齐 HTTP 协议写回和独立代理关闭后的全局代理即时回落。
+- 抽出唯一 refreshAccountInstance(accountId)，不新造 WebView manager 或 main-side refresh 系统。
+- 不实现当前不存在 capability 的 relogin/扫码登录。
+- 删除账号继续复用现有安全删除流程。
+
+允许修改的主要范围：
+
+- ui/index.html
+- ui/app.js
+- ui/settings-controller.js
+- ui/settings-controller.css
+- src/main.cjs（仅代理协议与全局代理回落相关）
+- 直接相关的测试文件、CI 合约或必要文档
+
+如确实需要修改范围外的文件，先在 REPORT 说明事实依据、影响、替代方案和等待确认，不要偷偷扩大范围。
+
+第四步：实现后必须做独立审查和真实验收。不能只运行 npm test。尽可能在 Windows 实际启动并点击验证：登录、邮箱、字符、失败态、右击 WhatsApp、代理、刷新、切换其他实例、重启恢复和全局设置。无法真实验证的必须写 unknown。
+
+第五步：完成一轮后在本文档末尾追加 REPORT，不覆盖历史。报告必须包含分支、commit、变更文件、真实命令、真实输出、测试结果、UI 验收证据、风险、未完成项和下一步。不得把 status 写成 accepted；accepted 由星尘/阿豪决定。
+
+当前唯一任务：按上述要求完成 ACCOUNT-CONTEXT-001 Phase 2，并把工作过程写回本交接文档。
+
+<!-- 后续网页版 GPT 的 START/REPORT 继续追加在这里，不删除任何历史。 -->
+
