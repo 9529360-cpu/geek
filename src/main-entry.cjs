@@ -16,6 +16,7 @@ const { createTelegramNativeAttachmentHandler } = require('./telegram-native-att
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
+const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -120,11 +121,22 @@ if (primaryInstance) {
     },
   });
 
+  // main.cjs historically treats an unknown account type as WhatsApp. Wrap only the
+  // accounts:add registration so explicit unknown/new types fail closed, while old
+  // callers that omit type keep the established WhatsApp default.
+  const accountTypeBoundary = installAccountTypeBoundary({ ipcMain });
+
   // Fail closed if Electron changes in a way that prevents safe partition recovery.
   // Starting legacy main without the account partition key would collapse WPP and
   // account-deletion bookkeeping back onto an empty partition string.
   sessionPartitionCompat.ready
-    .then(() => require('./main.cjs'))
+    .then(() => {
+      try {
+        require('./main.cjs');
+      } finally {
+        accountTypeBoundary.restore();
+      }
+    })
     .catch((error) => {
       const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'SESSION_PARTITION_COMPAT_FAILED');
       console.error('[session-partition] startup blocked:', code.slice(0, 80));
