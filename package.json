@@ -1,7 +1,7 @@
 {
   "name": "geek",
   "productName": "极客",
-  "version": "1.2.16",
+  "version": "1.2.17",
   "description": "极客——多平台多账号聊天客户端（WhatsApp / Telegram / LINE）",
   "main": "src/main-entry.cjs",
   "scripts": {
