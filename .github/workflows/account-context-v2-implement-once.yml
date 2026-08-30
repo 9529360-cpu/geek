@@ -1,0 +1,27 @@
+name: account-context-v2-implement-once
+on:
+  push:
+    branches: [feat/account-context-001-v2]
+    paths:
+      - '.github/workflows/account-context-v2-implement-once.yml'
+permissions:
+  contents: write
+jobs:
+  implement:
+    runs-on: [self-hosted, Linux, X64, geek-linux]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/account-context-001-v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/account-context-v2-implement-once.cjs
+      - run: npm test
+      - run: git diff --check
+      - run: |
+          git config user.name 'Geek Phase 2 Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: rebuild account context ownership'
+          git push origin HEAD:feat/account-context-001-v2
