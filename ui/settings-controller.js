@@ -161,11 +161,14 @@
     }
 
     function validate() {
-      const globalProxyError = validateProxy(checked('cfg-openProxy'), value('cfg-host'), value('cfg-port'), '全局代理');
-      if (globalProxyError) return { ok: false, message: globalProxyError, focusId: !value('cfg-host').trim() ? 'cfg-host' : 'cfg-port' };
+      if (!lockedAccountId) {
+        const globalProxyError = validateProxy(checked('cfg-openProxy'), value('cfg-host'), value('cfg-port'), '全局代理');
+        if (globalProxyError) return { ok: false, message: globalProxyError, focusId: !value('cfg-host').trim() ? 'cfg-host' : 'cfg-port' };
+        return { ok: true };
+      }
 
-      const accountId = value('acc-select');
-      if (!accountId) return { ok: true };
+      const accountId = currentAccountId();
+      if (!accountId) return { ok: false, message: '目标账号不存在', focusId: 'acc-name', tab: 'account' };
       const name = value('acc-name').trim();
       if (!name) return { ok: false, message: '账号显示名不能为空', focusId: 'acc-name', tab: 'account' };
       if (name.length > 80) return { ok: false, message: '账号显示名不能超过 80 个字符', focusId: 'acc-name', tab: 'account' };
@@ -324,14 +327,14 @@
       setStatus('正在保存…', 'working');
       try {
         const nextConfig = configPatch();
-const accountId = currentAccountId();
-if (lockedAccountId) {
-  await deps.updateAccount(accountId, accountPatch());
-} else {
-  await deps.setConfig(nextConfig);
-  config = { ...config, ...nextConfig };
-  deps.applyTheme(nextConfig.theme, nextConfig.accent);
-}
+        const accountId = currentAccountId();
+        if (lockedAccountId) {
+          await deps.updateAccount(accountId, accountPatch());
+        } else {
+          await deps.setConfig(nextConfig);
+          config = { ...config, ...nextConfig };
+          deps.applyTheme(nextConfig.theme, nextConfig.accent);
+        }
         if (typeof deps.afterSave === 'function') await deps.afterSave();
         const refreshed = await deps.getAccounts();
         accounts = refreshed?.accounts || refreshed || accounts;

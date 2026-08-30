@@ -20,6 +20,9 @@ assert.match(app, /data-act=\"edit\">账号设置</, '实例编辑入口应明�
 assert.match(app, /settingsController\.openAccount\(accountId/, '右键账号设置必须以固定 accountId 打开 canonical handler');
 assert.match(app, /settingsController\.openAccount\(accountId,\s*\{\s*focus:\s*['\"]proxy['\"]\s*\}\)/, '代理菜单必须复用同一个固定实例账号设置 handler');
 
+assert.doesNotMatch(html, /id=\"proxy-overlay\"/, '旧独立代理弹窗必须移除，避免第二套代理状态');
+assert.doesNotMatch(app, /showProxyDialog|proxyAccountId/, 'renderer 不得保留第二套代理保存 handler');
+
 // Ordinary Settings remains global/account-center only; instance editing is entered from the account context menu.
 assert.match(html, /data-settings-tab=\"account-center\"/, '设置页必须提供极客个人中心');
 assert.match(html, /data-settings-tab=\"global\"/, '设置页必须保留全局应用设置');
@@ -28,6 +31,9 @@ assert.match(html, /id=\"acc-protocal\"/, '实例代理表单必须包含协议�
 assert.match(settings, /async function openAccount\(accountId,\s*options = \{\}\)/, 'controller 必须提供固定实例入口');
 assert.match(settings, /lockedAccountId/, '实例设置必须保存固定 target，而不是依赖 active account');
 assert.match(settings, /protocal:\s*value\('acc-protocal'/, '实例代理协议必须走 canonical account patch');
+
+assert.match(settings, /if \(!lockedAccountId\)[\s\S]{0,500}globalProxyError[\s\S]{0,500}return \{ ok: true \}/, '普通设置只校验全局字段');
+assert.match(settings, /const accountId = currentAccountId\(\);[\s\S]{0,500}账号显示名不能为空/, '实例设置必须只校验固定 target 字段');
 
 // Personal center must use real subscription state/refresh and expose an explicit unknown/error state.
 assert.match(html, /id=\"geek-account-email\"/, '个人中心必须显示真实邮箱字段');

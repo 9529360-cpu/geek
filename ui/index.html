@@ -278,52 +278,6 @@
 <!-- 账号右键菜单 -->
 <div id="ctx-menu" class="ctx-menu hidden"></div>
 
-<!-- 独立代理IP 弹窗 -->
-<div id="proxy-overlay" class="overlay hidden">
-  <div class="add-dialog">
-    <div class="settings-header">
-      <span>独立代理IP</span>
-      <button id="proxy-close" class="settings-close">×</button>
-    </div>
-    <div class="add-form">
-      <div class="proxy-tip">电脑已开启VPN的请勿进行设置，容易引起网络冲突</div>
-      <label class="row-item">
-        <span>启用代理</span>
-        <input type="checkbox" id="proxy-openProxy">
-      </label>
-      <div class="row-item">
-        <span>协议</span>
-        <select id="proxy-protocal">
-          <option value="http">HTTP</option>
-          <option value="https">HTTPS</option>
-          <option value="socks4">SOCKS4</option>
-          <option value="socks5">SOCKS5</option>
-        </select>
-      </div>
-      <div class="row-item">
-        <span>IP 地址</span>
-        <input type="text" id="proxy-host" placeholder="例如 127.0.0.1">
-      </div>
-      <div class="row-item">
-        <span>端口</span>
-        <input type="text" id="proxy-port" placeholder="例如 7890">
-      </div>
-      <div class="row-item">
-        <span>IP 账号</span>
-        <input type="text" id="proxy-user" placeholder="如有填此处">
-      </div>
-      <div class="row-item">
-        <span>IP 密码</span>
-        <input type="password" id="proxy-pwd" placeholder="如有填此处">
-      </div>
-    </div>
-    <div class="settings-footer">
-      <button id="proxy-cancel" class="btn-plain">取消</button>
-      <button id="proxy-save" class="btn-add">保存</button>
-    </div>
-  </div>
-</div>
-
 <!-- 添加账号弹窗 -->
 <div id="add-overlay" class="overlay hidden">
   <div class="add-dialog">

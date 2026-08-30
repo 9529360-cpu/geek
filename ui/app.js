@@ -1185,40 +1185,6 @@
   document.addEventListener('click', hideContextMenu);
   window.addEventListener('blur', hideContextMenu);
 
-  // ---------- 独立代理IP 弹窗（原版 Proxy IP） ----------
-  const proxyOverlay = document.getElementById('proxy-overlay');
-  let proxyAccountId = null;
-  function showProxyDialog(account) {
-    proxyAccountId = account.id;
-    document.getElementById('proxy-openProxy').checked = !!account.openProxy;
-    document.getElementById('proxy-protocal').value = account.protocal || 'http';
-    document.getElementById('proxy-host').value = account.host || '';
-    document.getElementById('proxy-port').value = account.port || '';
-    document.getElementById('proxy-user').value = account.huser || '';
-    document.getElementById('proxy-pwd').value = account.hpwd || '';
-    proxyOverlay.classList.remove('hidden');
-  }
-  function closeProxyDialog() { proxyOverlay.classList.add('hidden'); }
-  document.getElementById('proxy-close').onclick = closeProxyDialog;
-  document.getElementById('proxy-cancel').onclick = closeProxyDialog;
-  proxyOverlay.onclick = (e) => { if (e.target === proxyOverlay) closeProxyDialog(); };
-  document.getElementById('proxy-save').onclick = async () => {
-    if (!proxyAccountId) return;
-    try {
-      await window.api.accounts.update(proxyAccountId, {
-        openProxy: document.getElementById('proxy-openProxy').checked,
-        protocal: document.getElementById('proxy-protocal').value,
-        host: document.getElementById('proxy-host').value.trim(),
-        port: document.getElementById('proxy-port').value.trim(),
-        huser: document.getElementById('proxy-user').value.trim(),
-        hpwd: document.getElementById('proxy-pwd').value
-      });
-      closeProxyDialog();
-    } catch (e) {
-      alert('保存失败: ' + e.message);
-    }
-  };
-
   // ---------- 排序 ----------
   async function moveAccount(id, direction) {
     try {
