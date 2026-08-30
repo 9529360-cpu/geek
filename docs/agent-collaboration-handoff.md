@@ -79,7 +79,7 @@
 
 ```yaml
 task_id: ACCOUNT-CONTEXT-001
-status: needs-review
+status: ready-for-user-test
 owner: web-gpt
 base: origin/master
 base_commit: 5245a710b429cf8454682fcf437517518b77c21f
@@ -609,3 +609,105 @@ package version：1.2.17
 本次允许修改：仅为生成测试安装包而临时调整 feat/account-context-001 上仓库既有 build-validation-client workflow 的触发/构建身份证据；不修改产品源码、package version、release marker。构建后恢复 workflow 内容。
 本次明确禁止修改：master；PR #275 合并状态；正式 release-client；.github/release-client-version；正式 updater metadata；产品源码和账号数据。
 预计验证方式：复用既有 Windows self-hosted validation-client-build 流程，精确 checkout d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2，执行 npm ci、validation-build-isolation contract、npm run dist:test，记录 run/job、文件名、SHA256、artifact 和实际结果。Windows 用户点击验收仍由阿豪安装后确认。
+
+
+### [REPORT-003]
+
+日期时间：2026-08-31 01:05 Asia/Kuala_Lumpur
+任务 ID：ACCOUNT-CONTEXT-001 Gate 3 测试安装包
+状态：ready-for-user-test
+构建源 branch：feat/account-context-001
+构建源 commit：d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+基线 commit：5245a710b429cf8454682fcf437517518b77c21f
+package version：1.2.17
+PR：#275，Draft，open，未合并
+master：5245a710b429cf8454682fcf437517518b77c21f，未修改
+
+本轮做了什么：
+- 复用仓库现有 validation-client-build 的验证构建配方；因当前 connector 无 workflow_dispatch 写接口，为避免污染 PR #275，创建隔离编排分支 build/account-context-001-validation，并让 Windows job 精确 checkout 实现 commit d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2。
+- 在 self-hosted Windows x64 geek-real-client runner 上执行 npm ci、validation-build-isolation contract 和 npm run dist:test。
+- 构建后删除 validation 目录中的 updater metadata/blockmap，只上传单一测试安装包。
+- Windows runner 计算安装包 SHA256；随后又从 GitHub Actions artifact 下载并在独立会话环境解压复算，结果一致。
+
+安装包与 artifact：
+- 安装包文件名：geek-validation-setup-1.2.17.exe
+- 安装包大小：110180757 bytes
+- 安装包 SHA256：614c3b759f5b2ac45b16cd3cde29c6b04e5fb35caefe94eba207f8e93a9ca5a4
+- GitHub Actions artifact 名：geek-validation-d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+- Artifact ID：9735755875
+- Artifact ZIP 大小：110179014 bytes
+- Artifact ZIP SHA256：7a1c84fe93c3ac1e3ae10648e6c0c72e75cf87287fa79d2cf4d1fb6cdde9927b
+- Artifact 下载链接：https://github.com/9529360-cpu/geek/actions/runs/33324030474/artifacts/9735755875
+- Artifact 到期时间：2026-09-06T17:03:35Z（GitHub retention 7 days）
+
+构建 workflow / run / job：
+- workflow：account-context-validation-build
+- orchestration branch：build/account-context-001-validation
+- orchestration commit：4d881f7d0a999156d1b314fdf70a4c7a106bc6c5
+- source checkout：d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+- run ID：33324030474
+- job ID：99290903420
+- run URL：https://github.com/9529360-cpu/geek/actions/runs/33324030474
+
+构建命令：
+
+~~~text
+npm ci
+node test/validation-build-isolation-contract.cjs
+npm run dist:test
+~~~
+
+构建实际结果：
+
+~~~text
+VALIDATION_BUILD_ISOLATION_CONTRACT_OK
+> geek@1.2.17 dist:test
+> npm run electron:install && npm run integrity:generate && electron-builder --config electron-builder.validation.yml --win --publish never
+...
+• building target=nsis file=dist-validation-build\geek-validation-setup-1.2.17.exe archs=x64 oneClick=true perMachine=false
+VALIDATION_INSTALLER_NAME=geek-validation-setup-1.2.17.exe
+VALIDATION_INSTALLER_SHA256=614c3b759f5b2ac45b16cd3cde29c6b04e5fb35caefe94eba207f8e93a9ca5a4
+VALIDATION_SOURCE_BRANCH=feat/account-context-001
+VALIDATION_SOURCE_COMMIT=d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+VALIDATION_PACKAGE_VERSION=1.2.17
+Artifact geek-validation-d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2 has been successfully uploaded. Artifact ID is 9735755875
+job conclusion: success
+~~~
+
+补充构建事实：
+- electron-builder.validation.yml 的 appId 是 com.stardust.geek.validation，productName 是“极客 验证版”，输出目录是 dist-validation-build；它不配置 publish provider。
+- 构建时 CSC_IDENTITY_AUTO_DISCOVERY=false；这是验证构建，不是正式 release-client。
+- upload-artifact 完成后 setup-node 的 cache save 出现 gzip command not found 警告，但该 post-step warning 发生在安装包构建和 artifact finalized 之后，job 最终 conclusion 仍为 success；不把缓存警告解释为产品失败。
+
+安装和启动方式：
+1. 从上面的 GitHub Actions artifact 链接下载 ZIP，解压得到 geek-validation-setup-1.2.17.exe。
+2. 安装前可用 PowerShell 执行 Get-FileHash .\geek-validation-setup-1.2.17.exe -Algorithm SHA256，必须得到 614c3b759f5b2ac45b16cd3cde29c6b04e5fb35caefe94eba207f8e93a9ca5a4。
+3. 双击 geek-validation-setup-1.2.17.exe。该 NSIS 测试包为 oneClick、perMachine=false，按当前用户安装。
+4. 安装后启动“极客 验证版”。验证版使用独立 appId/runtime profile，不应与正式 Geek 共用验证身份。
+5. 按 Gate 3 清单测试个人中心、邮箱/字符、失败态、WhatsApp/Telegram/LINE 实例右键、代理协议切换与回落、刷新目标隔离、重启持久化和全局设置。
+
+已验证：
+- verified：Windows runner 精确 checkout d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2。
+- verified：validation build isolation contract 通过。
+- verified：Windows x64 NSIS 测试安装包构建成功。
+- verified：artifact 上传成功，ID 9735755875，7 天 retention。
+- verified：安装包 SHA256 由 Windows runner 计算后，又从 artifact 解压复算一致。
+- verified：master 未修改，PR #275 仍 Draft/open/未合并。
+
+仍为 unknown：
+- 阿豪机器上的真实安装是否顺利。
+- 个人中心真实邮箱和字符余额显示。
+- 余额网络失败/无缓存时的真实 UI。
+- 真实右键菜单在多平台、多账号下的 target 隔离。
+- 真实代理连接、HTTP/HTTPS/SOCKS4/SOCKS5 切换、关闭独立代理后的全局回落、重启持久化。
+- 目标 WebView 刷新行为。
+- 全局设置和已有账号数据在真实客户端上的回归。
+
+当前结论：
+- artifact_built：verified。
+- release_published：not applicable；没有正式发布。
+- deployed：not applicable。
+- runtime_health / Windows UI 验收：unknown，等待阿豪亲自安装。
+
+下一步：
+- 等待阿豪下载安装测试。只有阿豪明确确认“没问题，可以合并”后，才进入是否合并 PR #275 的下一决策；当前不得 accepted，不得自行合并。
