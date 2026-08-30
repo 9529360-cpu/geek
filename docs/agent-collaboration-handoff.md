@@ -412,3 +412,13 @@ next_gate: 星尘审阅审计结果后，才允许进入测试和实现
 
 <!-- 后续网页版 GPT 的 START/REPORT 继续追加在这里，不删除任何历史。 -->
 
+### [START-001]
+
+日期时间：2026-08-30 15:18 Asia/Kuala_Lumpur
+任务 ID：ACCOUNT-CONTEXT-001
+基线 commit：5245a710b429cf8454682fcf437517518b77c21f
+工作分支：feat/account-context-001
+当前工作区状态：GitHub connector 远程执行；无本地 checkout/worktree，因此没有可声明为 clean/dirty 的本地工作区、未跟踪文件或未提交修改。远程实现分支已从精确基线创建，尚无产品代码提交。
+本次允许修改：ui/index.html；ui/app.js；ui/settings-controller.js；ui/settings-controller.css；src/main.cjs 仅代理协议与全局代理即时回落；直接相关测试；本交接记录。
+本次明确禁止修改：master；docs/account-context-menu-scope 上的产品源码；主导航结构；登录恢复流程；WebView partition；account-data 边界/store；全局设置既有行为；删除账号安全语义；发布版本与 release marker。
+预计验证方式：先提交失败 contract 并用分支 CI/PR test 证明红测；再最小实现并运行聚焦测试、完整 npm test/CI；随后尽可能运行 windows-real-client-regression 或可用 Windows 验收。任何无法真实点击、真实账户读取或 WebView 隔离验证的项目标记 unknown。
