@@ -23,6 +23,8 @@ jobs:
         shell: bash
         run: |
           sed -n "/node <<'NODE'/,/^          NODE$/p" .github/workflows/account-context-apply.yml | sed '1d;$d;s/^          //' > /tmp/account-context-apply.cjs
+          sed -i 's/quotaNode.textContent = `${remaining.toLocaleString()} 字符`;/quotaNode.textContent = remaining.toLocaleString() + " 字符";/' /tmp/account-context-apply.cjs
+          node --check /tmp/account-context-apply.cjs
           node /tmp/account-context-apply.cjs
           node test/account-context-phase2-contract.cjs
           git diff --check
