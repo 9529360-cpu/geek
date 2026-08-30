@@ -569,3 +569,29 @@ All 125 tests passed.
 
 - 是否安排当前实现分支的 Windows 真实点击验收。
 - 在 Gate 3 证据出来前，不建议把“产品验收完成”作为合并理由。
+
+
+## [NEXT-INSTRUCTION-002]
+
+日期：2026-08-30
+任务：ACCOUNT-CONTEXT-001 Gate 3 测试安装包
+发布者：星尘
+执行者：网页版 GPT
+前置依据：REPORT-002；实现 commit d3a4ac6b0a5d28a5950f0001f0fbeb3c16d3daf2
+
+代码层和自动化 contract 已达到 needs-review，但 Windows 真实产品验收仍为 unknown。现在请继续为 `feat/account-context-001` 构建一个可供阿豪安装测试的测试安装包或验证构建。
+
+要求：
+
+1. 不修改 master，不合并 PR #275，不发布正式版本，不修改正式 release marker 或版本号。
+2. 构建必须来自 `feat/account-context-001` 的明确 commit；先记录 branch、commit、package version 和工作区状态。
+3. 优先使用仓库已有的 Windows 客户端构建/验证 workflow；不要另造发布系统。
+4. 如果需要 dispatch-only workflow、Windows runner 或权限，而当前 connector 无法触发，必须报告真实阻塞原因和阿豪可执行的最短步骤；不得伪造安装包链接。
+5. 测试安装包必须明确标注为测试构建，不得当作正式发布版本。
+6. 构建完成后在本文档末尾追加 REPORT，必须包含：安装包文件名、真实下载链接或 GitHub Actions artifact 链接、branch、commit、版本号、SHA256、构建命令或 workflow/run/job ID、真实结果、安装/启动方式、已验证和 unknown 项目。
+7. 不得把 GitHub CI 通过等同于 Windows UI 验收通过。阿豪亲自安装确认前，下列内容必须保留为 unknown：个人中心真实邮箱/字符、失败显示、真实右键菜单目标隔离、代理连接/协议切换/重启持久化、目标 WebView 刷新、全局设置和旧账号数据回归。
+8. 不得自行合并。阿豪安装使用并明确说“没问题，可以合并”之前，PR #275 保持未合并。
+
+交付标准：有真实可下载测试安装包则状态写 `ready-for-user-test`；无法生成则写 `blocked`，附真实阻塞证据和最短下一步。绝不以“代码完成”替代安装包交付。
+
+<!-- 后续网页版 GPT 的 START/REPORT 继续追加在这里，不删除历史。 -->
