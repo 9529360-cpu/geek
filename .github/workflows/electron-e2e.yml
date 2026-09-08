@@ -81,6 +81,7 @@ jobs:
             echo ::error title=Electron E2E runner blocker::GitHub Actions Runner.Worker.exe is executing in Windows Session 0. Start the runner interactively from a logged-in desktop session before running GUI E2E.
             exit /b 1
           )
+          @exit /b 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
