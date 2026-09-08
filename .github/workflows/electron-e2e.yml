@@ -35,8 +35,11 @@ concurrency:
 jobs:
   smoke:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, X64, geek-linux]
+    runs-on: [self-hosted, windows, x64, geek-real-client]
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
@@ -50,13 +53,13 @@ jobs:
           cache: npm
 
       - name: Check diff whitespace
-        shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
-          else
+          if ('${{ github.event_name }}' -eq 'pull_request') {
+            git diff --check '${{ github.event.pull_request.base.sha }}...HEAD'
+          } else {
             git diff --check HEAD^
-          fi
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
@@ -64,7 +67,7 @@ jobs:
       - name: Prepare Electron runtime explicitly
         run: npm run electron:install
 
-      - name: Run isolated Electron shell smoke
+      - name: Run isolated Windows Electron shell smoke
         env:
           FORCE_COLOR: '0'
         run: npm run test:e2e
