@@ -69,15 +69,18 @@ jobs:
           fetch-depth: 0
 
       - name: Verify interactive Windows desktop
-        shell: powershell
+        shell: cmd
         run: |
-          $sessionId = (Get-Process -Id $PID).SessionId
-          $interactive = [Environment]::UserInteractive
-          Write-Host "E2E_WINDOWS_DESKTOP sessionId=$sessionId userInteractive=$interactive"
-          if ($sessionId -eq 0 -or -not $interactive) {
-            Write-Host "::error title=Electron E2E runner blocker::Windows runner has no interactive desktop (sessionId=$sessionId userInteractive=$interactive)."
-            exit 1
-          }
+          @echo E2E_WINDOWS_DESKTOP sessionName=%SESSIONNAME%
+          @query session
+          @if "%SESSIONNAME%"=="" (
+            echo ::error title=Electron E2E runner blocker::Windows runner has no SESSIONNAME and cannot prove an interactive desktop.
+            exit /b 1
+          )
+          @if /I "%SESSIONNAME%"=="Services" (
+            echo ::error title=Electron E2E runner blocker::Windows runner is executing in the Services session instead of an interactive desktop.
+            exit /b 1
+          )
 
       - name: Setup Node
         uses: actions/setup-node@v4
