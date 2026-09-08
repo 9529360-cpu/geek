@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        shell: pwsh
+        shell: cmd
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
