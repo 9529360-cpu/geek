@@ -33,8 +33,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  whitespace:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, geek-linux]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Check diff whitespace
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+          else
+            git diff --check HEAD^
+          fi
+
   smoke:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: whitespace
     runs-on: [self-hosted, windows, x64, geek-real-client]
     timeout-minutes: 15
     defaults:
@@ -52,16 +73,6 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-
-      - name: Check diff whitespace
-        run: |
-          $whitespace = 'core.whitespace=blank-at-eol,blank-at-eof,space-before-tab'
-          if ('${{ github.event_name }}' -eq 'pull_request') {
-            & git -c $whitespace diff --check '${{ github.event.pull_request.base.sha }}' HEAD
-          } else {
-            & git -c $whitespace diff --check HEAD^ HEAD
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
