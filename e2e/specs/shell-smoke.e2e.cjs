@@ -105,14 +105,14 @@ async function openAndCloseBroadcast(iteration) {
 
 describe('Geek Electron shell smoke', () => {
   it('launches the real Electron entry and keeps core UI interactions responsive', async () => {
-    const hostWindowSize = await browser.electron.execute((electron) => {
+    const hostContentSize = await browser.electron.execute((electron) => {
       const windows = electron.BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
       const hostWindow = electron.BrowserWindow.getFocusedWindow() || windows[0];
       if (!hostWindow) return null;
-      hostWindow.setSize(1280, 820);
-      return hostWindow.getSize();
+      hostWindow.setContentSize(1280, 820);
+      return hostWindow.getContentSize();
     });
-    assert.deepEqual(hostWindowSize, [1280, 820], 'Geek host BrowserWindow did not accept the E2E viewport size');
+    assert.deepEqual(hostContentSize, [1280, 820], 'Geek host BrowserWindow did not accept the E2E content viewport size');
 
     await browser.waitUntil(async () => browser.execute(() => document.readyState === 'complete' && !!document.body), {
       timeout: 10_000,
