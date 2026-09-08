@@ -9,7 +9,9 @@ exports.config = {
   logLevel: 'warn',
   bail: 1,
   waitforTimeout: 3000,
-  connectionRetryTimeout: 10_000,
+  // Electron starts a full Chromium desktop process. Keep this bounded well
+  // below the outer 120s watchdog, but do not undercut WDIO session startup.
+  connectionRetryTimeout: 45_000,
   connectionRetryCount: 0,
   framework: 'mocha',
   reporters: [],
