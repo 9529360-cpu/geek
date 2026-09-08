@@ -55,9 +55,9 @@ jobs:
       - name: Check diff whitespace
         run: |
           if ('${{ github.event_name }}' -eq 'pull_request') {
-            git diff --check '${{ github.event.pull_request.base.sha }}...HEAD'
+            & git diff --check '${{ github.event.pull_request.base.sha }}' HEAD
           } else {
-            git diff --check HEAD^
+            & git diff --check HEAD^ HEAD
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
