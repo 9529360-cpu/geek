@@ -26,8 +26,11 @@ async function main() {
   assert.match(config, /appEntryPoint:\s*path\.join\(__dirname, '\.\.', 'src', 'main-entry\.cjs'\)/, 'E2E must launch the real Electron entry');
   assert.match(config, /specs:\s*\['\.\/specs\/shell-smoke\.e2e\.cjs'\]/, 'E2E spec path must resolve from the WDIO config directory');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
-  assert.match(config, /windowTypes:\s*\['app'\]/, 'WebDriver session discovery must target the host Electron app, not guest webviews');
-  assert.doesNotMatch(config, /windowTypes:\s*\[[^\]]*'webview'/, 'host-shell smoke must not attach ChromeDriver to guest webview targets');
+  assert.match(config, /process\.env\.GEEK_E2E === '1'/, 'WDIO config must fail closed outside the E2E seam');
+  assert.match(config, /path\.relative\(path\.resolve\(os\.tmpdir\(\)\), e2eUserDataDir\)/, 'WDIO profile must remain underneath the OS temp root');
+  assert.match(config, /path\.basename\(e2eUserDataDir\)\.startsWith\('geek-e2e-'\)/, 'WDIO profile must use the isolated geek-e2e-* prefix');
+  assert.match(config, /--user-data-dir=\$\{e2eUserDataDir\}/, 'ChromeDriver and Electron must share the same isolated userData directory');
+  assert.doesNotMatch(config, /windowTypes:/, 'Do not override Electron Service target discovery without proven need');
   assert.doesNotMatch(config, /autoXvfb|xvfbAutoInstall/, 'Windows Electron E2E must not depend on Linux Xvfb');
   assert.match(config, /connectionRetryTimeout:\s*45_000/);
   assert.match(config, /logLevel:\s*'info'/, 'Windows Electron diagnostics must expose the WebDriver session lifecycle');
