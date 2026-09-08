@@ -32,7 +32,7 @@ const runtimeIdentity = configureRuntimeEnvironment({
 // explicit userData lives in a fresh OS-temp geek-e2e-* directory. The seam changes
 // exactly the first local getState() used by startup; all later subscription calls use
 // the real store and no token/JWT is accepted from the test environment.
-installSubscriptionStartupBypass({
+const e2eShellEnabled = installSubscriptionStartupBypass({
   isPackaged: app.isPackaged,
   profile: runtimeIdentity.profile,
   env: process.env,
@@ -47,6 +47,43 @@ const earlyUserDataDir = runtimePaths.resolveUserDataDir({
   overrideDir: process.env.GEEK_USER_DATA_DIR,
 });
 try { app.setPath('userData', earlyUserDataDir); } catch {}
+
+if (e2eShellEnabled) {
+  const resolvedUserData = path.resolve(app.getPath('userData'));
+  const relativeToTemp = path.relative(path.resolve(os.tmpdir()), resolvedUserData);
+  const isolatedTempUserData = !!relativeToTemp
+    && !relativeToTemp.startsWith('..')
+    && !path.isAbsolute(relativeToTemp)
+    && path.basename(resolvedUserData).startsWith('geek-e2e-');
+  console.log(`[geek-e2e] startup pid=${process.pid} profile=${runtimeIdentity.profile} packaged=${app.isPackaged} seam=true tempUserData=${isolatedTempUserData}`);
+
+  const describeHost = (rawUrl) => {
+    if (!rawUrl) return 'not-loaded';
+    try {
+      const parsed = new URL(rawUrl);
+      const pathname = decodeURIComponent(parsed.pathname || '').replace(/\\/g, '/');
+      if (pathname.endsWith('/ui/index.html')) return 'ui/index.html';
+      return path.posix.basename(pathname) || parsed.protocol.replace(':', '') || 'unknown';
+    } catch {
+      return 'unparseable';
+    }
+  };
+
+  app.on('browser-window-created', (_event, browserWindow) => {
+    console.log(`[geek-e2e] window-created id=${browserWindow.id}`);
+    browserWindow.webContents.once('did-finish-load', () => {
+      const host = describeHost(browserWindow.webContents.getURL()).slice(0, 80);
+      const title = String(browserWindow.getTitle() || '').replace(/[\r\n\t]+/g, ' ').slice(0, 80);
+      console.log(`[geek-e2e] window-loaded id=${browserWindow.id} host=${host} title=${JSON.stringify(title)}`);
+    });
+    browserWindow.webContents.once('did-fail-load', (_event, errorCode, _errorDescription, _validatedURL, isMainFrame) => {
+      console.error(`[geek-e2e] window-load-failed id=${browserWindow.id} code=${errorCode} mainFrame=${Boolean(isMainFrame)}`);
+    });
+    browserWindow.webContents.once('render-process-gone', (_event, details) => {
+      console.error(`[geek-e2e] renderer-gone id=${browserWindow.id} reason=${String(details?.reason || 'unknown').slice(0, 40)}`);
+    });
+  });
+}
 
 const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
 if (primaryInstance) {

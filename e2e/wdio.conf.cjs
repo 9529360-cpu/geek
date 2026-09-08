@@ -6,7 +6,7 @@ exports.config = {
   runner: 'local',
   specs: ['./specs/shell-smoke.e2e.cjs'],
   maxInstances: 1,
-  logLevel: 'warn',
+  logLevel: 'info',
   bail: 1,
   waitforTimeout: 3000,
   // Electron starts a full Chromium desktop process. Keep this bounded well
@@ -30,4 +30,13 @@ exports.config = {
     },
   }],
   services: ['electron'],
+  onWorkerStart() {
+    console.log('[geek-e2e] wdio-worker-start');
+  },
+  beforeSession() {
+    console.log('[geek-e2e] wdio-before-session');
+  },
+  before() {
+    console.log('[geek-e2e] wdio-session-established');
+  },
 };

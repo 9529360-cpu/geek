@@ -68,6 +68,17 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Verify interactive Windows desktop
+        shell: powershell
+        run: |
+          $sessionId = (Get-Process -Id $PID).SessionId
+          $interactive = [Environment]::UserInteractive
+          Write-Host "E2E_WINDOWS_DESKTOP sessionId=$sessionId userInteractive=$interactive"
+          if ($sessionId -eq 0 -or -not $interactive) {
+            Write-Host "::error title=Electron E2E runner blocker::Windows runner has no interactive desktop (sessionId=$sessionId userInteractive=$interactive)."
+            exit 1
+          }
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -83,4 +94,5 @@ jobs:
       - name: Run isolated Windows Electron shell smoke
         env:
           FORCE_COLOR: '0'
+          DEBUG: 'wdio-electron-service:*'
         run: npm run test:e2e
