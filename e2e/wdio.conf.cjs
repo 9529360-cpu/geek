@@ -22,6 +22,8 @@ exports.config = {
   logLevel: 'warn',
   bail: 1,
   waitforTimeout: 3000,
+  autoXvfb: true,
+  xvfbAutoInstall: true,
   // Electron starts a full Chromium desktop process. Keep this bounded well
   // below the outer 120s watchdog, but do not undercut WDIO session startup.
   connectionRetryTimeout: 45_000,
