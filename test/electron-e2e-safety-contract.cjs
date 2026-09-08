@@ -26,6 +26,8 @@ async function main() {
   assert.match(config, /appEntryPoint:\s*path\.join\(__dirname, '\.\.', 'src', 'main-entry\.cjs'\)/, 'E2E must launch the real Electron entry');
   assert.match(config, /specs:\s*\['\.\/specs\/shell-smoke\.e2e\.cjs'\]/, 'E2E spec path must resolve from the WDIO config directory');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
+  assert.match(config, /windowTypes:\s*\['app'\]/, 'WebDriver session discovery must target the host Electron app, not guest webviews');
+  assert.doesNotMatch(config, /windowTypes:\s*\[[^\]]*'webview'/, 'host-shell smoke must not attach ChromeDriver to guest webview targets');
   assert.doesNotMatch(config, /autoXvfb|xvfbAutoInstall/, 'Windows Electron E2E must not depend on Linux Xvfb');
   assert.match(config, /connectionRetryTimeout:\s*45_000/);
   assert.match(config, /logLevel:\s*'info'/, 'Windows Electron diagnostics must expose the WebDriver session lifecycle');
@@ -37,6 +39,7 @@ async function main() {
   assert.match(workflow, /Verify interactive Windows desktop/);
   assert.match(workflow, /tasklist \/FI "IMAGENAME eq Runner\.Worker\.exe"/);
   assert.match(workflow, /SESSION eq 0/);
+  assert.match(workflow, /@exit \/b 0/, 'interactive runner probe must explicitly preserve a successful cmd exit code');
   assert.doesNotMatch(workflow, /shell:\s*powershell|UserInteractive|SessionId|SESSIONNAME|query session/, 'Windows E2E preflight must use the worker process session without PowerShell or RDS tooling');
   assert.match(workflow, /DEBUG:\s*'wdio-electron-service:\*'/);
   assert.match(workflow, /timeout-minutes:\s*15/);

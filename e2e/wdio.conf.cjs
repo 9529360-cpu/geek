@@ -21,6 +21,13 @@ exports.config = {
   },
   capabilities: [{
     browserName: 'electron',
+    // The service defaults to ['app', 'webview']. Geek creates two live WhatsApp
+    // guests during startup, but this smoke drives only the host shell. Restrict
+    // ChromeDriver session discovery to the Electron app target so guest startup
+    // cannot stall POST /session while preserving the real guest webviews in-app.
+    'goog:chromeOptions': {
+      windowTypes: ['app'],
+    },
     'wdio:electronServiceOptions': {
       appEntryPoint: path.join(__dirname, '..', 'src', 'main-entry.cjs'),
       // Override the service default. Geek's E2E must retain the real sandbox.
