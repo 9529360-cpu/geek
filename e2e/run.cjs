@@ -17,8 +17,7 @@ const accounts = Object.freeze({
 
 fs.writeFileSync(path.join(tempDir, 'accounts.json'), JSON.stringify(accounts, null, 2), { mode: 0o600 });
 
-const cliPackage = require.resolve('@wdio/cli/package.json');
-const cli = path.join(path.dirname(cliPackage), 'bin', 'wdio.js');
+const cli = path.join(root, 'node_modules', '@wdio', 'cli', 'bin', 'wdio.js');
 const env = {
   ...process.env,
   GEEK_E2E: '1',
