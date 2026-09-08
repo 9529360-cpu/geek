@@ -71,14 +71,14 @@ jobs:
       - name: Verify interactive Windows desktop
         shell: cmd
         run: |
-          @echo E2E_WINDOWS_DESKTOP sessionName=%SESSIONNAME%
-          @query session
-          @if "%SESSIONNAME%"=="" (
-            echo ::error title=Electron E2E runner blocker::Windows runner has no SESSIONNAME and cannot prove an interactive desktop.
+          @echo E2E_WINDOWS_DESKTOP runnerWorker:
+          @tasklist /FI "IMAGENAME eq Runner.Worker.exe" /FO CSV /NH
+          @tasklist /FI "IMAGENAME eq Runner.Worker.exe" /FO CSV /NH | findstr /I /C:"Runner.Worker.exe" >nul || (
+            echo ::error title=Electron E2E runner blocker::Could not identify the active GitHub Actions worker session.
             exit /b 1
           )
-          @if /I "%SESSIONNAME%"=="Services" (
-            echo ::error title=Electron E2E runner blocker::Windows runner is executing in the Services session instead of an interactive desktop.
+          @tasklist /FI "IMAGENAME eq Runner.Worker.exe" /FI "SESSION eq 0" /FO CSV /NH | findstr /I /C:"Runner.Worker.exe" >nul && (
+            echo ::error title=Electron E2E runner blocker::GitHub Actions Runner.Worker.exe is executing in Windows Session 0. Start the runner interactively from a logged-in desktop session before running GUI E2E.
             exit /b 1
           )
 

@@ -35,10 +35,9 @@ async function main() {
   assert.match(workflow, /ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/, 'PR E2E checkout must use the exact candidate head, not the synthetic merge commit');
   assert.match(workflow, /shell:\s*cmd/, 'Windows E2E must use the same shell contract as the existing validation build runner');
   assert.match(workflow, /Verify interactive Windows desktop/);
-  assert.match(workflow, /E2E_WINDOWS_DESKTOP sessionName=%SESSIONNAME%/);
-  assert.match(workflow, /query session/);
-  assert.match(workflow, /"%SESSIONNAME%"=="Services"/i);
-  assert.doesNotMatch(workflow, /shell:\s*powershell|UserInteractive|SessionId/, 'Windows E2E preflight must not depend on blocked PowerShell scripts');
+  assert.match(workflow, /tasklist \/FI "IMAGENAME eq Runner\.Worker\.exe"/);
+  assert.match(workflow, /SESSION eq 0/);
+  assert.doesNotMatch(workflow, /shell:\s*powershell|UserInteractive|SessionId|SESSIONNAME|query session/, 'Windows E2E preflight must use the worker process session without PowerShell or RDS tooling');
   assert.match(workflow, /DEBUG:\s*'wdio-electron-service:\*'/);
   assert.match(workflow, /timeout-minutes:\s*15/);
   assert.match(workflow, /npm ci --ignore-scripts/);
