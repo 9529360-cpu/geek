@@ -1,8 +1,10 @@
 'use strict';
 
+const path = require('node:path');
+
 exports.config = {
   runner: 'local',
-  specs: ['./e2e/specs/shell-smoke.e2e.cjs'],
+  specs: ['./specs/shell-smoke.e2e.cjs'],
   maxInstances: 1,
   logLevel: 'warn',
   bail: 1,
@@ -20,7 +22,7 @@ exports.config = {
   capabilities: [{
     browserName: 'electron',
     'wdio:electronServiceOptions': {
-      appEntryPoint: './src/main-entry.cjs',
+      appEntryPoint: path.join(__dirname, '..', 'src', 'main-entry.cjs'),
       // Override the service default. Geek's E2E must retain the real sandbox.
       appArgs: [],
       captureMainProcessLogs: false,
