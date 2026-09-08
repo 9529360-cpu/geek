@@ -26,8 +26,10 @@ async function main() {
   assert.match(config, /appEntryPoint:\s*path\.join\(__dirname, '\.\.', 'src', 'main-entry\.cjs'\)/, 'E2E must launch the real Electron entry');
   assert.match(config, /specs:\s*\['\.\/specs\/shell-smoke\.e2e\.cjs'\]/, 'E2E spec path must resolve from the WDIO config directory');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
-  assert.match(config, /autoXvfb:\s*true/);
+  assert.doesNotMatch(config, /autoXvfb|xvfbAutoInstall/, 'Windows Electron E2E must not depend on Linux Xvfb');
   assert.match(config, /connectionRetryTimeout:\s*10_000/);
+  assert.match(workflow, /runs-on:\s*\[self-hosted, windows, x64, geek-real-client\]/, 'Electron E2E must execute on the Windows client runner');
+  assert.match(workflow, /shell:\s*pwsh/);
   assert.match(workflow, /timeout-minutes:\s*15/);
   assert.match(workflow, /npm ci --ignore-scripts/);
   assert.match(workflow, /npm run electron:install/);
