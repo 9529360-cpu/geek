@@ -27,7 +27,7 @@ async function main() {
   assert.match(config, /specs:\s*\['\.\/specs\/shell-smoke\.e2e\.cjs'\]/, 'E2E spec path must resolve from the WDIO config directory');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
   assert.doesNotMatch(config, /autoXvfb|xvfbAutoInstall/, 'Windows Electron E2E must not depend on Linux Xvfb');
-  assert.match(config, /connectionRetryTimeout:\s*10_000/);
+  assert.match(config, /connectionRetryTimeout:\s*45_000/);
   assert.match(workflow, /runs-on:\s*\[self-hosted, windows, x64, geek-real-client\]/, 'Electron E2E must execute on the Windows client runner');
   assert.match(workflow, /ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/, 'PR E2E checkout must use the exact candidate head, not the synthetic merge commit');
   assert.match(workflow, /shell:\s*cmd/, 'Windows E2E must use the same shell contract as the existing validation build runner');
