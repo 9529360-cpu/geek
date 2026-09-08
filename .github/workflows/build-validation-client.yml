@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [self-hosted, windows, x64, geek-real-client]
+    runs-on: windows-latest
     timeout-minutes: 35
     defaults:
       run:

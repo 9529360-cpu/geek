@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   test-and-deploy:
-    runs-on: [self-hosted, Linux, X64, geek-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
       name: cloudflare-website-production

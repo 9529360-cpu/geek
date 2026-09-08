@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, Linux, X64, geek-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
