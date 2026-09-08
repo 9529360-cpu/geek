@@ -1,0 +1,59 @@
+name: electron-e2e
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/**'
+      - 'ui/**'
+      - 'resources/**'
+      - 'e2e/**'
+      - 'test/electron-e2e-safety-contract.cjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/electron-e2e.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'ui/**'
+      - 'resources/**'
+      - 'e2e/**'
+      - 'test/electron-e2e-safety-contract.cjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/electron-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: geek-electron-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, geek-linux]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Prepare Electron runtime explicitly
+        run: npm run electron:install
+
+      - name: Run isolated Electron shell smoke
+        env:
+          FORCE_COLOR: '0'
+        run: npm run test:e2e

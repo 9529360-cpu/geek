@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const os = require('node:os');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, webContents } = require('electron');
@@ -16,14 +17,27 @@ const { createTelegramNativeAttachmentHandler } = require('./telegram-native-att
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
+const { installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
-configureRuntimeEnvironment({
+const runtimeIdentity = configureRuntimeEnvironment({
   appDataDir: app.getPath('appData'),
   isPackaged: app.isPackaged,
   packagedProfile: packagedMetadata.geekRuntimeProfile,
   env: process.env,
+});
+
+// E2E may cross the local login gate only for an unpackaged development process whose
+// explicit userData lives in a fresh OS-temp geek-e2e-* directory. The seam changes
+// exactly the first local getState() used by startup; all later subscription calls use
+// the real store and no token/JWT is accepted from the test environment.
+installSubscriptionStartupBypass({
+  isPackaged: app.isPackaged,
+  profile: runtimeIdentity.profile,
+  env: process.env,
+  tempDir: os.tmpdir(),
+  subscriptionModule: require('./subscription.cjs'),
 });
 
 // The single-instance lock is profile-scoped: production and the isolated validation
