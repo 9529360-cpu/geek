@@ -15,7 +15,7 @@ permissions:
 jobs:
   acl-integration:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Windows, X64, geek-real-client]
+    runs-on: windows-latest
     timeout-minutes: 5
     defaults:
       run:
