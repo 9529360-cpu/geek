@@ -56,8 +56,9 @@ async function main() {
   assert.match(mainEntry, /window-loaded/);
   assert.doesNotMatch(combined, /--no-sandbox|nodeIntegration\s*:\s*true|contextIsolation\s*:\s*false|webSecurity\s*:\s*false/);
   assert.doesNotMatch(combined, /%APPDATA%[\\/]geek|AppData[\\/]Roaming[\\/]geek/i);
-  assert.match(spec, /BrowserWindow\.getAllWindows\(\)/, 'host window sizing must use Electron main-process APIs');
-  assert.match(spec, /hostWindow\.setSize\(1280, 820\)/, 'host window must retain the explicit E2E viewport size');
+  assert.match(spec, /BrowserWindow\.getAllWindows\(\)/, 'host content sizing must use Electron main-process APIs');
+  assert.match(spec, /hostWindow\.setContentSize\(1280, 820\)/, 'host renderer content area must retain the explicit E2E viewport size');
+  assert.match(spec, /hostWindow\.getContentSize\(\)/, 'host renderer content viewport must be verified after sizing');
   assert.doesNotMatch(spec, /setWindowSize\(/, 'Electron WebDriver must not use the unsupported Browser.getWindowForTarget resize path');
   assert.match(spec, /#ctx-menu:not\(\.hidden\)/);
   assert.match(spec, /#account-settings-overlay:not\(\.hidden\)/);
