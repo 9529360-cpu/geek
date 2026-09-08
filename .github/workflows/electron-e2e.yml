@@ -98,5 +98,4 @@ jobs:
       - name: Run isolated Windows Electron shell smoke
         env:
           FORCE_COLOR: '0'
-          DEBUG: 'wdio-electron-service:*'
         run: npm run test:e2e
