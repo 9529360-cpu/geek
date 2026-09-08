@@ -17,8 +17,6 @@ exports.config = {
     ui: 'bdd',
     timeout: 45_000,
   },
-  autoXvfb: true,
-  xvfbAutoInstall: false,
   capabilities: [{
     browserName: 'electron',
     'wdio:electronServiceOptions': {
