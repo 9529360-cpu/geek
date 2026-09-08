@@ -30,7 +30,7 @@ async function main() {
   assert.match(config, /connectionRetryTimeout:\s*10_000/);
   assert.match(workflow, /runs-on:\s*\[self-hosted, windows, x64, geek-real-client\]/, 'Electron E2E must execute on the Windows client runner');
   assert.match(workflow, /ref:\s*\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/, 'PR E2E checkout must use the exact candidate head, not the synthetic merge commit');
-  assert.match(workflow, /shell:\s*pwsh/);
+  assert.match(workflow, /shell:\s*cmd/, 'Windows E2E must use the same shell contract as the existing validation build runner');
   assert.match(workflow, /timeout-minutes:\s*15/);
   assert.match(workflow, /npm ci --ignore-scripts/);
   assert.match(workflow, /npm run electron:install/);
