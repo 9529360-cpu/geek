@@ -15,6 +15,15 @@ if (!isolatedE2EUserData) {
   throw new Error('Electron E2E requires an isolated geek-e2e-* userData directory under the OS temp root');
 }
 
+function chromeDriverShutdownUrl(options) {
+  const protocol = String(options.protocol || 'http:').replace(/:?$/, ':');
+  const hostname = String(options.hostname || 'localhost');
+  const port = Number(options.port);
+  const basePath = `/${String(options.path || '/').replace(/^\/+|\/+$/g, '')}`;
+  const normalizedBase = basePath === '/' ? '/' : `${basePath}/`;
+  return `${protocol}//${hostname}:${port}${normalizedBase}shutdown`;
+}
+
 exports.config = {
   runner: 'local',
   specs: ['./specs/shell-smoke.e2e.cjs'],
@@ -36,8 +45,8 @@ exports.config = {
     browserName: 'electron',
     // ChromeDriver must attach to the exact profile Electron uses. Geek's fixture
     // directory is fresh, OS-temp scoped, synthetic-only, and deleted by e2e/run.cjs.
-    // The WDIO after hook owns Electron termination; detach prevents ChromeDriver's
-    // DELETE /session from redundantly entering its browser Quit path afterward.
+    // detach is consumed by ChromeDriver's /shutdown QuitAll path; standard W3C
+    // DELETE /session intentionally ignores it in Chromium source.
     'goog:chromeOptions': {
       args: [`--user-data-dir=${e2eUserDataDir}`],
       detach: true,
@@ -51,13 +60,22 @@ exports.config = {
     },
   }],
   services: ['electron'],
-  // Assertions are already complete when this hook runs. Terminate only the isolated
-  // E2E Electron process; ChromeDriver then deletes the detached session without
-  // attempting a second browser shutdown. No production runtime path is changed.
+  // Mocha has already produced the real test result before this hook runs. Own the
+  // two process lifecycles explicitly: terminate only the isolated Electron app,
+  // then use ChromeDriver's documented server shutdown endpoint. Clearing sessionId
+  // makes WDIO Runner.endSession skip the known-hanging W3C DELETE /session path.
   after: async function () {
+    const shutdownUrl = chromeDriverShutdownUrl(browser.options);
     await browser.electron.execute((electron) => {
       electron.app.exit(0);
       return true;
     });
+
+    const response = await fetch(shutdownUrl, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) {
+      throw new Error(`ChromeDriver shutdown failed with HTTP ${response.status}`);
+    }
+
+    browser.sessionId = undefined;
   },
 };
