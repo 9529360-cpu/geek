@@ -147,22 +147,16 @@ if (primaryInstance) {
   });
 
   // main.cjs still maps every unrecognized account type to WhatsApp. Install this
-  // after current registration boundaries. The guard composes with those temporary
-  // handle() owners, reasserting itself if a delegated registration restores handle,
-  // so accounts:add remains fail-closed until legacy registration is complete.
-  const accountTypeBoundary = installAccountTypeBoundary({ ipcMain });
+  // after current registration boundaries. main.cjs defers registerIpcHandlers() to
+  // app.whenReady(), so the guard stays installed across require() and self-restores
+  // only after it has actually wrapped the accounts:add handler.
+  installAccountTypeBoundary({ ipcMain });
 
   // Fail closed if Electron changes in a way that prevents safe partition recovery.
   // Starting legacy main without the account partition key would collapse WPP and
   // account-deletion bookkeeping back onto an empty partition string.
   sessionPartitionCompat.ready
-    .then(() => {
-      try {
-        require('./main.cjs');
-      } finally {
-        accountTypeBoundary.restore();
-      }
-    })
+    .then(() => require('./main.cjs'))
     .catch((error) => {
       const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'SESSION_PARTITION_COMPAT_FAILED');
       console.error('[session-partition] startup blocked:', code.slice(0, 80));
