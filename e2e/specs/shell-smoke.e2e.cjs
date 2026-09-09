@@ -104,6 +104,28 @@ async function probeAccountData(accountId) {
   }, accountId);
 }
 
+async function probeRejectedAccountType() {
+  return browser.executeAsync((done) => {
+    (async () => {
+      const before = await window.api.accounts.list();
+      let message = '';
+      try {
+        await window.api.accounts.add({ name: 'E2E invalid type', type: 'telegrm' });
+      } catch (error) {
+        message = String(error?.message || error || '');
+      }
+      const after = await window.api.accounts.list();
+      done({
+        rejected: message.includes('ACCOUNT_TYPE_UNSUPPORTED'),
+        beforeIds: Array.isArray(before?.accounts) ? before.accounts.map(account => account.id) : [],
+        afterIds: Array.isArray(after?.accounts) ? after.accounts.map(account => account.id) : [],
+        beforeActive: String(before?.activeAccountId || ''),
+        afterActive: String(after?.activeAccountId || ''),
+      });
+    })().catch((error) => done({ rejected: false, probeError: String(error?.name || 'Error').slice(0, 80) }));
+  });
+}
+
 async function activationSnapshot(accountId) {
   return browser.executeAsync((id, done) => {
     const target = document.querySelector(`.nav-account[data-id="${id}"] .nav-account-main`);
@@ -217,6 +239,12 @@ describe('Geek Electron shell smoke', () => {
     const accountDataProbe = await probeAccountData(ACCOUNT_B);
     console.log(`E2E_ACCOUNT_DATA getAll=${accountDataProbe.ok ? 'ok' : accountDataProbe.code} keyCount=${accountDataProbe.keyCount ?? -1} hasSchema=${accountDataProbe.hasSchema === true}`);
     assert.equal(accountDataProbe.ok, true, `accountData.getAll failed: ${accountDataProbe.code || 'unknown'}`);
+
+    const rejectedTypeProbe = await probeRejectedAccountType();
+    console.log(`E2E_ACCOUNT_TYPE rejected=${rejectedTypeProbe.rejected === true} stateUnchanged=${JSON.stringify(rejectedTypeProbe.beforeIds) === JSON.stringify(rejectedTypeProbe.afterIds) && rejectedTypeProbe.beforeActive === rejectedTypeProbe.afterActive}`);
+    assert.equal(rejectedTypeProbe.rejected, true, `real accounts:add did not reject explicit unknown type: ${rejectedTypeProbe.probeError || 'unknown'}`);
+    assert.deepEqual(rejectedTypeProbe.afterIds, rejectedTypeProbe.beforeIds, 'rejected account type must not create or remove account state');
+    assert.equal(rejectedTypeProbe.afterActive, rejectedTypeProbe.beforeActive, 'rejected account type must not switch active account state');
 
     const accounts = await $$('.nav-account');
     assert.equal(accounts.length, 2, 'isolated fixture must render exactly two fake accounts');
