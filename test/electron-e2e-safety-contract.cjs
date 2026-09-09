@@ -27,9 +27,10 @@ async function main() {
   assert.match(config, /specs:\s*\['\.\/specs\/shell-smoke\.e2e\.cjs'\]/, 'E2E spec path must resolve from the WDIO config directory');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
   assert.match(config, /process\.env\.GEEK_E2E === '1'/, 'WDIO config must fail closed outside the E2E seam');
-  assert.match(config, /path\.relative\(path\.resolve\(os\.tmpdir\(\)\), e2eUserDataDir\)/, 'WDIO profile must remain underneath the OS temp root');
-  assert.match(config, /path\.basename\(e2eUserDataDir\)\.startsWith\('geek-e2e-'\)/, 'WDIO profile must use the isolated geek-e2e-* prefix');
-  assert.match(config, /--user-data-dir=\$\{e2eUserDataDir\}/, 'ChromeDriver and Electron must share the same isolated userData directory');
+  assert.match(config, /path\.relative\(path\.resolve\(os\.tmpdir\(\)\), e2eUserDataDir\)/, 'Geek app profile must remain underneath the OS temp root');
+  assert.match(config, /path\.basename\(e2eUserDataDir\)\.startsWith\('geek-e2e-'\)/, 'Geek app profile must use the isolated geek-e2e-* prefix');
+  assert.doesNotMatch(config, /--user-data-dir=/, 'ChromeDriver must own its disposable transport profile instead of reusing Geek app data');
+  assert.doesNotMatch(config, /quitGracefully|after:\s*async|listeners\('close'\)/, 'speculative teardown hooks must not replace ChromeDriver lifecycle ownership');
   assert.doesNotMatch(config, /windowTypes:/, 'Do not override Electron Service target discovery without proven need');
   assert.match(config, /autoXvfb:\s*true/, 'hosted Linux E2E keeps WebdriverIO Xvfb support enabled');
   assert.match(config, /xvfbAutoInstall:\s*true/, 'hosted Linux E2E keeps WebdriverIO Xvfb provisioning fallback enabled');
@@ -62,6 +63,7 @@ async function main() {
   assert.match(spec, /hostWindow\.setContentSize\(1280, 820\)/, 'host renderer content area must retain the explicit E2E viewport size');
   assert.match(spec, /hostWindow\.getContentSize\(\)/, 'host renderer content viewport must be verified after sizing');
   assert.doesNotMatch(spec, /setWindowSize\(/, 'Electron WebDriver must not use the unsupported Browser.getWindowForTarget resize path');
+  assert.doesNotMatch(spec, /removeListener\('close'|app\.quit\(\)/, 'the smoke spec must not own Electron process teardown');
   assert.match(spec, /#ctx-menu:not\(\.hidden\)/);
   assert.match(spec, /#account-settings-overlay:not\(\.hidden\)/);
   assert.match(spec, /#bc-menu-send/);
