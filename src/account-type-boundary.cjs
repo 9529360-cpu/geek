@@ -32,7 +32,48 @@ function validateAccountAddPayload(payload) {
   }
 }
 
+function installAccountTypeBoundary({ ipcMain } = {}) {
+  if (!ipcMain || typeof ipcMain.handle !== 'function') throw new TypeError('ipcMain.handle is required');
+
+  const delegatedHandle = ipcMain.handle;
+  let restoreTarget = delegatedHandle;
+  let installed = true;
+
+  function guardedHandle(channel, handler) {
+    const wrappedHandler = channel === 'accounts:add'
+      ? (event, payload) => {
+          validateAccountAddPayload(payload);
+          return handler(event, payload);
+        }
+      : handler;
+
+    const result = delegatedHandle.call(ipcMain, channel, wrappedHandler);
+
+    // Current startup has other narrow registration boundaries that temporarily
+    // replace ipcMain.handle and restore it once their legacy channels are seen.
+    // If one of those delegated registrations restores handle(), remember that
+    // true target but keep this accounts:add guard active until main.cjs finishes
+    // registering all IPC handlers.
+    if (installed && ipcMain.handle !== guardedHandle) {
+      restoreTarget = ipcMain.handle;
+      ipcMain.handle = guardedHandle;
+    }
+    return result;
+  }
+
+  ipcMain.handle = guardedHandle;
+
+  return Object.freeze({
+    restore() {
+      if (!installed) return;
+      installed = false;
+      if (ipcMain.handle === guardedHandle) ipcMain.handle = restoreTarget;
+    },
+  });
+}
+
 module.exports = {
   SUPPORTED_ACCOUNT_TYPES,
   validateAccountAddPayload,
+  installAccountTypeBoundary,
 };
