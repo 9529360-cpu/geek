@@ -2,81 +2,69 @@
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.GeekBroadcastChatReadiness = api;
+  if (root && root.document && root.GeekPlatformTransports) api.install(root);
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const STATE_LOADING = 'loading';
-  const STATE_READY = 'ready';
-  const STATE_RETRYABLE = 'retryable';
-  const STATE_CANCELLED = 'cancelled';
+  const INSTALL_MARKER = '__geekBroadcastReadinessInstalled';
 
-  function requireChats(value) {
-    if (!Array.isArray(value)) throw new TypeError('listChats must resolve to an array');
-    return value;
-  }
-
-  async function loadBroadcastChatsWithReadiness(options = {}) {
-    const family = String(options.family || '');
-    const listChats = options.listChats;
-    const isReady = options.isReady;
-    const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => true;
-    const onState = typeof options.onState === 'function' ? options.onState : () => {};
-    const now = typeof options.now === 'function' ? options.now : Date.now;
-    const sleep = typeof options.sleep === 'function'
-      ? options.sleep
-      : ms => new Promise(resolve => setTimeout(resolve, ms));
+  function createWhatsAppGetChatsScript(options = {}) {
     const timeoutMs = Math.max(1, Number(options.timeoutMs) || 12000);
     const pollMs = Math.max(1, Number(options.pollMs) || 500);
-
-    if (typeof listChats !== 'function') throw new TypeError('listChats must be a function');
-
-    if (family !== 'whatsapp') {
-      const chats = requireChats(await listChats());
-      return isCurrent() ? { state: STATE_READY, chats } : { state: STATE_CANCELLED };
-    }
-    if (typeof isReady !== 'function') throw new TypeError('WhatsApp isReady must be a function');
-
-    const startedAt = now();
-    let lastError = null;
-    onState(STATE_LOADING);
-
-    while (isCurrent()) {
-      let ready = false;
-      try {
-        ready = (await isReady()) === true;
-      } catch (error) {
-        lastError = error;
-      }
-
-      if (!isCurrent()) return { state: STATE_CANCELLED };
-
-      if (ready) {
+    return `(async () => {
+      /* __GEEK_BROADCAST_CHAT_READINESS__ */
+      const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+      const deadline = Date.now() + ${timeoutMs};
+      let lastError = '';
+      while (Date.now() <= deadline) {
         try {
-          const chats = requireChats(await listChats());
-          if (!isCurrent()) return { state: STATE_CANCELLED };
-          return { state: STATE_READY, chats };
+          const candidates = [window.WPP, window.WAPLUS_WPP].filter(Boolean);
+          for (const W of candidates) {
+            if (!W?.conn || typeof W.conn.isMainReady !== 'function' || !W?.chat || typeof W.chat.list !== 'function') continue;
+            let ready = false;
+            try { ready = (await W.conn.isMainReady()) === true; }
+            catch (error) { lastError = String(error?.message || error || ''); }
+            if (!ready) continue;
+            try {
+              const chats = await W.chat.list();
+              const arr = Array.isArray(chats) ? chats : (chats ? Object.values(chats) : []);
+              const out = arr.map(c => ({
+                id: String(c.id),
+                name: (c.name || c.formattedTitle || String(c.id)).trim(),
+                realName: (!c.isGroup && c.contact ? (c.contact.pushname || c.contact.name || c.contact.shortName || '') : ''),
+                type: c.isGroup ? '群组' : '联系人'
+              })).filter(c => c.id.includes('@'));
+              return JSON.stringify(out);
+            } catch (error) {
+              lastError = String(error?.message || error || '');
+            }
+          }
         } catch (error) {
-          lastError = error;
+          lastError = String(error?.message || error || '');
         }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await sleep(Math.min(${pollMs}, Math.max(1, remaining)));
       }
-
-      const elapsed = Math.max(0, now() - startedAt);
-      if (elapsed >= timeoutMs) {
-        onState(STATE_RETRYABLE);
-        return { state: STATE_RETRYABLE, error: lastError || null };
-      }
-
-      await sleep(Math.min(pollMs, Math.max(1, timeoutMs - elapsed)));
-    }
-
-    return { state: STATE_CANCELLED };
+      return 'ERR:WhatsApp 聊天列表仍在初始化，请关闭后重试' + (lastError ? '：' + lastError : '');
+    })()`;
   }
 
-  return Object.freeze({
-    STATE_LOADING,
-    STATE_READY,
-    STATE_RETRYABLE,
-    STATE_CANCELLED,
-    loadBroadcastChatsWithReadiness,
-  });
+  function install(target) {
+    const forAccount = target?.GeekPlatformTransports?.forAccount;
+    if (typeof forAccount !== 'function') return false;
+    const stubWebview = {
+      executeJavaScript: async () => null,
+      getWebContentsId: () => 0,
+    };
+    const adapter = forAccount({ id: '__geek_broadcast_readiness__', type: 'whatsapp' }, stubWebview);
+    const transport = adapter?.transport;
+    if (!transport || typeof transport.getChats !== 'string') return false;
+    if (transport[INSTALL_MARKER] === true) return true;
+    transport.getChats = createWhatsAppGetChatsScript();
+    Object.defineProperty(transport, INSTALL_MARKER, { value: true, configurable: true });
+    return true;
+  }
+
+  return Object.freeze({ createWhatsAppGetChatsScript, install });
 });
