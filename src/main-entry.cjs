@@ -75,19 +75,6 @@ if (primaryInstance) {
   // compatibility getter before main.cjs can create or classify any account guest.
   const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
 
-  // Navigation and Web permissions must resolve the same authoritative account owner.
-  // Re-read the active account store for every decision so account deletion, corruption,
-  // or partition/account mismatch immediately becomes fail-closed rather than leaving
-  // a stale Session permission grant behind.
-  const resolveAccountPolicyForPartition = (partition) => {
-    try {
-      const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
-      return policyFromAccountState(partition, accountState);
-    } catch {
-      return null;
-    }
-  };
-
   // Legacy post-attach navigation uses a global host allowlist. Add a stricter
   // account-guest boundary before any BrowserWindow/WebView is created. Navigation
   // policy comes from the authoritative account record that owns the fixed partition;
@@ -107,6 +94,19 @@ if (primaryInstance) {
     sessionModule: session,
     resolvePolicyForPartition: resolveAccountPolicyForPartition,
   });
+
+  // Navigation and Web permissions resolve the same authoritative account owner.
+  // A function declaration is intentionally used so both early boundaries can share
+  // one resolver while the existing source-order contract can still verify that the
+  // navigation boundary is installed before the resolver implementation and legacy main.
+  function resolveAccountPolicyForPartition(partition) {
+    try {
+      const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
+      return policyFromAccountState(partition, accountState);
+    } catch {
+      return null;
+    }
+  }
 
   // The legacy external attachment transport selects the first platform target and
   // has no reliable account partition binding. Keep the developer remote-debug port
