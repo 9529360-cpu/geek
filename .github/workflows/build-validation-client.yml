@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ux/broadcast-account-jobs
+      - security/account-session-permissions
     paths:
       - 'src/**'
       - 'ui/**'
