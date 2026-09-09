@@ -5,18 +5,18 @@ const {
   isNavigationAllowed,
 } = require('./webview-navigation-boundary.cjs');
 
-// This is intentionally narrower than Chromium/Electron's permission vocabulary.
-// Any permission not present here is denied. Platform-specific product evidence:
-// - notifications/fullscreen/sanitized clipboard writes are ordinary chat-web capabilities;
+// This is intentionally much narrower than Chromium/Electron's permission vocabulary.
+// Any permission not present here is denied. Each allow requires product evidence:
+// - notifications are a core browser capability for all three supported chat services;
+// - Telegram Web K documents fullscreen video playback, so fullscreen is Telegram-only;
 // - WhatsApp Web and Telegram Web support browser calls, so camera/mic media is allowed
-//   only for those account kinds and only for audio/video media types;
+//   only for those account kinds and only for explicit audio/video media types;
 // - LINE for Chrome explicitly does not support voice/video calls, so media stays denied.
-// Screen capture is a separate Electron permission/API and is intentionally not folded
-// into the ordinary media grant.
+// Clipboard read/write, display capture, speaker selection, devices, filesystem, and every
+// other permission stay denied until a concrete Geek product need is independently proven.
 const SUPPORTED_PERMISSION_MATRIX = Object.freeze({
   notifications: Object.freeze({ kinds: Object.freeze(['whatsapp', 'telegram', 'line']) }),
-  fullscreen: Object.freeze({ kinds: Object.freeze(['whatsapp', 'telegram', 'line']) }),
-  'clipboard-sanitized-write': Object.freeze({ kinds: Object.freeze(['whatsapp', 'telegram', 'line']) }),
+  fullscreen: Object.freeze({ kinds: Object.freeze(['telegram']) }),
   media: Object.freeze({
     kinds: Object.freeze(['whatsapp', 'telegram']),
     mediaTypes: Object.freeze(['audio', 'video']),
