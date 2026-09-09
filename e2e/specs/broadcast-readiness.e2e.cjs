@@ -128,6 +128,8 @@ describe('WhatsApp broadcast first-open readiness', () => {
     assert.match(firstReady.list, /E2E First Group/);
     assert.match(firstReady.list, /E2E First Contact/);
 
+    const audienceStep = await waitVisible('.bc-workbench-step[data-step="audience"]');
+    await audienceStep.click();
     await (await waitVisible('#bc-selectize-control')).click();
     await waitVisible('#bc-selectize-dropdown:not(.hidden)');
     const selected = await browser.execute(() => {
