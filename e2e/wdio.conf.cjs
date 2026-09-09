@@ -42,6 +42,10 @@ exports.config = {
     // is created where ChromeDriver expects it. Never point this at real data.
     'goog:chromeOptions': {
       args: [`--user-data-dir=${e2eUserDataDir}`],
+      // With a caller-supplied userData directory ChromeDriver otherwise goes
+      // straight to process killing. Ask it to send Browser.close first and use
+      // its bounded fallback if Electron does not exit promptly.
+      quitGracefully: true,
     },
     'wdio:electronServiceOptions': {
       appEntryPoint: path.join(__dirname, '..', 'src', 'main-entry.cjs'),
