@@ -18,6 +18,7 @@ const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = requi
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
+const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -145,11 +146,22 @@ if (primaryInstance) {
     },
   });
 
+  // main.cjs still maps every unrecognized account type to WhatsApp. Intercept only
+  // accounts:add registration so explicit unknown/malformed types fail closed before
+  // the legacy handler can allocate an id, partition, active account, or persisted state.
+  const accountTypeBoundary = installAccountTypeBoundary({ ipcMain });
+
   // Fail closed if Electron changes in a way that prevents safe partition recovery.
   // Starting legacy main without the account partition key would collapse WPP and
   // account-deletion bookkeeping back onto an empty partition string.
   sessionPartitionCompat.ready
-    .then(() => require('./main.cjs'))
+    .then(() => {
+      try {
+        require('./main.cjs');
+      } finally {
+        accountTypeBoundary.restore();
+      }
+    })
     .catch((error) => {
       const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'SESSION_PARTITION_COMPAT_FAILED');
       console.error('[session-partition] startup blocked:', code.slice(0, 80));
