@@ -3,153 +3,157 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const readiness = require(path.join(root, 'ui', 'broadcast-chat-readiness.js'));
 
-function sequence(values, fallback) {
-  let index = 0;
-  return async () => {
-    const value = index < values.length ? values[index++] : fallback;
-    if (value instanceof Error) throw value;
-    return value;
-  };
+async function runGuest(script, window) {
+  return vm.runInNewContext(script, {
+    window,
+    setTimeout,
+    Date,
+    Promise,
+    JSON,
+    Object,
+    Array,
+    String,
+    Math,
+  });
 }
 
 async function run() {
-  const states = [];
-  let now = 0;
-  const sleep = async ms => { now += ms; };
-
-  // 1 + 2) A transient empty list while WPP is not ready must stay loading;
-  // once main readiness is established, later real chats are accepted automatically.
+  // 1 + 2) Cold-start readiness is authoritative: chat.list must not run before
+  // conn.isMainReady(), and a later ready state recovers automatically.
   {
-    const listChats = sequence([[], [{ id: 'e2e-chat-a@g.us', name: 'Synthetic Group', isGroup: true }]], []);
-    const result = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp',
-      isReady: sequence([false, true], true),
-      listChats,
-      isCurrent: () => true,
-      now: () => now,
-      sleep,
-      timeoutMs: 1000,
-      pollMs: 100,
-      onState: state => states.push(state),
-    });
-    assert.equal(result.state, 'ready');
-    assert.equal(result.chats.length, 1);
-    assert.ok(states.includes('loading'));
-  }
-
-  // 3) A reliably ready WPP with a genuinely empty list is a valid ready result.
-  {
-    const result = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp', isReady: async () => true, listChats: async () => [],
-      isCurrent: () => true, now: () => now, sleep, timeoutMs: 500, pollMs: 50,
-    });
-    assert.deepEqual(result, { state: 'ready', chats: [] });
-  }
-
-  // 4) A transient list failure remains recoverable.
-  {
-    const result = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp', isReady: async () => true,
-      listChats: sequence([new Error('cold store'), [{ id: 'e2e-chat-b@c.us' }]], []),
-      isCurrent: () => true, now: () => now, sleep, timeoutMs: 500, pollMs: 50,
-    });
-    assert.equal(result.state, 'ready');
-    assert.equal(result.chats.length, 1);
-  }
-
-  // 5) Timeout is retryable and never masquerades as an empty ready result.
-  {
-    now = 0;
-    const result = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp', isReady: async () => false, listChats: async () => [],
-      isCurrent: () => true, now: () => now, sleep, timeoutMs: 250, pollMs: 100,
-    });
-    assert.equal(result.state, 'retryable');
-    assert.equal(Object.hasOwn(result, 'chats'), false);
-  }
-
-  // 6) Retry starts a clean run after a timeout.
-  {
-    now = 0;
-    const first = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp', isReady: async () => false, listChats: async () => [],
-      isCurrent: () => true, now: () => now, sleep, timeoutMs: 100, pollMs: 50,
-    });
-    const second = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp', isReady: async () => true, listChats: async () => [{ id: 'retry@c.us' }],
-      isCurrent: () => true, now: () => now, sleep, timeoutMs: 100, pollMs: 50,
-    });
-    assert.equal(first.state, 'retryable');
-    assert.equal(second.state, 'ready');
-    assert.equal(second.chats[0].id, 'retry@c.us');
-  }
-
-  // 7) Closing the overlay invalidates the current run and discards later results.
-  {
-    now = 0;
-    let current = true;
-    const result = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp', isReady: async () => false, listChats: async () => [],
-      isCurrent: () => current, now: () => now,
-      sleep: async ms => { now += ms; current = false; }, timeoutMs: 500, pollMs: 50,
-    });
-    assert.equal(result.state, 'cancelled');
-  }
-
-  // 8) Switching owner A -> B invalidates A before it can publish a late result.
-  {
-    now = 0;
-    let owner = 'A';
-    const result = await readiness.loadBroadcastChatsWithReadiness({
-      family: 'whatsapp', isReady: async () => false, listChats: async () => [],
-      isCurrent: () => owner === 'A', now: () => now,
-      sleep: async ms => { now += ms; owner = 'B'; }, timeoutMs: 500, pollMs: 50,
-    });
-    assert.equal(result.state, 'cancelled');
-  }
-
-  // 9 + 10) Telegram and LINE keep their one-shot list semantics and never enter WPP polling.
-  for (const family of ['telegram', 'line']) {
-    let readyCalls = 0;
+    let readinessCalls = 0;
     let listCalls = 0;
-    const chats = [{ id: `${family}-chat` }];
-    const result = await readiness.loadBroadcastChatsWithReadiness({
-      family,
-      isReady: async () => { readyCalls += 1; return false; },
-      listChats: async () => { listCalls += 1; return chats; },
-      isCurrent: () => true, now: () => now, sleep, timeoutMs: 100, pollMs: 10,
-    });
-    assert.equal(result.state, 'ready');
-    assert.equal(result.chats, chats);
-    assert.equal(readyCalls, 0, `${family} must not use WhatsApp readiness`);
-    assert.equal(listCalls, 1, `${family} must preserve one-shot list loading`);
+    const result = await runGuest(
+      readiness.createWhatsAppGetChatsScript({ timeoutMs: 100, pollMs: 1 }),
+      {
+        WPP: {
+          conn: { isMainReady: async () => ++readinessCalls >= 3 },
+          chat: {
+            list: async () => {
+              listCalls += 1;
+              return [{ id: 'e2e-chat-a@g.us', name: 'Synthetic Group', isGroup: true }];
+            },
+          },
+        },
+      },
+    );
+    assert.equal(readinessCalls, 3);
+    assert.equal(listCalls, 1, 'chat.list must not be sampled while WhatsApp is not main-ready');
+    assert.deepEqual(JSON.parse(result), [{ id: 'e2e-chat-a@g.us', name: 'Synthetic Group', realName: '', type: '群组' }]);
+  }
+
+  // 3) Reliable main readiness plus a genuinely empty list is a valid empty result.
+  {
+    const result = await runGuest(
+      readiness.createWhatsAppGetChatsScript({ timeoutMs: 20, pollMs: 1 }),
+      { WPP: { conn: { isMainReady: async () => true }, chat: { list: async () => [] } } },
+    );
+    assert.deepEqual(JSON.parse(result), []);
+  }
+
+  // 4) A transient chat-store read failure remains recoverable inside the same bounded run.
+  {
+    let listCalls = 0;
+    const result = await runGuest(
+      readiness.createWhatsAppGetChatsScript({ timeoutMs: 100, pollMs: 1 }),
+      {
+        WPP: {
+          conn: { isMainReady: async () => true },
+          chat: {
+            list: async () => {
+              listCalls += 1;
+              if (listCalls === 1) throw new Error('cold store');
+              return [{ id: 'e2e-chat-b@c.us', name: 'Synthetic Contact', isGroup: false, contact: { pushname: 'Synthetic Contact' } }];
+            },
+          },
+        },
+      },
+    );
+    assert.equal(listCalls, 2);
+    assert.equal(JSON.parse(result)[0].id, 'e2e-chat-b@c.us');
+  }
+
+  // 5 + 6) Timeout is bounded and explicitly retryable; a fresh invocation can succeed.
+  {
+    let listCalls = 0;
+    const first = await runGuest(
+      readiness.createWhatsAppGetChatsScript({ timeoutMs: 5, pollMs: 1 }),
+      { WPP: { conn: { isMainReady: async () => false }, chat: { list: async () => { listCalls += 1; return []; } } } },
+    );
+    assert.match(first, /^ERR:WhatsApp 聊天列表仍在初始化，请关闭后重试/);
+    assert.equal(listCalls, 0, 'timeout must not convert an unready store into a false empty list');
+
+    const second = await runGuest(
+      readiness.createWhatsAppGetChatsScript({ timeoutMs: 20, pollMs: 1 }),
+      { WPP: { conn: { isMainReady: async () => true }, chat: { list: async () => [{ id: 'retry@c.us', name: 'Retry', isGroup: false }] } } },
+    );
+    assert.equal(JSON.parse(second)[0].id, 'retry@c.us');
+  }
+
+  // 7) Installer changes only the shared WhatsApp list transport and is idempotent.
+  {
+    const whatsappTransport = { getChats: 'WA_ORIGINAL', sendDirect: () => 'SENT' };
+    const calls = [];
+    const target = {
+      GeekPlatformTransports: {
+        forAccount(account) {
+          calls.push(account.type);
+          return {
+            getCurrentChat() {}, listChats() {}, openChat() {}, setComposerText() {}, sendText() {},
+            transport: whatsappTransport,
+          };
+        },
+      },
+    };
+    const sendDirect = whatsappTransport.sendDirect;
+    assert.equal(readiness.install(target), true);
+    const firstScript = whatsappTransport.getChats;
+    assert.match(firstScript, /__GEEK_BROADCAST_CHAT_READINESS__/);
+    assert.match(firstScript, /conn\.isMainReady/);
+    assert.equal(whatsappTransport.sendDirect, sendDirect, 'send transport must remain untouched');
+    assert.equal(readiness.install(target), true);
+    assert.equal(whatsappTransport.getChats, firstScript, 'installer must be idempotent');
+    assert.deepEqual(calls, ['whatsapp', 'whatsapp']);
   }
 
   const helperSource = fs.readFileSync(path.join(root, 'ui', 'broadcast-chat-readiness.js'), 'utf8');
   const appSource = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
+  const safetySource = fs.readFileSync(path.join(root, 'ui', 'broadcast-safety.js'), 'utf8');
   const workbenchSource = fs.readFileSync(path.join(root, 'ui', 'broadcast-workbench.js'), 'utf8');
-  const htmlSource = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8');
 
-  // 11) Workbench must not retake ownership of readiness or intercept the broadcast entry.
+  // 8) Workbench must not retake readiness ownership or intercept the broadcast entry.
   assert.doesNotMatch(workbenchSource, /bc-menu-send|W\.chat\.list|isMainReady|loader\.onReady/);
 
-  // 12) The bounded state machine uses no unbounded interval timer.
+  // 9) Production readiness is bounded: no interval or recursive host timer.
   assert.doesNotMatch(helperSource, /setInterval\s*\(/);
   assert.match(helperSource, /timeoutMs/);
   assert.match(helperSource, /pollMs/);
+  assert.match(helperSource, /ERR:WhatsApp 聊天列表仍在初始化，请关闭后重试/);
 
-  // Integration contract: app remains the owner and exposes explicit loading/ready/retryable UX.
-  assert.match(appSource, /GeekBroadcastChatReadiness/);
-  assert.match(appSource, /broadcastChatLoadState/);
-  assert.match(appSource, /WhatsApp 联系人与群组/);
-  assert.match(appSource, /聊天列表仍在初始化/);
-  assert.match(appSource, /重试/);
-  assert.match(appSource, /WPP\.conn\.isMainReady|isMainReady/);
-  assert.ok(htmlSource.indexOf('broadcast-chat-readiness.js') < htmlSource.indexOf('app.js'), 'readiness helper must load before app.js');
+  // 10) app.js remains the sole editor/list owner and keeps the canonical generation guards.
+  assert.match(appSource, /let broadcastChatLoadSequence = 0;/);
+  assert.match(appSource, /let broadcastChatsReady = false;/);
+  assert.match(appSource, /const loadSequence = \+\+broadcastChatLoadSequence;/);
+  assert.match(appSource, /loadSequence !== broadcastChatLoadSequence/);
+  assert.match(appSource, /activeId !== ownerAccountId/);
+  assert.match(appSource, /bOverlay\.classList\.contains\('hidden'\)/);
+  assert.match(appSource, /broadcastChatLoadSequence \+= 1;/);
+  assert.match(appSource, /bMetaEl\.textContent = '加载聊天列表…';/);
+
+  // 11) Readiness installs only after parser-loaded app.js has established the transport owner.
+  assert.match(safetySource, /DOMContentLoaded/);
+  assert.match(safetySource, /broadcast-chat-readiness\.js/);
+  assert.match(safetySource, /GeekBroadcastChatReadiness/);
+
+  // 12) WA-JS readiness belongs only to the dedicated read transport, not app/workbench/send code.
+  assert.doesNotMatch(appSource, /conn\.isMainReady/);
+  assert.doesNotMatch(workbenchSource, /conn\.isMainReady/);
+  assert.match(helperSource, /conn\.isMainReady/);
 
   console.log('BROADCAST_CHAT_READINESS_CONTRACT_OK');
 }
