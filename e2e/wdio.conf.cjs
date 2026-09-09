@@ -36,17 +36,11 @@ exports.config = {
   },
   capabilities: [{
     browserName: 'electron',
-    // ChromeDriver creates and watches a user-data-dir while establishing the
-    // DevTools session. Geek also sets Electron's userData before ready. Keep
-    // both owners on the exact same fresh OS-temp profile so DevToolsActivePort
-    // is created where ChromeDriver expects it. Never point this at real data.
-    'goog:chromeOptions': {
-      args: [`--user-data-dir=${e2eUserDataDir}`],
-      // With a caller-supplied userData directory ChromeDriver otherwise goes
-      // straight to process killing. Ask it to send Browser.close first and use
-      // its bounded fallback if Electron does not exit promptly.
-      quitGracefully: true,
-    },
+    // Do not pass Geek's app-data fixture as ChromeDriver --user-data-dir.
+    // ChromeDriver must own its disposable transport profile so session teardown
+    // can use the normal temporary-profile cleanup path. Geek itself still reads
+    // and writes only GEEK_USER_DATA_DIR, which is preflighted above as a fresh
+    // geek-e2e-* directory under the OS temp root.
     'wdio:electronServiceOptions': {
       appEntryPoint: path.join(__dirname, '..', 'src', 'main-entry.cjs'),
       // Override the service default. Geek's E2E must retain the real sandbox.
@@ -56,29 +50,4 @@ exports.config = {
     },
   }],
   services: ['electron'],
-  // Geek is intentionally a multi-webview desktop shell. Dispose those OOPIF
-  // guests after assertions but while the WebDriver session is still healthy;
-  // then ChromeDriver owns the final host-window/session shutdown. This is
-  // isolated test cleanup only and does not alter product runtime behavior.
-  after: async function () {
-    await browser.execute(() => {
-      document.querySelectorAll('webview').forEach((view) => view.remove());
-    });
-    await browser.waitUntil(async () => {
-      const state = await browser.electron.execute((electron) => {
-        const counts = {};
-        for (const contents of electron.webContents.getAllWebContents()) {
-          const type = contents.getType();
-          counts[type] = (counts[type] || 0) + 1;
-        }
-        return counts;
-      });
-      const guests = Number(state.webview || state.guest || 0);
-      return guests === 0;
-    }, {
-      timeout: 5000,
-      interval: 100,
-      timeoutMsg: 'Electron webview guests did not dispose before session teardown',
-    });
-  },
 };
