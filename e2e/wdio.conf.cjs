@@ -36,8 +36,11 @@ exports.config = {
     browserName: 'electron',
     // ChromeDriver must attach to the exact profile Electron uses. Geek's fixture
     // directory is fresh, OS-temp scoped, synthetic-only, and deleted by e2e/run.cjs.
+    // The WDIO after hook owns Electron termination; detach prevents ChromeDriver's
+    // DELETE /session from redundantly entering its browser Quit path afterward.
     'goog:chromeOptions': {
       args: [`--user-data-dir=${e2eUserDataDir}`],
+      detach: true,
     },
     'wdio:electronServiceOptions': {
       appEntryPoint: path.join(__dirname, '..', 'src', 'main-entry.cjs'),
@@ -48,10 +51,9 @@ exports.config = {
     },
   }],
   services: ['electron'],
-  // Assertions are already complete when this hook runs. Electron desktop apps can
-  // keep process-level resources alive even after the renderer has finished. End the
-  // isolated test app explicitly so ChromeDriver's following DELETE /session observes
-  // an already-terminated Electron process instead of hanging on desktop quit semantics.
+  // Assertions are already complete when this hook runs. Terminate only the isolated
+  // E2E Electron process; ChromeDriver then deletes the detached session without
+  // attempting a second browser shutdown. No production runtime path is changed.
   after: async function () {
     await browser.electron.execute((electron) => {
       electron.app.exit(0);
