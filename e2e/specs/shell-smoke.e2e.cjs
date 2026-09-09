@@ -34,6 +34,64 @@ async function installErrorWatch() {
   });
 }
 
+async function probeMainRendererCspAndFont() {
+  return browser.executeAsync((done) => {
+    (async () => {
+      const violations = [];
+      const onViolation = (event) => {
+        violations.push({
+effectiveDirective: String(event.effectiveDirective || ''),
+blockedURI: String(event.blockedURI || ''),
+        });
+      };
+      window.addEventListener('securitypolicyviolation', onViolation);
+      window.__geekCspProbe = false;
+      const script = document.createElement('script');
+      script.src = 'data:text/javascript,window.__geekCspProbe%20%3D%20true';
+      document.head.appendChild(script);
+
+      await document.fonts.ready;
+
+      const fontRuleSources = [];
+      for (const sheet of Array.from(document.styleSheets)) {
+        let rules;
+        try {
+rules = Array.from(sheet.cssRules || []);
+        } catch {
+continue;
+        }
+        for (const rule of rules) {
+if (rule.type !== CSSRule.FONT_FACE_RULE) continue;
+const family = String(rule.style.getPropertyValue('font-family') || '').trim().replace(/^['"]|['"]$/g, '');
+if (family !== 'Inter') continue;
+const src = String(rule.style.getPropertyValue('src') || '');
+const urlMatch = src.match(/url\(\s*(['"]?)(.*?)\1\s*\)/i);
+if (urlMatch?.[2]) {
+  fontRuleSources.push(new URL(urlMatch[2], sheet.href || document.baseURI).href);
+}
+        }
+      }
+
+      const loadedFaces = await document.fonts.load('16px "Inter"', 'Geek');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const resources = performance.getEntriesByType('resource').map(entry => String(entry.name || ''));
+      const fontResources = resources.filter(name => /InterVariable\.woff2(?:$|[?#])/i.test(name));
+      window.removeEventListener('securitypolicyviolation', onViolation);
+      script.remove();
+      done({
+        executed: window.__geekCspProbe === true,
+        violations,
+        googleResources: resources.filter(name => /fonts\.(?:googleapis|gstatic)\.com/i.test(name)),
+        interAvailable: document.fonts.check('16px "Inter"'),
+        fontRuleSources,
+        loadedFaceCount: loadedFaces.length,
+        loadedFaceStatuses: loadedFaces.map(face => String(face.status || '')),
+        fontResources,
+      });
+    })().catch((error) => done({ probeError: String(error?.name || 'Error').slice(0, 80) }));
+  });
+}
+
 async function heartbeat(label) {
   await browser.setTimeout({ script: 2500 });
   const result = await browser.executeAsync((done) => {
@@ -219,7 +277,20 @@ describe('Geek Electron shell smoke', () => {
     });
     await installErrorWatch();
 
-    const appInfo = await browser.electron.execute((electron) => ({
+  const cspProbe = await probeMainRendererCspAndFont();
+  console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} rules=${cspProbe.fontRuleSources?.length || 0} loadedFaces=${cspProbe.loadedFaceCount || 0} resourceEntries=${cspProbe.fontResources?.length || 0}`);
+  assert.equal(cspProbe.probeError, undefined, `main renderer CSP/font probe failed: ${cspProbe.probeError || 'unknown'}`);
+  assert.equal(cspProbe.executed, false, 'main renderer CSP must block a data: script probe');
+  assert.ok(cspProbe.violations.some(item => item.effectiveDirective.startsWith('script-src') && item.blockedURI === 'data'), 'main renderer must report the data: script as a script-src CSP violation');
+  assert.deepEqual(cspProbe.googleResources, [], 'main renderer must not request Google Fonts resources');
+  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
+assert.ok(cspProbe.fontRuleSources.length >= 1, 'main renderer must register an Inter @font-face rule');
+assert.ok(cspProbe.fontRuleSources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter @font-face must resolve to local ui/fonts bytes: ${JSON.stringify(cspProbe.fontRuleSources)}`);
+assert.ok(cspProbe.loadedFaceCount >= 1, 'document.fonts.load must resolve at least one CSS-backed Inter FontFace');
+assert.ok(cspProbe.loadedFaceStatuses.every(status => status === 'loaded'), `matched Inter FontFace must be loaded: ${JSON.stringify(cspProbe.loadedFaceStatuses)}`);
+assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `any reported Inter resource must remain local: ${JSON.stringify(cspProbe.fontResources)}`);
+
+  const appInfo = await browser.electron.execute((electron) => ({
       name: electron.app.getName(),
       packaged: electron.app.isPackaged,
       windows: electron.BrowserWindow.getAllWindows().filter(win => !win.isDestroyed()).length,
