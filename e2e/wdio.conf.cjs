@@ -26,7 +26,7 @@ function chromeDriverShutdownUrl(options) {
 
 exports.config = {
   runner: 'local',
-  specs: ['./specs/shell-smoke.e2e.cjs', './specs/broadcast-readiness.e2e.cjs'],
+  specs: ['./specs/shell-smoke.e2e.cjs'].concat('./specs/broadcast-readiness.e2e.cjs'),
   maxInstances: 1,
   logLevel: 'warn',
   bail: 1,
