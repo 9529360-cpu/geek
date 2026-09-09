@@ -91,20 +91,15 @@ jobs:
           '''.replace('          ', '')
           source = source[:start] + probe + source[end:]
 
-          old = '''  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
-          assert.ok(cspProbe.fontResources.length >= 1, 'Inter availability must be backed by an actual WOFF2 resource load');
-          assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter must load from packaged local ui/fonts bytes: ${JSON.stringify(cspProbe.fontResources)}`);
-          '''.replace('          ', '')
-          new = '''  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
+          assertion_start = source.index("  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');")
+          assertion_end = source.index('\n\n  const appInfo = await browser.electron.execute', assertion_start)
+          assertions = r'''  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
           assert.ok(cspProbe.fontRuleSources.length >= 1, 'main renderer must register an Inter @font-face rule');
           assert.ok(cspProbe.fontRuleSources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter @font-face must resolve to local ui/fonts bytes: ${JSON.stringify(cspProbe.fontRuleSources)}`);
           assert.ok(cspProbe.loadedFaceCount >= 1, 'document.fonts.load must resolve at least one CSS-backed Inter FontFace');
           assert.ok(cspProbe.loadedFaceStatuses.every(status => status === 'loaded'), `matched Inter FontFace must be loaded: ${JSON.stringify(cspProbe.loadedFaceStatuses)}`);
-          assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `any reported Inter resource must remain local: ${JSON.stringify(cspProbe.fontResources)}`);
-          '''.replace('          ', '')
-          if old not in source:
-            raise SystemExit('old local font resource assertions not found')
-          source = source.replace(old, new, 1)
+          assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `any reported Inter resource must remain local: ${JSON.stringify(cspProbe.fontResources)}`);'''.replace('          ', '')
+          source = source[:assertion_start] + assertions + source[assertion_end:]
           source = source.replace(
             'console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} localFonts=${cspProbe.fontResources?.length || 0}`);',
             'console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} rules=${cspProbe.fontRuleSources?.length || 0} loadedFaces=${cspProbe.loadedFaceCount || 0} resourceEntries=${cspProbe.fontResources?.length || 0}`);',
