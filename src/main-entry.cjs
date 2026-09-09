@@ -69,6 +69,13 @@ if (primaryInstance) {
   });
   const remoteDebuggingRequested = externalDebuggingRequested({ argv: process.argv });
 
+  // main.cjs still maps every unrecognized account type to WhatsApp. Install this as
+  // the outermost IPC-registration guard: later boundaries temporarily wrap handle()
+  // and restore to the method they observed, which must remain this guard until all
+  // legacy registrations are complete. Rejected accounts:add calls therefore fail
+  // before the legacy handler can allocate an id, partition, active account, or state.
+  const accountTypeBoundary = installAccountTypeBoundary({ ipcMain });
+
   // main.cjs still has legacy reads of webContents.session.partition, while current
   // Electron documents Session.storagePath instead. Install a narrow read-only
   // compatibility getter before main.cjs can create or classify any account guest.
@@ -145,11 +152,6 @@ if (primaryInstance) {
       console.error('[account-data] compaction retry required:', code.slice(0, 80));
     },
   });
-
-  // main.cjs still maps every unrecognized account type to WhatsApp. Intercept only
-  // accounts:add registration so explicit unknown/malformed types fail closed before
-  // the legacy handler can allocate an id, partition, active account, or persisted state.
-  const accountTypeBoundary = installAccountTypeBoundary({ ipcMain });
 
   // Fail closed if Electron changes in a way that prevents safe partition recovery.
   // Starting legacy main without the account partition key would collapse WPP and
