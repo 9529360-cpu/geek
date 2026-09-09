@@ -45,6 +45,10 @@ async function main() {
   assert.match(workflow, /Install Electron Linux runtime dependencies/);
   assert.match(workflow, /libgtk-3-0t64/);
   assert.match(workflow, /libasound2t64/);
+  assert.match(workflow, /gnome-keyring/, 'hosted Linux E2E must provide a real Secret Service backend for Electron safeStorage');
+  assert.match(workflow, /libsecret-1-0/);
+  assert.match(workflow, /dbus-run-session -- bash/, 'Secret Service must run inside an isolated D-Bus session');
+  assert.match(workflow, /gnome-keyring-daemon --unlock/);
   assert.match(workflow, /xvfb-run -a npm run test:e2e/, 'hosted Linux E2E must run inside an explicit virtual X display');
   assert.match(workflow, /apparmor_restrict_unprivileged_userns=0/, 'hosted Ubuntu must allow Electron namespace sandboxing without --no-sandbox');
   assert.match(workflow, /npm ci --ignore-scripts/);
