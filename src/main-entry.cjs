@@ -17,6 +17,7 @@ const { createTelegramNativeAttachmentHandler } = require('./telegram-native-att
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
+const { installAccountSessionPermissionBoundary } = require('./session-permission-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
 const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
 
@@ -74,6 +75,19 @@ if (primaryInstance) {
   // compatibility getter before main.cjs can create or classify any account guest.
   const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
 
+  // Navigation and Web permissions must resolve the same authoritative account owner.
+  // Re-read the active account store for every decision so account deletion, corruption,
+  // or partition/account mismatch immediately becomes fail-closed rather than leaving
+  // a stale Session permission grant behind.
+  const resolveAccountPolicyForPartition = (partition) => {
+    try {
+      const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
+      return policyFromAccountState(partition, accountState);
+    } catch {
+      return null;
+    }
+  };
+
   // Legacy post-attach navigation uses a global host allowlist. Add a stricter
   // account-guest boundary before any BrowserWindow/WebView is created. Navigation
   // policy comes from the authoritative account record that owns the fixed partition;
@@ -81,14 +95,17 @@ if (primaryInstance) {
   // from the first URL observed in the guest.
   installAccountScopedWebviewNavigationBoundary({
     app,
-    resolvePolicyForPartition: (partition) => {
-      try {
-        const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
-        return policyFromAccountState(partition, accountState);
-      } catch {
-        return null;
-      }
-    },
+    resolvePolicyForPartition: resolveAccountPolicyForPartition,
+  });
+
+  // Electron's default Web-permission behavior is not an acceptable trust boundary for
+  // remote chat content. Bind both permission-request and permission-check handlers to
+  // the account WebView Session before attachment. The permission module reuses the
+  // exact navigation policy above for partition ownership and requesting-origin checks.
+  installAccountSessionPermissionBoundary({
+    app,
+    sessionModule: session,
+    resolvePolicyForPartition: resolveAccountPolicyForPartition,
   });
 
   // The legacy external attachment transport selects the first platform target and
