@@ -53,14 +53,91 @@ async function heartbeat(label) {
   assert.equal(processState.focusedDestroyed, false, `${label}: focused window was destroyed`);
 }
 
+async function probeSafeStorage() {
+  return browser.electron.execute((electron) => {
+    let backend = 'not-linux';
+    let roundTrip = false;
+    let errorName = '';
+    try {
+      if (process.platform === 'linux') backend = electron.safeStorage.getSelectedStorageBackend();
+      const encrypted = electron.safeStorage.encryptString('geek-e2e-probe');
+      roundTrip = electron.safeStorage.decryptString(encrypted) === 'geek-e2e-probe';
+    } catch (error) {
+      errorName = String(error?.name || 'Error').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'Error';
+    }
+    return {
+      platform: process.platform,
+      available: electron.safeStorage.isEncryptionAvailable(),
+      backend,
+      roundTrip,
+      errorName,
+    };
+  });
+}
+
+async function probeAccountData(accountId) {
+  return browser.executeAsync((id, done) => {
+    const knownCodes = [
+      'SECURE_STORAGE_UNAVAILABLE',
+      'SECURE_STORAGE_ENCRYPT_FAILED',
+      'ACCOUNT_DATA_ACCOUNT_INVALID',
+      'ACCOUNT_DATA_ACCOUNT_STATE_UNAVAILABLE',
+      'ACCOUNT_DATA_ACCOUNT_MISSING',
+      'ACCOUNT_DATA_PARTITION_MISMATCH',
+      'ACCOUNT_DATA_SENDER_INVALID',
+      'ACCOUNT_DATA_LOG_CORRUPT',
+      'ACCOUNT_DATA_RECORD_TOO_LARGE',
+    ];
+    window.api.accountData.getAll(id).then((value) => {
+      done({
+        ok: true,
+        keyCount: value && typeof value === 'object' ? Object.keys(value).length : -1,
+        hasSchema: value?.__schema === '1',
+      });
+    }).catch((error) => {
+      const message = String(error?.message || error || '');
+      done({
+        ok: false,
+        code: knownCodes.find(code => message.includes(code)) || String(error?.name || 'Error').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'Error',
+      });
+    });
+  }, accountId);
+}
+
+async function activationSnapshot(accountId) {
+  return browser.executeAsync((id, done) => {
+    const target = document.querySelector(`.nav-account[data-id="${id}"] .nav-account-main`);
+    const domActive = document.querySelector('.nav-account.active[data-id]')?.dataset.id || '';
+    window.api.accounts.list().then((result) => {
+      const backendActive = result?.activeAccountId || '';
+      done({
+        domState: domActive === id ? 'target' : domActive ? 'other' : 'none',
+        backendState: backendActive === id ? 'target' : backendActive ? 'other' : 'none',
+        targetConnected: target?.isConnected === true,
+        targetHandler: typeof target?.onclick === 'function',
+      });
+    }).catch(() => done({
+      domState: domActive === id ? 'target' : domActive ? 'other' : 'none',
+      backendState: 'list-error',
+      targetConnected: target?.isConnected === true,
+      targetHandler: typeof target?.onclick === 'function',
+    }));
+  }, accountId);
+}
+
 async function activateAccount(accountId) {
   const button = await waitVisible(`.nav-account[data-id="${accountId}"] .nav-account-main`);
   await button.click();
-  await browser.waitUntil(async () => browser.execute((id) =>
-    document.querySelector('.nav-account.active[data-id]')?.dataset.id === id, accountId), {
-    timeout: STEP_TIMEOUT,
-    timeoutMsg: `account ${accountId} did not become active`,
-  });
+  try {
+    await browser.waitUntil(async () => browser.execute((id) =>
+      document.querySelector('.nav-account.active[data-id]')?.dataset.id === id, accountId), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: `account ${accountId} did not become active`,
+    });
+  } catch (error) {
+    const snapshot = await activationSnapshot(accountId);
+    throw new Error(`account activation failed dom=${snapshot.domState} backend=${snapshot.backendState} connected=${snapshot.targetConnected} handler=${snapshot.targetHandler}`);
+  }
 }
 
 async function rightClick(element) {
@@ -130,6 +207,16 @@ describe('Geek Electron shell smoke', () => {
     const bodyText = await (await $('body')).getText();
     assert.ok(bodyText.trim(), 'main page rendered blank');
     await heartbeat('startup');
+
+    const storageProbe = await probeSafeStorage();
+    console.log(`E2E_SAFE_STORAGE platform=${storageProbe.platform} available=${storageProbe.available} backend=${storageProbe.backend} roundTrip=${storageProbe.roundTrip} error=${storageProbe.errorName || 'none'}`);
+    assert.equal(storageProbe.available, true, 'hosted Electron safeStorage must be available');
+    assert.notEqual(storageProbe.backend, 'basic_text', 'hosted Linux E2E must not fall back to basic_text safeStorage');
+    assert.equal(storageProbe.roundTrip, true, `hosted Electron safeStorage round trip failed: ${storageProbe.errorName || 'unknown'}`);
+
+    const accountDataProbe = await probeAccountData(ACCOUNT_B);
+    console.log(`E2E_ACCOUNT_DATA getAll=${accountDataProbe.ok ? 'ok' : accountDataProbe.code} keyCount=${accountDataProbe.keyCount ?? -1} hasSchema=${accountDataProbe.hasSchema === true}`);
+    assert.equal(accountDataProbe.ok, true, `accountData.getAll failed: ${accountDataProbe.code || 'unknown'}`);
 
     const accounts = await $$('.nav-account');
     assert.equal(accounts.length, 2, 'isolated fixture must render exactly two fake accounts');
