@@ -2,7 +2,15 @@
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.GeekBroadcastChatReadiness = api;
-  if (root && root.document && root.GeekPlatformTransports) api.install(root);
+  if (root && root.document) {
+    const installWhenAvailable = () => {
+      try { api.install(root); }
+      catch (error) { console.error('[broadcast-readiness] install failed', error); }
+    };
+    if (root.GeekPlatformTransports) installWhenAvailable();
+    else if (root.document.readyState === 'loading') root.document.addEventListener('DOMContentLoaded', installWhenAvailable, { once: true });
+    else installWhenAvailable();
+  }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
