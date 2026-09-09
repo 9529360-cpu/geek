@@ -149,8 +149,9 @@ describe('WhatsApp broadcast first-open readiness', () => {
     await activateAccount(ACCOUNT_A);
     await openBroadcast();
     assert.equal(await browser.execute(() => window.__geekE2EBroadcastReadiness.calls), 2);
-    await activateAccount(ACCOUNT_B);
+    await (await waitVisible('#broadcast-close')).click();
     await waitHidden('#broadcast-overlay');
+    await activateAccount(ACCOUNT_B);
     await openBroadcast();
 
     await browser.waitUntil(async () => browser.execute(() =>
