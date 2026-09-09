@@ -78,6 +78,10 @@ jobs:
           sudo apt-get install -y -qq \
             xvfb \
             xauth \
+            dbus \
+            dbus-x11 \
+            gnome-keyring \
+            libsecret-1-0 \
             libgtk-3-0t64 \
             libasound2t64 \
             libatk1.0-0t64 \
@@ -109,7 +113,15 @@ jobs:
       - name: Prepare Electron runtime explicitly
         run: npm run electron:install
 
-      - name: Run isolated Electron shell smoke
+      - name: Run isolated Electron shell smoke with Secret Service
         env:
           FORCE_COLOR: '0'
-        run: xvfb-run -a npm run test:e2e
+          XDG_CURRENT_DESKTOP: GNOME
+        shell: bash
+        run: |
+          dbus-run-session -- bash -euo pipefail -c '
+            mkdir -p "$HOME/.local/share/keyrings"
+            rm -f "$HOME"/.local/share/keyrings/*
+            printf "%s" "geek-e2e" | gnome-keyring-daemon --unlock
+            xvfb-run -a npm run test:e2e
+          '
