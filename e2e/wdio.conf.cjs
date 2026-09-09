@@ -24,8 +24,6 @@ exports.config = {
   waitforTimeout: 3000,
   autoXvfb: true,
   xvfbAutoInstall: true,
-  // Electron starts a full Chromium desktop process. Keep this bounded well
-  // below the outer 120s watchdog, but do not undercut WDIO session startup.
   connectionRetryTimeout: 45_000,
   connectionRetryCount: 0,
   framework: 'mocha',
@@ -36,11 +34,11 @@ exports.config = {
   },
   capabilities: [{
     browserName: 'electron',
-    // Do not pass Geek's app-data fixture as ChromeDriver --user-data-dir.
-    // ChromeDriver must own its disposable transport profile so session teardown
-    // can use the normal temporary-profile cleanup path. Geek itself still reads
-    // and writes only GEEK_USER_DATA_DIR, which is preflighted above as a fresh
-    // geek-e2e-* directory under the OS temp root.
+    // ChromeDriver must attach to the exact profile Electron uses. Geek's fixture
+    // directory is fresh, OS-temp scoped, synthetic-only, and deleted by e2e/run.cjs.
+    'goog:chromeOptions': {
+      args: [`--user-data-dir=${e2eUserDataDir}`],
+    },
     'wdio:electronServiceOptions': {
       appEntryPoint: path.join(__dirname, '..', 'src', 'main-entry.cjs'),
       // Override the service default. Geek's E2E must retain the real sandbox.
@@ -50,4 +48,14 @@ exports.config = {
     },
   }],
   services: ['electron'],
+  // Assertions are already complete when this hook runs. Electron desktop apps can
+  // keep process-level resources alive even after the renderer has finished. End the
+  // isolated test app explicitly so ChromeDriver's following DELETE /session observes
+  // an already-terminated Electron process instead of hanging on desktop quit semantics.
+  after: async function () {
+    await browser.electron.execute((electron) => {
+      electron.app.exit(0);
+      return true;
+    });
+  },
 };
