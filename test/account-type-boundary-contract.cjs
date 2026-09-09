@@ -48,13 +48,24 @@ for (const payload of [null, [], 42, true]) {
 }
 
 const handlers = new Map();
-const ipcMain = {
-  handle(channel, handler) {
-    handlers.set(channel, handler);
-  },
-};
+function nativeHandle(channel, handler) {
+  handlers.set(channel, handler);
+}
+function delegatedRegistrationBoundary(channel, handler) {
+  nativeHandle(channel, handler);
+  if (channel === 'account-data:get-all') {
+    this.handle = nativeHandle;
+  }
+}
+const ipcMain = { handle: delegatedRegistrationBoundary };
 let downstreamCalls = 0;
 const boundary = installAccountTypeBoundary({ ipcMain });
+
+// Simulate a current startup boundary finishing its expected registrations and
+// restoring ipcMain.handle while account-type registration protection is active.
+ipcMain.handle('account-data:get-all', () => 'account-data');
+assert.notEqual(ipcMain.handle, nativeHandle, 'account type guard must survive a delegated boundary restoring handle()');
+
 ipcMain.handle('accounts:add', (_event, payload) => {
   downstreamCalls += 1;
   return { accepted: payload?.type || 'whatsapp' };
@@ -71,6 +82,6 @@ assert.equal(downstreamCalls, 2, 'rejected payloads must never reach the real ac
 assert.equal(handlers.get('other:channel')(), 'ok');
 
 boundary.restore();
-assert.equal(typeof ipcMain.handle, 'function');
+assert.equal(ipcMain.handle, nativeHandle, 'account type guard must restore the final delegated handle owner');
 
 console.log('ACCOUNT_TYPE_BOUNDARY_CONTRACT_OK');
