@@ -10,8 +10,9 @@
   const STATE_RETRYABLE = 'retryable';
   const STATE_CANCELLED = 'cancelled';
 
-  function normalizeChats(value) {
-    return Array.isArray(value) ? value : [];
+  function requireChats(value) {
+    if (!Array.isArray(value)) throw new TypeError('listChats must resolve to an array');
+    return value;
   }
 
   async function loadBroadcastChatsWithReadiness(options = {}) {
@@ -30,8 +31,8 @@
     if (typeof listChats !== 'function') throw new TypeError('listChats must be a function');
 
     if (family !== 'whatsapp') {
-      const chats = await listChats();
-      return isCurrent() ? { state: STATE_READY, chats: normalizeChats(chats) } : { state: STATE_CANCELLED };
+      const chats = requireChats(await listChats());
+      return isCurrent() ? { state: STATE_READY, chats } : { state: STATE_CANCELLED };
     }
     if (typeof isReady !== 'function') throw new TypeError('WhatsApp isReady must be a function');
 
@@ -41,24 +42,23 @@
 
     while (isCurrent()) {
       let ready = false;
-      let chats = null;
-      let listSucceeded = false;
-
       try {
         ready = (await isReady()) === true;
       } catch (error) {
         lastError = error;
       }
 
-      try {
-        chats = await listChats();
-        listSucceeded = true;
-      } catch (error) {
-        lastError = error;
-      }
-
       if (!isCurrent()) return { state: STATE_CANCELLED };
-      if (ready && listSucceeded) return { state: STATE_READY, chats: normalizeChats(chats) };
+
+      if (ready) {
+        try {
+          const chats = requireChats(await listChats());
+          if (!isCurrent()) return { state: STATE_CANCELLED };
+          return { state: STATE_READY, chats };
+        } catch (error) {
+          lastError = error;
+        }
+      }
 
       const elapsed = Math.max(0, now() - startedAt);
       if (elapsed >= timeoutMs) {
