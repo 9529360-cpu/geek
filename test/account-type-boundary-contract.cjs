@@ -10,6 +10,7 @@ const {
 } = require('../src/account-type-boundary.cjs');
 
 const mainSource = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+const mainEntrySource = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
 const appTypesMatch = mainSource.match(/const APP_TYPES = \{([\s\S]*?)\n\};\n\nfunction appTypeConfig/);
 assert.ok(appTypesMatch, 'main.cjs APP_TYPES must remain discoverable as the formal platform source');
 const formalTypes = [...appTypesMatch[1].matchAll(/^\s{2}(?:'([^']+)'|([a-z][a-z0-9-]*)):\s*\{/gm)]
@@ -19,6 +20,9 @@ assert.deepEqual(
   formalTypes.sort(),
   'account type boundary must stay locked to the formal APP_TYPES platform set',
 );
+assert.match(mainSource, /app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*registerIpcHandlers\(\)/, 'legacy IPC registration remains deferred until app ready');
+assert.match(mainEntrySource, /installAccountTypeBoundary\(\{ ipcMain \}\);[\s\S]*sessionPartitionCompat\.ready[\s\S]*require\('\.\/main\.cjs'\)/, 'account type guard must be installed before loading deferred legacy main');
+assert.doesNotMatch(mainEntrySource, /accountTypeBoundary\.restore\(\)/, 'main-entry must not restore the guard before deferred accounts:add registration occurs');
 
 for (const type of SUPPORTED_ACCOUNT_TYPES) {
   assert.doesNotThrow(() => validateAccountAddPayload({ type }), `formal type ${type} must remain accepted`);
@@ -70,6 +74,7 @@ ipcMain.handle('accounts:add', (_event, payload) => {
   downstreamCalls += 1;
   return { accepted: payload?.type || 'whatsapp' };
 });
+assert.equal(ipcMain.handle, nativeHandle, 'guard must self-restore only after accounts:add has actually been wrapped');
 ipcMain.handle('other:channel', () => 'ok');
 
 assert.deepEqual(handlers.get('accounts:add')({}, { type: 'telegram-k' }), { accepted: 'telegram-k' });
@@ -82,6 +87,6 @@ assert.equal(downstreamCalls, 2, 'rejected payloads must never reach the real ac
 assert.equal(handlers.get('other:channel')(), 'ok');
 
 boundary.restore();
-assert.equal(ipcMain.handle, nativeHandle, 'account type guard must restore the final delegated handle owner');
+assert.equal(ipcMain.handle, nativeHandle, 'explicit restore remains idempotent after self-restoration');
 
 console.log('ACCOUNT_TYPE_BOUNDARY_CONTRACT_OK');
