@@ -24,17 +24,17 @@ const tg = policy('TG1', 'telegram-k');
 const line = policy('LINE1', 'line');
 
 assert.deepEqual(Object.keys(SUPPORTED_PERMISSION_MATRIX).sort(), [
-  'clipboard-sanitized-write',
   'fullscreen',
   'media',
   'notifications',
 ]);
 
-for (const permission of ['notifications', 'fullscreen', 'clipboard-sanitized-write']) {
-  assert.equal(isAccountPermissionAllowed({ policy: wa, permission, requestingUrl: 'https://web.whatsapp.com/' }), true);
-  assert.equal(isAccountPermissionAllowed({ policy: tg, permission, requestingUrl: 'https://web.telegram.org/k/' }), true);
-  assert.equal(isAccountPermissionAllowed({ policy: line, permission, requestingUrl: 'https://access.line.me/' }), true);
+for (const currentPolicy of [wa, tg, line]) {
+  assert.equal(isAccountPermissionAllowed({ policy: currentPolicy, permission: 'notifications', requestingUrl: currentPolicy.kind === 'whatsapp' ? 'https://web.whatsapp.com/' : currentPolicy.kind === 'telegram' ? 'https://web.telegram.org/k/' : 'https://access.line.me/' }), true);
 }
+assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'fullscreen', requestingUrl: 'https://web.telegram.org/k/' }), true, 'Telegram Web K has a documented fullscreen video capability');
+assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'fullscreen', requestingUrl: 'https://web.whatsapp.com/' }), false, 'WhatsApp fullscreen is not granted without product evidence');
+assert.equal(isAccountPermissionAllowed({ policy: line, permission: 'fullscreen', requestingUrl: 'https://access.line.me/' }), false, 'LINE fullscreen is not granted without product evidence');
 
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio'] }), true);
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio', 'video'] }), true);
@@ -44,13 +44,14 @@ assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', reque
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio', 'screen'] }), false, 'screen capture must not ride the ordinary media grant');
 
 for (const permission of [
-  'display-capture', 'speaker-selection', 'clipboard-read', 'idle-detection', 'geolocation',
-  'pointerLock', 'midiSysex', 'openExternal', 'hid', 'serial', 'usb', 'fileSystem',
-  'automatic-fullscreen', 'local-network-access', 'persistent-storage', 'screen-wake-lock',
-  'sensors', 'unknown', 'future-permission',
+  'display-capture', 'speaker-selection', 'clipboard-read', 'clipboard-sanitized-write',
+  'idle-detection', 'geolocation', 'pointerLock', 'midiSysex', 'openExternal', 'hid',
+  'serial', 'usb', 'fileSystem', 'automatic-fullscreen', 'local-network-access',
+  'persistent-storage', 'screen-wake-lock', 'sensors', 'unknown', 'future-permission',
 ]) {
   assert.equal(isAccountPermissionAllowed({ policy: wa, permission, requestingUrl: 'https://web.whatsapp.com/' }), false, `${permission} must default deny`);
 }
+assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'clipboard-sanitized-write', requestingUrl: 'https://web.telegram.org/' }), false, 'clipboard write is not granted from a generic compatibility assumption');
 
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'notifications', requestingUrl: 'https://web.whatsapp.com/' }), false, 'cross-platform origin must fail closed');
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'notifications', requestingUrl: 'not a url' }), false, 'invalid URL must fail closed');
