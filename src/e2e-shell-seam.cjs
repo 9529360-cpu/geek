@@ -17,6 +17,21 @@ function isE2EShellLaunchAllowed({ isPackaged, profile, env = process.env, tempD
   return isPathInside(tempDir, resolved);
 }
 
+function configureE2ESafeStorageBackend({
+  isPackaged,
+  profile,
+  env = process.env,
+  tempDir,
+  commandLine,
+  platform = process.platform,
+}) {
+  if (!isE2EShellLaunchAllowed({ isPackaged, profile, env, tempDir })) return false;
+  if (platform !== 'linux') return true;
+  if (!commandLine || typeof commandLine.appendSwitch !== 'function') return false;
+  commandLine.appendSwitch('password-store', 'gnome-libsecret');
+  return true;
+}
+
 function installSubscriptionStartupBypass({
   isPackaged,
   profile,
@@ -50,5 +65,6 @@ function installSubscriptionStartupBypass({
 module.exports = {
   isPathInside,
   isE2EShellLaunchAllowed,
+  configureE2ESafeStorageBackend,
   installSubscriptionStartupBypass,
 };
