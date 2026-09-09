@@ -87,7 +87,7 @@ for (const source of directive('style-src')) {
 
 assert.doesNotMatch(html, /fonts\.googleapis\.com/i, 'runtime main UI must not reference Google Fonts CSS');
 assert.doesNotMatch(html, /fonts\.gstatic\.com/i, 'runtime main UI must not reference Google Fonts font hosts');
-assert.match(html, /<link\b[^>]*href=["']fonts\.css["'][^>]*>/i, 'main UI must load the local font stylesheet');
+assert.match(html, /<link\b[^>]*href=["'](?:\.\/)?fonts\.css["'][^>]*>/i, 'main UI must load the local font stylesheet');
 
 assert.equal(fs.existsSync(fontCssPath), true, 'local Inter stylesheet must exist');
 assert.equal(fs.existsSync(fontPath), true, 'official Inter variable WOFF2 must exist');
