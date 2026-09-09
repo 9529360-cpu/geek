@@ -1,0 +1,125 @@
+name: refine-font-e2e
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/refine-font-e2e.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    if: github.event.pull_request.head.ref == 'security/main-ui-csp-local-fonts'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/main-ui-csp-local-fonts
+          fetch-depth: 0
+      - name: Require an actually loaded local CSS FontFace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('e2e/specs/shell-smoke.e2e.cjs')
+          source = path.read_text(encoding='utf-8')
+          start = source.index('async function probeMainRendererCspAndFont() {')
+          end = source.index('async function heartbeat(label) {', start)
+          probe = r'''async function probeMainRendererCspAndFont() {
+            return browser.executeAsync((done) => {
+              (async () => {
+                const violations = [];
+                const onViolation = (event) => {
+                  violations.push({
+                    effectiveDirective: String(event.effectiveDirective || ''),
+                    blockedURI: String(event.blockedURI || ''),
+                  });
+                };
+                window.addEventListener('securitypolicyviolation', onViolation);
+                window.__geekCspProbe = false;
+                const script = document.createElement('script');
+                script.src = 'data:text/javascript,window.__geekCspProbe%20%3D%20true';
+                document.head.appendChild(script);
+
+                await document.fonts.ready;
+
+                const fontRuleSources = [];
+                for (const sheet of Array.from(document.styleSheets)) {
+                  let rules;
+                  try {
+                    rules = Array.from(sheet.cssRules || []);
+                  } catch {
+                    continue;
+                  }
+                  for (const rule of rules) {
+                    if (rule.type !== CSSRule.FONT_FACE_RULE) continue;
+                    const family = String(rule.style.getPropertyValue('font-family') || '').trim().replace(/^['"]|['"]$/g, '');
+                    if (family !== 'Inter') continue;
+                    const src = String(rule.style.getPropertyValue('src') || '');
+                    const urlMatch = src.match(/url\(\s*(['"]?)(.*?)\1\s*\)/i);
+                    if (urlMatch?.[2]) {
+                      fontRuleSources.push(new URL(urlMatch[2], sheet.href || document.baseURI).href);
+                    }
+                  }
+                }
+
+                const loadedFaces = await document.fonts.load('16px "Inter"', 'Geek');
+                await new Promise(resolve => setTimeout(resolve, 100));
+                const resources = performance.getEntriesByType('resource').map(entry => String(entry.name || ''));
+                const fontResources = resources.filter(name => /InterVariable\.woff2(?:$|[?#])/i.test(name));
+                window.removeEventListener('securitypolicyviolation', onViolation);
+                script.remove();
+                done({
+                  executed: window.__geekCspProbe === true,
+                  violations,
+                  googleResources: resources.filter(name => /fonts\.(?:googleapis|gstatic)\.com/i.test(name)),
+                  interAvailable: document.fonts.check('16px "Inter"'),
+                  fontRuleSources,
+                  loadedFaceCount: loadedFaces.length,
+                  loadedFaceStatuses: loadedFaces.map(face => String(face.status || '')),
+                  fontResources,
+                });
+              })().catch((error) => done({ probeError: String(error?.name || 'Error').slice(0, 80) }));
+            });
+          }
+
+          '''.replace('          ', '')
+          source = source[:start] + probe + source[end:]
+
+          old = '''  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
+          assert.ok(cspProbe.fontResources.length >= 1, 'Inter availability must be backed by an actual WOFF2 resource load');
+          assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter must load from packaged local ui/fonts bytes: ${JSON.stringify(cspProbe.fontResources)}`);
+          '''.replace('          ', '')
+          new = '''  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
+          assert.ok(cspProbe.fontRuleSources.length >= 1, 'main renderer must register an Inter @font-face rule');
+          assert.ok(cspProbe.fontRuleSources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter @font-face must resolve to local ui/fonts bytes: ${JSON.stringify(cspProbe.fontRuleSources)}`);
+          assert.ok(cspProbe.loadedFaceCount >= 1, 'document.fonts.load must resolve at least one CSS-backed Inter FontFace');
+          assert.ok(cspProbe.loadedFaceStatuses.every(status => status === 'loaded'), `matched Inter FontFace must be loaded: ${JSON.stringify(cspProbe.loadedFaceStatuses)}`);
+          assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `any reported Inter resource must remain local: ${JSON.stringify(cspProbe.fontResources)}`);
+          '''.replace('          ', '')
+          if old not in source:
+            raise SystemExit('old local font resource assertions not found')
+          source = source.replace(old, new, 1)
+          source = source.replace(
+            'console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} localFonts=${cspProbe.fontResources?.length || 0}`);',
+            'console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} rules=${cspProbe.fontRuleSources?.length || 0} loadedFaces=${cspProbe.loadedFaceCount || 0} resourceEntries=${cspProbe.fontResources?.length || 0}`);',
+            1,
+          )
+          path.write_text(source, encoding='utf-8')
+          PY
+          node --check e2e/specs/shell-smoke.e2e.cjs
+          git diff --check
+      - name: Commit probe refinement
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add e2e/specs/shell-smoke.e2e.cjs
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'test: verify local Inter through loaded CSS FontFace'
+          git push origin HEAD:security/main-ui-csp-local-fonts
