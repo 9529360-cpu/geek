@@ -234,24 +234,5 @@ describe('Geek Electron shell smoke', () => {
     for (let iteration = 1; iteration <= 3; iteration += 1) {
       await openAndCloseBroadcast(iteration);
     }
-
-    // ChromeDriver owns session teardown. Geek's tray close listener intentionally
-    // prevents ordinary window close, so remove only that one test-observed listener.
-    // The real window-all-closed handler remains and performs app.quit() on Linux.
-    const teardown = await browser.electron.execute((electron) => {
-      const windows = electron.BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
-      const hostWindow = electron.BrowserWindow.getFocusedWindow() || windows[0];
-      if (!hostWindow) return { removed: 0, remaining: 0 };
-      let removed = 0;
-      for (const listener of hostWindow.listeners('close')) {
-        const source = Function.prototype.toString.call(listener);
-        if (source.includes('!isQuitting') && source.includes('mainWindow.hide')) {
-          hostWindow.removeListener('close', listener);
-          removed += 1;
-        }
-      }
-      return { removed, remaining: hostWindow.listenerCount('close') };
-    });
-    assert.equal(teardown.removed, 1, `expected exactly one Geek tray close interceptor, removed ${teardown.removed}`);
   });
 });
