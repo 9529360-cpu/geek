@@ -18,6 +18,7 @@ const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = requi
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
+const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -144,6 +145,12 @@ if (primaryInstance) {
       console.error('[account-data] compaction retry required:', code.slice(0, 80));
     },
   });
+
+  // main.cjs still maps every unrecognized account type to WhatsApp. Install this
+  // after current registration boundaries. main.cjs defers registerIpcHandlers() to
+  // app.whenReady(), so the guard stays installed across require() and self-restores
+  // only after it has actually wrapped the accounts:add handler.
+  installAccountTypeBoundary({ ipcMain });
 
   // Fail closed if Electron changes in a way that prevents safe partition recovery.
   // Starting legacy main without the account partition key would collapse WPP and
