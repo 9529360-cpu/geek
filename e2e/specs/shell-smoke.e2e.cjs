@@ -235,12 +235,23 @@ describe('Geek Electron shell smoke', () => {
       await openAndCloseBroadcast(iteration);
     }
 
-    // Geek normally keeps a closed window alive in the tray. Exercise the product's
-    // graceful quit path before WebDriver tears down the session, so before-quit marks
-    // the window as intentionally closing instead of ChromeDriver waiting on a hidden tray app.
-    await browser.electron.execute((electron) => {
-      electron.app.quit();
-      return true;
+    // ChromeDriver owns session teardown. Geek's tray close listener intentionally
+    // prevents ordinary window close, so remove only that one test-observed listener.
+    // The real window-all-closed handler remains and performs app.quit() on Linux.
+    const teardown = await browser.electron.execute((electron) => {
+      const windows = electron.BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
+      const hostWindow = electron.BrowserWindow.getFocusedWindow() || windows[0];
+      if (!hostWindow) return { removed: 0, remaining: 0 };
+      let removed = 0;
+      for (const listener of hostWindow.listeners('close')) {
+        const source = Function.prototype.toString.call(listener);
+        if (source.includes('!isQuitting') && source.includes('mainWindow.hide')) {
+          hostWindow.removeListener('close', listener);
+          removed += 1;
+        }
+      }
+      return { removed, remaining: hostWindow.listenerCount('close') };
     });
+    assert.equal(teardown.removed, 1, `expected exactly one Geek tray close interceptor, removed ${teardown.removed}`);
   });
 });
