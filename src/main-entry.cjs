@@ -17,7 +17,7 @@ const { createTelegramNativeAttachmentHandler } = require('./telegram-native-att
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
-const { installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
+const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -26,6 +26,17 @@ const runtimeIdentity = configureRuntimeEnvironment({
   isPackaged: app.isPackaged,
   packagedProfile: packagedMetadata.geekRuntimeProfile,
   env: process.env,
+});
+
+// Hosted Linux has no desktop login session to auto-select an OS password manager.
+// The isolated E2E seam explicitly selects GNOME libsecret before app ready, but only
+// for an unpackaged development process under a fresh OS-temp geek-e2e-* userData.
+configureE2ESafeStorageBackend({
+  isPackaged: app.isPackaged,
+  profile: runtimeIdentity.profile,
+  env: process.env,
+  tempDir: os.tmpdir(),
+  commandLine: app.commandLine,
 });
 
 // E2E may cross the local login gate only for an unpackaged development process whose
