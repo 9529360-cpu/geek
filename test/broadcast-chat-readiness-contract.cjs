@@ -145,10 +145,10 @@ async function run() {
   assert.match(appSource, /broadcastChatLoadSequence \+= 1;/);
   assert.match(appSource, /bMetaEl\.textContent = '加载聊天列表…';/);
 
-  // 11) Readiness installs only after parser-loaded app.js has established the transport owner.
-  assert.match(safetySource, /DOMContentLoaded/);
-  assert.match(safetySource, /broadcast-chat-readiness\.js/);
-  assert.match(safetySource, /GeekBroadcastChatReadiness/);
+  // 11) Readiness is preloaded by the bounded broadcast loader and self-installs after app ownership exists.
+  assert.match(safetySource, /loadScript\('\.\/broadcast-chat-readiness\.js', 'GeekBroadcastChatReadiness'\)/);
+  assert.match(helperSource, /DOMContentLoaded/);
+  assert.match(helperSource, /GeekPlatformTransports/);
 
   // 12) WA-JS readiness belongs only to the dedicated read transport, not app/workbench/send code.
   assert.doesNotMatch(appSource, /conn\.isMainReady/);
