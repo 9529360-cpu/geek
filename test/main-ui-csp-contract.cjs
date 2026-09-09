@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
@@ -93,6 +94,9 @@ assert.equal(fs.existsSync(fontCssPath), true, 'local Inter stylesheet must exis
 assert.equal(fs.existsSync(fontPath), true, 'official Inter variable WOFF2 must exist');
 assert.equal(fs.existsSync(licensePath), true, 'Inter OFL license must be retained next to the bundled font');
 
+const interSha256 = crypto.createHash('sha256').update(fs.readFileSync(fontPath)).digest('hex');
+assert.equal(interSha256, '693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3', 'bundled InterVariable.woff2 must match the pinned official v4.1 release bytes');
+
 const fontCss = fs.readFileSync(fontCssPath, 'utf8');
 assert.match(fontCss, /@font-face\s*\{/i, 'local font stylesheet must define @font-face');
 assert.match(fontCss, /font-family\s*:\s*['"]Inter['"]/i, 'local font must preserve the existing Inter family name');
@@ -116,10 +120,9 @@ assert.doesNotMatch(productionSources, /webSecurity\s*:\s*false/i, 'production s
 assert.doesNotMatch(productionSources, /allowRunningInsecureContent\s*:\s*true/i, 'production source must not allow insecure active content');
 assert.doesNotMatch(productionSources, /bypassCSP\s*:\s*true/i, 'production source must not bypass renderer CSP');
 
-const fuseFiles = fs.readdirSync(path.join(root, 'src')).filter(name => /fuse/i.test(name));
-for (const name of fuseFiles) {
-  const source = fs.readFileSync(path.join(root, 'src', name), 'utf8');
-  assert.doesNotMatch(source, /runAsNode|enableNodeOptionsEnvironmentVariable|enableNodeCliInspectArguments/i, `main-UI CSP work must not loosen production Electron fuses via ${name}`);
-}
+assert.match(builder, /electronFuses:\s*[\s\S]*?runAsNode:\s*false/, 'production Fuse must keep ELECTRON_RUN_AS_NODE disabled');
+assert.match(builder, /electronFuses:\s*[\s\S]*?enableNodeOptionsEnvironmentVariable:\s*false/, 'production Fuse must keep NODE_OPTIONS disabled');
+assert.match(builder, /electronFuses:\s*[\s\S]*?enableNodeCliInspectArguments:\s*false/, 'production Fuse must keep Node inspector CLI arguments disabled');
+assert.match(builder, /electronFuses:\s*[\s\S]*?enableEmbeddedAsarIntegrityValidation:\s*true/, 'production Fuse must keep embedded ASAR integrity validation enabled');
 
 console.log('main-ui-csp-contract: ok');

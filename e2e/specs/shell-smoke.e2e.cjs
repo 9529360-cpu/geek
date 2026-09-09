@@ -34,6 +34,39 @@ async function installErrorWatch() {
   });
 }
 
+async function probeMainRendererCspAndFont() {
+  return browser.executeAsync((done) => {
+    const violations = [];
+    const onViolation = (event) => {
+      violations.push({
+        effectiveDirective: String(event.effectiveDirective || ''),
+        blockedURI: String(event.blockedURI || ''),
+      });
+    };
+    window.addEventListener('securitypolicyviolation', onViolation);
+    window.__geekCspProbe = false;
+    const script = document.createElement('script');
+    script.src = 'data:text/javascript,window.__geekCspProbe%20%3D%20true';
+    document.head.appendChild(script);
+
+    document.fonts.ready.then(() => {
+      setTimeout(() => {
+        const resources = performance.getEntriesByType('resource').map(entry => String(entry.name || ''));
+        const fontResources = resources.filter(name => /InterVariable\.woff2(?:$|[?#])/i.test(name));
+        window.removeEventListener('securitypolicyviolation', onViolation);
+        script.remove();
+        done({
+executed: window.__geekCspProbe === true,
+violations,
+googleResources: resources.filter(name => /fonts\.(?:googleapis|gstatic)\.com/i.test(name)),
+interAvailable: document.fonts.check('16px "Inter"'),
+fontResources,
+        });
+      }, 100);
+    }).catch((error) => done({ probeError: String(error?.name || 'Error').slice(0, 80) }));
+  });
+}
+
 async function heartbeat(label) {
   await browser.setTimeout({ script: 2500 });
   const result = await browser.executeAsync((done) => {
@@ -219,7 +252,17 @@ describe('Geek Electron shell smoke', () => {
     });
     await installErrorWatch();
 
-    const appInfo = await browser.electron.execute((electron) => ({
+  const cspProbe = await probeMainRendererCspAndFont();
+  console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} localFonts=${cspProbe.fontResources?.length || 0}`);
+  assert.equal(cspProbe.probeError, undefined, `main renderer CSP/font probe failed: ${cspProbe.probeError || 'unknown'}`);
+  assert.equal(cspProbe.executed, false, 'main renderer CSP must block a data: script probe');
+  assert.ok(cspProbe.violations.some(item => item.effectiveDirective.startsWith('script-src') && item.blockedURI === 'data'), 'main renderer must report the data: script as a script-src CSP violation');
+  assert.deepEqual(cspProbe.googleResources, [], 'main renderer must not request Google Fonts resources');
+  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
+  assert.ok(cspProbe.fontResources.length >= 1, 'Inter availability must be backed by an actual WOFF2 resource load');
+  assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter must load from packaged local ui/fonts bytes: ${JSON.stringify(cspProbe.fontResources)}`);
+
+  const appInfo = await browser.electron.execute((electron) => ({
       name: electron.app.getName(),
       packaged: electron.app.isPackaged,
       windows: electron.BrowserWindow.getAllWindows().filter(win => !win.isDestroyed()).length,
