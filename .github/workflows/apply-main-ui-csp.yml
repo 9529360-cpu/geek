@@ -1,0 +1,155 @@
+name: apply-main-ui-csp
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/apply-main-ui-csp.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'security/main-ui-csp-local-fonts'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/main-ui-csp-local-fonts
+          fetch-depth: 0
+      - name: Apply the scoped renderer changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          index = Path('ui/index.html')
+          text = index.read_text(encoding='utf-8')
+          old = '''  <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>极客</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+            <link rel="stylesheet" href="./style.css">'''.replace('            ', '  ')
+          new = '''  <meta charset="UTF-8">
+            <!-- Main file:// renderer CSP. style-src keeps unsafe-inline only for existing UI inline-style debt; scripts remain local external files only. -->
+            <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none';">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>极客</title>
+            <link rel="stylesheet" href="./fonts.css">
+            <link rel="stylesheet" href="./style.css">'''.replace('            ', '  ')
+          if old not in text:
+            raise SystemExit('index.html Google Fonts anchor not found')
+          index.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          Path('ui/fonts.css').write_text("""/* Inter v4.1, bundled from the official rsms/inter release. */
+          @font-face {
+            font-family: 'Inter';
+            src: url('./fonts/InterVariable.woff2') format('woff2');
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+          }
+          """.replace('          ', ''), encoding='utf-8')
+
+          contract = Path('test/main-ui-csp-contract.cjs')
+          source = contract.read_text(encoding='utf-8')
+          source = source.replace("const fs = require('node:fs');\n", "const fs = require('node:fs');\nconst crypto = require('node:crypto');\n", 1)
+          marker = "assert.equal(fs.existsSync(licensePath), true, 'Inter OFL license must be retained next to the bundled font');\n"
+          insertion = marker + "\nconst interSha256 = crypto.createHash('sha256').update(fs.readFileSync(fontPath)).digest('hex');\nassert.equal(interSha256, '693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3', 'bundled InterVariable.woff2 must match the pinned official v4.1 release bytes');\n"
+          if marker not in source:
+            raise SystemExit('font hash contract anchor not found')
+          source = source.replace(marker, insertion, 1)
+          old_fuse = """const fuseFiles = fs.readdirSync(path.join(root, 'src')).filter(name => /fuse/i.test(name));
+          for (const name of fuseFiles) {
+            const source = fs.readFileSync(path.join(root, 'src', name), 'utf8');
+            assert.doesNotMatch(source, /runAsNode|enableNodeOptionsEnvironmentVariable|enableNodeCliInspectArguments/i, `main-UI CSP work must not loosen production Electron fuses via ${name}`);
+          }
+          """.replace('          ', '')
+          new_fuse = """assert.match(builder, /electronFuses:\\s*[\\s\\S]*?runAsNode:\\s*false/, 'production Fuse must keep ELECTRON_RUN_AS_NODE disabled');
+          assert.match(builder, /electronFuses:\\s*[\\s\\S]*?enableNodeOptionsEnvironmentVariable:\\s*false/, 'production Fuse must keep NODE_OPTIONS disabled');
+          assert.match(builder, /electronFuses:\\s*[\\s\\S]*?enableNodeCliInspectArguments:\\s*false/, 'production Fuse must keep Node inspector CLI arguments disabled');
+          assert.match(builder, /electronFuses:\\s*[\\s\\S]*?enableEmbeddedAsarIntegrityValidation:\\s*true/, 'production Fuse must keep embedded ASAR integrity validation enabled');
+          """.replace('          ', '')
+          if old_fuse not in source:
+            raise SystemExit('fuse contract anchor not found')
+          contract.write_text(source.replace(old_fuse, new_fuse, 1), encoding='utf-8')
+
+          e2e = Path('e2e/specs/shell-smoke.e2e.cjs')
+          smoke = e2e.read_text(encoding='utf-8')
+          heartbeat_anchor = "async function heartbeat(label) {\n"
+          probe = r'''async function probeMainRendererCspAndFont() {
+            return browser.executeAsync((done) => {
+              const violations = [];
+              const onViolation = (event) => {
+                violations.push({
+                  effectiveDirective: String(event.effectiveDirective || ''),
+                  blockedURI: String(event.blockedURI || ''),
+                });
+              };
+              window.addEventListener('securitypolicyviolation', onViolation);
+              window.__geekCspProbe = false;
+              const script = document.createElement('script');
+              script.src = 'data:text/javascript,window.__geekCspProbe%20%3D%20true';
+              document.head.appendChild(script);
+
+              document.fonts.ready.then(() => {
+                setTimeout(() => {
+                  const resources = performance.getEntriesByType('resource').map(entry => String(entry.name || ''));
+                  const fontResources = resources.filter(name => /InterVariable\.woff2(?:$|[?#])/i.test(name));
+                  window.removeEventListener('securitypolicyviolation', onViolation);
+                  script.remove();
+                  done({
+                    executed: window.__geekCspProbe === true,
+                    violations,
+                    googleResources: resources.filter(name => /fonts\.(?:googleapis|gstatic)\.com/i.test(name)),
+                    interAvailable: document.fonts.check('16px "Inter"'),
+                    fontResources,
+                  });
+                }, 100);
+              }).catch((error) => done({ probeError: String(error?.name || 'Error').slice(0, 80) }));
+            });
+          }
+
+          '''.replace('          ', '')
+          if heartbeat_anchor not in smoke:
+            raise SystemExit('E2E heartbeat anchor not found')
+          smoke = smoke.replace(heartbeat_anchor, probe + heartbeat_anchor, 1)
+
+          startup_anchor = "    await installErrorWatch();\n\n    const appInfo = await browser.electron.execute((electron) => ({\n"
+          startup_probe = """    await installErrorWatch();
+
+            const cspProbe = await probeMainRendererCspAndFont();
+            console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} localFonts=${cspProbe.fontResources?.length || 0}`);
+            assert.equal(cspProbe.probeError, undefined, `main renderer CSP/font probe failed: ${cspProbe.probeError || 'unknown'}`);
+            assert.equal(cspProbe.executed, false, 'main renderer CSP must block a data: script probe');
+            assert.ok(cspProbe.violations.some(item => item.effectiveDirective.startsWith('script-src') && item.blockedURI === 'data'), 'main renderer must report the data: script as a script-src CSP violation');
+            assert.deepEqual(cspProbe.googleResources, [], 'main renderer must not request Google Fonts resources');
+            assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
+            assert.ok(cspProbe.fontResources.length >= 1, 'Inter availability must be backed by an actual WOFF2 resource load');
+            assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter must load from packaged local ui/fonts bytes: ${JSON.stringify(cspProbe.fontResources)}`);
+
+            const appInfo = await browser.electron.execute((electron) => ({
+          """.replace('            ', '    ')
+          if startup_anchor not in smoke:
+            raise SystemExit('E2E startup probe anchor not found')
+          e2e.write_text(smoke.replace(startup_anchor, startup_probe, 1), encoding='utf-8')
+          PY
+
+          git diff --check
+          node --check test/main-ui-csp-contract.cjs
+          node --check e2e/specs/shell-smoke.e2e.cjs
+          node test/main-ui-csp-contract.cjs
+      - name: Commit implementation to the PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add ui/index.html ui/fonts.css test/main-ui-csp-contract.cjs e2e/specs/shell-smoke.e2e.cjs
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'security: localize main UI font and enforce CSP'
+          git push origin HEAD:security/main-ui-csp-local-fonts
