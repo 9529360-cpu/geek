@@ -103,3 +103,11 @@ Updated: 2026-08-29
 4. 继续验证“保存收件人名单”和定时任务 scheduled/queued/cancel/到点/重启恢复。
 5. 再做附件、多账号并发、暂停/继续/停止、账号删除等 #166 全 gate。
 6. 真实 gate 通过前保持 Draft；正式 Windows 发布仍需用户独立授权。
+
+## 2026-09-09 WhatsApp 群发首次打开 readiness 验证触发
+
+- 验证源：PR #294 exact product head `8747ac14559b715b59008f765cdc45f91d682418`。
+- 本提交仅修改 `.agent/HANDOFF.md`，用于命中仓库既有 `ux/broadcast-account-jobs` validation-client-build push 入口；验证安装包的 `files:` 不包含 `.agent/**`，因此产品内容与上述 PR head 保持一致。
+- 只生成隔离 validation installer；禁止修改版本、release marker，禁止触发正式 `release-client`。
+- 当前代码门禁：exact-head `test` run #934 success；`electron-e2e` run #103 success。
+- 实机目标：Windows 冷启动、已登录 WhatsApp，第一次打开群发必须立即可编辑；联系人/群组只在 `WPP.conn.isMainReady()` 后采信并自动出现；不得先发布误导性的 0 联系人；关闭 A 后切 B 时 A 的迟到结果不得覆盖 B。
