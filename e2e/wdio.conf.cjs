@@ -52,4 +52,29 @@ exports.config = {
     },
   }],
   services: ['electron'],
+  // Geek is intentionally a multi-webview desktop shell. Dispose those OOPIF
+  // guests after assertions but while the WebDriver session is still healthy;
+  // then ChromeDriver owns the final host-window/session shutdown. This is
+  // isolated test cleanup only and does not alter product runtime behavior.
+  after: async function () {
+    await browser.execute(() => {
+      document.querySelectorAll('webview').forEach((view) => view.remove());
+    });
+    await browser.waitUntil(async () => {
+      const state = await browser.electron.execute((electron) => {
+        const counts = {};
+        for (const contents of electron.webContents.getAllWebContents()) {
+          const type = contents.getType();
+          counts[type] = (counts[type] || 0) + 1;
+        }
+        return counts;
+      });
+      const guests = Number(state.webview || state.guest || 0);
+      return guests === 0;
+    }, {
+      timeout: 5000,
+      interval: 100,
+      timeoutMsg: 'Electron webview guests did not dispose before session teardown',
+    });
+  },
 };
