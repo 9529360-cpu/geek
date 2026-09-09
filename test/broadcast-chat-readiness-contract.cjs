@@ -125,6 +125,7 @@ async function run() {
   const appSource = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
   const safetySource = fs.readFileSync(path.join(root, 'ui', 'broadcast-safety.js'), 'utf8');
   const workbenchSource = fs.readFileSync(path.join(root, 'ui', 'broadcast-workbench.js'), 'utf8');
+  const e2eSource = fs.readFileSync(path.join(root, 'e2e', 'specs', 'broadcast-readiness.e2e.cjs'), 'utf8');
 
   // 8) Workbench must not retake readiness ownership or intercept the broadcast entry.
   assert.doesNotMatch(workbenchSource, /bc-menu-send|W\.chat\.list|isMainReady|loader\.onReady/);
@@ -154,6 +155,10 @@ async function run() {
   assert.doesNotMatch(appSource, /conn\.isMainReady/);
   assert.doesNotMatch(workbenchSource, /conn\.isMainReady/);
   assert.match(helperSource, /conn\.isMainReady/);
+
+  // 13) The Electron regression is synthetic/read-only and never exercises broadcast sending.
+  assert.doesNotMatch(e2eSource, /#broadcast-send[^\w-].*click|click\(.*#broadcast-send/s);
+  assert.doesNotMatch(e2eSource, /sendText|sendDirect|broadcast-send-message/);
 
   console.log('BROADCAST_CHAT_READINESS_CONTRACT_OK');
 }
