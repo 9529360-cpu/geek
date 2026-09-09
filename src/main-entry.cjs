@@ -17,6 +17,7 @@ const { createTelegramNativeAttachmentHandler } = require('./telegram-native-att
 const { externalDebuggingRequested, installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
+const { installAccountSessionPermissionBoundary } = require('./session-permission-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
 const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
 
@@ -81,15 +82,31 @@ if (primaryInstance) {
   // from the first URL observed in the guest.
   installAccountScopedWebviewNavigationBoundary({
     app,
-    resolvePolicyForPartition: (partition) => {
-      try {
-        const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
-        return policyFromAccountState(partition, accountState);
-      } catch {
-        return null;
-      }
-    },
+    resolvePolicyForPartition: resolveAccountPolicyForPartition,
   });
+
+  // Electron's default Web-permission behavior is not an acceptable trust boundary for
+  // remote chat content. Bind both permission-request and permission-check handlers to
+  // the account WebView Session before attachment. The permission module reuses the
+  // exact navigation policy above for partition ownership and requesting-origin checks.
+  installAccountSessionPermissionBoundary({
+    app,
+    sessionModule: session,
+    resolvePolicyForPartition: resolveAccountPolicyForPartition,
+  });
+
+  // Navigation and Web permissions resolve the same authoritative account owner.
+  // A function declaration is intentionally used so both early boundaries can share
+  // one resolver while the existing source-order contract can still verify that the
+  // navigation boundary is installed before the resolver implementation and legacy main.
+  function resolveAccountPolicyForPartition(partition) {
+    try {
+      const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
+      return policyFromAccountState(partition, accountState);
+    } catch {
+      return null;
+    }
+  }
 
   // The legacy external attachment transport selects the first platform target and
   // has no reliable account partition binding. Keep the developer remote-debug port
