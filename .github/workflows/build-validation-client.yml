@@ -21,6 +21,7 @@ on:
 permissions:
   contents: read
 
+# Validation-only build: never publish production updater metadata or release artifacts.
 concurrency:
   group: geek-validation-client-${{ github.ref }}
   cancel-in-progress: false
