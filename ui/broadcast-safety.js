@@ -102,4 +102,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       });
     });
   });
+
+  const loadReadinessAfterApp = () => loadScript('./broadcast-chat-readiness.js', 'GeekBroadcastChatReadiness');
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadReadinessAfterApp, { once: true });
+  else loadReadinessAfterApp();
 }
