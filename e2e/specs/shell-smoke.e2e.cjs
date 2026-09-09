@@ -234,5 +234,13 @@ describe('Geek Electron shell smoke', () => {
     for (let iteration = 1; iteration <= 3; iteration += 1) {
       await openAndCloseBroadcast(iteration);
     }
+
+    // Geek normally keeps a closed window alive in the tray. Exercise the product's
+    // graceful quit path before WebDriver tears down the session, so before-quit marks
+    // the window as intentionally closing instead of ChromeDriver waiting on a hidden tray app.
+    await browser.electron.execute((electron) => {
+      electron.app.quit();
+      return true;
+    });
   });
 });
