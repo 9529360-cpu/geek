@@ -29,8 +29,10 @@ async function main() {
   assert.match(config, /process\.env\.GEEK_E2E === '1'/, 'WDIO config must fail closed outside the E2E seam');
   assert.match(config, /path\.relative\(path\.resolve\(os\.tmpdir\(\)\), e2eUserDataDir\)/, 'Geek app profile must remain underneath the OS temp root');
   assert.match(config, /path\.basename\(e2eUserDataDir\)\.startsWith\('geek-e2e-'\)/, 'Geek app profile must use the isolated geek-e2e-* prefix');
-  assert.doesNotMatch(config, /--user-data-dir=/, 'ChromeDriver must own its disposable transport profile instead of reusing Geek app data');
-  assert.doesNotMatch(config, /quitGracefully|after:\s*async|listeners\('close'\)/, 'speculative teardown hooks must not replace ChromeDriver lifecycle ownership');
+  assert.match(config, /--user-data-dir=\$\{e2eUserDataDir\}/, 'ChromeDriver and Electron must share the isolated fixture profile for session startup');
+  assert.match(config, /after:\s*async function/);
+  assert.match(config, /electron\.app\.exit\(0\)/, 'isolated E2E must terminate Electron before WebDriver session cleanup');
+  assert.doesNotMatch(config, /quitGracefully|listeners\('close'\)/, 'speculative ChromeDriver and tray-listener teardown hooks must stay removed');
   assert.doesNotMatch(config, /windowTypes:/, 'Do not override Electron Service target discovery without proven need');
   assert.match(config, /autoXvfb:\s*true/, 'hosted Linux E2E keeps WebdriverIO Xvfb support enabled');
   assert.match(config, /xvfbAutoInstall:\s*true/, 'hosted Linux E2E keeps WebdriverIO Xvfb provisioning fallback enabled');
@@ -63,7 +65,7 @@ async function main() {
   assert.match(spec, /hostWindow\.setContentSize\(1280, 820\)/, 'host renderer content area must retain the explicit E2E viewport size');
   assert.match(spec, /hostWindow\.getContentSize\(\)/, 'host renderer content viewport must be verified after sizing');
   assert.doesNotMatch(spec, /setWindowSize\(/, 'Electron WebDriver must not use the unsupported Browser.getWindowForTarget resize path');
-  assert.doesNotMatch(spec, /removeListener\('close'|app\.quit\(\)/, 'the smoke spec must not own Electron process teardown');
+  assert.doesNotMatch(spec, /removeListener\('close'|app\.quit\(|app\.exit\(/, 'the smoke spec must not own Electron process teardown');
   assert.match(spec, /#ctx-menu:not\(\.hidden\)/);
   assert.match(spec, /#account-settings-overlay:not\(\.hidden\)/);
   assert.match(spec, /#bc-menu-send/);
