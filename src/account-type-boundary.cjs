@@ -40,7 +40,8 @@ function installAccountTypeBoundary({ ipcMain } = {}) {
   let installed = true;
 
   function guardedHandle(channel, handler) {
-    const wrappedHandler = channel === 'accounts:add'
+    const isAccountAdd = channel === 'accounts:add';
+    const wrappedHandler = isAccountAdd
       ? (event, payload) => {
           validateAccountAddPayload(payload);
           return handler(event, payload);
@@ -51,13 +52,17 @@ function installAccountTypeBoundary({ ipcMain } = {}) {
 
     // Current startup has other narrow registration boundaries that temporarily
     // replace ipcMain.handle and restore it once their legacy channels are seen.
-    // If one of those delegated registrations restores handle(), remember that
-    // true target but keep this accounts:add guard active until main.cjs finishes
-    // registering all IPC handlers.
-    if (installed && ipcMain.handle !== guardedHandle) {
-      restoreTarget = ipcMain.handle;
-      ipcMain.handle = guardedHandle;
+    // Track the most recent real owner. Until accounts:add is actually registered,
+    // keep this guard active even if a delegated boundary restores handle().
+    if (ipcMain.handle !== guardedHandle) restoreTarget = ipcMain.handle;
+
+    if (isAccountAdd) {
+      installed = false;
+      if (ipcMain.handle === guardedHandle) ipcMain.handle = restoreTarget;
+      return result;
     }
+
+    if (installed && ipcMain.handle !== guardedHandle) ipcMain.handle = guardedHandle;
     return result;
   }
 
