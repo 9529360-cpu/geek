@@ -32,30 +32,7 @@ function validateAccountAddPayload(payload) {
   }
 }
 
-function installAccountTypeBoundary({ ipcMain } = {}) {
-  if (!ipcMain || typeof ipcMain.handle !== 'function') throw new TypeError('ipcMain.handle is required');
-  const originalHandle = ipcMain.handle.bind(ipcMain);
-  let installed = true;
-
-  ipcMain.handle = (channel, handler) => {
-    if (channel !== 'accounts:add') return originalHandle(channel, handler);
-    return originalHandle(channel, (event, payload) => {
-      validateAccountAddPayload(payload);
-      return handler(event, payload);
-    });
-  };
-
-  return Object.freeze({
-    restore() {
-      if (!installed) return;
-      installed = false;
-      ipcMain.handle = originalHandle;
-    },
-  });
-}
-
 module.exports = {
   SUPPORTED_ACCOUNT_TYPES,
   validateAccountAddPayload,
-  installAccountTypeBoundary,
 };
