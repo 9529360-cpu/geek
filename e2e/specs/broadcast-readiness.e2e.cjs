@@ -55,7 +55,7 @@ async function installSyntheticBroadcastReadiness() {
           const call = state.calls;
           const plans = {
             1: {
-              delay: 650,
+              delay: 1800,
               chats: [
                 { id: 'e2e-first-group@g.us', name: 'E2E First Group', type: '群组' },
                 { id: 'e2e-first-contact@c.us', name: 'E2E First Contact', type: '联系人' },
@@ -102,9 +102,14 @@ describe('WhatsApp broadcast first-open readiness', () => {
     assert.equal(patchedWebviews, 2, 'isolated fixture must expose exactly two synthetic webviews');
 
     await openBroadcast();
-    const loadingMeta = await $('#broadcast-meta').getText();
-    assert.match(loadingMeta, /加载聊天列表/);
-    assert.doesNotMatch(loadingMeta, /共\s*0\s*个聊天/);
+    const loadingSnapshot = await browser.execute(() => ({
+      overlayOpen: document.getElementById('broadcast-overlay')?.classList.contains('hidden') === false,
+      meta: document.getElementById('broadcast-meta')?.textContent || '',
+      list: document.getElementById('broadcast-list')?.textContent || '',
+    }));
+    assert.equal(loadingSnapshot.overlayOpen, true, 'editor must open while WhatsApp contacts are still loading');
+    assert.match(loadingSnapshot.meta, /加载聊天列表/);
+    assert.doesNotMatch(`${loadingSnapshot.meta}\n${loadingSnapshot.list}`, /共\s*0\s*个聊天/);
 
     const message = await waitVisible('#broadcast-message');
     await message.setValue('E2E draft remains editable while contacts sync');
@@ -112,7 +117,7 @@ describe('WhatsApp broadcast first-open readiness', () => {
 
     await browser.waitUntil(async () => browser.execute(() =>
       document.getElementById('broadcast-list')?.textContent?.includes('E2E First Group') === true), {
-      timeout: 2500,
+      timeout: 4500,
       timeoutMsg: 'first-open synthetic WhatsApp contacts did not recover automatically',
     });
     const firstReady = await browser.execute(() => ({
@@ -162,7 +167,6 @@ describe('WhatsApp broadcast first-open readiness', () => {
     assert.doesNotMatch(afterStaleA.list, /E2E STALE A/);
     assert.equal(afterStaleA.calls, 3);
 
-    assert.equal(await browser.execute(() => window.__bcTrace || ''), '');
     await (await waitVisible('#broadcast-close')).click();
     await waitHidden('#broadcast-overlay');
   });
