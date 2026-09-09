@@ -11,19 +11,11 @@ on:
       - 'resources/**'
       - 'e2e/**'
       - 'test/electron-e2e-safety-contract.cjs'
+      - 'test/master-merge-gate-contract.cjs'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/electron-e2e.yml'
   pull_request:
-    paths:
-      - 'src/**'
-      - 'ui/**'
-      - 'resources/**'
-      - 'e2e/**'
-      - 'test/electron-e2e-safety-contract.cjs'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/electron-e2e.yml'
 
 permissions:
   contents: read
@@ -125,3 +117,22 @@ jobs:
             printf "%s" "geek-e2e" | gnome-keyring-daemon --unlock
             xvfb-run -a npm run test:e2e
           '
+
+  gate:
+    name: electron-e2e
+    if: always()
+    needs: [whitespace, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the full Electron E2E chain
+        env:
+          WHITESPACE_RESULT: ${{ needs.whitespace.result }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$WHITESPACE_RESULT" != "success" ] || [ "$SMOKE_RESULT" != "success" ]; then
+            echo "Electron E2E chain failed: whitespace=$WHITESPACE_RESULT smoke=$SMOKE_RESULT"
+            exit 1
+          fi
