@@ -16,6 +16,18 @@ on:
       - 'scripts/**'
       - '.agent/HANDOFF.md'
       - '.github/workflows/build-validation-client.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'ui/**'
+      - 'resources/**'
+      - 'build/icon.ico'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'electron-builder.validation.yml'
+      - 'scripts/**'
+      - '.agent/HANDOFF.md'
+      - '.github/workflows/build-validation-client.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,6 +40,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'security/account-session-permissions'
     runs-on: windows-latest
     timeout-minutes: 35
     defaults:
