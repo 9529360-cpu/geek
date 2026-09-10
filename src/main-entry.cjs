@@ -20,6 +20,7 @@ const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } 
 const { installAccountSessionPermissionBoundary } = require('./session-permission-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
 const { installAccountTypeBoundary } = require('./account-type-boundary.cjs');
+const { installWhatsAppStartupDiagnostics } = require('./whatsapp-startup-diagnostics.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -106,6 +107,17 @@ if (primaryInstance) {
     } catch {
       return null;
     }
+  }
+
+  // Real-client repeated failures need evidence from the actual WhatsApp renderer, not
+  // another speculative behavior patch. Keep this trace validation-only: it reads booleans
+  // and counts from the real account WebContents and writes through the existing redactor.
+  if (runtimeIdentity.profile === 'validation') {
+    installWhatsAppStartupDiagnostics({
+      app,
+      getUserDataDir: () => earlyUserDataDir,
+      resolvePolicyForPartition: resolveAccountPolicyForPartition,
+    });
   }
 
   // The legacy external attachment transport selects the first platform target and
