@@ -1,0 +1,85 @@
+name: wpp-settle-order-prep-once
+
+on:
+  push:
+    branches:
+      - fix/whatsapp-waplus-after-wpp-settle
+    paths:
+      - '.github/workflows/wpp-settle-order-prep-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: fix/whatsapp-waplus-after-wpp-settle
+
+      - name: Verify WA-JS 4.5.0 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').dependencies['@wppconnect/wa-js']")" = "4.5.0"
+          test "$(node -p "require('./package-lock.json').packages['node_modules/@wppconnect/wa-js'].version")" = "4.5.0"
+          test "$(node -p "require('./package.json').version")" = "1.2.20"
+
+      - name: Gate WAPLUS behind upstream WPP settle point
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = 'src/main.cjs';
+          const source = fs.readFileSync(file, 'utf8');
+          const before = `        const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
+          await wc.executeJavaScript(wppScript).catch(() => null);
+          try {
+            const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');`;
+          const after = `        const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
+          await wc.executeJavaScript(wppScript).catch(() => null);
+
+          // WA-JS 4.5.0 does not publish isInjected until WhatsApp's Meta module graph
+          // has settled. WAPLUS embeds an older WA-JS loader whose injected callbacks
+          // permanently cache missing Store modules, so never start it before this point.
+          const wppMetaSettled = await wc.executeJavaScript(` + "`" + `(async () => {
+            const deadline = Date.now() + 25000;
+            while (Date.now() < deadline) {
+              if (window.WPP?.isInjected === true) return true;
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            return window.WPP?.isInjected === true;
+          })()` + "`" + `).catch(() => false);
+          if (!wppMetaSettled) throw new Error('WPP_META_NOT_SETTLED');
+
+          try {
+            const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');`;
+          if (!source.includes(before)) throw new Error('injectWppWithRetry target changed; refusing blind patch');
+          const next = source.replace(before, after);
+          if (next === source) throw new Error('patch did not change src/main.cjs');
+          fs.writeFileSync(file, next);
+          NODE
+          node --check src/main.cjs
+          git diff --check
+
+      - name: Install and run contracts
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
+      - name: Commit only the runtime owner change
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only | sort)"
+          test "$changed" = "src/main.cjs"
+          git rm .github/workflows/wpp-settle-order-prep-once.yml
+          git config user.name 'Geek Validation Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git add src/main.cjs
+          git commit -m 'fix: wait for WPP settle before WAPLUS injection'
+          git push origin HEAD:fix/whatsapp-waplus-after-wpp-settle
