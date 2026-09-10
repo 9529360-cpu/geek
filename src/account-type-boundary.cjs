@@ -1,5 +1,7 @@
 'use strict';
 
+const { normalizeWebsiteUrl } = require('./website-url.cjs');
+
 // Keep this narrow boundary in sync with main.cjs APP_TYPES. The focused contract
 // derives the formal platform set from main.cjs and fails if either side drifts.
 const SUPPORTED_ACCOUNT_TYPES = Object.freeze(new Set([
@@ -9,6 +11,7 @@ const SUPPORTED_ACCOUNT_TYPES = Object.freeze(new Set([
   'telegram-k',
   'line',
   'line-business',
+  'website',
 ]));
 
 function accountBoundaryError(code) {
@@ -30,6 +33,7 @@ function validateAccountAddPayload(payload) {
   if (typeof type !== 'string' || !SUPPORTED_ACCOUNT_TYPES.has(type)) {
     throw accountBoundaryError('ACCOUNT_TYPE_UNSUPPORTED');
   }
+  if (type === 'website') normalizeWebsiteUrl(payload.customUrl);
 }
 
 function installAccountTypeBoundary({ ipcMain } = {}) {
