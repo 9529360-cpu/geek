@@ -11,17 +11,18 @@ const {
 } = require('../src/session-permission-boundary.cjs');
 const { policyForAccount } = require('../src/webview-navigation-boundary.cjs');
 
-function account(id, type) {
-  return { id, type, partition: `persist:webview-page-${id}` };
+function account(id, type, extra = {}) {
+  return { id, type, partition: `persist:webview-page-${id}`, ...extra };
 }
-function policy(id, type) {
-  const owner = account(id, type);
+function policy(id, type, extra = {}) {
+  const owner = account(id, type, extra);
   return policyForAccount(owner, owner.partition);
 }
 
 const wa = policy('WA1', 'whatsapp');
 const tg = policy('TG1', 'telegram-k');
 const line = policy('LINE1', 'line');
+const website = policy('WEB1', 'website', { customUrl: 'https://a.example.com/app' });
 
 assert.deepEqual(Object.keys(SUPPORTED_PERMISSION_MATRIX).sort(), [
   'fullscreen',
@@ -32,14 +33,22 @@ assert.deepEqual(Object.keys(SUPPORTED_PERMISSION_MATRIX).sort(), [
 for (const currentPolicy of [wa, tg, line]) {
   assert.equal(isAccountPermissionAllowed({ policy: currentPolicy, permission: 'notifications', requestingUrl: currentPolicy.kind === 'whatsapp' ? 'https://web.whatsapp.com/' : currentPolicy.kind === 'telegram' ? 'https://web.telegram.org/k/' : 'https://access.line.me/' }), true);
 }
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'notifications', requestingUrl: 'https://a.example.com/' }), true, 'configured Website origin may request notifications');
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'notifications', requestingUrl: 'https://chat.a.example.com/' }), true, 'configured Website subdomains inherit notification permission');
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'notifications', requestingUrl: 'https://b.example.com/' }), false, 'Website notification permission is account-origin scoped');
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'notifications', requestingUrl: 'http://a.example.com/' }), false, 'Website notification permission remains HTTPS-only');
+
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'fullscreen', requestingUrl: 'https://web.telegram.org/k/' }), true, 'Telegram Web K has a documented fullscreen video capability');
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'fullscreen', requestingUrl: 'https://web.whatsapp.com/' }), false, 'WhatsApp fullscreen is not granted without product evidence');
 assert.equal(isAccountPermissionAllowed({ policy: line, permission: 'fullscreen', requestingUrl: 'https://access.line.me/' }), false, 'LINE fullscreen is not granted without product evidence');
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'fullscreen', requestingUrl: 'https://a.example.com/' }), false, 'Website fullscreen is outside the MVP permission set');
 
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio'] }), true);
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio', 'video'] }), true);
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'media', requestingUrl: 'https://web.telegram.org/k/', mediaTypes: ['video'] }), true);
 assert.equal(isAccountPermissionAllowed({ policy: line, permission: 'media', requestingUrl: 'https://access.line.me/', mediaTypes: ['audio'] }), false, 'LINE for Chrome does not support voice/video calls');
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'media', requestingUrl: 'https://a.example.com/', mediaTypes: ['audio'] }), false, 'Website microphone permission remains denied');
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'media', requestingUrl: 'https://a.example.com/', mediaTypes: ['video'] }), false, 'Website camera permission remains denied');
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: [] }), false, 'media without explicit audio/video type must fail closed');
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio', 'screen'] }), false, 'screen capture must not ride the ordinary media grant');
 
@@ -50,13 +59,13 @@ for (const permission of [
   'persistent-storage', 'screen-wake-lock', 'sensors', 'unknown', 'future-permission',
 ]) {
   assert.equal(isAccountPermissionAllowed({ policy: wa, permission, requestingUrl: 'https://web.whatsapp.com/' }), false, `${permission} must default deny`);
+  assert.equal(isAccountPermissionAllowed({ policy: website, permission, requestingUrl: 'https://a.example.com/' }), false, `Website ${permission} must default deny`);
 }
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'clipboard-sanitized-write', requestingUrl: 'https://web.telegram.org/' }), false, 'clipboard write is not granted from a generic compatibility assumption');
 
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'notifications', requestingUrl: 'https://web.whatsapp.com/' }), false, 'cross-platform origin must fail closed');
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'notifications', requestingUrl: 'not a url' }), false, 'invalid URL must fail closed');
 assert.equal(isAccountPermissionAllowed({ policy: null, permission: 'notifications', requestingUrl: 'https://web.telegram.org/' }), false, 'missing policy must fail closed');
-assert.equal(isAccountPermissionAllowed({ policy: { kind: 'website', hostname: 'example.com' }, permission: 'notifications', requestingUrl: 'https://example.com/' }), false, 'website account support is outside this security change');
 
 class FakeSession {
   constructor(partition) {
@@ -102,6 +111,27 @@ class FakeSession {
   assert.equal(granted, false, 'missing requestingUrl must fail closed');
   assert.equal(ses.checkHandler(null, 'notifications', '', {}), false, 'missing requestingOrigin must fail closed');
   assert.ok(resolveCount >= 6, 'account policy must be re-resolved per decision so deleted/corrupt owners fail closed');
+}
+
+{
+  const ses = new FakeSession('persist:webview-page-WEB1');
+  const resolvePolicyForPartition = partition => partition === ses.partition ? website : null;
+  installPermissionHandlersForSession({ session: ses, partition: ses.partition, resolvePolicyForPartition });
+
+  let granted = null;
+  ses.requestHandler(null, 'notifications', value => { granted = value; }, { requestingUrl: 'https://a.example.com/path' });
+  assert.equal(granted, true);
+  assert.equal(ses.checkHandler(null, 'notifications', 'https://chat.a.example.com', {}), true);
+
+  granted = null;
+  ses.requestHandler(null, 'notifications', value => { granted = value; }, { requestingUrl: 'https://other.example.com/' });
+  assert.equal(granted, false);
+  assert.equal(ses.checkHandler(null, 'notifications', 'https://other.example.com', {}), false);
+
+  granted = null;
+  ses.requestHandler(null, 'media', value => { granted = value; }, { requestingUrl: 'https://a.example.com/', mediaTypes: ['audio', 'video'] });
+  assert.equal(granted, false, 'Website media request must remain denied even on its configured origin');
+  assert.equal(ses.checkHandler(null, 'display-capture', 'https://a.example.com', {}), false);
 }
 
 {
