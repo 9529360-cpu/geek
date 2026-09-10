@@ -78,22 +78,17 @@ jobs:
           console.log('OK production preflight: legacy schema confirmed and restore point available');
           NODE
 
-      - name: Apply account number expand migration 003
+      - name: Apply account number expand SQL 003 only
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          cp wrangler-subscription.toml .wrangler-account-003.toml
-          cat >> .wrangler-account-003.toml <<'EOF'
-          migrations_dir = "scripts/migrations"
-          migrations_pattern = "scripts/migrations/003-account-number.sql"
-          EOF
-          npx --yes wrangler@4.36.0 d1 migrations list geek-subscriptions --remote --config .wrangler-account-003.toml
-          npx --yes wrangler@4.36.0 d1 migrations apply geek-subscriptions --remote --config .wrangler-account-003.toml
-          rm -f .wrangler-account-003.toml
+          npx --yes wrangler@4.36.0 d1 execute geek-subscriptions --remote --yes \
+            --config wrangler-subscription.toml \
+            --file scripts/migrations/003-account-number.sql
 
-      - name: Verify migration 003 without exposing account numbers
+      - name: Verify SQL 003 without exposing account numbers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
@@ -112,7 +107,7 @@ jobs:
           for (const key of ['missing', 'malformed', 'duplicate_groups']) {
             if (Number(row[key]) !== 0) throw new Error(`003 verification failed: ${key}=${row[key]}`);
           }
-          console.log('OK migration 003: account numbers present, well-formed and unique');
+          console.log('OK SQL 003: account numbers present, well-formed and unique');
           NODE
 
       - name: Deploy account-aware subscription Worker
@@ -124,20 +119,15 @@ jobs:
           CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         run: node scripts/account-live-smoke.mjs
 
-      - name: Apply post-deploy repair migration 004
+      - name: Apply post-deploy repair SQL 004 only
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          cp wrangler-subscription.toml .wrangler-account-004.toml
-          cat >> .wrangler-account-004.toml <<'EOF'
-          migrations_dir = "scripts/migrations"
-          migrations_pattern = "scripts/migrations/004-account-number-repair.sql"
-          EOF
-          npx --yes wrangler@4.36.0 d1 migrations list geek-subscriptions --remote --config .wrangler-account-004.toml
-          npx --yes wrangler@4.36.0 d1 migrations apply geek-subscriptions --remote --config .wrangler-account-004.toml
-          rm -f .wrangler-account-004.toml
+          npx --yes wrangler@4.36.0 d1 execute geek-subscriptions --remote --yes \
+            --config wrangler-subscription.toml \
+            --file scripts/migrations/004-account-number-repair.sql
 
       - name: Final D1 verification without exposing account numbers
         env:
@@ -176,7 +166,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
-          printf 'Run: %s\n\n### Account-number production rollout\n\n- D1 migration 003: success\n- Subscription Worker deploy: success\n- Register/login/me smoke: success\n- D1 migration 004: success\n- Final NULL/format/uniqueness checks: success\n- Public health check: success\n\nNo account numbers, passwords, login tokens, cookies, D1 row contents, or API credentials are included in this report.\n' "$RUN_URL" > "$RUNNER_TEMP/account-rollout-status.md"
+          printf 'Run: %s\n\n### Account-number production rollout\n\n- D1 SQL 003: success\n- Subscription Worker deploy: success\n- Register/login/me smoke: success\n- D1 SQL 004: success\n- Final NULL/format/uniqueness checks: success\n- Public health check: success\n\n003/004 were applied explicitly with `d1 execute --file` because production 002 predated the Wrangler migration ledger. No account numbers, passwords, login tokens, cookies, D1 row contents, or API credentials are included in this report.\n' "$RUN_URL" > "$RUNNER_TEMP/account-rollout-status.md"
           gh issue comment 23 --body-file "$RUNNER_TEMP/account-rollout-status.md"
 
   website-deploy:
