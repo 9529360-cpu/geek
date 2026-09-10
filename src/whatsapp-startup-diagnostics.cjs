@@ -98,6 +98,20 @@ function normalizeProbe(result) {
   });
 }
 
+function currentNavigationIsMainFrame(details, legacyIsMainFrame) {
+  if (details && typeof details === 'object' && typeof details.isMainFrame === 'boolean') {
+    return details.isMainFrame;
+  }
+  return legacyIsMainFrame !== false;
+}
+
+function consoleMessageFromArgs(details, legacyMessage) {
+  if (details && typeof details === 'object' && typeof details.message === 'string') {
+    return details.message;
+  }
+  return typeof legacyMessage === 'string' ? legacyMessage : '';
+}
+
 function installWhatsAppStartupDiagnostics({
   app,
   getUserDataDir,
@@ -127,7 +141,7 @@ function installWhatsAppStartupDiagnostics({
       const url = String(contents.getURL?.() || '');
       if (!isNavigationAllowed(policy, url)) return null;
       const parsed = new URL(url);
-      return { partition, origin: parsed.origin };
+      return { origin: parsed.origin };
     } catch {
       return null;
     }
@@ -144,8 +158,8 @@ function installWhatsAppStartupDiagnostics({
       timers.clear();
     };
 
-    contents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
-      if (isMainFrame === false) return;
+    contents.on('did-start-navigation', (details, _url, _isInPlace, legacyIsMainFrame) => {
+      if (!currentNavigationIsMainFrame(details, legacyIsMainFrame)) return;
       generation += 1;
       clearTimers();
       const scope = scopeFor(contents);
@@ -158,7 +172,9 @@ function installWhatsAppStartupDiagnostics({
       if (scope) diagnostics.log('wa-startup-load-failed', { origin: scope.origin, generation, errorCode });
     });
 
-    contents.on('console-message', (_event, _level, message) => {
+    contents.on('console-message', (_eventOrDetails, detailsOrLevel, legacyMessage) => {
+      const message = consoleMessageFromArgs(detailsOrLevel, legacyMessage)
+        || consoleMessageFromArgs(_eventOrDetails, legacyMessage);
       const category = classifyConsoleMessage(message);
       if (!category) return;
       const scope = scopeFor(contents);
@@ -228,5 +244,7 @@ module.exports = {
   WA_PROBE_SOURCE,
   classifyConsoleMessage,
   normalizeProbe,
+  currentNavigationIsMainFrame,
+  consoleMessageFromArgs,
   installWhatsAppStartupDiagnostics,
 };
