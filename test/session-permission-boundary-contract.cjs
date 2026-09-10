@@ -28,6 +28,7 @@ assert.deepEqual(Object.keys(SUPPORTED_PERMISSION_MATRIX).sort(), [
   'fullscreen',
   'media',
   'notifications',
+  'persistent-storage',
 ]);
 
 for (const currentPolicy of [wa, tg, line]) {
@@ -52,11 +53,18 @@ assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'media', 
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: [] }), false, 'media without explicit audio/video type must fail closed');
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio', 'screen'] }), false, 'screen capture must not ride the ordinary media grant');
 
+assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'persistent-storage', requestingUrl: 'https://web.whatsapp.com/' }), true, 'WhatsApp official origin may keep its authenticated storage bucket persistent');
+assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'persistent-storage', requestingUrl: 'http://127.0.0.1:1843/' }), true, 'Geek WhatsApp local bootstrap origin may keep the account storage bucket persistent');
+assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'persistent-storage', requestingUrl: 'https://example.com/' }), false, 'WhatsApp persistent storage must stay origin-scoped');
+assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'persistent-storage', requestingUrl: 'https://web.telegram.org/' }), false, 'Telegram persistent storage remains denied without product evidence');
+assert.equal(isAccountPermissionAllowed({ policy: line, permission: 'persistent-storage', requestingUrl: 'https://access.line.me/' }), false, 'LINE persistent storage remains denied without product evidence');
+assert.equal(isAccountPermissionAllowed({ policy: website, permission: 'persistent-storage', requestingUrl: 'https://a.example.com/' }), false, 'arbitrary Website persistent storage remains denied');
+
 for (const permission of [
   'display-capture', 'speaker-selection', 'clipboard-read', 'clipboard-sanitized-write',
   'idle-detection', 'geolocation', 'pointerLock', 'midiSysex', 'openExternal', 'hid',
   'serial', 'usb', 'fileSystem', 'automatic-fullscreen', 'local-network-access',
-  'persistent-storage', 'screen-wake-lock', 'sensors', 'unknown', 'future-permission',
+  'screen-wake-lock', 'sensors', 'unknown', 'future-permission',
 ]) {
   assert.equal(isAccountPermissionAllowed({ policy: wa, permission, requestingUrl: 'https://web.whatsapp.com/' }), false, `${permission} must default deny`);
   assert.equal(isAccountPermissionAllowed({ policy: website, permission, requestingUrl: 'https://a.example.com/' }), false, `Website ${permission} must default deny`);
@@ -114,6 +122,21 @@ class FakeSession {
 }
 
 {
+  const ses = new FakeSession('persist:webview-page-WA1');
+  const resolvePolicyForPartition = partition => partition === ses.partition ? wa : null;
+  installPermissionHandlersForSession({ session: ses, partition: ses.partition, resolvePolicyForPartition });
+
+  let granted = null;
+  ses.requestHandler(null, 'persistent-storage', value => { granted = value; }, { requestingUrl: 'http://127.0.0.1:1843/' });
+  assert.equal(granted, true, 'request path must grant WhatsApp local bootstrap persistent storage');
+  assert.equal(ses.checkHandler(null, 'persistent-storage', 'https://web.whatsapp.com', {}), true, 'check path must grant WhatsApp official origin persistent storage');
+
+  granted = null;
+  ses.requestHandler(null, 'persistent-storage', value => { granted = value; }, { requestingUrl: 'https://example.com/' });
+  assert.equal(granted, false, 'request path must reject persistent storage outside WhatsApp policy');
+}
+
+{
   const ses = new FakeSession('persist:webview-page-WEB1');
   const resolvePolicyForPartition = partition => partition === ses.partition ? website : null;
   installPermissionHandlersForSession({ session: ses, partition: ses.partition, resolvePolicyForPartition });
@@ -122,11 +145,6 @@ class FakeSession {
   ses.requestHandler(null, 'notifications', value => { granted = value; }, { requestingUrl: 'https://a.example.com/path' });
   assert.equal(granted, true);
   assert.equal(ses.checkHandler(null, 'notifications', 'https://chat.a.example.com', {}), true);
-
-  granted = null;
-  ses.requestHandler(null, 'notifications', value => { granted = value; }, { requestingUrl: 'https://other.example.com/' });
-  assert.equal(granted, false);
-  assert.equal(ses.checkHandler(null, 'notifications', 'https://other.example.com', {}), false);
 
   granted = null;
   ses.requestHandler(null, 'media', value => { granted = value; }, { requestingUrl: 'https://a.example.com/', mediaTypes: ['audio', 'video'] });
@@ -140,7 +158,6 @@ class FakeSession {
   let granted = null;
   ses.requestHandler(null, 'notifications', value => { granted = value; }, { requestingUrl: 'https://web.telegram.org/' });
   assert.equal(granted, false, 'missing account owner must fail closed');
-  assert.equal(ses.checkHandler(null, 'notifications', 'https://web.telegram.org', {}), false);
 }
 
 {

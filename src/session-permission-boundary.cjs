@@ -12,8 +12,11 @@ const {
 // - Telegram Web K documents fullscreen video playback, so fullscreen is Telegram-only;
 // - WhatsApp Web and Telegram Web support browser calls, so camera/mic media is allowed
 //   only for those account kinds and only for explicit audio/video media types;
+// - WhatsApp is a long-lived authenticated web app whose Chromium storage bucket must
+//   remain eligible for persistent storage across cold starts. The grant is still scoped
+//   by the account navigation policy, so only the WhatsApp local/official origins qualify;
 // - LINE for Chrome does not support voice/video calls, and arbitrary Websites receive
-//   no media permission in this MVP.
+//   no media or persistent-storage permission in this MVP.
 // Clipboard read/write, display capture, speaker selection, devices, filesystem, and every
 // other permission stay denied until a concrete Geek product need is independently proven.
 const SUPPORTED_PERMISSION_MATRIX = Object.freeze({
@@ -23,6 +26,7 @@ const SUPPORTED_PERMISSION_MATRIX = Object.freeze({
     kinds: Object.freeze(['whatsapp', 'telegram']),
     mediaTypes: Object.freeze(['audio', 'video']),
   }),
+  'persistent-storage': Object.freeze({ kinds: Object.freeze(['whatsapp']) }),
 });
 
 const sessionsWithPermissionHandlers = new WeakSet();
