@@ -20,14 +20,16 @@ jobs:
     steps:
       - name: Checkout 1.2.18 control
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
 
-      - name: Verify runtime source parent
+      - name: Verify runtime source is exact 1.2.18
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
-          $parent = git rev-parse HEAD^
-          if ($parent -ne 'ed21bca77290062c38e3a0b77be8c0f4c9ab216c') { throw "Unexpected control parent: $parent" }
-          $changed = @(git diff --name-only HEAD^ HEAD)
-          if ($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/wa-1.2.18-cold-start-control.yml') { throw 'Control commit changed runtime files' }
+          git cat-file -e ed21bca77290062c38e3a0b77be8c0f4c9ab216c^{commit}
+          if ($LASTEXITCODE -ne 0) { throw 'Known-good 1.2.18 commit is not available in checkout' }
+          $changed = @(git diff --name-only ed21bca77290062c38e3a0b77be8c0f4c9ab216c HEAD)
+          if ($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/wa-1.2.18-cold-start-control.yml') { throw "Control branch changed runtime files: $($changed -join ', ')" }
 
       - name: Setup Node
         uses: actions/setup-node@v4
