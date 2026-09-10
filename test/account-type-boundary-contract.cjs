@@ -11,8 +11,13 @@ const {
 
 const mainSource = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
 const mainEntrySource = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
-const appTypesMatch = mainSource.match(/const APP_TYPES = \{([\s\S]*?)\n\};\n\nfunction appTypeConfig/);
+const appTypesPattern = /const APP_TYPES = \{([\s\S]*?)\r?\n\};\r?\n\r?\nfunction appTypeConfig/;
+const appTypesMatch = mainSource.match(appTypesPattern);
 assert.ok(appTypesMatch, 'main.cjs APP_TYPES must remain discoverable as the formal platform source');
+assert.ok(
+  mainSource.replace(/\r?\n/g, '\r\n').match(appTypesPattern),
+  'main.cjs APP_TYPES source contract must remain discoverable after a Windows CRLF checkout',
+);
 const formalTypes = [...appTypesMatch[1].matchAll(/^\s{2}(?:'([^']+)'|([a-z][a-z0-9-]*)):\s*\{/gm)]
   .map((match) => match[1] || match[2]);
 assert.deepEqual(
