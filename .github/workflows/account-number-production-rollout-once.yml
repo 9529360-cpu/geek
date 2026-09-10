@@ -50,6 +50,8 @@ jobs:
           node --check scripts/account-live-smoke.mjs
 
       - name: Confirm D1 restore point and preflight state
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -77,6 +79,8 @@ jobs:
           NODE
 
       - name: Apply account number expand migration 003
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -90,6 +94,8 @@ jobs:
           rm -f .wrangler-account-003.toml
 
       - name: Verify migration 003 without exposing account numbers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -119,6 +125,8 @@ jobs:
         run: node scripts/account-live-smoke.mjs
 
       - name: Apply post-deploy repair migration 004
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -132,6 +140,8 @@ jobs:
           rm -f .wrangler-account-004.toml
 
       - name: Final D1 verification without exposing account numbers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
