@@ -1,0 +1,27 @@
+name: feature-snapshot
+
+on:
+  push:
+    branches:
+      - feat/custom-web-app
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-feature-source
+          path: |
+            .
+            !node_modules
+            !.git
+          include-hidden-files: true
+          retention-days: 1
