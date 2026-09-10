@@ -60,10 +60,11 @@ jobs:
           const row = payload?.[0]?.results?.[0];
           if (!row) throw new Error('D1 resume preflight returned no aggregate row');
           if (Number(row.has_account_no) !== 1 || Number(row.has_account_index) !== 1) throw new Error('003 schema/index missing');
-          for (const key of ['missing', 'malformed', 'duplicate_groups']) {
+          if (!Number.isSafeInteger(Number(row.missing)) || Number(row.missing) < 0) throw new Error('Invalid NULL account_no count');
+          for (const key of ['malformed', 'duplicate_groups']) {
             if (Number(row[key]) !== 0) throw new Error(`Resume preflight failed: ${key}=${row[key]}`);
           }
-          console.log('OK post-003 D1 state and restore point');
+          console.log(`OK post-003 D1 state: repair window NULL rows=${Number(row.missing)}`);
           NODE
 
       - name: Run canonical production account smoke
