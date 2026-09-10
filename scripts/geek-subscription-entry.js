@@ -1,4 +1,5 @@
 import baseWorker from './geek-subscription-worker.js';
+import { ensureAccountNo, insertWithAccountNo } from './account-number.mjs';
 
 // Production auth entrypoint for the Workers Free 10 ms CPU budget.
 // PBKDF2 at 100k/310k iterations is too expensive on the Free plan and caused
@@ -154,23 +155,24 @@ async function handleRegister(request, db, env) {
 
   const next = await hashPassword(password, null, env.JWT_SECRET);
   if (!next) return json({ error: 'password_hash_failed' }, 500);
-  const result = await db.prepare(
-    'INSERT INTO users (email, password_hash, password_salt, quota_chars) VALUES (?, ?, ?, ?)'
-  ).bind(email, `${HASH_PREFIX}${next.hash}`, next.salt, 20000).run();
-  return json({ ok: true, userId: result.meta.last_row_id });
+  const { accountNo, result } = await insertWithAccountNo((candidate) => db.prepare(
+    'INSERT INTO users (email, password_hash, password_salt, quota_chars, account_no) VALUES (?, ?, ?, ?, ?)'
+  ).bind(email, `${HASH_PREFIX}${next.hash}`, next.salt, 20000, candidate).run());
+  return json({ ok: true, userId: result.meta.last_row_id, account_no: accountNo });
 }
 
 async function handleLogin(request, db, env) {
   const body = await request.json().catch(() => ({}));
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
-  const user = await getUserByEmail(db, email);
+  let user = await getUserByEmail(db, email);
   if (!user) return json({ error: 'invalid_credentials' }, 401);
 
   const verification = await verifyPassword(password, user.password_salt, user.password_hash, env.JWT_SECRET);
   if (verification.resetRequired) return json({ error: 'password_reset_required' }, 409);
   if (!verification.ok) return json({ error: 'invalid_credentials' }, 401);
   if (user.status === 'disabled') return json({ error: 'account_disabled' }, 403);
+  user = await ensureAccountNo(db, user);
 
   const maxAge = 60 * 60 * 24 * 30;
   const token = await signJwt({
@@ -181,7 +183,7 @@ async function handleLogin(request, db, env) {
     exp: Math.floor(Date.now() / 1000) + maxAge,
   }, env.JWT_SECRET);
   return withCookie(
-    json({ ok: true, token, user: { id: user.id, email: user.email } }),
+    json({ ok: true, token, user: { id: user.id, email: user.email, account_no: user.account_no } }),
     authCookie('geek_session', token, maxAge)
   );
 }

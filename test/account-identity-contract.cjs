@@ -2,36 +2,72 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
-const { formatAccountReference } = require('../src/account-reference.cjs');
+const { createSubscriptionStore } = require('../src/subscription.cjs');
 
-assert.equal(formatAccountReference(1), 'GK-000001');
-assert.equal(formatAccountReference(42), 'GK-000042');
-assert.equal(formatAccountReference(1234567), 'GK-1234567');
-assert.equal(formatAccountReference(0), '');
-assert.equal(formatAccountReference('bad'), '');
+(async () => {
+  const subscription = fs.readFileSync(path.join(__dirname, '../src/subscription.cjs'), 'utf8');
+  const ui = fs.readFileSync(path.join(__dirname, '../ui/subscription.html'), 'utf8');
 
-const subscription = fs.readFileSync(path.join(__dirname, '../src/subscription.cjs'), 'utf8');
-const ui = fs.readFileSync(path.join(__dirname, '../ui/subscription.html'), 'utf8');
+  assert.doesNotMatch(subscription, /formatAccountReference|account-reference\.cjs/,
+    'desktop subscription state must never derive a support account number from user_id');
+  assert.match(subscription, /account_no:\s*identity\.account_no/, 'local state must expose server account_no');
+  assert.match(subscription, /account_ref:\s*identity\.account_ref/, 'legacy account_ref must only alias account_no');
+  assert.match(subscription, /request\('\/api\/me'\)/, 'old login state must recover account identity from the server');
 
-assert.match(subscription, /user_id:\s*identity\.user_id/, '本地状态必须暴露 user_id');
-assert.match(subscription, /account_ref:\s*state\.account_ref \|\| identity\.account_ref/, '本地状态必须暴露稳定账号号');
-assert.match(subscription, /request\('\/api\/me'\)/, '旧登录态必须能从服务端回填账号身份');
-assert.match(ui, /let currentPlan = 'basic'/, '默认选中的套餐和提交套餐必须一致');
-assert.match(ui, /pass\.length < 10 \|\| pass\.length > 128/, '客户端密码规则必须与服务端 10–128 位一致');
-assert.match(ui, /id="home-account-ref"/, '个人中心必须显示客服账号号');
-assert.doesNotMatch(ui, /密码（至少 6 位）/, '不得再展示过期的 6 位密码规则');
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'geek-account-no-'));
+  await fsp.writeFile(path.join(tempDir, 'subscription.json'), JSON.stringify({
+    token: 'enc:legacy-token', email: 'legacy@example.test', user_id: 42,
+    account_ref: 'GK-000042', remaining_chars: 100,
+  }), 'utf8');
 
-// 桌面端当前仍创建 manual 订单；本轮只修正文案，不切换支付方式。
-// 客服确认的是收款，字符余额由系统事务自动增加，不应描述为人工开通。
-assert.doesNotMatch(ui, /付款后由客服手动开通/, '不得把字符余额更新描述为客服手动开通');
-assert.doesNotMatch(ui, /客服确认收款后自动到账/, '不得混淆人工确认收款与系统自动增加字符');
-assert.match(ui, /收款确认后字符余额自动更新/, '套餐提示必须说明确认收款后的自动余额更新');
-assert.match(ui, /客服确认收款后，系统自动增加字符余额/, '桌面 manual 订单必须区分收款确认与自动加字符');
-assert.match(ui, /字符余额已更新！剩余/, '成功状态必须描述字符余额更新结果');
-assert.match(ui, /订单状态尚未更新，请稍后再试；如长时间未更新，请联系客服/, '待确认状态必须准确描述订单尚未更新');
-assert.match(subscription, /request\('\/api\/orders', \{ method: 'POST', body: \{ plan \} \}\)/,
-  '桌面文案修正不得改变当前 manual 订单请求契约');
-assert.doesNotMatch(ui, /pay_method\s*:\s*['"]usdt['"]/, '文案 PR 不得暗中启用桌面 USDT 支付');
+  const store = createSubscriptionStore({ userDataDir: tempDir });
+  store._injectCrypto({ encrypt: (value) => value, decrypt: (value) => value });
+  const before = await store.getState();
+  assert.equal(before.user_id, 42);
+  assert.equal(before.account_no, '', 'legacy state must not synthesize a replacement account_no');
+  assert.equal(before.account_ref, '', 'legacy GK-000xxx cache must not remain visible');
 
-console.log('ACCOUNT_IDENTITY_CONTRACT_OK');
+  const calls = [];
+  const realFetch = global.fetch;
+  const serverAccountNo = 'GK-58b81cb8727a9fbc947b2f4fb89231ad';
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).endsWith('/api/status')) return new Response(JSON.stringify({ ok: true, remaining_chars: 321 }), { status: 200 });
+    if (String(url).endsWith('/api/me')) return new Response(JSON.stringify({ ok: true, user: { id: 42, email: 'legacy@example.test', account_no: serverAccountNo } }), { status: 200 });
+    throw new Error('unexpected request ' + url);
+  };
+  try {
+    const refreshed = await store.refresh();
+    assert.equal(refreshed.account_no, serverAccountNo);
+    assert.equal(refreshed.account_ref, serverAccountNo, 'account_ref may exist only as a server account_no alias');
+    assert.ok(calls.some((url) => url.endsWith('/api/me')), 'old state must request /api/me');
+    const disk = JSON.parse(await fsp.readFile(path.join(tempDir, 'subscription.json'), 'utf8'));
+    assert.equal(disk.account_no, serverAccountNo, 'server account_no must persist across restart');
+    assert.equal(disk.account_ref, serverAccountNo);
+    assert.equal(disk.user_id, 42, 'internal user_id remains available for compatibility');
+  } finally {
+    global.fetch = realFetch;
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+
+  assert.match(ui, /let currentPlan = 'basic'/, 'default selected plan and submitted plan must remain aligned');
+  assert.match(ui, /pass\.length < 10 \|\| pass\.length > 128/, 'desktop password rule must remain 10–128 characters');
+  assert.match(ui, /id="home-account-ref"/, 'personal center must keep a visible support account number field');
+  assert.match(ui, /账号号暂不可用/, 'desktop must show an unavailable state instead of fabricating a value');
+  assert.doesNotMatch(ui, /密码（至少 6 位）/, 'obsolete 6-character password copy must not return');
+
+  assert.doesNotMatch(ui, /付款后由客服手动开通/, 'do not describe balance updates as manual activation');
+  assert.doesNotMatch(ui, /客服确认收款后自动到账/, 'do not conflate receipt confirmation with automatic character crediting');
+  assert.match(ui, /收款确认后字符余额自动更新/, 'plan copy must preserve automatic balance wording');
+  assert.match(ui, /客服确认收款后，系统自动增加字符余额/, 'manual order copy must distinguish confirmation from automatic crediting');
+  assert.match(ui, /字符余额已更新！剩余/, 'success state must describe the updated balance');
+  assert.match(ui, /订单状态尚未更新，请稍后再试；如长时间未更新，请联系客服/, 'pending state must remain accurate');
+  assert.match(subscription, /request\('\/api\/orders', \{ method: 'POST', body: \{ plan \} \}\)/,
+    'account-number work must not alter the desktop manual-order request contract');
+  assert.doesNotMatch(ui, /pay_method\s*:\s*['"]usdt['"]/, 'desktop USDT payment must not be enabled by this change');
+
+  console.log('ACCOUNT_IDENTITY_CONTRACT_OK');
+})().catch((error) => { console.error(error); process.exitCode = 1; });

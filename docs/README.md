@@ -27,6 +27,7 @@
 
 - [`../README.md`](../README.md)：产品范围、当前运行时、WebView 安全边界、开发与验证入口。
 - [`account-password-reset-operations.md`](account-password-reset-operations.md)：账号、忘记密码、Resend、D1 和相关生产验证。
+- [`account-number-rollout.md`](account-number-rollout.md)：随机对外账号号的 D1 expand/deploy/repair 迁移顺序、验证与回滚边界。
 - [`github-control-plane.md`](github-control-plane.md)：GitHub Actions、Cloudflare 部署与非敏感状态通道。
 - [`release-security.md`](release-security.md)：Windows 客户端构建、签名、版本标记、发布与回滚边界。
 - [`群发附件回归修复契约-20260828.md`](群发附件回归修复契约-20260828.md)：Issue #165 / PR #166 的附件、名片、重试与账号草稿隔离验收契约。
