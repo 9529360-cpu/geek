@@ -1,0 +1,258 @@
+name: apply-broadcast-feedback-patch
+
+on:
+  push:
+    branches: [fix/broadcast-nonblocking-feedback]
+    paths: [.github/workflows/apply-broadcast-feedback-patch.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/broadcast-nonblocking-feedback
+      - name: Apply narrow feedback patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              s = p.read_text()
+              if s.count(old) < count:
+                  raise SystemExit(f'{path}: expected replacement not found: {old[:80]!r}')
+              s = s.replace(old, new, count)
+              p.write_text(s)
+
+          # Product closure: keep scheduling behavior/durability intact; only change feedback.
+          p = Path('ui/broadcast-product-closure.js')
+          s = p.read_text()
+          anchor = "  function pendingJobsFor(manager, accountId) {\n"
+          helper = """  function setWorkbenchStatus(doc, text, state = 'ready') {\n    const status = doc.getElementById('broadcast-workbench-status');\n    if (!status) return false;\n    status.dataset.state = state;\n    status.setAttribute('role', 'status');\n    status.setAttribute('aria-live', 'polite');\n    status.setAttribute('aria-atomic', 'true');\n    const span = status.querySelector('span');\n    if (span) span.textContent = String(text || '');\n    else status.textContent = String(text || '');\n    return true;\n  }\n\n"""
+          if helper not in s:
+              if anchor not in s: raise SystemExit('product closure helper anchor missing')
+              s = s.replace(anchor, helper + anchor, 1)
+          s = s.replace("void manager.invoke(job.id, 'stop').catch(error => window.alert?.(String(error?.message || error))).finally(() => renderPendingSchedules(doc));", "void manager.invoke(job.id, 'stop').catch(error => setWorkbenchStatus(doc, `取消定时任务失败：${String(error?.message || error)}`, 'error')).finally(() => renderPendingSchedules(doc));")
+          pairs = {
+            "if (!accountId) { window.alert?.('请先选择账号'); return false; }": "if (!accountId) { setWorkbenchStatus(doc, '请先选择账号', 'error'); return false; }",
+            "if (!toggle?.checked) { window.alert?.('请先开启“定时发送”'); return false; }": "if (!toggle?.checked) { setWorkbenchStatus(doc, '请先开启“定时发送”', 'error'); toggle?.focus?.(); return false; }",
+            "if (!Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) { window.alert?.('请选择未来的发送时间'); return false; }": "if (!Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) { setWorkbenchStatus(doc, '请选择未来的发送时间', 'error'); timeInput?.focus?.(); return false; }",
+            "if (!runtime || typeof runtime.startFromEditor !== 'function') { window.alert?.('群发运行时尚未就绪，请稍后重试'); return false; }": "if (!runtime || typeof runtime.startFromEditor !== 'function') { setWorkbenchStatus(doc, '群发运行时尚未就绪，请稍后重试', 'error'); return false; }",
+            "if (!persistence || typeof persistence.awaitScheduledDurable !== 'function') { window.alert?.('定时任务持久化尚未就绪，请稍后重试'); return false; }": "if (!persistence || typeof persistence.awaitScheduledDurable !== 'function') { setWorkbenchStatus(doc, '定时任务持久化尚未就绪，请稍后重试', 'error'); return false; }",
+            "const status = doc.getElementById('broadcast-workbench-status')?.querySelector('span');\n      if (status) status.textContent = '定时任务已保存，可修改时间和消息继续添加下一条';": "setWorkbenchStatus(doc, '定时任务已保存，可继续添加下一条', 'ready');",
+            "window.alert?.(String(error?.message || error));": "setWorkbenchStatus(doc, `添加定时任务失败：${String(error?.message || error)}`, 'error');",
+          }
+          for old,new in pairs.items():
+              if old not in s: raise SystemExit('product closure replacement missing: '+old[:60])
+              s=s.replace(old,new,1)
+          p.write_text(s)
+
+          # Recipient tags already have the canonical local status owner; remove duplicate modal feedback.
+          p = Path('ui/broadcast-recipient-tags.js')
+          s = p.read_text()
+          for line in [
+            "      window.alert?.('自定义标签删除未持久化，请重新打开群发后重试。');\n",
+            "      window.alert?.('请先选择账号');\n",
+            "      window.alert?.('群发标签保存功能尚未初始化完成，请关闭后重新打开群发。');\n",
+            "      window.alert?.(`保存标签失败：${String(error?.message || error)}`);\n",
+            "      window.alert?.('自定义标签未能持久化到当前账号，请重新打开群发后重试。');\n",
+          ]:
+              if line not in s: raise SystemExit('recipient alert line missing: '+line.strip())
+              s=s.replace(line,'',1)
+          p.write_text(s)
+
+          # Job controller: add a strictly local live status under the existing job bar.
+          p = Path('ui/broadcast-job-controller.js')
+          s = p.read_text()
+          s = s.replace("      .bc-job-meta{margin:5px 0 0 15px;color:var(--text-tertiary);font-size:11px}.bc-job-progress", "      .bc-job-meta{margin:5px 0 0 15px;color:var(--text-tertiary);font-size:11px}.bc-job-feedback{min-height:15px;margin:4px 0 0 15px;color:var(--text-tertiary);font-size:10.5px}.bc-job-feedback[data-state=\"error\"]{color:#f56c6c}.bc-job-progress", 1)
+          old = """    const meta = document.createElement('div');\n    meta.className = 'bc-job-meta';\n    const progress = document.createElement('div');"""
+          new = """    const meta = document.createElement('div');\n    meta.className = 'bc-job-meta';\n    const feedback = document.createElement('div');\n    feedback.className = 'bc-job-feedback';\n    feedback.setAttribute('role', 'status');\n    feedback.setAttribute('aria-live', 'polite');\n    feedback.setAttribute('aria-atomic', 'true');\n    const progress = document.createElement('div');"""
+          if old not in s: raise SystemExit('job feedback node anchor missing')
+          s=s.replace(old,new,1)
+          s=s.replace("bar.append(head, meta, progress, failureBox, actions);", "bar.append(head, meta, feedback, progress, failureBox, actions);",1)
+          old = """      exportFailures.disabled = true;\n      try {\n        const saved = await window.api.file.save({ defaultName: `群发失败名单-${String(job.id || '').slice(0, 24)}.csv`, content: failureCsv(job) });\n        if (saved) window.alert(`已导出失败名单：${saved}`);\n      } catch (error) {\n        window.alert(`导出失败：${String(error?.message || error)}`);\n      } finally {\n        exportFailures.disabled = false;\n      }"""
+          new = """      exportFailures.disabled = true;\n      feedback.dataset.state = 'pending';\n      feedback.textContent = '正在导出失败名单…';\n      try {\n        const saved = await window.api.file.save({ defaultName: `群发失败名单-${String(job.id || '').slice(0, 24)}.csv`, content: failureCsv(job) });\n        feedback.dataset.state = saved ? 'ok' : 'idle';\n        feedback.textContent = saved ? `已导出失败名单：${saved}` : '已取消导出失败名单';\n      } catch (error) {\n        feedback.dataset.state = 'error';\n        feedback.textContent = `导出失败：${String(error?.message || error)}`;\n      } finally {\n        exportFailures.disabled = false;\n      }"""
+          if old not in s: raise SystemExit('job export block missing')
+          s=s.replace(old,new,1)
+          old="""    const meta = bar.querySelector('.bc-job-meta');\n    const fill = bar.querySelector('.bc-job-progress>i');"""
+          new="""    const meta = bar.querySelector('.bc-job-meta');\n    const feedback = bar.querySelector('.bc-job-feedback');\n    const fill = bar.querySelector('.bc-job-progress>i');"""
+          s=s.replace(old,new,1)
+          old="""    const current = Math.max(0, Number(job.current) || 0);"""
+          new="""    const jobKey = String(job.id || '');\n    if (feedback.dataset.jobId !== jobKey) {\n      feedback.dataset.jobId = jobKey;\n      feedback.dataset.state = 'idle';\n      feedback.textContent = '';\n    }\n\n    const current = Math.max(0, Number(job.current) || 0);"""
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          # Safety gate: block first, then write to existing Workbench/meta live region.
+          p = Path('ui/broadcast-safety.js')
+          s = p.read_text()
+          anchor = "if (typeof window !== 'undefined' && typeof document !== 'undefined') {\n  document.addEventListener('click', event => {\n"
+          replacement = """if (typeof window !== 'undefined' && typeof document !== 'undefined') {\n  function showScheduleReadinessStatus(message) {\n    const status = document.getElementById('broadcast-workbench-status') || document.getElementById('broadcast-meta');\n    if (!status) return;\n    status.dataset.state = 'error';\n    status.setAttribute('role', 'status');\n    status.setAttribute('aria-live', 'polite');\n    status.setAttribute('aria-atomic', 'true');\n    const text = status.querySelector?.('span');\n    if (text) text.textContent = message;\n    else status.textContent = message;\n  }\n\n  document.addEventListener('click', event => {\n"""
+          if anchor not in s: raise SystemExit('safety gate anchor missing')
+          s=s.replace(anchor,replacement,1)
+          s=s.replace("    window.alert?.('定时任务持久化尚未就绪，请稍后重试。');", "    showScheduleReadinessStatus('定时任务持久化尚未就绪，请稍后重试。');",1)
+          p.write_text(s)
+
+          # app.js: delete the dead first CSV handler; keep the later canonical CSV/TXT owner and make its status explicit.
+          p = Path('ui/app.js')
+          s = p.read_text()
+          start = s.find("  // CSV 导入联系人（每行：聊天名称或 ID，自动匹配勾选）\n  document.getElementById('broadcast-import-csv').onclick = async () => {")
+          end_marker = "  function renderBroadcastFiles() {"
+          end = s.find(end_marker, start)
+          if start < 0 or end < 0: raise SystemExit('legacy duplicate csv handler not found')
+          s = s[:start] + "  // CSV/TXT 导入由下方 #bc-excel-meta 流程唯一处理。\n" + s[end:]
+          old = """  const excelMeta = document.getElementById('bc-excel-meta');\n  const importCsvBtn = document.getElementById('broadcast-import-csv');"""
+          new = """  const excelMeta = document.getElementById('bc-excel-meta');\n  if (excelMeta) {\n    excelMeta.setAttribute('role', 'status');\n    excelMeta.setAttribute('aria-live', 'polite');\n    excelMeta.setAttribute('aria-atomic', 'true');\n  }\n  const importCsvBtn = document.getElementById('broadcast-import-csv');"""
+          if old not in s: raise SystemExit('canonical excel status anchor missing')
+          s=s.replace(old,new,1)
+          old="""      const numbers = lines.map(row => String(row[col] ?? '').trim()).filter(Boolean);\n      // 核验：WA 联系人集合存在 = 已注册（原版 verificacontatosaguarde 逻辑）\n      window.__excelNumbers = numbers;"""
+          new="""      const numbers = lines.map(row => String(row[col] ?? '').trim()).filter(Boolean);\n      // 核验：WA 联系人集合存在 = 已注册（原版 verificacontatosaguarde 逻辑）\n      window.__excelNumbers = numbers;\n      if (!numbers.length) {\n        if (excelMeta) excelMeta.textContent = '已导入 0 个号码（未匹配到可用号码）';\n        return;\n      }"""
+          if old not in s: raise SystemExit('numbers anchor missing')
+          s=s.replace(old,new,1)
+          old="""          if (txt.startsWith('OK:')) {\n            const okN = parseInt(txt.split(':')[1]) || 0;\n            if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码（前 ${chunk.length} 个核验：${okN} 个有效 WhatsApp）`;\n          }"""
+          new="""          if (txt.startsWith('OK:')) {\n            const okN = parseInt(txt.split(':')[1]) || 0;\n            if (excelMeta) excelMeta.textContent = okN\n              ? `已导入 ${numbers.length} 个号码（前 ${chunk.length} 个核验：${okN} 个有效 WhatsApp）`\n              : `已导入 ${numbers.length} 个号码（前 ${chunk.length} 个核验：未匹配到有效 WhatsApp）`;\n          } else if (txt.startsWith('ERR:') && excelMeta) {\n            excelMeta.textContent = `已导入 ${numbers.length} 个号码（WhatsApp 核验暂不可用，可继续使用导入号码）`;\n          }"""
+          if old not in s: raise SystemExit('excel OK block missing')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          # Focused contract covers all feedback paths and the fail-closed ordering.
+          Path('test/broadcast-feedback-contract.cjs').write_text(r'''\
+          'use strict';
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = path.join(__dirname, '..');
+          const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+          const product = read('ui/broadcast-product-closure.js');
+          const tags = read('ui/broadcast-recipient-tags.js');
+          const jobs = read('ui/broadcast-job-controller.js');
+          const safety = read('ui/broadcast-safety.js');
+          const app = read('ui/app.js');
+
+          assert.doesNotMatch(product, /window\.alert|\balert\s*\(/, 'product closure feedback must stay inline');
+          assert.match(product, /setWorkbenchStatus\(doc, '请先选择账号'/);
+          assert.match(product, /setWorkbenchStatus\(doc, '定时任务已保存，可继续添加下一条'/);
+          assert.match(product, /awaitScheduledDurable\(job\.id\)/, 'schedule durability verification must remain');
+          assert.match(product, /runtime\.startFromEditor\(\)/, 'canonical runtime must remain the scheduling owner');
+
+          assert.doesNotMatch(tags, /window\.alert|\balert\s*\(/, 'recipient tag duplicate alerts must be removed');
+          assert.match(tags, /broadcast-recipient-tag-status/);
+          assert.match(tags, /verifyDurableCount\(accountId, after, doc\)/, 'tag save/delete must still verify account-scoped durability');
+          assert.match(tags, /ownerDelete/, 'destructive delete must still route through the owner confirmation path');
+
+          assert.doesNotMatch(jobs, /window\.alert|\balert\s*\(/, 'job export feedback must stay in the job bar');
+          assert.match(jobs, /bc-job-feedback/);
+          assert.match(jobs, /setAttribute\('role', 'status'\)/);
+          assert.match(jobs, /'\\uFEFF联系人,聊天ID,失败原因\\n'/, 'failure CSV BOM/header must remain');
+          assert.match(jobs, /replace\(\/"\/g, '""'\)/, 'CSV quote escaping must remain');
+          assert.match(jobs, /window\.api\.file\.save/, 'failure export save API must remain');
+
+          const prevent = safety.indexOf('event.preventDefault();');
+          const stop = safety.indexOf('event.stopImmediatePropagation();');
+          const feedback = safety.indexOf("showScheduleReadinessStatus('定时任务持久化尚未就绪");
+          assert.ok(prevent >= 0 && stop > prevent && feedback > stop, 'future schedule must fail closed before presenting feedback');
+          assert.doesNotMatch(safety, /window\.alert|\balert\s*\(/, 'schedule readiness feedback must not use modal alert');
+          assert.match(safety, /broadcast-workbench-status/);
+          assert.match(safety, /aria-live', 'polite'/);
+
+          assert.doesNotMatch(app, /CSV 导入成功：匹配|CSV 未匹配到聊天/, 'dead duplicate CSV alert owner must be removed');
+          const csvStart = app.indexOf("const excelMeta = document.getElementById('bc-excel-meta')");
+          const csvEnd = app.indexOf("document.getElementById('btn-broadcast').onclick", csvStart);
+          assert.ok(csvStart >= 0 && csvEnd > csvStart, 'canonical CSV/TXT import block must exist');
+          const csv = app.slice(csvStart, csvEnd);
+          assert.doesNotMatch(csv, /\balert\s*\(/, 'canonical CSV/TXT feedback must be inline');
+          assert.match(csv, /setAttribute\('role', 'status'\)/);
+          assert.match(csv, /setAttribute\('aria-live', 'polite'\)/);
+          assert.match(csv, /已导入 \$\{numbers\.length\} 个号码/, 'audience count copy must preserve 已导入 N 个 parsing');
+          assert.match(csv, /已导入 0 个号码（未匹配到可用号码）/, 'zero-match import must remain explicit and non-blocking');
+          assert.match(csv, /导入失败: /, 'import failures must remain visible inline');
+
+          for (const source of [product, tags, jobs, safety, app]) {
+            assert.doesNotMatch(source, /window\.alert\s*=/, 'no global alert monkey-patch is allowed');
+          }
+          console.log('BROADCAST_FEEDBACK_CONTRACT_OK');
+          ''').replace(/^          /gm, '')
+
+          # Strengthen the existing schedule readiness contract.
+          p=Path('test/broadcast-schedule-readiness-contract.cjs')
+          s=p.read_text()
+          anchor="assert.match(safety, /GeekBroadcastSchedulePersistenceInstance/, 'gate must require the installed persistence instance before allowing a future schedule');\n"
+          addition="""assert.doesNotMatch(safety, /window\\.alert|\\balert\\s*\\(/, 'persistence-not-ready feedback must not open a system alert');\nassert.match(safety, /broadcast-workbench-status/, 'blocked future schedules should report through the existing Workbench status');\nassert.match(safety, /setAttribute\\('aria-live', 'polite'\\)/, 'gate feedback must be announced without stealing focus');\nconst preventIndex = safety.indexOf('event.preventDefault();');\nconst stopIndex = safety.indexOf('event.stopImmediatePropagation();');\nconst feedbackIndex = safety.indexOf('showScheduleReadinessStatus');\nassert.ok(preventIndex >= 0 && stopIndex > preventIndex, 'send must be blocked before any feedback path can return');\n"""
+          if anchor not in s: raise SystemExit('schedule contract anchor missing')
+          s=s.replace(anchor,anchor+addition,1)
+          p.write_text(s)
+
+          # E2E: prove the real capture gate does not show a modal and the renderer keeps responding.
+          p=Path('e2e/specs/broadcast-readiness.e2e.cjs')
+          s=p.read_text()
+          end="\n});"
+          pos=s.rfind(end)
+          if pos < 0: raise SystemExit('broadcast E2E describe end missing')
+          test=r'''
+
+            it('keeps future-schedule persistence errors inline and renderer responsive', async () => {
+              await activateAccount(ACCOUNT_A);
+              await openBroadcast();
+              await browser.execute(() => {
+                const original = window.GeekBroadcastScheduleRegistry;
+                window.__geekE2EOriginalScheduleRegistry = original;
+                window.GeekBroadcastScheduleRegistry = Object.assign({}, original || {}, { schedulePersistenceReady: () => false });
+                const toggle = document.getElementById('broadcast-schedule-toggle');
+                const time = document.getElementById('broadcast-schedule-time');
+                toggle.checked = true;
+                toggle.dispatchEvent(new Event('change', { bubbles: true }));
+                const future = new Date(Date.now() + 10 * 60 * 1000);
+                const local = new Date(future.getTime() - future.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+                time.value = local;
+                window.__geekE2ESendReached = false;
+                document.getElementById('broadcast-send').addEventListener('click', () => { window.__geekE2ESendReached = true; }, { once: true });
+              });
+
+              await (await waitVisible('.bc-workbench-step[data-step="review"]')).click();
+              await (await waitVisible('#broadcast-send')).click();
+
+              const blocked = await browser.execute(() => ({
+                reached: window.__geekE2ESendReached,
+                status: document.getElementById('broadcast-workbench-status')?.textContent || '',
+                role: document.getElementById('broadcast-workbench-status')?.getAttribute('role') || '',
+              }));
+              assert.equal(blocked.reached, false, 'blocked schedule must not reach the send handler');
+              assert.match(blocked.status, /定时任务持久化尚未就绪/);
+              assert.equal(blocked.role, 'status');
+
+              await (await waitVisible('.bc-workbench-step[data-step="content"]')).click();
+              const message = await waitVisible('#broadcast-message');
+              await message.setValue('renderer still responsive after inline schedule error');
+              assert.equal(await message.getValue(), 'renderer still responsive after inline schedule error');
+
+              await browser.execute(() => {
+                if (window.__geekE2EOriginalScheduleRegistry) window.GeekBroadcastScheduleRegistry = window.__geekE2EOriginalScheduleRegistry;
+                delete window.__geekE2EOriginalScheduleRegistry;
+              });
+              await (await waitVisible('#broadcast-close')).click();
+              await waitHidden('#broadcast-overlay');
+            });
+          '''
+          s=s[:pos]+test+s[pos:]
+          p.write_text(s)
+          PY
+
+          git diff --check
+          node test/broadcast-feedback-contract.cjs
+          node test/broadcast-schedule-readiness-contract.cjs
+          node test/broadcast-product-closure-contract.cjs
+          node test/broadcast-recipient-tags-contract.cjs
+          node test/broadcast-job-controller-contract.cjs
+      - name: Commit patch
+        shell: bash
+        run: |
+          rm .github/workflows/apply-broadcast-feedback-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ui/broadcast-product-closure.js ui/broadcast-recipient-tags.js ui/broadcast-job-controller.js ui/broadcast-safety.js ui/app.js test/broadcast-feedback-contract.cjs test/broadcast-schedule-readiness-contract.cjs e2e/specs/broadcast-readiness.e2e.cjs .github/workflows/apply-broadcast-feedback-patch.yml
+          git commit -m "fix: make broadcast feedback non-blocking"
+          git push origin HEAD:fix/broadcast-nonblocking-feedback
