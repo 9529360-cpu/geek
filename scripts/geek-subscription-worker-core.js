@@ -1,3 +1,5 @@
+import { ensureAccountNo, insertWithAccountNo } from './account-number.mjs';
+
 // geek-subscription Worker —— 极客付费订阅体系（Cloudflare D1 零成本方案）
 // 路由：
 //   公开：GET /health、POST /api/register、POST /api/login
@@ -193,19 +195,19 @@ async function handleRegister(request, db) {
   if (password.length < 10 || password.length > 128) return json({ error: 'password_length_invalid' }, 400);
   if (await getUserByEmail(db, email)) return json({ error: 'email_exists' }, 409);
   const { salt, hash } = await hashPassword(password);
-  const { meta } = await db
-    .prepare('INSERT INTO users (email, password_hash, password_salt, quota_chars) VALUES (?, ?, ?, ?)')
-    .bind(email, `v2$${hash}`, salt, FREE_QUOTA_CHARS)
-    .run();
-  const userId = meta.last_row_id;
-  return json({ ok: true, userId });
+  const { accountNo, result } = await insertWithAccountNo((candidate) => db
+    .prepare('INSERT INTO users (email, password_hash, password_salt, quota_chars, account_no) VALUES (?, ?, ?, ?, ?)')
+    .bind(email, `v2$${hash}`, salt, FREE_QUOTA_CHARS, candidate)
+    .run());
+  const userId = result.meta.last_row_id;
+  return json({ ok: true, userId, account_no: accountNo });
 }
 
 async function handleLogin(request, db, env) {
   const body = await request.json().catch(() => ({}));
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
-  const user = await getUserByEmail(db, email);
+  let user = await getUserByEmail(db, email);
   const verification = user ? await verifyPassword(password, user.password_salt, user.password_hash) : { ok: false };
   if (!user || !verification.ok) {
     return json({ error: 'invalid_credentials' }, 401);
@@ -216,15 +218,16 @@ async function handleLogin(request, db, env) {
     await db.prepare('UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?')
       .bind(`v2$${upgraded.hash}`, upgraded.salt, user.id).run();
   }
+  user = await ensureAccountNo(db, user);
   const maxAge = 60 * 60 * 24 * 30;
   const token = await signJwt({ uid: user.id, email: user.email, kind: 'user', ver: user.token_version || 0, exp: Math.floor(Date.now() / 1000) + maxAge }, env.JWT_SECRET);
-  return withCookie(json({ ok: true, token, user: { id: user.id, email: user.email } }), authCookie('geek_session', token, maxAge));
+  return withCookie(json({ ok: true, token, user: { id: user.id, email: user.email, account_no: user.account_no } }), authCookie('geek_session', token, maxAge));
 }
 
 async function handleMe(user, db) {
   return json({
     ok: true,
-    user: { id: user.id, email: user.email, status: user.status, quota_chars: user.quota_chars || 0, created_at: user.created_at },
+    user: { id: user.id, account_no: user.account_no, email: user.email, status: user.status, quota_chars: user.quota_chars || 0, created_at: user.created_at },
   });
 }
 
@@ -532,11 +535,11 @@ async function handleAdminConfirmOrder(request, db, url) {
 async function handleAdminUsers(db, request) {
   const url = new URL(request.url);
   const q = url.searchParams.get('q') || '';
-  let stmt = `SELECT id, email, status, quota_chars, created_at FROM users`;
+  let stmt = `SELECT id, account_no, email, status, quota_chars, created_at FROM users`;
   const binds = [];
   if (q) {
-    stmt += ` WHERE email LIKE ?`;
-    binds.push(`%${q}%`);
+    stmt += ` WHERE account_no = ? OR email LIKE ?`;
+    binds.push(q, `%${q}%`);
   }
   stmt += ` ORDER BY id DESC LIMIT 100`;
   const { results } = binds.length ? await db.prepare(stmt).bind(...binds).all() : await db.prepare(stmt).all();
@@ -675,8 +678,8 @@ async function handleAdminLogs(db) {
 // 管理：用户详情
 async function handleAdminUserDetail(db, url) {
   const parts = url.pathname.split('/').filter(Boolean);
-  const id = parts[parts.length - 2];
-  const user = await db.prepare('SELECT id, email, status, quota_chars, created_at FROM users WHERE id = ?').bind(id).first();
+  const id = parts[parts.length - 1];
+  const user = await db.prepare('SELECT id, account_no, email, status, quota_chars, created_at FROM users WHERE id = ?').bind(id).first();
   if (!user) return json({ error: 'user_not_found' }, 404);
   const { results: orders } = await db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 50').bind(id).all();
   return json({ ok: true, user, orders });
@@ -889,14 +892,14 @@ const ADMIN_HTML = `<!DOCTYPE html>
     <div class="topbar"><div><h1>用户管理</h1><div class="sub">查看用户、调整字符、封禁/解封</div></div></div>
     <div class="card">
       <div class="toolbar">
-        <input type="search" id="searchQ" placeholder="搜索邮箱…" onkeydown="if(event.key==='Enter')loadUsers()">
+        <input type="search" id="searchQ" placeholder="搜索邮箱或完整账号号…" onkeydown="if(event.key==='Enter')loadUsers()">
         <select id="userStatus" onchange="renderUsers()"><option value="all">全部状态</option><option value="active">正常</option><option value="disabled">已封禁</option></select>
         <button onclick="loadUsers()">搜索</button>
         <button onclick="loadUsers();loadStats()">刷新</button>
       </div>
       <div style="overflow-x:auto">
         <table>
-          <thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>剩余字符</th><th>注册时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>内部 ID</th><th>账号号</th><th>邮箱</th><th>状态</th><th>剩余字符</th><th>注册时间</th><th>操作</th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
       </div>
@@ -1055,7 +1058,7 @@ async function loadUsers() {
     const data = await api('/api/admin/users' + (q ? '?q=' + encodeURIComponent(q) : ''));
     cachedUsers = data.users || [];
     renderUsers();
-  } catch (e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" class="error-state">用户加载失败，请重试</td></tr>'; }
+  } catch (e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="7" class="error-state">用户加载失败，请重试</td></tr>'; }
 }
 function renderUsers() {
     const wanted = document.getElementById('userStatus').value;
@@ -1064,6 +1067,7 @@ function renderUsers() {
       const st = u.status === 'disabled' ? '<span class="badge b-disabled">已封禁</span>' : '<span class="badge b-active">正常</span>';
       return '<tr>' +
         '<td>' + u.id + '</td>' +
+        '<td>' + esc(u.account_no || '暂不可用') + '</td>' +
         '<td>' + esc(u.email) + '</td>' +
         '<td>' + st + '</td>' +
         '<td>' + (u.quota_chars != null ? u.quota_chars.toLocaleString() : '—') + '</td>' +
@@ -1075,7 +1079,7 @@ function renderUsers() {
             ? '<button onclick="setUser(' + u.id + ', true)">解封</button>'
             : '<button class="danger" onclick="setUser(' + u.id + ', false)">封禁</button>') +
         '</td></tr>';
-    }).join('') || '<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">没有符合条件的用户</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">没有符合条件的用户</td></tr>';
 }
 
 async function viewUser(id) {
@@ -1083,9 +1087,9 @@ async function viewUser(id) {
     const data = await api('/api/admin/users/' + id);
     const u = data.user;
     const orders = data.orders || [];
-    document.getElementById('drawerTitle').textContent = '用户 #' + u.id;
+    document.getElementById('drawerTitle').textContent = '用户详情';
     document.getElementById('drawerEmail').textContent = u.email || '';
-    document.getElementById('drawerBody').innerHTML = '<div class="detail-grid"><div class="detail-item"><span>账户状态</span>' + (u.status === 'disabled' ? '已封禁' : '正常') + '</div><div class="detail-item"><span>剩余字符</span>' + (u.quota_chars || 0).toLocaleString() + '</div><div class="detail-item"><span>注册时间</span>' + esc((u.created_at || '').slice(0, 16)) + '</div><div class="detail-item"><span>订单数量</span>' + orders.length + '</div></div><div class="card-head"><h3>最近订单</h3></div><table><thead><tr><th>订单</th><th>套餐</th><th>金额</th><th>状态</th></tr></thead><tbody>' + orders.slice(0, 10).map(o => '<tr><td>#' + Number(o.id) + '</td><td>' + esc(PLAN_NAMES[o.plan] || o.plan) + '</td><td>$' + Number(o.amount || 0) + '</td><td>' + esc(o.status) + '</td></tr>').join('') + '</tbody></table>';
+    document.getElementById('drawerBody').innerHTML = '<div class="detail-grid"><div class="detail-item"><span>账号号</span>' + esc(u.account_no || '暂不可用') + '</div><div class="detail-item"><span>内部 ID</span>' + Number(u.id) + '</div><div class="detail-item"><span>账户状态</span>' + (u.status === 'disabled' ? '已封禁' : '正常') + '</div><div class="detail-item"><span>剩余字符</span>' + (u.quota_chars || 0).toLocaleString() + '</div><div class="detail-item"><span>注册时间</span>' + esc((u.created_at || '').slice(0, 16)) + '</div><div class="detail-item"><span>订单数量</span>' + orders.length + '</div></div><div class="card-head"><h3>最近订单</h3></div><table><thead><tr><th>订单</th><th>套餐</th><th>金额</th><th>状态</th></tr></thead><tbody>' + orders.slice(0, 10).map(o => '<tr><td>#' + Number(o.id) + '</td><td>' + esc(PLAN_NAMES[o.plan] || o.plan) + '</td><td>$' + Number(o.amount || 0) + '</td><td>' + esc(o.status) + '</td></tr>').join('') + '</tbody></table>';
     document.getElementById('userDrawer').classList.add('on');
   } catch (e) { alert('加载失败：' + e.message); }
 }
@@ -1266,10 +1270,11 @@ async function requireUser(request, db, env) {
   if (!token) return { error: json({ error: 'unauthorized' }, 401) };
   const payload = await verifyJwt(token, env.JWT_SECRET);
   if (!payload || !payload.uid) return { error: json({ error: 'unauthorized' }, 401) };
-  const user = await getUserById(db, payload.uid);
+  let user = await getUserById(db, payload.uid);
   if (!user) return { error: json({ error: 'user_not_found' }, 404) };
   if ((user.token_version || 0) > 0 && payload.ver !== user.token_version) return { error: json({ error: 'session_revoked' }, 401) };
   if (user.status === 'disabled') return { error: json({ error: 'account_disabled' }, 403) };
+  user = await ensureAccountNo(db, user);
   return { user };
 }
 

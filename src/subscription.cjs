@@ -6,9 +6,9 @@
 
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const { formatAccountReference } = require('./account-reference.cjs');
 
 const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
+const ACCOUNT_NO_PATTERN = /^GK-[0-9a-f]{32}$/;
 
 // 敏感字段加密（safeStorage DPAPI）：token 等不落明文
 // 注入方式：main.cjs 里调用 initSecureCrypto()，把 {encrypt, decrypt} 传进来
@@ -46,9 +46,13 @@ function apiBase() {
 function normalizeUserIdentity(value = {}) {
   const numeric = Number(value.user_id ?? value.id);
   const userId = Number.isSafeInteger(numeric) && numeric > 0 ? numeric : null;
+  const accountNo = typeof value.account_no === 'string' && ACCOUNT_NO_PATTERN.test(value.account_no)
+    ? value.account_no
+    : '';
   return {
     user_id: userId,
-    account_ref: userId ? formatAccountReference(userId) : '',
+    account_no: accountNo,
+    account_ref: accountNo,
   };
 }
 
@@ -63,7 +67,7 @@ function createSubscriptionStore({ userDataDir }) {
     await fs.rename(temporary, target);
   }
 
-  let cache = null; // { token, email, user_id, account_ref, checked_at, quota_cache }
+  let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
   let translationTokenCache = null;
 
   async function load() {
@@ -75,9 +79,10 @@ function createSubscriptionStore({ userDataDir }) {
       if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
         cache.token = decryptField(cache.token);
       }
-      // 兼容旧状态：已有 user_id 但尚未保存 account_ref 时本地补齐。
+      // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
       const identity = normalizeUserIdentity(cache);
-      if (identity.user_id && !cache.account_ref) cache.account_ref = identity.account_ref;
+      cache.account_no = identity.account_no;
+      cache.account_ref = identity.account_ref;
       // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
       if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
         try {
@@ -95,6 +100,10 @@ function createSubscriptionStore({ userDataDir }) {
     const current = await load();
     // 内存 cache 保留明文（request 等需要明文 token），写盘时加密敏感字段
     cache = { ...current, ...patch };
+    const identity = normalizeUserIdentity(cache);
+    cache.user_id = identity.user_id;
+    cache.account_no = identity.account_no;
+    cache.account_ref = identity.account_ref;
     const disk = { ...cache };
     if (disk.token) disk.token = encryptField(disk.token);
     try {
@@ -125,7 +134,7 @@ function createSubscriptionStore({ userDataDir }) {
     return data;
   }
 
-  // 本地状态（不请求网络）：{ loggedIn, email, user_id, account_ref, remaining_chars, valid }
+  // 本地状态（不请求网络）：{ loggedIn, email, user_id, account_no, account_ref, remaining_chars, valid }
   async function getState() {
     const state = await load();
     if (!state.token) return { loggedIn: false };
@@ -135,21 +144,22 @@ function createSubscriptionStore({ userDataDir }) {
       loggedIn: true,
       email: state.email || '',
       user_id: identity.user_id,
-      account_ref: state.account_ref || identity.account_ref,
+      account_no: identity.account_no,
+      account_ref: identity.account_ref,
       remaining_chars: remaining != null ? remaining : 0,
       valid: remaining == null || remaining > 0,
     };
   }
 
   // 刷新远程状态：token 有效→更新本地；401/失效→清除本地。
-  // 老版本状态没有 user_id 时，顺便从 /api/me 回填稳定客服账号号。
+  // 老版本状态缺少服务端 account_no 时，从 /api/me 回填；绝不从 user_id 本地合成。
   async function refresh() {
     const state = await load();
     if (!state.token) return getState();
     try {
       const data = await request('/api/status');
       const patch = { remaining_chars: data.remaining_chars, checked_at: new Date().toISOString() };
-      if (!state.user_id) {
+      if (!state.user_id || !ACCOUNT_NO_PATTERN.test(state.account_no || '')) {
         const profile = await request('/api/me').catch(() => null);
         if (profile?.user?.id) Object.assign(patch, normalizeUserIdentity(profile.user));
         if (profile?.user?.email) patch.email = profile.user.email;
@@ -172,17 +182,25 @@ function createSubscriptionStore({ userDataDir }) {
     const data = await request('/api/login', { method: 'POST', body: { email, password } });
     // 登录成功：清空旧账号本地状态（token/quota_cache 等），防止换账号数据串号
     await clear();
-    const identity = normalizeUserIdentity(data.user || {});
+    let identity = normalizeUserIdentity(data.user || {});
     await save({
       token: data.token,
       email: data.user.email,
       ...identity,
       checked_at: new Date().toISOString(),
     });
+    // 兼容切换期：若登录响应尚未携带 account_no，只允许从受认证的 /api/me 补齐。
+    if (!identity.account_no) {
+      const profile = await request('/api/me').catch(() => null);
+      if (profile?.user?.id) {
+        identity = normalizeUserIdentity(profile.user);
+        await save({ ...identity, email: profile.user.email || data.user.email || '' });
+      }
+    }
     // 拉取字符余额
     const status = await request('/api/status').catch(() => ({}));
     if (status.remaining_chars != null) await save({ remaining_chars: status.remaining_chars });
-    return { ok: true, user: { ...data.user, account_ref: identity.account_ref } };
+    return { ok: true, user: { ...data.user, account_no: identity.account_no, account_ref: identity.account_ref } };
   }
 
   async function register(email, password) {
@@ -203,7 +221,7 @@ function createSubscriptionStore({ userDataDir }) {
     if (data?.user?.id) {
       const identity = normalizeUserIdentity(data.user);
       await save({ ...identity, email: data.user.email || (await load()).email || '' });
-      return { ...data, user: { ...data.user, account_ref: identity.account_ref } };
+      return { ...data, user: { ...data.user, account_no: identity.account_no, account_ref: identity.account_ref } };
     }
     return data;
   }
@@ -218,28 +236,29 @@ function createSubscriptionStore({ userDataDir }) {
     }
     const state = await load();
     const identity = normalizeUserIdentity(state);
+    const accountIdentity = { account_no: identity.account_no, account_ref: identity.account_ref };
     const now = Date.now();
     const fresh = state.quota_checked_at && (now - new Date(state.quota_checked_at).getTime()) < 30 * 1000;
-    if (!force && fresh && state.quota_cache) return { ...state.quota_cache, account_ref: state.account_ref || identity.account_ref };
+    if (!force && fresh && state.quota_cache) return { ...state.quota_cache, ...accountIdentity };
     if (opts.network === false) {
       // 只读本地：有缓存返回缓存（哪怕是旧的），无缓存视为未知（放行，服务端兜底）
       return state.quota_cache
-        ? { ...state.quota_cache, account_ref: state.account_ref || identity.account_ref }
-        : { remaining_chars: null, email: state.email || '', account_ref: state.account_ref || identity.account_ref };
+        ? { ...state.quota_cache, ...accountIdentity }
+        : { remaining_chars: null, email: state.email || '', ...accountIdentity };
     }
     try {
       const data = await request('/api/quota');
       const quota = {
         remaining_chars: data.remaining_chars,
         email: data.email || state.email || '',
-        account_ref: state.account_ref || identity.account_ref,
+        ...accountIdentity,
       };
       await save({ quota_cache: quota, quota_checked_at: new Date().toISOString() });
       return quota;
     } catch (e) {
       // 网络失败：回退本地缓存（离线容忍）；无缓存则视为有额度（不阻断已有用户）
-      if (state.quota_cache) return { ...state.quota_cache, account_ref: state.account_ref || identity.account_ref };
-      return { remaining_chars: Number.MAX_SAFE_INTEGER, email: state.email || '', account_ref: state.account_ref || identity.account_ref };
+      if (state.quota_cache) return { ...state.quota_cache, ...accountIdentity };
+      return { remaining_chars: Number.MAX_SAFE_INTEGER, email: state.email || '', ...accountIdentity };
     }
   }
 
@@ -265,7 +284,8 @@ function createSubscriptionStore({ userDataDir }) {
         const quota = {
           remaining_chars: data.remaining_chars,
           email: state.email || '',
-          account_ref: state.account_ref || identity.account_ref,
+          account_no: identity.account_no,
+          account_ref: identity.account_ref,
         };
         await save({ quota_cache: quota, quota_checked_at: new Date().toISOString() });
       }

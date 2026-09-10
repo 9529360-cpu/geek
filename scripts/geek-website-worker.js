@@ -641,6 +641,11 @@ const ACCOUNT = layout(`
           <div class="metric-label">账户状态</div>
           <div class="metric-value" id="account-state"><span class="status-dot"></span>读取中</div>
           <div class="metric-note" id="member-since">账户信息加载中…</div>
+          <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-top:8px">
+            <span class="metric-note">账号号</span>
+            <span id="account-no" style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.45;word-break:break-all;color:#8fb7ff;flex:1;min-width:0">加载中…</span>
+            <button type="button" class="copy-btn" id="copy-account-no" disabled style="padding:4px 8px;font-size:11px">复制</button>
+          </div>
         </article>
         <article class="dashboard-card metric">
           <div class="metric-label">最近订单</div>
@@ -731,6 +736,12 @@ const ACCOUNT = layout(`
       document.getElementById('account-state').innerHTML = '<span class="status-dot"></span>正常';
       const created = formatDate(me.data.user?.created_at);
       document.getElementById('member-since').textContent = created ? '注册于 ' + created : '账户可正常使用';
+      const accountNo = String(me.data.user?.account_no || '');
+      const accountNoEl = document.getElementById('account-no');
+      const accountNoButton = document.getElementById('copy-account-no');
+      accountNoEl.textContent = accountNo || '暂不可用';
+      accountNoButton.disabled = !accountNo;
+      accountNoButton.onclick = accountNo ? (event) => copyValue(accountNo, '账号号', event.currentTarget) : null;
       const { data } = await api('/api/quota');
       const q = data.remaining_chars ?? 0;
       document.getElementById('quota').textContent = q.toLocaleString() + ' 字符';
@@ -739,6 +750,11 @@ const ACCOUNT = layout(`
     } catch (e) {
       document.getElementById('quota').textContent = '暂时无法加载';
       document.getElementById('account-state').textContent = '同步失败';
+      const accountNoEl = document.getElementById('account-no');
+      const accountNoButton = document.getElementById('copy-account-no');
+      accountNoEl.textContent = '暂不可用';
+      accountNoButton.disabled = true;
+      accountNoButton.onclick = null;
       message.textContent = '网络异常，请点击“刷新数据”重试';
     }
   }

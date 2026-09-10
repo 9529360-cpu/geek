@@ -1,6 +1,7 @@
 -- 极客付费订阅体系 D1 建表
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_no TEXT NOT NULL UNIQUE,                 -- 公开客服账号号：GK- + 16 随机字节的 32 位小写 hex
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   password_salt TEXT NOT NULL,
