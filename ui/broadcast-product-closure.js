@@ -19,6 +19,19 @@
     return time.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
+  function setWorkbenchStatus(doc, text, state = 'ready') {
+    const status = doc.getElementById('broadcast-workbench-status');
+    if (!status) return false;
+    status.dataset.state = state;
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.setAttribute('aria-atomic', 'true');
+    const span = status.querySelector('span');
+    if (span) span.textContent = String(text || '');
+    else status.textContent = String(text || '');
+    return true;
+  }
+
   function pendingJobsFor(manager, accountId) {
     if (!manager || !accountId || typeof manager.list !== 'function') return [];
     return manager.list(accountId)
@@ -159,7 +172,7 @@
       cancel.textContent = '取消';
       cancel.title = '取消这条定时任务';
       cancel.onclick = () => {
-        void manager.invoke(job.id, 'stop').catch(error => window.alert?.(String(error?.message || error))).finally(() => renderPendingSchedules(doc));
+        void manager.invoke(job.id, 'stop').catch(error => setWorkbenchStatus(doc, `取消定时任务失败：${String(error?.message || error)}`, 'error')).finally(() => renderPendingSchedules(doc));
       };
       row.append(copy, cancel);
       fragment.appendChild(row);
@@ -175,14 +188,14 @@
     const timeInput = doc.getElementById('broadcast-schedule-time');
     const button = doc.getElementById('broadcast-add-schedule');
     const scheduledAt = timeInput?.value ? new Date(timeInput.value).getTime() : NaN;
-    if (!accountId) { window.alert?.('请先选择账号'); return false; }
-    if (!toggle?.checked) { window.alert?.('请先开启“定时发送”'); return false; }
-    if (!Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) { window.alert?.('请选择未来的发送时间'); return false; }
+    if (!accountId) { setWorkbenchStatus(doc, '请先选择账号', 'error'); return false; }
+    if (!toggle?.checked) { setWorkbenchStatus(doc, '请先开启“定时发送”', 'error'); toggle?.focus?.(); return false; }
+    if (!Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) { setWorkbenchStatus(doc, '请选择未来的发送时间', 'error'); timeInput?.focus?.(); return false; }
 
     const runtime = window.GeekBroadcastRuntimeInstance;
     const persistence = window.GeekBroadcastSchedulePersistenceInstance;
-    if (!runtime || typeof runtime.startFromEditor !== 'function') { window.alert?.('群发运行时尚未就绪，请稍后重试'); return false; }
-    if (!persistence || typeof persistence.awaitScheduledDurable !== 'function') { window.alert?.('定时任务持久化尚未就绪，请稍后重试'); return false; }
+    if (!runtime || typeof runtime.startFromEditor !== 'function') { setWorkbenchStatus(doc, '群发运行时尚未就绪，请稍后重试', 'error'); return false; }
+    if (!persistence || typeof persistence.awaitScheduledDurable !== 'function') { setWorkbenchStatus(doc, '定时任务持久化尚未就绪，请稍后重试', 'error'); return false; }
 
     schedulePending = true;
     if (button) {
@@ -206,12 +219,11 @@
         message.focus();
       }
       renderPendingSchedules(doc);
-      const status = doc.getElementById('broadcast-workbench-status')?.querySelector('span');
-      if (status) status.textContent = '定时任务已保存，可修改时间和消息继续添加下一条';
+      setWorkbenchStatus(doc, '定时任务已保存，可继续添加下一条', 'ready');
       return true;
     } catch (error) {
       doc.getElementById('broadcast-overlay')?.classList.remove('hidden');
-      window.alert?.(String(error?.message || error));
+      setWorkbenchStatus(doc, `添加定时任务失败：${String(error?.message || error)}`, 'error');
       renderPendingSchedules(doc);
       return false;
     } finally {
