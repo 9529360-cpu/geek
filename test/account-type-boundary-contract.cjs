@@ -25,7 +25,8 @@ assert.match(mainEntrySource, /installAccountTypeBoundary\(\{ ipcMain \}\);[\s\S
 assert.doesNotMatch(mainEntrySource, /accountTypeBoundary\.restore\(\)/, 'main-entry must not restore the guard before deferred accounts:add registration occurs');
 
 for (const type of SUPPORTED_ACCOUNT_TYPES) {
-  assert.doesNotThrow(() => validateAccountAddPayload({ type }), `formal type ${type} must remain accepted`);
+  const payload = type === 'website' ? { type, customUrl: 'https://example.com/app' } : { type };
+  assert.doesNotThrow(() => validateAccountAddPayload(payload), `formal type ${type} must remain accepted`);
 }
 assert.doesNotThrow(() => validateAccountAddPayload({ name: 'legacy default' }), 'object payload without type keeps the historical WhatsApp default');
 assert.doesNotThrow(() => validateAccountAddPayload('legacy string payload'), 'legacy string payload remains supported');
@@ -37,11 +38,22 @@ function assertAccountTypeUnsupported(payload) {
     (error) => error?.code === 'ACCOUNT_TYPE_UNSUPPORTED' && error?.message === 'ACCOUNT_TYPE_UNSUPPORTED',
   );
 }
-assertAccountTypeUnsupported({ type: 'website' });
 assertAccountTypeUnsupported({ type: 'telegrm' });
 assertAccountTypeUnsupported({ type: '' });
 assertAccountTypeUnsupported({ type: null });
 assertAccountTypeUnsupported({ type: ' whatsapp' });
+
+for (const payload of [
+  { type: 'website', customUrl: '' },
+  { type: 'website', customUrl: 'http://example.com/' },
+  { type: 'website', customUrl: 'https://user:pass@example.com/' },
+]) {
+  assert.throws(
+    () => validateAccountAddPayload(payload),
+    (error) => error?.code === 'ACCOUNT_WEBSITE_URL_INVALID' && error?.message === 'ACCOUNT_WEBSITE_URL_INVALID',
+    'invalid Website URL must fail before downstream account creation',
+  );
+}
 
 for (const payload of [null, [], 42, true]) {
   assert.throws(
@@ -78,12 +90,19 @@ assert.equal(ipcMain.handle, nativeHandle, 'guard must self-restore only after a
 ipcMain.handle('other:channel', () => 'ok');
 
 assert.deepEqual(handlers.get('accounts:add')({}, { type: 'telegram-k' }), { accepted: 'telegram-k' });
+assert.deepEqual(handlers.get('accounts:add')({}, { type: 'website', customUrl: 'https://example.com/app' }), { accepted: 'website' });
 assert.deepEqual(handlers.get('accounts:add')({}, { name: 'legacy' }), { accepted: 'whatsapp' });
-assert.equal(downstreamCalls, 2);
-for (const payload of [{ type: 'website' }, { type: 'telegrm' }, { type: '' }, null, []]) {
+assert.equal(downstreamCalls, 3);
+for (const payload of [
+  { type: 'website', customUrl: 'javascript:alert(1)' },
+  { type: 'telegrm' },
+  { type: '' },
+  null,
+  [],
+]) {
   assert.throws(() => handlers.get('accounts:add')({}, payload));
 }
-assert.equal(downstreamCalls, 2, 'rejected payloads must never reach the real accounts:add handler or its mutations');
+assert.equal(downstreamCalls, 3, 'rejected payloads must never reach the real accounts:add handler or its mutations');
 assert.equal(handlers.get('other:channel')(), 'ok');
 
 boundary.restore();
