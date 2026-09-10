@@ -23,11 +23,8 @@ jobs:
           from pathlib import Path
           path = Path('e2e/specs/shell-smoke.e2e.cjs')
           source = path.read_text()
-          old = """  console.log(`E2E_WEBSITE created=${websites.length} partitions=${new Set(websites.map(account => account.partition)).size} noPreload=${ui.rows.every(row => row.preload === null)} enhancementsHidden=${ui.broadcastHidden && ui.translationHidden && ui.notesHidden}`);
-          await heartbeat('website-app-center');
-          }"""
-          new = """  console.log(`E2E_WEBSITE created=${websites.length} partitions=${new Set(websites.map(account => account.partition)).size} noPreload=${ui.rows.every(row => row.preload === null)} enhancementsHidden=${ui.broadcastHidden && ui.translationHidden && ui.notesHidden}`);
-          await heartbeat('website-app-center');
+          marker = "  await heartbeat('website-app-center');\n"
+          cleanup = """
 
           // All specs intentionally share one isolated synthetic userData directory.
           // Restore the original fixture after this mutation-heavy smoke so the
@@ -49,10 +46,10 @@ jobs:
           assert.equal(cleanup.activeAccountId, ACCOUNT_A);
           assert.equal(cleanup.websiteCount, 0);
           await heartbeat('website-cleanup');
-          }"""
-          if old not in source:
-              raise SystemExit('Website smoke cleanup insertion point not found')
-          path.write_text(source.replace(old, new))
+          """
+          if source.count(marker) != 1:
+              raise SystemExit(f'Website smoke marker count={source.count(marker)}')
+          path.write_text(source.replace(marker, marker + cleanup, 1))
           PY
           node --check e2e/specs/shell-smoke.e2e.cjs
           rm .github/workflows/fix-website-e2e-isolation.yml
