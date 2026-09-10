@@ -52,7 +52,7 @@ jobs:
       - name: Prepare isolated launcher
         shell: pwsh
         run: |
-          $root = Join-Path $PWD 'dist\win-unpacked'
+          $root = Join-Path $PWD 'dist-release\win-unpacked'
           if (!(Test-Path $root)) { throw 'win-unpacked missing' }
           $mainExe = Get-ChildItem $root -File -Filter '*.exe' | Sort-Object Length -Descending | Select-Object -First 1
           if (!$mainExe) { throw 'main exe missing' }
@@ -75,6 +75,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: geek-wa-1.2.16-runtime-control-ddbc0d3
-          path: dist/win-unpacked
+          path: dist-release/win-unpacked
           if-no-files-found: error
           retention-days: 7
