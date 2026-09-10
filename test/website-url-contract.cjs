@@ -1,6 +1,5 @@
 'use strict';
 
-// Final CI trigger; removed in the immediately following commit so the feature diff stays focused.
 const assert = require('node:assert/strict');
 const {
   ACCOUNT_WEBSITE_URL_INVALID,
