@@ -21,14 +21,13 @@ jobs:
       - name: Checkout 1.2.18 control
         uses: actions/checkout@v4
         with:
-          fetch-depth: 3
+          fetch-depth: 0
 
       - name: Verify runtime source is exact 1.2.18
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
-          git cat-file -e ed21bca77290062c38e3a0b77be8c0f4c9ab216c^{commit}
-          if ($LASTEXITCODE -ne 0) { throw 'Known-good 1.2.18 commit is not available in checkout' }
           $changed = @(git diff --name-only ed21bca77290062c38e3a0b77be8c0f4c9ab216c HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot compare against known-good 1.2.18 commit' }
           if ($changed.Count -ne 1 -or $changed[0] -ne '.github/workflows/wa-1.2.18-cold-start-control.yml') { throw "Control branch changed runtime files: $($changed -join ', ')" }
 
       - name: Setup Node
