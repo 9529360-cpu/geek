@@ -148,24 +148,25 @@ const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const LINE_EXTENSION_URL = `chrome-extension://${LINE_EXTENSION_ID}/index.html`;
 
-// WhatsApp 本地托管（HelloWorld 同款方案）：固定旧版页面——媒体 API 与 WPP 匹配，图+文秒发
-// 最新版 web.whatsapp.com 的 createFromData/prepRawMedia 不产生 mediaEntry（发送失败红感叹号）
+// WhatsApp 启动页使用当前官方 Web，避免冻结快照与在线静态资源失配。
+// 旧本地快照仅保留历史兼容参考，不再作为产品启动入口。
 const WA_LOCAL_PORT = 1843;
 const WA_LOCAL_URL = `http://127.0.0.1:${WA_LOCAL_PORT}/`;
+const WA_WEB_URL = 'https://web.whatsapp.com/';
 
 const APP_TYPES = {
   whatsapp: {
     name: 'WhatsApp',
     short: 'WA',
-    url: WA_LOCAL_URL,
-    hostnames: ['127.0.0.1'],
+    url: WA_WEB_URL,
+    hostnames: ['web.whatsapp.com'],
     allowSuffix: '.whatsapp.com'
   },
   'whatsapp-pure': {
     name: 'WhatsApp 纯净版',
     short: 'WAP',
-    url: WA_LOCAL_URL,
-    hostnames: ['127.0.0.1'],
+    url: WA_WEB_URL,
+    hostnames: ['web.whatsapp.com'],
     allowSuffix: '.whatsapp.com'
   },
   'telegram-z': {
@@ -2415,7 +2416,6 @@ app.whenReady().then(async () => {
   await verifyPackagedUnpackedAssets();
   await probeExternalDebugging();
   diagnostics.log('cdp-mode', { externalDebugging: externalDebuggingActive });
-  startWaLocalServer();
   try {
     await runtimePaths.migrateRuntimeFiles({
       userDataDir: USER_DATA_DIR,
