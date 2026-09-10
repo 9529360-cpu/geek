@@ -228,6 +228,112 @@ async function rightClick(element) {
     .perform();
 }
 
+
+async function createWebsiteAccountsThroughAppCenter() {
+  await (await waitVisible('#btn-app-center')).click();
+  await waitVisible('#add-overlay:not(.hidden)');
+  const websiteCard = await waitVisible('.add-platform-card[data-type="website"]');
+  assert.match(await websiteCard.getText(), /自定义网站|网站/, 'App Center must expose the Website platform card');
+  await websiteCard.click();
+
+  const urlInput = await waitVisible('#add-custom-url');
+  const nameInput = await waitVisible('#add-name');
+  const countInput = await waitVisible('#add-count');
+  await urlInput.setValue('http://example.com/not-allowed');
+  await nameInput.setValue('E2E Website');
+  await countInput.setValue('2');
+
+  const before = await browser.executeAsync((done) => window.api.accounts.list().then(done).catch(error => done({ error: String(error?.message || error) })));
+  await (await waitVisible('#add-confirm')).click();
+  const status = await waitVisible('#add-status');
+  assert.match(await status.getText(), /HTTPS/, 'invalid Website URL must be rejected inside the add dialog');
+  const afterInvalid = await browser.executeAsync((done) => window.api.accounts.list().then(done).catch(error => done({ error: String(error?.message || error) })));
+  assert.deepEqual(afterInvalid.accounts.map(account => account.id), before.accounts.map(account => account.id), 'invalid Website URL must not create an account');
+
+  await urlInput.setValue('https://example.com/app');
+  await (await waitVisible('#add-confirm')).click();
+  await waitHidden('#add-overlay', 10_000);
+
+  await browser.waitUntil(async () => browser.executeAsync((done) => {
+    window.api.accounts.list().then((state) => done(state.accounts.filter(account => account.type === 'website').length === 2)).catch(() => done(false));
+  }), { timeout: 10_000, timeoutMsg: 'Website accounts were not created through App Center' });
+
+  const state = await browser.executeAsync((done) => window.api.accounts.list().then(done).catch(error => done({ error: String(error?.message || error) })));
+  const websites = state.accounts.filter(account => account.type === 'website');
+  assert.equal(websites.length, 2);
+  assert.deepEqual(websites.map(account => account.name), ['E2E Website 1', 'E2E Website 2']);
+  assert.ok(websites.every(account => account.customUrl === 'https://example.com/app'), 'Website customUrl must persist on both instances');
+  assert.notEqual(websites[0].id, websites[1].id, 'same Website URL must create different account ids');
+  assert.notEqual(websites[0].partition, websites[1].partition, 'same Website URL must create different persistent partitions');
+  assert.ok(websites.every(account => account.partition === `persist:webview-page-${account.id}`));
+
+  const ui = await browser.execute((ids) => {
+    const tabs = Array.from(document.querySelectorAll('.tab-item')).map(el => ({ platform: el.dataset.platform, title: el.title }));
+    const rows = ids.map((id) => {
+      const wv = Array.from(document.querySelectorAll('webview')).find(item => item.partition === `persist:webview-page-${id}`);
+      return wv ? {
+        id,
+        src: wv.getAttribute('src') || wv.src || '',
+        partition: wv.getAttribute('partition') || wv.partition || '',
+        preload: wv.getAttribute('preload'),
+        allowpopups: wv.hasAttribute('allowpopups'),
+      } : { id, missing: true };
+    });
+    return {
+      tabs,
+      rows,
+      activePlatform: document.querySelector('.tab-item.active')?.dataset.platform || '',
+      broadcastHidden: document.getElementById('btn-broadcast')?.classList.contains('hidden') === true,
+      translationHidden: document.getElementById('btn-translation')?.classList.contains('hidden') === true,
+      notesHidden: document.getElementById('btn-contact-notes')?.classList.contains('hidden') === true,
+    };
+  }, websites.map(account => account.id));
+
+  assert.ok(ui.tabs.some(tab => tab.platform === 'website' && tab.title === '网站'), 'Website must render as its own platform family');
+  assert.equal(ui.activePlatform, 'website');
+  assert.equal(ui.broadcastHidden, true, 'Website must hide broadcast capability');
+  assert.equal(ui.translationHidden, true, 'Website must hide translation capability');
+  assert.equal(ui.notesHidden, true, 'Website must hide contact-note capability');
+  for (const row of ui.rows) {
+    assert.equal(row.missing, undefined, `Website webview missing for ${row.id}`);
+    assert.equal(row.src, 'https://example.com/app');
+    assert.equal(row.partition, `persist:webview-page-${row.id}`);
+    assert.equal(row.preload, null, 'Website renderer must not attach Geek preload');
+    assert.equal(row.allowpopups, false, 'Website renderer must not opt into popups');
+  }
+
+  const guestState = await browser.electron.execute((electron, partitions) => {
+    const guests = electron.webContents.getAllWebContents().filter(contents => partitions.includes(String(contents.session?.partition || '')));
+    return guests.map(contents => ({ partition: String(contents.session?.partition || ''), destroyed: contents.isDestroyed() }));
+  }, websites.map(account => account.partition));
+  assert.equal(new Set(guestState.filter(item => !item.destroyed).map(item => item.partition)).size, 2, 'real Electron guests must exist in two independent Website sessions');
+
+  console.log(`E2E_WEBSITE created=${websites.length} partitions=${new Set(websites.map(account => account.partition)).size} noPreload=${ui.rows.every(row => row.preload === null)} enhancementsHidden=${ui.broadcastHidden && ui.translationHidden && ui.notesHidden}`);
+  await heartbeat('website-app-center');
+
+
+// All specs intentionally share one isolated synthetic userData directory.
+// Restore the original fixture after this mutation-heavy smoke so the
+// unrelated broadcast specs start from their documented two-account state.
+const cleanup = await browser.executeAsync((ids, fallbackId, done) => {
+  (async () => {
+    for (const id of ids) await window.api.accounts.remove(id);
+    await window.api.accounts.switch(fallbackId);
+    const state = await window.api.accounts.list();
+    done({
+      ids: state.accounts.map(account => account.id),
+      activeAccountId: state.activeAccountId,
+      websiteCount: state.accounts.filter(account => account.type === 'website').length,
+    });
+  })().catch((error) => done({ error: String(error?.message || error || 'cleanup failed') }));
+}, websites.map(account => account.id), ACCOUNT_A);
+assert.equal(cleanup.error, undefined, `Website cleanup failed: ${cleanup.error || ''}`);
+assert.deepEqual(cleanup.ids, [ACCOUNT_A, ACCOUNT_B], 'Website E2E cleanup must restore the shared synthetic fixture');
+assert.equal(cleanup.activeAccountId, ACCOUNT_A);
+assert.equal(cleanup.websiteCount, 0);
+await heartbeat('website-cleanup');
+}
+
 async function openAndCloseAccountSettings(iteration) {
   await activateAccount(ACCOUNT_A);
   const target = await waitVisible(`.nav-account[data-id="${ACCOUNT_B}"]`);
@@ -333,5 +439,7 @@ assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui
     for (let iteration = 1; iteration <= 3; iteration += 1) {
       await openAndCloseBroadcast(iteration);
     }
+
+    await createWebsiteAccountsThroughAppCenter();
   });
 });

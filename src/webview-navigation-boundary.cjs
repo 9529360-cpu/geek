@@ -1,5 +1,7 @@
 'use strict';
 
+const { parseWebsiteUrl } = require('./website-url.cjs');
+
 const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-';
 const WA_LOCAL_ORIGIN = 'http://127.0.0.1:1843';
@@ -52,8 +54,7 @@ function policyForAccount(account, partitionValue) {
   }
   if (type === 'website') {
     let custom;
-    try { custom = new URL(String(account.customUrl || '')); } catch { return null; }
-    if (custom.protocol !== 'https:' || !custom.hostname) return null;
+    try { custom = parseWebsiteUrl(account.customUrl); } catch { return null; }
     return Object.freeze({ kind: 'website', hostname: custom.hostname.toLowerCase() });
   }
   return null;

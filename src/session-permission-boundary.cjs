@@ -7,15 +7,17 @@ const {
 
 // This is intentionally much narrower than Chromium/Electron's permission vocabulary.
 // Any permission not present here is denied. Each allow requires product evidence:
-// - notifications are a core browser capability for all three supported chat services;
+// - notifications are a core browser capability for the supported chat services and
+//   the single MVP permission granted to a configured custom Website origin;
 // - Telegram Web K documents fullscreen video playback, so fullscreen is Telegram-only;
 // - WhatsApp Web and Telegram Web support browser calls, so camera/mic media is allowed
 //   only for those account kinds and only for explicit audio/video media types;
-// - LINE for Chrome explicitly does not support voice/video calls, so media stays denied.
+// - LINE for Chrome does not support voice/video calls, and arbitrary Websites receive
+//   no media permission in this MVP.
 // Clipboard read/write, display capture, speaker selection, devices, filesystem, and every
 // other permission stay denied until a concrete Geek product need is independently proven.
 const SUPPORTED_PERMISSION_MATRIX = Object.freeze({
-  notifications: Object.freeze({ kinds: Object.freeze(['whatsapp', 'telegram', 'line']) }),
+  notifications: Object.freeze({ kinds: Object.freeze(['whatsapp', 'telegram', 'line', 'website']) }),
   fullscreen: Object.freeze({ kinds: Object.freeze(['telegram']) }),
   media: Object.freeze({
     kinds: Object.freeze(['whatsapp', 'telegram']),
@@ -55,7 +57,7 @@ function normalizeMediaTypes(value) {
 }
 
 function isAccountPermissionAllowed({ policy, permission, requestingUrl, mediaTypes } = {}) {
-  if (!policy || !['whatsapp', 'telegram', 'line'].includes(policy.kind)) return false;
+  if (!policy || !['whatsapp', 'telegram', 'line', 'website'].includes(policy.kind)) return false;
   const rule = SUPPORTED_PERMISSION_MATRIX[String(permission || '')];
   if (!rule || !rule.kinds.includes(policy.kind)) return false;
   if (!requestingUrl || !isNavigationAllowed(policy, requestingUrl)) return false;

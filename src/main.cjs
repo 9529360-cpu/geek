@@ -20,6 +20,7 @@ const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { assertSafeTranslationOutput } = require('./translation-output-safety.cjs');
+const { normalizeWebsiteUrl, parseWebsiteUrl } = require('./website-url.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -196,6 +197,10 @@ const APP_TYPES = {
     hostnames: ['manager.line.biz', 'access.line.me', 'line.me'],
     allowSuffix: '.line.me',
     needsExtension: true
+  },
+  website: {
+    name: '自定义网站',
+    short: 'WEB'
   }
 };
 
@@ -672,16 +677,15 @@ async function addAccount(_event, payload = {}) {
   assertTrustedSender(_event);
 
   const raw = typeof payload === 'string' ? { name: payload } : payload || {};
-  const type = appTypeConfig(raw.type) ? raw.type : 'whatsapp';
+  const type = raw.type === undefined ? 'whatsapp' : raw.type;
   const config = appTypeConfig(type);
-
-  let customUrl = '';
-  if (type === 'website') {
-    customUrl = typeof raw.customUrl === 'string' ? raw.customUrl.trim() : '';
-    if (!/^https?:\/\/.+\..+/.test(customUrl)) {
-      throw new Error('自定义网站需要填写合法的 URL（http/https）');
-    }
+  if (!config) {
+    const error = new Error('ACCOUNT_TYPE_UNSUPPORTED');
+    error.code = 'ACCOUNT_TYPE_UNSUPPORTED';
+    throw error;
   }
+
+  const customUrl = type === 'website' ? normalizeWebsiteUrl(raw.customUrl) : '';
 
   const id = createAccountId();
   const account = {
@@ -1834,9 +1838,9 @@ function configureWebviewSecurity(window) {
     let customAllowed = false;
     if (account.type === 'website' && account.customUrl) {
       try {
-        const customHost = new URL(account.customUrl).hostname.toLowerCase();
-        customAllowed =
-          hostname === customHost || hostname.endsWith(`.${customHost}`);
+        const customHost = parseWebsiteUrl(account.customUrl).hostname.toLowerCase();
+        customAllowed = parsedSource.protocol === 'https:' &&
+          (hostname === customHost || hostname.endsWith(`.${customHost}`));
       } catch {
         customAllowed = false;
       }
@@ -1870,16 +1874,23 @@ function configureWebviewSecurity(window) {
 
     delete webPreferences.preloadURL;
     const isLine = account.type === 'line' || account.type === 'line-business';
-    const integrityComponent = isLine ? 'lineExtension' : 'bridge';
-    if (!runtimeAssetAllowed(integrityComponent)) {
-      diagnostics.log('runtime-asset-blocked', { component: isLine ? 'line-extension' : 'bridge' });
-      event.preventDefault();
-      return;
+    const isWebsite = account.type === 'website';
+    if (!isWebsite) {
+      const integrityComponent = isLine ? 'lineExtension' : 'bridge';
+      if (!runtimeAssetAllowed(integrityComponent)) {
+        diagnostics.log('runtime-asset-blocked', { component: isLine ? 'line-extension' : 'bridge' });
+        event.preventDefault();
+        return;
+      }
     }
     if (isLine) {
       // LINE 扩展页面兼容注入 —— 原版 s3loYR.js（chrome API mock + _pluginKD 补全）
       webPreferences.preload = path.join(__dirname, '..', 'resources', 's3loYR.js');
       webPreferences.contextIsolation = false;
+    } else if (isWebsite) {
+      // 任意第三方 Website 只获得纯 Chromium Web 能力，不继承 Geek/LINE preload。
+      delete webPreferences.preload;
+      webPreferences.contextIsolation = true;
     } else {
       // WA/TG：桥 preload（翻译/原生输入 sendToHost）由主进程直接设置，
       // 避免 params.webpreferences 覆盖 renderer 属性时把 preload 丢弃。
@@ -1893,7 +1904,7 @@ function configureWebviewSecurity(window) {
     webPreferences.allowRunningInsecureContent = false;
     webPreferences.userAgent = CHROME_USER_AGENT;
 
-    params.src = config.url;
+    params.src = isWebsite ? normalizeWebsiteUrl(account.customUrl) : config.url;
     params.partition = partition;
     params.allowpopups = false;
     // 对齐原版：LINE 页面 URL 带 lw-key 参数（原版: ?lw-key=mw1fq&1786627670770）
@@ -1906,7 +1917,9 @@ function configureWebviewSecurity(window) {
     webPreferences.sandbox = true;
     params.webpreferences = isLine
       ? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'
-      : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
+      : isWebsite
+        ? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=no,spellcheck=no'
+        : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
 
     // 按账号配置（账号优先，否则全局）应用代理。
     const accountProxy = account.openProxy
@@ -1961,9 +1974,11 @@ function configureWebviewSecurity(window) {
     });
 
     // WhatsApp：页面加载完成后注入 WPP（内部 API 直发，对齐原版/HelloWorld）
+    const ownerAccount = accountsState.accounts.find((account) => account.partition === part);
+    const ownerIsWhatsApp = ownerAccount?.type === 'whatsapp' || ownerAccount?.type === 'whatsapp-pure';
     webContents.on('did-finish-load', async () => {
       const url = webContents.getURL() || '';
-      if ((url.includes('web.whatsapp.com') || url.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) && !wppInjected.has(part)) {
+      if (ownerIsWhatsApp && (url.includes('web.whatsapp.com') || url.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) && !wppInjected.has(part)) {
         await injectWppWithRetry(webContents, part);
       }
     });
@@ -2020,7 +2035,7 @@ function configureWebviewSecurity(window) {
         }
         const types = Object.values(APP_TYPES);
         if (types.some((config) =>
-          config.hostnames.includes(hostname) ||
+          config.hostnames?.includes(hostname) ||
           (config.allowSuffix && hostname.endsWith(config.allowSuffix))
         )) {
           return true;
@@ -2031,7 +2046,7 @@ function configureWebviewSecurity(window) {
             return false;
           }
           try {
-            const customHost = new URL(a.customUrl).hostname.toLowerCase();
+            const customHost = parseWebsiteUrl(a.customUrl).hostname.toLowerCase();
             return hostname === customHost || hostname.endsWith(`.${customHost}`);
           } catch {
             return false;

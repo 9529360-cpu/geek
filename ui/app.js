@@ -220,6 +220,9 @@
   const addPlatformsEl = document.getElementById('add-platforms');
   const addNameEl = document.getElementById('add-name');
   const addCountEl = document.getElementById('add-count');
+  const addWebsiteUrlRow = document.getElementById('add-website-url-row');
+  const addCustomUrlEl = document.getElementById('add-custom-url');
+  const addStatusEl = document.getElementById('add-status');
   const settingsOverlay = document.getElementById('settings-overlay');
   const settingsGlobal = document.getElementById('settings-global');
   const settingsAccount = document.getElementById('settings-account');
@@ -229,7 +232,7 @@
   let accounts = [];
   let activeId = null;
   let accountSwitchSequence = 0;
-  let activePlatform = null; // 当前平台家族 key（whatsapp/telegram/line）
+  let activePlatform = null; // 当前平台家族 key（whatsapp/telegram/line/website）
   let config = null;
   let platforms = [];
   let addSelectedType = null;
@@ -329,7 +332,8 @@
   const PLATFORM_FAMILIES = [
     { key: 'whatsapp', label: 'WhatsApp', iconType: 'whatsapp', iconClass: 'p-icon-whatsapp', types: ['whatsapp', 'whatsapp-pure'] },
     { key: 'telegram', label: 'Telegram', iconType: 'telegram-z', iconClass: 'p-icon-telegram-z', types: ['telegram-z', 'telegram-k'] },
-    { key: 'line', label: 'Line', iconType: 'line', iconClass: 'p-icon-line', types: ['line', 'line-business'] }
+    { key: 'line', label: 'Line', iconType: 'line', iconClass: 'p-icon-line', types: ['line', 'line-business'] },
+    { key: 'website', label: '网站', iconType: 'website', iconClass: 'p-icon-website', types: ['website'] }
   ];
   function familyOf(type) {
     return PLATFORM_FAMILIES.find(f => f.types.includes(type)) || PLATFORM_FAMILIES[0];
@@ -349,14 +353,17 @@
     if (type === 'telegram-z' || type === 'telegram-k') return 'p-icon-telegram-z';
     if (type === 'line') return 'p-icon-line';
     if (type === 'line-business') return 'p-icon-line-business';
+    if (type === 'website') return 'p-icon-website';
     return 'p-icon-whatsapp';
   }
   function platformIconPath(type) {
     if (type === 'line' || type === 'line-business') return ICON_PATHS.line;
     if (type === 'telegram-z' || type === 'telegram-k') return ICON_PATHS.telegram;
+    if (type === 'website') return '';
     return ICON_PATHS.whatsapp;
   }
   function iconSvg(type, cls) {
+    if (type === 'website') return '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.7 2.5 4 5.5 4 9s-1.3 6.5-4 9M12 3c-2.7 2.5-4 5.5-4 9s1.3 6.5 4 9"/></svg>';
     return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${platformIconPath(type)}"/></svg>`;
   }
 
@@ -364,7 +371,8 @@
   const PLATFORM_GROUPS = [
     { label: 'WhatsApp', types: ['whatsapp', 'whatsapp-pure'] },
     { label: 'Telegram', types: ['telegram-z'] },
-    { label: 'Line', types: ['line', 'line-business'] }
+    { label: 'Line', types: ['line', 'line-business'] },
+    { label: '网站', types: ['website'] }
   ];
 
   async function loadPlatforms() {
@@ -581,16 +589,16 @@
   function getWebview(account) {
     if (wvMap.has(account.id)) return wvMap.get(account.id);
     const wv = document.createElement('webview');
-    wv.src = account.url || 'https://web.whatsapp.com/';
+    wv.src = account.url || '';
     wv.partition = account.partition;
     // WA/TG 页面翻译/原生输入桥：guest preload（sendToHost）；LINE 用自己的扩展 preload，不叠加
-    if (bridgePreloadPath && account.type !== 'line' && account.type !== 'line-business') {
+    if (bridgePreloadPath && account.type !== 'line' && account.type !== 'line-business' && account.type !== 'website') {
       wv.setAttribute('preload', bridgePreloadPath);
     }
     if (account.userAgent) {
       wv.setAttribute('useragent', account.userAgent);
     }
-    wv.setAttribute('allowpopups', '');
+    if (account.type !== 'website') wv.setAttribute('allowpopups', '');
     // 对齐原版：webview 强制白色背景（LINE 二维码扫码需要浅色背景，外壳深色不影响）
     wv.style.backgroundColor = 'rgb(255, 255, 255)';
     window.__wvLog = window.__wvLog || [];
@@ -632,8 +640,10 @@
       const m = title.match(/^[(\[（]\s*(\d+)\s*[)\]\）]/);
       updateUnread(account.id, m ? parseInt(m[1], 10) : 0);
     });
-    wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
-    wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); });
+    if (account.type !== 'website') {
+      wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
+      wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); });
+    }
     wvContainer.appendChild(wv);
     setTimeout(() => {
       try {
@@ -651,7 +661,7 @@
     // 群组工具监听器：WA 页面就绪后注入（幂等；页面重载后自动重新注入）
     if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') {
       wv.addEventListener('dom-ready', () => { injectGtAgent(wv, account); syncTranslationCfgToWebview(wv, account); });
-    } else {
+    } else if (account.type !== 'website') {
       wv.addEventListener('dom-ready', () => { syncTranslationCfgToWebview(wv, account); });
     }
     return wv;
@@ -1075,6 +1085,19 @@
     }).catch(() => {});
   }
 
+
+  function updateActiveAccountCapabilities(account) {
+    const enhanced = !!account && account.type !== 'website';
+    for (const id of ['btn-broadcast', 'btn-translation', 'btn-contact-notes']) {
+      document.getElementById(id)?.classList.toggle('hidden', !enhanced);
+    }
+    if (!enhanced) {
+      document.getElementById('broadcast-menu')?.classList.add('hidden');
+      document.getElementById('translation-popover')?.classList.add('hidden');
+      document.getElementById('contact-notes-popover')?.classList.add('hidden');
+    }
+  }
+
   // ---------- 切换账号 ----------
   async function switchAccount(id) {
     const account = accounts.find(a => a.id === id);
@@ -1084,6 +1107,7 @@
     catch (error) { if (switchSequence === accountSwitchSequence) console.error('账号沙箱加载失败:', id, error.message); return; }
     if (switchSequence !== accountSwitchSequence) return;
     activeId = id;
+    updateActiveAccountCapabilities(account);
     reloadAccountScopedUiState();
     activePlatform = familyOf(account.type).key;
     lastAccountByPlatform[activePlatform] = id;
@@ -1131,6 +1155,7 @@
         } else {
           activeId = null;
           activePlatform = null;
+          updateActiveAccountCapabilities(null);
           emptyState.style.display = 'flex';
         }
       }
@@ -1181,13 +1206,27 @@
   }
 
   // ---------- 添加账号弹窗 ----------
+  function parseWebsiteUrlInput(value) {
+    try {
+      const parsed = new URL(String(value || '').trim());
+      if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) return null;
+      return parsed.href;
+    } catch { return null; }
+  }
+  function syncAddWebsiteFields() {
+    const isWebsite = addSelectedType === 'website';
+    addWebsiteUrlRow?.classList.toggle('hidden', !isWebsite);
+    if (!isWebsite && addCustomUrlEl) addCustomUrlEl.value = '';
+    if (addStatusEl) addStatusEl.textContent = '';
+  }
   function openAddDialog(preselectType) {
     addSelectedType = null;
     addNameEl.value = '';
     addCountEl.value = '1';
+    if (addCustomUrlEl) addCustomUrlEl.value = '';
+    if (addStatusEl) addStatusEl.textContent = '';
     addPlatformsEl.innerHTML = '';
     platforms.forEach((p) => {
-      if (p.type === 'website') return;
       const card = document.createElement('div');
       card.className = 'add-platform-card' + (p.type === preselectType ? ' selected' : '');
       card.dataset.type = p.type;
@@ -1198,12 +1237,14 @@
         addPlatformsEl.querySelectorAll('.add-platform-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         addSelectedType = p.type;
+        syncAddWebsiteFields();
       };
       addPlatformsEl.appendChild(card);
     });
     if (preselectType) addSelectedType = preselectType;
+    syncAddWebsiteFields();
     addOverlay.classList.remove('hidden');
-    setTimeout(() => addNameEl.focus(), 50);
+    setTimeout(() => (addSelectedType === 'website' ? addCustomUrlEl : addNameEl)?.focus(), 50);
   }
   function closeAddDialog() {
     addOverlay.classList.add('hidden');
@@ -1221,20 +1262,27 @@
     const label = platform ? platform.name : type;
     const count = Math.max(1, Math.min(10, parseInt(addCountEl.value, 10) || 1));
     let baseName = (addNameEl.value || '').trim();
+    const customUrl = type === 'website' ? parseWebsiteUrlInput(addCustomUrlEl?.value) : '';
+    if (type === 'website' && !customUrl) {
+      if (addStatusEl) addStatusEl.textContent = '请输入合法的 HTTPS 网站地址（不能包含用户名或密码）';
+      addCustomUrlEl?.focus();
+      return;
+    }
+    if (addStatusEl) addStatusEl.textContent = '';
     try {
       for (let i = 0; i < count; i++) {
         const existing = accounts.filter(a => a.type === type).length;
         const name = baseName
           ? (count > 1 ? `${baseName} ${i + 1}` : baseName)
           : `${label} ${existing + 1}`;
-        const r = await window.api.accounts.add({ name: name.trim(), type, customUrl: '' });
+        const r = await window.api.accounts.add({ name: name.trim(), type, customUrl });
         await loadAccounts();
         if (i === 0 && r && r.account) activeId = r.account.id;
       }
       closeAddDialog();
       if (activeId) switchAccount(activeId);
     } catch (e) {
-      alert('添加失败: ' + e.message);
+      if (addStatusEl) addStatusEl.textContent = '添加失败: ' + e.message;
     }
   };
 
@@ -1264,7 +1312,7 @@
     getCurrentChat: async () => {
       const account = accounts.find(item => item.id === activeId);
       const wv = wvMap.get(activeId);
-      if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
+      if (!account || account.type === 'website' || !wv || typeof wv.executeJavaScript !== 'function') return null;
       try { return await platformTransportFor(account, wv).getCurrentChat(); }
       catch { return null; }
     },
@@ -1285,7 +1333,7 @@
     getContext: async () => {
       const account = accounts.find(item => item.id === activeId);
       const wv = wvMap.get(activeId);
-      if (!account || !wv || typeof wv.executeJavaScript !== 'function') return null;
+      if (!account || account.type === 'website' || !wv || typeof wv.executeJavaScript !== 'function') return null;
       try {
         const chatId = await platformTransportFor(account, wv).getCurrentChat();
         return chatId ? { accountId: account.id, family: familyOf(account.type).key, chatId } : null;
@@ -1602,6 +1650,7 @@
   };
   function platformTransportFor(account, wv) {
     if (!account || !wv) throw new Error('平台账号不可用');
+    if (account.type === 'website') throw new Error('自定义网站暂不支持 Geek 平台增强功能');
     const family = familyOf(account.type).key;
     const transport = family === 'telegram' ? BROADCAST_ADAPTERS['telegram-z'] : BROADCAST_ADAPTERS[family];
     if (!transport) throw new Error(`平台不支持群发：${family}`);
@@ -3735,6 +3784,8 @@
       await switchAccount(targetId);
     } else {
       activeId = null;
+      activePlatform = null;
+      updateActiveAccountCapabilities(null);
       emptyState.style.display = 'flex';
     }
   }
@@ -3777,6 +3828,10 @@
         const title = wv.getTitle ? wv.getTitle() : '';
         const m = title.match(/^[(\[（]\s*(\d+)\s*[)\]\）]/);
         const titleUnread = m ? parseInt(m[1], 10) : 0;
+        if (account.type === 'website') {
+          updateUnread(id, titleUnread);
+          return;
+        }
         wv.executeJavaScript(`(() => {
           try {
             // 精准未读徽章：badge/unread 类 + 纯数字文本（排除 count/mention 等误报类）

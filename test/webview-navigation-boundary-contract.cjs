@@ -60,9 +60,16 @@ assert.equal(policyForAccount(tgAccount, 'persist:webview-page-TG2'), null, 'par
 const websiteAccount = account('SITE1', 'website', { customUrl: 'https://a.example.com/app' });
 const website = policyForAccount(websiteAccount, websiteAccount.partition);
 assert.equal(website.kind, 'website');
+assert.equal(isNavigationAllowed(website, 'https://a.example.com/next'), true);
 assert.equal(isNavigationAllowed(website, 'https://sub.a.example.com/next'), true);
 assert.equal(isNavigationAllowed(website, 'https://b.example.com/'), false);
+assert.equal(isNavigationAllowed(website, 'https://web.whatsapp.com/'), false);
+assert.equal(isNavigationAllowed(website, 'https://web.telegram.org/'), false);
+assert.equal(isNavigationAllowed(website, 'https://line.me/'), false);
+assert.equal(isNavigationAllowed(website, 'http://a.example.com/'), false);
+assert.equal(isNavigationAllowed(website, 'file:///tmp/x'), false);
 assert.equal(policyForAccount(account('HTTP1', 'website', { customUrl: 'http://a.example.com/' }), 'persist:webview-page-HTTP1'), null, 'account-scoped post-attach website navigation requires HTTPS');
+assert.equal(policyForAccount(account('CREDS1', 'website', { customUrl: 'https://user:pass@a.example.com/' }), 'persist:webview-page-CREDS1'), null, 'Website URL credentials must fail closed in navigation policy too');
 
 const lineAccount = account('LINE1', 'line');
 const line = policyForAccount(lineAccount, lineAccount.partition);
@@ -110,6 +117,11 @@ assert.equal(policyFromAccountState(tgAccount.partition, '{bad json'), null, 'co
   const subdomain = eventProbe();
   guest.emit('will-navigate', subdomain, 'https://chat.a.example.com/');
   assert.equal(subdomain.prevented, false, 'same custom host subdomain remains allowed');
+  const redirect = eventProbe();
+  guest.emit('will-redirect', redirect, 'https://web.whatsapp.com/');
+  assert.equal(redirect.prevented, true, 'Website cross-domain redirect must be blocked');
+  assert.deepEqual(guest.popupHandler({ url: 'https://b.example.com/' }), { action: 'deny' }, 'Website cross-domain popup must be blocked');
+  assert.deepEqual(guest.popupHandler({ url: 'https://chat.a.example.com/' }), { action: 'allow' }, 'legacy handler may only allow a popup already inside the fixed account policy');
 }
 
 {
