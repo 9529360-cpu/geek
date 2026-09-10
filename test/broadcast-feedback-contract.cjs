@@ -9,6 +9,7 @@ const tags = read('ui/broadcast-recipient-tags.js');
 const jobs = read('ui/broadcast-job-controller.js');
 const safety = read('ui/broadcast-safety.js');
 const app = read('ui/app.js');
+const feedbackE2E = read('e2e/specs/broadcast-feedback.e2e.cjs');
 
 assert.doesNotMatch(product, /window\.alert|\balert\s*\(/, 'product closure feedback must stay inline');
 assert.match(product, /setWorkbenchStatus\(doc, '请先选择账号'/);
@@ -47,6 +48,12 @@ assert.match(csv, /setAttribute\('aria-live', 'polite'\)/);
 assert.match(csv, /已导入 \$\{numbers\.length\} 个号码/, 'audience count copy must preserve 已导入 N 个 parsing');
 assert.match(csv, /已导入 0 个号码（未匹配到可用号码）/, 'zero-match import must remain explicit and non-blocking');
 assert.match(csv, /导入失败: /, 'import failures must remain visible inline');
+
+assert.match(feedbackE2E, /schedulePersistenceReady:\s*\(\) => false/, 'E2E must force the persistence-not-ready branch');
+assert.match(feedbackE2E, /waitVisible\('#broadcast-send'\)\)\.click\(\)/, 'E2E must click the real send control');
+assert.match(feedbackE2E, /blocked\.reached, false/, 'E2E must prove downstream send handlers were not reached');
+assert.match(feedbackE2E, /renderer still responsive after inline schedule error/, 'E2E must prove renderer responsiveness after feedback');
+assert.doesNotMatch(feedbackE2E, /sendDirect|sendText|broadcast-send-message/, 'feedback E2E must not invoke transport send APIs');
 
 for (const source of [product, tags, jobs, safety, app]) {
   assert.doesNotMatch(source, /window\.alert\s*=/, 'no global alert monkey-patch is allowed');
