@@ -8,9 +8,12 @@ const { policyForAccount, isNavigationAllowed } = require('../src/webview-naviga
 const { isAccountPermissionAllowed } = require('../src/session-permission-boundary.cjs');
 
 const root = path.join(__dirname, '..');
-const main = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
-const renderer = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'ui/index.html'), 'utf8');
+const readText = (relativePath) => fs
+  .readFileSync(path.join(root, relativePath), 'utf8')
+  .replace(/\r\n?/g, '\n');
+const main = readText('src/main.cjs');
+const renderer = readText('ui/app.js');
+const html = readText('ui/index.html');
 
 const appTypes = main.match(/const APP_TYPES = \{([\s\S]*?)\n\};\n\nfunction appTypeConfig/);
 assert.ok(appTypes, 'APP_TYPES must remain discoverable');

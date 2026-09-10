@@ -5,10 +5,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const testWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test.yml'), 'utf8');
-const electronWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'electron-e2e.yml'), 'utf8');
-const productionBuilder = fs.readFileSync(path.join(root, 'electron-builder.yml'), 'utf8');
-const validationBuilder = fs.readFileSync(path.join(root, 'electron-builder.validation.yml'), 'utf8');
+const readText = (relativePath) => fs
+  .readFileSync(path.join(root, relativePath), 'utf8')
+  .replace(/\r\n?/g, '\n');
+const testWorkflow = readText('.github/workflows/test.yml');
+const electronWorkflow = readText('.github/workflows/electron-e2e.yml');
+const productionBuilder = readText('electron-builder.yml');
+const validationBuilder = readText('electron-builder.validation.yml');
 
 function yamlTwoSpaceBlock(source, key) {
   const lines = source.split(/\r?\n/);
