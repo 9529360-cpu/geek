@@ -8,7 +8,7 @@ const API_BASE = '';
 const SUBSCRIPTION_API = 'https://admin.bbnba.com';
 const RELEASE_BASE = 'https://geek-release.9529360.workers.dev';
 const VERSION = '__GEEK_LATEST_VERSION__';
-const FALLBACK_VERSION = '1.2.17';
+const FALLBACK_VERSION = '1.2.18';
 
 async function latestVersion() {
   try {
