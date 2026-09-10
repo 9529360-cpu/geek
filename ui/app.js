@@ -1743,24 +1743,7 @@
     loadBroadcastChats(account.id, loadSequence).then(loaded => { if (loaded) armScheduleTasks(); });
   }
   // 附件：选择文件 + 列表（新界面用开关 change 触发——见下方群发绑定；此处移除避免重复弹窗）
-  // CSV 导入联系人（每行：聊天名称或 ID，自动匹配勾选）
-  document.getElementById('broadcast-import-csv').onclick = async () => {
-    try {
-      const f = await window.api.file.pickCsv();
-      if (!f) return;
-      const lines = f.content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      let names = lines;
-      if (lines.length > 1 && /^(name|名称|姓名|联系人|id|聊天)/i.test(lines[0])) names = lines.slice(1);
-      const targets = names.map(l => l.split(/[,，\t]/)[0].trim()).filter(Boolean);
-      let matched = 0;
-      targets.forEach(n => {
-        const c = broadcastChats.find(c => (c.name || '') === n || c.id === n);
-        if (c && !broadcastSelected.has(c.id)) { broadcastSelected.add(c.id); matched++; }
-      });
-      renderBroadcastList();
-      alert(matched ? `CSV 导入成功：匹配 ${matched} 个聊天（共 ${targets.length} 行）` : `CSV 未匹配到聊天（${targets.length} 行）——请确认每行是聊天名称或 ID`);
-    } catch (e) { alert('导入失败: ' + e.message); }
-  };
+  // CSV/TXT 导入由下方 #bc-excel-meta 流程唯一处理。
   function renderBroadcastFiles() {
     const el = document.getElementById('broadcast-files');
     el.innerHTML = broadcastFiles.map((f, i) =>
@@ -2790,6 +2773,11 @@
   const multiVerBtn = document.getElementById('bc-multiversion');
   if (multiVerBtn) multiVerBtn.onclick = () => { bMessageEl.value += ' {版本1|版本2|版本3}'; };
   const excelMeta = document.getElementById('bc-excel-meta');
+  if (excelMeta) {
+    excelMeta.setAttribute('role', 'status');
+    excelMeta.setAttribute('aria-live', 'polite');
+    excelMeta.setAttribute('aria-atomic', 'true');
+  }
   const importCsvBtn = document.getElementById('broadcast-import-csv');
   if (importCsvBtn) importCsvBtn.onclick = async () => {
     try {
@@ -2813,6 +2801,10 @@
       const numbers = lines.map(row => String(row[col] ?? '').trim()).filter(Boolean);
       // 核验：WA 联系人集合存在 = 已注册（原版 verificacontatosaguarde 逻辑）
       window.__excelNumbers = numbers;
+      if (!numbers.length) {
+        if (excelMeta) excelMeta.textContent = '已导入 0 个号码（未匹配到可用号码）';
+        return;
+      }
       const account = accounts.find(a => a.id === activeId);
       const wv = wvMap.get(activeId);
       if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码，正在核验…`;
@@ -2833,7 +2825,11 @@
           const txt = String(res || '');
           if (txt.startsWith('OK:')) {
             const okN = parseInt(txt.split(':')[1]) || 0;
-            if (excelMeta) excelMeta.textContent = `已导入 ${numbers.length} 个号码（前 ${chunk.length} 个核验：${okN} 个有效 WhatsApp）`;
+            if (excelMeta) excelMeta.textContent = okN
+              ? `已导入 ${numbers.length} 个号码（前 ${chunk.length} 个核验：${okN} 个有效 WhatsApp）`
+              : `已导入 ${numbers.length} 个号码（前 ${chunk.length} 个核验：未匹配到有效 WhatsApp）`;
+          } else if (txt.startsWith('ERR:') && excelMeta) {
+            excelMeta.textContent = `已导入 ${numbers.length} 个号码（WhatsApp 核验暂不可用，可继续使用导入号码）`;
           }
         } catch (e) { /* 核验失败不阻塞 */ }
       } else if (excelMeta) {

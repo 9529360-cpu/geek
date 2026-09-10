@@ -259,7 +259,6 @@
     if (verified.switched) return true;
     if (!verified.ok) {
       setStatus(doc, '标签删除未能写入账号存储，请重新打开群发后重试', 'error');
-      window.alert?.('自定义标签删除未持久化，请重新打开群发后重试。');
       return false;
     }
     setStatus(doc, '标签已删除', 'ok');
@@ -273,12 +272,10 @@
     const accountId = activeAccountId(doc);
     if (!accountId) {
       setStatus(doc, '请先选择账号', 'error');
-      window.alert?.('请先选择账号');
       return false;
     }
     if (typeof controls.ownerSave.onclick !== 'function') {
       setStatus(doc, '保存入口已触发，但群发编辑器 owner 尚未初始化', 'error');
-      window.alert?.('群发标签保存功能尚未初始化完成，请关闭后重新打开群发。');
       return false;
     }
 
@@ -292,7 +289,6 @@
       invokeOwnerHandler(controls.ownerSave);
     } catch (error) {
       setStatus(doc, `保存标签失败：${String(error?.message || error)}`, 'error');
-      window.alert?.(`保存标签失败：${String(error?.message || error)}`);
       return false;
     } finally {
       controls.publicSave.disabled = false;
@@ -311,7 +307,6 @@
     if (verified.switched) return true;
     if (!verified.ok) {
       setStatus(doc, '标签只出现在界面，账号存储未确认；请不要依赖该标签', 'error');
-      window.alert?.('自定义标签未能持久化到当前账号，请重新打开群发后重试。');
       return false;
     }
     setStatus(doc, `标签保存成功；当前共有 ${after} 个自定义标签`, 'ok');

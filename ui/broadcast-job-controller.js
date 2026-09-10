@@ -49,7 +49,7 @@
       #broadcast-job-bar{position:fixed;top:46px;right:18px;z-index:88;width:min(350px,calc(100vw - 36px));padding:11px 12px;border:1px solid var(--border-standard);border-radius:10px;background:color-mix(in srgb,var(--bg-surface) 94%,transparent);box-shadow:0 14px 38px rgba(0,0,0,.34);backdrop-filter:blur(18px);color:var(--text-primary);font:12px/1.4 var(--font-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
       #broadcast-job-bar.hidden{display:none!important}.bc-job-head{display:flex;align-items:center;gap:8px}.bc-job-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
       .bc-job-title{font-size:12.5px;font-weight:650;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bc-job-close{border:0;background:transparent;color:var(--text-tertiary);font-size:17px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:5px}.bc-job-close:hover{background:var(--bg-hover);color:var(--text-primary)}
-      .bc-job-meta{margin:5px 0 0 15px;color:var(--text-tertiary);font-size:11px}.bc-job-progress{height:4px;margin:8px 0 0 15px;border-radius:999px;background:var(--bg-elevated);overflow:hidden}.bc-job-progress>i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s ease}
+      .bc-job-meta{margin:5px 0 0 15px;color:var(--text-tertiary);font-size:11px}.bc-job-feedback{min-height:15px;margin:4px 0 0 15px;color:var(--text-tertiary);font-size:10.5px}.bc-job-feedback[data-state="error"]{color:#f56c6c}.bc-job-progress{height:4px;margin:8px 0 0 15px;border-radius:999px;background:var(--bg-elevated);overflow:hidden}.bc-job-progress>i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s ease}
       .bc-job-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:9px}.bc-job-actions button{height:27px;padding:3px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:11px;cursor:pointer}.bc-job-actions button:hover{color:var(--text-primary);background:var(--bg-hover)}.bc-job-actions .danger{color:#ff7d74}
       .bc-job-failures{max-height:150px;overflow:auto;margin:8px 0 0 15px;padding:7px 8px;border-radius:6px;background:var(--bg-elevated);color:var(--text-secondary);font-size:10.5px;white-space:pre-wrap}
       #broadcast-overlay .bc-action-trigger{display:inline-flex;align-items:center;min-height:28px;padding:4px 9px;border:1px solid var(--border-standard);border-radius:6px;background:var(--bg-elevated);cursor:pointer;width:max-content}
@@ -93,6 +93,11 @@
 
     const meta = document.createElement('div');
     meta.className = 'bc-job-meta';
+    const feedback = document.createElement('div');
+    feedback.className = 'bc-job-feedback';
+    feedback.setAttribute('role', 'status');
+    feedback.setAttribute('aria-live', 'polite');
+    feedback.setAttribute('aria-atomic', 'true');
     const progress = document.createElement('div');
     progress.className = 'bc-job-progress';
     progress.appendChild(document.createElement('i'));
@@ -106,7 +111,7 @@
     const failures = createButton('failures', '查看失败', 'hidden');
     const exportFailures = createButton('export-failures', '导出失败 CSV', 'hidden');
     actions.append(pause, stop, failures, exportFailures);
-    bar.append(head, meta, progress, failureBox, actions);
+    bar.append(head, meta, feedback, progress, failureBox, actions);
     document.body.appendChild(bar);
 
     pause.onclick = async () => {
@@ -136,11 +141,15 @@
       const job = currentJob(runtime);
       if (!failureRows(job).length) return;
       exportFailures.disabled = true;
+      feedback.dataset.state = 'pending';
+      feedback.textContent = '正在导出失败名单…';
       try {
         const saved = await window.api.file.save({ defaultName: `群发失败名单-${String(job.id || '').slice(0, 24)}.csv`, content: failureCsv(job) });
-        if (saved) window.alert(`已导出失败名单：${saved}`);
+        feedback.dataset.state = saved ? 'ok' : 'idle';
+        feedback.textContent = saved ? `已导出失败名单：${saved}` : '已取消导出失败名单';
       } catch (error) {
-        window.alert(`导出失败：${String(error?.message || error)}`);
+        feedback.dataset.state = 'error';
+        feedback.textContent = `导出失败：${String(error?.message || error)}`;
       } finally {
         exportFailures.disabled = false;
       }
@@ -170,6 +179,7 @@
 
     const title = bar.querySelector('.bc-job-title');
     const meta = bar.querySelector('.bc-job-meta');
+    const feedback = bar.querySelector('.bc-job-feedback');
     const fill = bar.querySelector('.bc-job-progress>i');
     const pause = bar.querySelector('[data-act="pause"]');
     const stop = bar.querySelector('[data-act="stop"]');
@@ -177,6 +187,13 @@
     const exportFailures = bar.querySelector('[data-act="export-failures"]');
     const close = bar.querySelector('.bc-job-close');
     const failureBox = bar.querySelector('.bc-job-failures');
+
+    const jobKey = String(job.id || '');
+    if (feedback.dataset.jobId !== jobKey) {
+      feedback.dataset.jobId = jobKey;
+      feedback.dataset.state = 'idle';
+      feedback.textContent = '';
+    }
 
     const current = Math.max(0, Number(job.current) || 0);
     const total = Math.max(0, Number(job.total) || 0);

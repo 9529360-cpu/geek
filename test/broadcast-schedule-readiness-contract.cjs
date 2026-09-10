@@ -49,5 +49,11 @@ assert.match(safety, /broadcast-schedule-toggle/, 'gate must read the real sched
 assert.match(safety, /broadcast-schedule-time/, 'gate must read the real schedule timestamp control');
 assert.match(safety, /stopImmediatePropagation\(\)/, 'blocked future schedules must not reach legacy or runtime send handlers');
 assert.match(safety, /GeekBroadcastSchedulePersistenceInstance/, 'gate must require the installed persistence instance before allowing a future schedule');
+assert.doesNotMatch(safety, /window\.alert|\balert\s*\(/, 'persistence-not-ready feedback must not open a system alert');
+assert.match(safety, /broadcast-workbench-status/, 'blocked future schedules should report through the existing Workbench status');
+assert.match(safety, /setAttribute\('aria-live', 'polite'\)/, 'gate feedback must be announced without stealing focus');
+const preventIndex = safety.indexOf('event.preventDefault();');
+const stopIndex = safety.indexOf('event.stopImmediatePropagation();');
+assert.ok(preventIndex >= 0 && stopIndex > preventIndex, 'send must be blocked before the inline feedback path');
 
 console.log('BROADCAST_SCHEDULE_READINESS_CONTRACT_OK');

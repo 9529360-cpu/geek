@@ -39,6 +39,18 @@
 });
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  function showScheduleReadinessStatus(message) {
+    const status = document.getElementById('broadcast-workbench-status') || document.getElementById('broadcast-meta');
+    if (!status) return;
+    status.dataset.state = 'error';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.setAttribute('aria-atomic', 'true');
+    const text = status.querySelector?.('span');
+    if (text) text.textContent = message;
+    else status.textContent = message;
+  }
+
   document.addEventListener('click', event => {
     const send = event.target?.closest?.('#broadcast-send');
     if (!send) return;
@@ -55,7 +67,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
     event.preventDefault();
     event.stopImmediatePropagation();
-    window.alert?.('定时任务持久化尚未就绪，请稍后重试。');
+    showScheduleReadinessStatus('定时任务持久化尚未就绪，请稍后重试。');
   }, true);
 }
 
