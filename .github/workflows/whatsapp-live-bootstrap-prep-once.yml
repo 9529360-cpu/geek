@@ -1,0 +1,122 @@
+name: whatsapp-live-bootstrap-prep-once
+
+on:
+  push:
+    branches:
+      - fix/whatsapp-live-bootstrap
+    paths:
+      - .github/workflows/whatsapp-live-bootstrap-prep-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/whatsapp-live-bootstrap
+          fetch-depth: 0
+
+      - name: Verify exact master base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = "e42c487d10778edc12dd4a65d8b7fc069d7191b7" || {
+            echo "unexpected branch base" >&2
+            exit 1
+          }
+          test "$(node -p "require('./package.json').version")" = "1.2.20"
+          test "$(cat .github/release-client-version)" = "1.2.20"
+
+      - name: Patch only WhatsApp bootstrap owner
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/main.cjs')
+          s = p.read_text(encoding='utf-8')
+
+          old = """// WhatsApp 本地托管（HelloWorld 同款方案）：固定旧版页面——媒体 API 与 WPP 匹配，图+文秒发
+// 最新版 web.whatsapp.com 的 createFromData/prepRawMedia 不产生 mediaEntry（发送失败红感叹号）
+const WA_LOCAL_PORT = 1843;
+const WA_LOCAL_URL = `http://127.0.0.1:${WA_LOCAL_PORT}/`;
+"""
+          new = """// WhatsApp 启动页必须与当前 WhatsApp 后端/静态资源保持同代。
+// 旧 resources/wa 快照只保留作历史兼容参考，不再作为产品启动入口。
+const WA_LOCAL_PORT = 1843;
+const WA_LOCAL_URL = `http://127.0.0.1:${WA_LOCAL_PORT}/`;
+const WA_WEB_URL = 'https://web.whatsapp.com/';
+"""
+          if s.count(old) != 1:
+              raise SystemExit('bootstrap constant block did not match exactly once')
+          s = s.replace(old, new)
+
+          old = """  whatsapp: {
+    name: 'WhatsApp',
+    short: 'WA',
+    url: WA_LOCAL_URL,
+    hostnames: ['127.0.0.1'],
+    allowSuffix: '.whatsapp.com'
+  },
+  'whatsapp-pure': {
+    name: 'WhatsApp 纯净版',
+    short: 'WAP',
+    url: WA_LOCAL_URL,
+    hostnames: ['127.0.0.1'],
+    allowSuffix: '.whatsapp.com'
+  },
+"""
+          new = """  whatsapp: {
+    name: 'WhatsApp',
+    short: 'WA',
+    url: WA_WEB_URL,
+    hostnames: ['web.whatsapp.com'],
+    allowSuffix: '.whatsapp.com'
+  },
+  'whatsapp-pure': {
+    name: 'WhatsApp 纯净版',
+    short: 'WAP',
+    url: WA_WEB_URL,
+    hostnames: ['web.whatsapp.com'],
+    allowSuffix: '.whatsapp.com'
+  },
+"""
+          if s.count(old) != 1:
+              raise SystemExit('WhatsApp APP_TYPES block did not match exactly once')
+          s = s.replace(old, new)
+
+          old = "  startWaLocalServer();\n"
+          if s.count(old) != 1:
+              raise SystemExit('startWaLocalServer call did not match exactly once')
+          s = s.replace(old, '')
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validate source and product-only diff
+        shell: bash
+        run: |
+          node --check src/main.cjs
+          git diff --check
+          git diff -- src/main.cjs
+          test "$(git diff --name-only | tr '\n' ' ')" = "src/main.cjs "
+          grep -q "const WA_WEB_URL = 'https://web.whatsapp.com/';" src/main.cjs
+          test "$(grep -c 'url: WA_WEB_URL' src/main.cjs)" = "2"
+          ! grep -q '^  startWaLocalServer();$' src/main.cjs
+
+      - name: Run contract tests
+        shell: bash
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
+      - name: Commit product patch and self-remove workflow
+        shell: bash
+        run: |
+          rm .github/workflows/whatsapp-live-bootstrap-prep-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main.cjs .github/workflows/whatsapp-live-bootstrap-prep-once.yml
+          git commit -m "fix: load current WhatsApp Web bootstrap"
+          git push origin HEAD:fix/whatsapp-live-bootstrap
