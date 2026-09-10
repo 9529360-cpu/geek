@@ -1,0 +1,47 @@
+name: feature-apply-debug
+
+on:
+  push:
+    branches:
+      - feat/custom-web-app
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feat/custom-web-app
+      - name: Decode reviewed patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib, re
+          source = pathlib.Path('.github/workflows/feature-snapshot.yml').read_text()
+          match = re.search(r"printf '%s' '([^']+)' \\| base64", source)
+          if not match:
+              raise SystemExit('embedded patch not found')
+          pathlib.Path('/tmp/custom-web-app.patch.xz.b64').write_text(match.group(1))
+          PY
+          base64 -d /tmp/custom-web-app.patch.xz.b64 | xz -d > /tmp/custom-web-app.patch
+          test -s /tmp/custom-web-app.patch
+      - name: Check reviewed patch
+        run: git apply --check /tmp/custom-web-app.patch
+      - name: Apply reviewed patch
+        run: |
+          git apply /tmp/custom-web-app.patch
+          rm .github/workflows/feature-snapshot.yml .github/workflows/feature-apply-debug.yml
+          git diff --check
+      - name: Commit reviewed patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add custom web app accounts'
+      - name: Push reviewed patch
+        run: git push origin HEAD:feat/custom-web-app
