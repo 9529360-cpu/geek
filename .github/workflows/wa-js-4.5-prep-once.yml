@@ -1,0 +1,67 @@
+name: wa-js-4.5-prep-once
+
+on:
+  push:
+    branches:
+      - fix/whatsapp-cold-load-wa-js-4.5
+    paths:
+      - '.github/workflows/wa-js-4.5-prep-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/whatsapp-cold-load-wa-js-4.5
+
+      - name: Verify clean 1.2.20 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "1.2.20"
+          test "$(node -p "require('./package.json').dependencies['@wppconnect/wa-js']")" = "^4.3.0"
+          test "$(cat .github/release-client-version | tr -d '\r\n')" = "1.2.20"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Pin WA-JS cold-load fix
+        run: npm install --package-lock-only --ignore-scripts --save-exact @wppconnect/wa-js@4.5.0
+
+      - name: Verify dependency is the only runtime change
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').dependencies['@wppconnect/wa-js']")" = "4.5.0"
+          test "$(node -p "require('./package-lock.json').packages['node_modules/@wppconnect/wa-js'].version")" = "4.5.0"
+          test "$(node -p "require('./package.json').version")" = "1.2.20"
+          test "$(cat .github/release-client-version | tr -d '\r\n')" = "1.2.20"
+          changed="$(git diff --name-only | sort)"
+          expected=$'package-lock.json\npackage.json'
+          test "$changed" = "$expected"
+          git diff --check
+
+      - name: Install exact lock and run contracts
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
+      - name: Commit candidate and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/wa-js-4.5-prep-once.yml
+          git config user.name 'Geek Validation Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git add package.json package-lock.json
+          git commit -m 'fix: update WA-JS cold-load loader to 4.5.0'
+          git push origin HEAD:fix/whatsapp-cold-load-wa-js-4.5
