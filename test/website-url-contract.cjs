@@ -1,4 +1,5 @@
 'use strict';
+// Final Website CI trigger; removed in the next commit.
 
 const assert = require('node:assert/strict');
 const {
