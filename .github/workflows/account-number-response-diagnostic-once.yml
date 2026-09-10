@@ -1,0 +1,88 @@
+name: account-number-response-diagnostic-once
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/account-number-response-diagnostic-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: cloudflare-subscription-production
+    env:
+      CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Diagnose register response shape safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { randomBytes } = require('node:crypto');
+          const fs = require('node:fs');
+          const wrangler = fs.readFileSync('wrangler-subscription.toml', 'utf8');
+          const databaseId = wrangler.match(/database_id\s*=\s*"([0-9a-f-]{36})"/i)?.[1];
+          const infraToken = process.env.CLOUDFLARE_INFRA_API_TOKEN;
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          if (!databaseId || !infraToken || !accountId) throw new Error('missing diagnostic prerequisites');
+          const pattern = /^GK-[0-9a-f]{32}$/;
+
+          async function cleanup(email) {
+            const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/d1/database/${encodeURIComponent(databaseId)}/query`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${infraToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sql: 'DELETE FROM users WHERE email = ?;', params: [email] }),
+            });
+            const p = await r.json().catch(() => ({}));
+            if (!r.ok || p?.success === false) throw new Error(`cleanup failed HTTP ${r.status}`);
+          }
+
+          async function probe(label, base) {
+            const suffix = `${Date.now()}-${randomBytes(5).toString('hex')}`;
+            const email = `diag-${suffix}@example.invalid`;
+            const password = `Gk!${randomBytes(24).toString('base64url')}`;
+            try {
+              const r = await fetch(`${base}/api/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password }),
+              });
+              const p = await r.json().catch(() => ({}));
+              const value = p?.account_no;
+              console.log(JSON.stringify({
+                label,
+                status: r.status,
+                ok: r.ok,
+                keys: Object.keys(p || {}).sort(),
+                account_no_type: typeof value,
+                account_no_length: typeof value === 'string' ? value.length : null,
+                account_no_valid: pattern.test(String(value || '')),
+                has_user: Boolean(p && typeof p.user === 'object'),
+                nested_account_no_type: typeof p?.user?.account_no,
+                nested_account_no_length: typeof p?.user?.account_no === 'string' ? p.user.account_no.length : null,
+                nested_account_no_valid: pattern.test(String(p?.user?.account_no || '')),
+              }));
+              if (!r.ok) throw new Error(`${label} register failed HTTP ${r.status}`);
+            } finally {
+              await cleanup(email);
+            }
+          }
+
+          await probe('workers_dev', 'https://geek-subscription.9529360.workers.dev');
+          await probe('custom_domain', 'https://admin.bbnba.com');
+          NODE
