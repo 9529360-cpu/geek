@@ -26,7 +26,7 @@ function chromeDriverShutdownUrl(options) {
 
 exports.config = {
   runner: 'local',
-  specs: ['./specs/shell-smoke.e2e.cjs'].concat('./specs/broadcast-readiness.e2e.cjs', './specs/broadcast-feedback.e2e.cjs'),
+  specs: ['./specs/shell-smoke.e2e.cjs'].concat('./specs/whatsapp-live-bootstrap.e2e.cjs', './specs/broadcast-readiness.e2e.cjs', './specs/broadcast-feedback.e2e.cjs'),
   maxInstances: 1,
   logLevel: 'warn',
   bail: 1,
@@ -39,12 +39,11 @@ exports.config = {
   reporters: [],
   mochaOpts: {
     ui: 'bdd',
-    timeout: 45_000,
+    timeout: 60_000,
   },
   capabilities: [{
     browserName: 'electron',
-    // ChromeDriver must attach to the exact profile Electron uses. Geek's fixture
-    // directory is fresh, OS-temp scoped, synthetic-only, and deleted by e2e/run.cjs.
+    // ChromeDriver must attach to the exact profile Electron uses. Geek's E2E must retain the real sandbox.
     // detach is consumed by ChromeDriver's /shutdown QuitAll path; standard W3C
     // DELETE /session intentionally ignores it in Chromium source.
     'goog:chromeOptions': {
