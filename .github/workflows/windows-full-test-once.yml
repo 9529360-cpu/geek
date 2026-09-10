@@ -26,5 +26,6 @@ jobs:
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
 
+      # Run the exact suite that release-build executes before packaging.
       - name: Run full tests on Windows checkout
         run: npm test
