@@ -1,0 +1,80 @@
+name: wa-1.2.16-runtime-control
+
+on:
+  push:
+    branches:
+      - debug/wa-1.2.16-runtime-control
+    paths:
+      - '.github/workflows/wa-1.2.16-runtime-control.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout workflow branch
+        uses: actions/checkout@v4
+        with:
+          ref: debug/wa-1.2.16-runtime-control
+          fetch-depth: 0
+
+      - name: Switch to exact Geek 1.2.16 release source
+        shell: pwsh
+        run: |
+          git checkout --detach ddbc0d387b4ac061b44f94759aad6da3917f5019
+          if ((git rev-parse HEAD).Trim() -ne 'ddbc0d387b4ac061b44f94759aad6da3917f5019') { throw 'wrong source SHA' }
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($pkg.version -ne '1.2.16') { throw 'wrong package version' }
+          if ($pkg.dependencies.'@wppconnect/wa-js' -ne '^4.3.0') { throw 'unexpected WA-JS dependency' }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact historical lock
+        run: npm ci --ignore-scripts
+
+      - name: Run historical contracts
+        run: npm test
+
+      - name: Build exact historical unpacked client
+        shell: pwsh
+        run: |
+          npm run electron:install
+          npm run integrity:generate
+          npx electron-builder --win --dir --publish never
+
+      - name: Prepare isolated launcher
+        shell: pwsh
+        run: |
+          $root = Join-Path $PWD 'dist\win-unpacked'
+          if (!(Test-Path $root)) { throw 'win-unpacked missing' }
+          $mainExe = Get-ChildItem $root -File -Filter '*.exe' | Sort-Object Length -Descending | Select-Object -First 1
+          if (!$mainExe) { throw 'main exe missing' }
+          $controlExe = Join-Path $root 'geek-1.2.16-control.exe'
+          Move-Item $mainExe.FullName $controlExe -Force
+          @'
+          @echo off
+          setlocal
+          set "GEEK_USER_DATA_DIR=%~dp0geek-wa-1.2.16-userdata"
+          start "" "%~dp0geek-1.2.16-control.exe"
+          '@ | Set-Content -Path (Join-Path $root 'RUN-ISOLATED-1.2.16.cmd') -Encoding ascii
+          @"
+          source_sha=ddbc0d387b4ac061b44f94759aad6da3917f5019
+          source_version=1.2.16
+          launch=RUN-ISOLATED-1.2.16.cmd
+          userdata=geek-wa-1.2.16-userdata
+          "@ | Set-Content -Path (Join-Path $root 'CONTROL-IDENTITY.txt') -Encoding ascii
+
+      - name: Upload exact 1.2.16 runtime control
+        uses: actions/upload-artifact@v4
+        with:
+          name: geek-wa-1.2.16-runtime-control-ddbc0d3
+          path: dist/win-unpacked
+          if-no-files-found: error
+          retention-days: 7
