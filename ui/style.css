@@ -721,6 +721,7 @@ input, select { font-family: inherit; }
 }
 .add-form .row-item { margin-bottom: 10px; }
 .add-form .row-item input { width: 62%; }
+.settings-status { min-height: 18px; margin-top: 4px; font-size: 12px; color: var(--danger); }
 
 /* ============ 无边框窗口（拖拽区 + 自绘控制按钮） ============ */
 .top-bar { -webkit-app-region: drag; }

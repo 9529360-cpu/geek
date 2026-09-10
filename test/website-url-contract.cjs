@@ -33,7 +33,7 @@ for (const value of [
   'data:text/html,hello',
   'javascript:alert(1)',
   'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html',
-  'https:///missing-host',
+  'https://',
   'https://user@example.com/',
   'https://user:pass@example.com/',
 ]) {

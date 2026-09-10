@@ -355,6 +355,10 @@
       <!-- 平台图标网格由 app.js 渲染 -->
     </div>
     <div class="add-form">
+      <div class="row-item hidden" id="add-website-url-row">
+        <span>网站地址</span>
+        <input type="url" id="add-custom-url" placeholder="https://example.com" autocomplete="url" spellcheck="false">
+      </div>
       <div class="row-item">
         <span>名称</span>
         <input type="text" id="add-name" placeholder="默认：平台名 + 序号">
@@ -363,6 +367,7 @@
         <span>数量</span>
         <input type="number" id="add-count" min="1" max="10" value="1">
       </div>
+      <div id="add-status" class="settings-status" aria-live="polite"></div>
     </div>
     <div class="settings-footer">
       <button id="add-cancel" class="btn-plain">取消</button>
