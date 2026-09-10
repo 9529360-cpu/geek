@@ -29,6 +29,7 @@ electronFuses:
 # production updater channel or produce production updater metadata.
 extraMetadata:
   geekRuntimeProfile: validation
+  main: src/main-validation-entry.cjs
 
 win:
   target:
