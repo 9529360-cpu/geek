@@ -310,6 +310,28 @@ async function createWebsiteAccountsThroughAppCenter() {
 
   console.log(`E2E_WEBSITE created=${websites.length} partitions=${new Set(websites.map(account => account.partition)).size} noPreload=${ui.rows.every(row => row.preload === null)} enhancementsHidden=${ui.broadcastHidden && ui.translationHidden && ui.notesHidden}`);
   await heartbeat('website-app-center');
+
+
+// All specs intentionally share one isolated synthetic userData directory.
+// Restore the original fixture after this mutation-heavy smoke so the
+// unrelated broadcast specs start from their documented two-account state.
+const cleanup = await browser.executeAsync((ids, fallbackId, done) => {
+  (async () => {
+    for (const id of ids) await window.api.accounts.remove(id);
+    await window.api.accounts.switch(fallbackId);
+    const state = await window.api.accounts.list();
+    done({
+      ids: state.accounts.map(account => account.id),
+      activeAccountId: state.activeAccountId,
+      websiteCount: state.accounts.filter(account => account.type === 'website').length,
+    });
+  })().catch((error) => done({ error: String(error?.message || error || 'cleanup failed') }));
+}, websites.map(account => account.id), ACCOUNT_A);
+assert.equal(cleanup.error, undefined, `Website cleanup failed: ${cleanup.error || ''}`);
+assert.deepEqual(cleanup.ids, [ACCOUNT_A, ACCOUNT_B], 'Website E2E cleanup must restore the shared synthetic fixture');
+assert.equal(cleanup.activeAccountId, ACCOUNT_A);
+assert.equal(cleanup.websiteCount, 0);
+await heartbeat('website-cleanup');
 }
 
 async function openAndCloseAccountSettings(iteration) {
