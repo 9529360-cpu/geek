@@ -1989,6 +1989,17 @@ function configureWebviewSecurity(window) {
       try {
         const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
         await wc.executeJavaScript(wppScript).catch(() => null);
+
+        // WA-JS 4.5.0 emits loader.injected only after WhatsApp's Meta module
+        // graph has settled. WAPLUS embeds an older loader, so starting it before
+        // this boundary can run one-shot Store registrars against missing modules.
+        const wppMetaSettled = await wc.executeJavaScript(`(async () => {
+          if (window.WPP?.isInjected === true) return true;
+          const loader = window.WPP?.loader;
+          if (!loader || typeof loader.onInjected !== 'function') return false;
+          return await new Promise((resolve) => loader.onInjected(() => resolve(true)));
+        })()`).catch(() => false);
+        if (!wppMetaSettled) throw new Error('WPP_META_NOT_SETTLED');
         try {
           const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');
           await wc.executeJavaScript(waplusScript).catch(() => null);
