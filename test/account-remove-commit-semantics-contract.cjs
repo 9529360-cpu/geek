@@ -27,7 +27,7 @@ function configuredHarness(listener) {
     cancelDelete(value) { calls.push(['cancel', value]); },
     finalizeDelete(value) { calls.push(['finalize', value]); },
   };
-  installAccountDataBoundary({
+  const boundary = installAccountDataBoundary({
     ipcMain,
     BrowserWindow,
     uiEntryPath,
@@ -39,10 +39,14 @@ function configuredHarness(listener) {
     },
     beforeAccountRemove: async () => { calls.push(['before']); },
   });
-  ipcMain.handle('accounts:remove', async (...args) => listener({
-    commit: () => { accountExists = false; },
-    args,
-  }));
+  ipcMain.handle('accounts:remove', (event, accountId) => boundary.runAccountRemoval(
+    event,
+    accountId,
+    async (...args) => listener({
+      commit: () => { accountExists = false; },
+      args,
+    }),
+  ));
   return { handlers, event: { sender }, calls, partition };
 }
 
