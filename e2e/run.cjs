@@ -8,6 +8,10 @@ const { spawn } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-e2e-'));
 const fixtureDir = path.join(tempDir, 'runtime-fixtures');
+const requestedSuite = String(process.env.GEEK_E2E_SUITE || '').trim();
+const targetedSpecs = Object.freeze({
+  'whatsapp-bootstrap': path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'),
+});
 const accounts = Object.freeze({
   activeAccountId: 'e2e-account-a',
   accounts: Object.freeze([
@@ -26,11 +30,16 @@ const baseEnv = {
   GEEK_E2E: '1',
   GEEK_USER_DATA_DIR: tempDir,
 };
+// The suite selector belongs to this runner only. Spec selection is translated into a
+// WDIO CLI argument and never forwarded as product-runtime configuration.
+delete baseEnv.GEEK_E2E_SUITE;
 
-function runWdio(configName, phase) {
+function runWdio(configName, phase, specPath) {
   return new Promise((resolve, reject) => {
     const env = phase ? { ...baseEnv, GEEK_E2E_RESTART_PHASE: phase } : baseEnv;
-    const child = spawn(process.execPath, [cli, 'run', path.join(root, 'e2e', configName)], {
+    const args = [cli, 'run', path.join(root, 'e2e', configName)];
+    if (specPath) args.push('--spec', specPath);
+    const child = spawn(process.execPath, args, {
       cwd: root,
       env,
       stdio: 'inherit',
@@ -77,10 +86,19 @@ function cleanup() {
 
 (async () => {
   try {
-    await runWdio('wdio.scheduled-restart.conf.cjs', 'seed');
-    await runWdio('wdio.scheduled-restart.conf.cjs', 'verify');
-    await runWdio('wdio.conf.cjs');
-    console.log('ELECTRON_E2E_SMOKE_OK');
+    if (requestedSuite) {
+      const selectedSpec = targetedSpecs[requestedSuite];
+      if (!selectedSpec) {
+        throw Object.assign(new Error('E2E_SUITE_UNSUPPORTED'), { category: requestedSuite.slice(0, 80) || 'EMPTY' });
+      }
+      await runWdio('wdio.conf.cjs', undefined, selectedSpec);
+      console.log(`ELECTRON_E2E_SUITE_OK suite=${requestedSuite}`);
+    } else {
+      await runWdio('wdio.scheduled-restart.conf.cjs', 'seed');
+      await runWdio('wdio.scheduled-restart.conf.cjs', 'verify');
+      await runWdio('wdio.conf.cjs');
+      console.log('ELECTRON_E2E_SMOKE_OK');
+    }
   } catch (error) {
     console.error(`${String(error?.message || 'E2E_RUNNER_FAILED')} ${String(error?.category || 'UNKNOWN').slice(0, 80)}`);
     process.exitCode = 1;
