@@ -49,6 +49,7 @@ These entries describe unresolved evidence/decisions, not an instruction to impl
 - **#167 — durable scheduled attachments.** `ScheduledBroadcastAttachmentStore`, account + job/task owner binding, restart persistence, source mutation detection, opaque renderer refs, and cleanup contracts already exist in `master`. Do not reimplement the Store from the stale Issue body. **Keep #167 open** for real-client WA/TG/LINE restart, cancel, source-mutation, send, and cleanup/isolation validation.
 - **#130 / #16 — LINE compatibility evidence.** The Electron upgrade is complete, but authenticated LINE post-login behavior remains the gate for changing the scoped `contextIsolation=false` exception. Do not remove that exception based on unauthenticated or static contracts alone.
 - **#3 — historical credentials/runtime data.** Current code-side exposure is contained. Remaining credential rotation / risk acceptance / Git history rewrite is an owner-controlled and potentially destructive decision. Never expose historical secrets, rewrite history, or force-push as routine maintenance.
+- **WhatsApp Windows cold-start E2E gate (#332).** PR #332 added a GitHub-hosted `windows-latest` Electron lane for the official WhatsApp Web cold-start oracle and wired it into the aggregate `electron-e2e` gate. The PR head produced a successful real Windows Electron run, but the first merged `master` push run (`electron-e2e` #202 on `ce938f2700c968cb6021afc2bc049753a35c7c9c`) failed only because `loadingProgress=1` while `officialWeb=true`, `documentComplete=true`, `loginShell=true`, and `rendererResponsive=true`. Treat this as **E2E oracle instability / false-positive risk until stronger evidence proves a product regression**; do not respond by changing WhatsApp startup, WA-JS, WPP/WAPLUS, partition, permission, sandbox, or security settings. The current oracle counts raw `progress,[role="progressbar"]` DOM nodes, which does not distinguish hidden/background/transient progress elements from a truly visible blocking loading state. If this gate is revisited, first re-check live Actions and then prefer a visibility/blocking-aware loading predicate while keeping official-Web, completed-document, login-shell, and renderer-responsiveness checks. The previous mutation proof changed the test's expected URL to the historical localhost bootstrap and proves URL mismatch is caught; it is **not** by itself proof that a real visible loading stall is detected. Stabilize the oracle before making `electron-e2e` a repository-level required merge check.
 - **Old WhatsApp diagnostic PRs, including #314/#315/#316.** Re-evaluate them against live `master` before using any finding. A diagnostic branch or artifact is not a product fix and must not be merged merely because its old observation was once valid.
 
 ## Last verified snapshot
@@ -57,12 +58,14 @@ These entries describe unresolved evidence/decisions, not an instruction to impl
 
 Last verified before this handoff change: **2026-09-11**.
 
-- audited `master` snapshot: `9c6d8687a1e7f1657dea4241a6b960bff477161b`;
-- audited `package.json.version`: `1.2.21`;
-- audited `.github/release-client-version`: `1.2.21`;
-- latest audited `master` push gates at that point: `test` #1029 success and `electron-e2e` #189 success;
+- audited `master` snapshot: `ce938f2700c968cb6021afc2bc049753a35c7c9c`;
+- audited `package.json.version`: `1.2.22`;
+- audited `.github/release-client-version`: `1.2.22`;
+- latest audited `master` push gates at that point: `test` #1043 success and `electron-e2e` #202 failure;
+- the `electron-e2e` #202 failure was isolated to the Windows WhatsApp lane described above; the Linux smoke job passed;
 - PR #296 had already made Website a supported first-class account type;
-- PR #323 had already merged the synthetic real-Electron navigation mechanism gate.
+- PR #323 had already merged the synthetic real-Electron navigation mechanism gate;
+- PR #332 had merged the Windows WhatsApp cold-start E2E lane, with the remaining oracle-stability caveat recorded above.
 
 The values above are intentionally frozen as evidence of what was reviewed on that date. They are **not** a declaration of the current master or current released version after this document changes.
 
