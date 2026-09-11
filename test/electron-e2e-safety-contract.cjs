@@ -76,7 +76,8 @@ async function main() {
   assert.match(spec, /executeAsync/);
   assert.doesNotMatch(spec, /#broadcast-send[^\w-].*click|click\(.*#broadcast-send/s, 'smoke test must never send a broadcast');
 
-  assert.match(runtimeSpec, /persist:webview-page-e2e-account-a/, 'runtime gate must bind the exact synthetic WhatsApp partition');
+  assert.match(runtimeSpec, /ACCOUNT_ID = 'e2e-account-a'/, 'runtime gate must use the exact synthetic WhatsApp account');
+  assert.match(runtimeSpec, /persist:webview-page-\$\{ACCOUNT_ID\}/, 'runtime gate must derive the exact account partition from that owner');
   assert.match(runtimeSpec, /getWebContentsId\(\)/, 'runtime gate must bind the host WebView to its exact guest id');
   assert.match(runtimeSpec, /browser\.electron\.execute/, 'runtime gate must inspect the real Electron main process');
   assert.match(runtimeSpec, /electron\.webContents\.getAllWebContents\(\)/, 'runtime gate must resolve a real guest WebContents');
