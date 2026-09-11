@@ -45,12 +45,14 @@ assert.doesNotMatch(electronPr, /^    paths(?:-ignore)?:/m, 'required Electron E
 const gate = yamlJobBlock(electronWorkflow, 'gate');
 assert.match(gate, /^    name:\s*electron-e2e\s*$/m, 'final required check name must remain electron-e2e');
 assert.match(gate, /^    if:\s*always\(\)\s*$/m, 'final Electron gate must run even when a dependency fails or is skipped');
-assert.match(gate, /^    needs:\s*\[\s*whitespace\s*,\s*smoke\s*\]\s*$/m, 'final Electron gate must depend on whitespace and smoke');
+assert.match(gate, /^    needs:\s*\[\s*whitespace\s*,\s*smoke\s*,\s*whatsapp-windows\s*\]\s*$/m, 'final Electron gate must depend on whitespace, Linux smoke, and Windows WhatsApp');
 assert.match(gate, /needs\.whitespace\.result/, 'final gate must inspect the real whitespace result');
 assert.match(gate, /needs\.smoke\.result/, 'final gate must inspect the real smoke result');
-assert.match(gate, /WHITESPACE_RESULT[^\n]*\n[\s\S]*?SMOKE_RESULT/, 'final gate must expose both dependency results to its decision step');
+assert.match(gate, /needs\.whatsapp-windows\.result/, 'final gate must inspect the real Windows WhatsApp result');
+assert.match(gate, /WHITESPACE_RESULT[^\n]*\n[\s\S]*?SMOKE_RESULT[^\n]*\n[\s\S]*?WINDOWS_WHATSAPP_RESULT/, 'final gate must expose all dependency results to its decision step');
 assert.match(gate, /WHITESPACE_RESULT[^\n]*!=\s*["']success["']/, 'whitespace must be exactly successful');
 assert.match(gate, /SMOKE_RESULT[^\n]*!=\s*["']success["']/, 'smoke must be exactly successful');
+assert.match(gate, /WINDOWS_WHATSAPP_RESULT[^\n]*!=\s*["']success["']/, 'Windows WhatsApp must be exactly successful');
 assert.match(gate, /exit\s+1/, 'non-success dependency results must fail the final gate');
 
 assert.doesNotMatch(electronWorkflow, /continue-on-error:\s*true/i, 'Electron merge-gate failures must not be made non-blocking');
