@@ -1,8 +1,9 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, session, Notification, nativeTheme, webContents, Tray, Menu, nativeImage, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, Notification, nativeTheme, webContents, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const path = require('node:path');
-const fs = require('node:fs/promises');
+const nodeFs = require('node:fs');
+const fs = nodeFs.promises;
 const crypto = require('node:crypto');
 const { initAutoUpdater } = require('./updater.cjs');
 const { quitAndInstallForUpdate, isUpdateInstalling } = require('./updater.cjs');
@@ -21,6 +22,13 @@ const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { assertSafeTranslationOutput } = require('./translation-output-safety.cjs');
 const { normalizeWebsiteUrl, parseWebsiteUrl } = require('./website-url.cjs');
+const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
+const { ACCOUNT_DATA_KEYS } = require('./account-data-store.cjs');
+const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.cjs');
+const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
+const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-broadcast-attachment-boundary.cjs');
+const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
+const { externalDebuggingRequested } = require('./external-debugging-policy.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -751,9 +759,6 @@ async function removeAccount(event, accountId) {
   translationCaches.delete(removedAccount.partition);
   translationCacheLoaded.delete(removedAccount.partition);
   translationCacheWrites.delete(removedAccount.partition);
-  accountDataCaches.delete(removedAccount.partition);
-  accountDataLoaded.delete(removedAccount.partition);
-  accountDataWrites.delete(removedAccount.partition);
   for (const key of translationLatestRequest.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationLatestRequest.delete(key);
   for (const key of translationInflight.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationInflight.delete(key);
 
@@ -866,42 +871,6 @@ async function appendTranslationCache(partition, key, item) {
   try { await write; } catch {} finally { if (translationCacheWrites.get(partition) === write) translationCacheWrites.delete(partition); }
 }
 
-const accountDataCaches = new Map();
-const accountDataLoaded = new Set();
-const accountDataWrites = new Map();
-function accountDataFile(partition) {
-  const dirName = String(partition || '').replace(/^persist:/, '');
-  if (!/^[a-zA-Z0-9_-]+$/.test(dirName)) throw new Error('账号沙箱不合法');
-  return path.join(app.getPath('userData'), 'Partitions', dirName, 'geek-account-data.jsonl');
-}
-async function loadAccountData(partition) {
-  if (!accountDataCaches.has(partition)) accountDataCaches.set(partition, new Map());
-  const cache = accountDataCaches.get(partition);
-  if (accountDataLoaded.has(partition)) return cache;
-  accountDataLoaded.add(partition);
-  if (!safeStorage.isEncryptionAvailable()) return cache;
-  try {
-    for (const line of (await fs.readFile(accountDataFile(partition), 'utf-8')).split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      try {
-        const item = JSON.parse(line); if (!item.key || !item.value) continue;
-        const value = safeStorage.decryptString(Buffer.from(item.value, 'base64'));
-        item.deleted ? cache.delete(item.key) : cache.set(item.key, value);
-      } catch {}
-    }
-  } catch (error) { if (error?.code !== 'ENOENT') { accountDataLoaded.delete(partition); throw error; } }
-  return cache;
-}
-async function appendAccountData(partition, key, value, deleted = false) {
-  if (deletedTranslationPartitions.has(partition)) return;
-  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，账号数据未保存');
-  const file = accountDataFile(partition);
-  const record = { key, deleted, at: Date.now(), value: safeStorage.encryptString(String(value ?? '')).toString('base64') };
-  const previous = accountDataWrites.get(partition) || Promise.resolve();
-  const write = previous.catch(() => {}).then(async () => { if (deletedTranslationPartitions.has(partition)) return; await fs.mkdir(path.dirname(file), { recursive: true }); await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8'); });
-  accountDataWrites.set(partition, write);
-  try { await write; } finally { if (accountDataWrites.get(partition) === write) accountDataWrites.delete(partition); }
-}
 function resolveAccountPartition(accountId) {
   assertValidAccountId(accountId);
   const account = accountsState.accounts.find(item => item.id === accountId);
@@ -1079,6 +1048,54 @@ async function translateViaRemoteGateway(event, payload) {
 }
 
 function registerIpcHandlers() {
+  const uiEntryPath = path.join(__dirname, '../ui/index.html');
+  const remoteDebuggingRequested = externalDebuggingRequested({ argv: process.argv });
+  const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
+    getAllWebContents: () => webContents.getAllWebContents(),
+  });
+  const broadcastFileBoundary = installBroadcastFileBoundary({
+    ipcMain,
+    dialog,
+    BrowserWindow,
+    fs,
+    uiEntryPath,
+    sendFile: ({ event, payload }) => sendBroadcastFile(event, payload),
+    attachFile: ({ event, payload }) => attachBroadcastFile(event, payload),
+    dropFile: ({ event, payload }) => dropBroadcastFile(event, payload),
+    sendTelegramFiles: async ({ payload }) => {
+      if (remoteDebuggingRequested) {
+        const error = new Error('TG_NATIVE_ATTACH_EXTERNAL_DEBUG_UNSUPPORTED');
+        error.code = 'TG_NATIVE_ATTACH_EXTERNAL_DEBUG_UNSUPPORTED';
+        throw error;
+      }
+      return telegramNativeAttachments.send(payload);
+    },
+  });
+  const scheduledAttachmentBoundary = installScheduledBroadcastAttachmentBoundary({
+    ipcMain,
+    BrowserWindow,
+    fs,
+    uiEntryPath,
+    ephemeralRegistry: broadcastFileBoundary.registry,
+    getUserDataDir: () => app.getPath('userData'),
+  });
+  const accountDataBoundary = installAccountDataBoundary({
+    ipcMain,
+    BrowserWindow,
+    fs,
+    createReadStream: nodeFs.createReadStream,
+    getUserDataDir: () => app.getPath('userData'),
+    uiEntryPath,
+    allowedKeys: [...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS],
+    beforeAccountRemove: ({ accountId }) => scheduledAttachmentBoundary.cleanupAccount(accountId),
+    isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
+    decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),
+    onCompactionError: (error) => {
+      const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
+      console.error('[account-data] compaction retry required:', code.slice(0, 80));
+    },
+  });
   ipcMain.handle('translation:translate', translateViaRemoteGateway);
   ipcMain.handle('webview:register', async (event, accountId, guestId, token) => {
     assertTrustedSender(event);
@@ -1122,18 +1139,6 @@ function registerIpcHandlers() {
     return true;
   });
   ipcMain.handle('translation:health', checkTranslationGateway);
-  ipcMain.handle('account-data:get-all', async (event, accountId) => {
-    assertTrustedSender(event); const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); return Object.fromEntries(cache);
-  });
-  ipcMain.handle('account-data:set', async (event, accountId, key, value) => {
-    assertTrustedSender(event); if (!/^[a-zA-Z0-9_-]{1,64}$/.test(String(key || ''))) throw new Error('账号数据键不合法');
-    const raw = String(value ?? ''); if (Buffer.byteLength(raw, 'utf8') > 2 * 1024 * 1024) throw new Error('账号数据过大');
-    const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); cache.set(key, raw); await appendAccountData(partition, key, raw); return true;
-  });
-  ipcMain.handle('account-data:remove', async (event, accountId, key) => {
-    assertTrustedSender(event); if (!/^[a-zA-Z0-9_-]{1,64}$/.test(String(key || ''))) throw new Error('账号数据键不合法');
-    const partition = resolveAccountPartition(accountId); const cache = await loadAccountData(partition); cache.delete(key); await appendAccountData(partition, key, '', true); return true;
-  });
   ipcMain.handle('app:get-version', async (event) => {
     assertTrustedSender(event);
     return app.getVersion();
@@ -1162,7 +1167,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('accounts:add', addAccount);
-  ipcMain.handle('accounts:remove', removeAccount);
+  ipcMain.handle('accounts:remove', (event, accountId) => accountDataBoundary.runAccountRemoval(event, accountId, removeAccount));
   ipcMain.handle('accounts:switch', switchAccount);
 
   ipcMain.handle('accounts:update', async (event, accountId, patchData) => {
@@ -1332,33 +1337,6 @@ function registerIpcHandlers() {
     return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
   });
 
-  // 选择文件（群发附件）
-  ipcMain.handle('file:pick', async (event) => {
-    assertTrustedSender(event);
-    const { dialog } = require('electron');
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: '选择要群发的文件',
-      properties: ['openFile', 'multiSelections'],
-      filters: [
-        { name: '图片/文件', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip', 'mp4', 'mp3'] },
-        { name: '所有文件', extensions: ['*'] }
-      ]
-    });
-    if (result.canceled || !result.filePaths.length) return null;
-    const files = [];
-    for (const filePath of result.filePaths) {
-      const data = await fs.readFile(filePath);
-      files.push({
-        name: path.basename(filePath),
-        size: data.length,
-        base64: data.toString('base64'),
-        mime: guessMime(filePath),
-        filePath: filePath // 真实路径（群发真实拖拽用）
-      });
-    }
-    return files.length === 1 ? files[0] : files;
-  });
-
   // WA 媒体发送链路（HelloWorld 同款）：隐藏 input 接收 File → prepRawMedia → sendMediaMsgToChat
   // 传输层由调用方提供 send(method, params)，不关心内部/外部 CDP。
   async function waSendFileViaCdp(send, { filePath, chatId, caption }) {
@@ -1470,7 +1448,7 @@ function registerIpcHandlers() {
   }
 
   // 群发文件（WA 底层 API——HelloWorld 同款）：CDP 注入 File 对象到页面（不传 base64——大图不卡）
-  ipcMain.handle('broadcast:send-file', async (event, payload) => {
+  async function sendBroadcastFile(event, payload) {
     assertTrustedSender(event);
     const { partition, filePath, chatId, caption, mime, name } = payload || {};
     if (!partition || !filePath || !chatId) throw new Error('参数错误');
@@ -1480,7 +1458,7 @@ function registerIpcHandlers() {
       return await withExternalCdpSend(wsUrl, ({ send }) => waSendFileViaCdp(send, { filePath, chatId, caption }));
     }
     return await internalCdp.run(partition, 'whatsapp', ({ send }) => waSendFileViaCdp(send, { filePath, chatId, caption }));
-  });
+  }
 
   // 群发附件（WA UI 路径）：拦截文件选择器 + 点附件 + 照片菜单 + 喂文件（真实鼠标——React 一定响应）
   // UI 文件注入：拦截文件选择器 + 真实鼠标点附件/照片 + 喂文件（React 一定响应）
@@ -1577,7 +1555,7 @@ function registerIpcHandlers() {
     }
   }
 
-  ipcMain.handle('broadcast:attach-file', async (event, payload) => {
+  async function attachBroadcastFile(event, payload) {
     assertTrustedSender(event);
     const { partition, filePath, platform } = payload || {};
     if (!partition || !filePath) throw new Error('参数错误');
@@ -1588,7 +1566,7 @@ function registerIpcHandlers() {
       return await withExternalCdpSend(wsUrl, (ctx) => attachFileViaCdp(ctx, filePath));
     }
     return await internalCdp.run(partition, targetPlatform, (ctx) => attachFileViaCdp(ctx, filePath));
-  });
+  }
 
   // 群发附件：真实拖拽文件到账号页面（应用内 CDP；开发模式探测到 9344 时走外部 CDP）
   async function dropFileViaCdp({ send }, { filePath, mime, pos, platform, action }) {
@@ -1741,7 +1719,7 @@ function registerIpcHandlers() {
     return pos;
   }
 
-  ipcMain.handle('broadcast:drop-file', async (event, payload) => {
+  async function dropBroadcastFile(event, payload) {
     assertTrustedSender(event);
     const { partition, filePath, mime, platform, action, guestId } = payload || {};
     if (!partition || !filePath) throw new Error('参数错误');
@@ -1753,25 +1731,7 @@ function registerIpcHandlers() {
       return await withExternalCdpSend(wsUrl, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos, platform: targetPlatform, action }));
     }
     return await internalCdp.run(partition, targetPlatform, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos, platform: targetPlatform, action }), targetPlatform === 'line' ? guestId : null);
-  });
-  // 选择 CSV 联系人文件（群发导入）
-  ipcMain.handle('file:pick-csv', async (event) => {
-    assertTrustedSender(event);
-    const { dialog } = require('electron');
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: '选择联系人 CSV 文件',
-      properties: ['openFile'],
-      filters: [
-        { name: '联系人表格', extensions: ['csv', 'txt'] },
-        { name: '所有文件', extensions: ['*'] }
-      ]
-    });
-    if (result.canceled || !result.filePaths.length) return null;
-    const filePath = result.filePaths[0];
-    const content = await fs.readFile(filePath, 'utf-8');
-    return { name: path.basename(filePath), content };
-  });
-
+  }
   // 保存文件（群发失败名单导出）
   ipcMain.handle('file:save', async (event, payload) => {
     assertTrustedSender(event);
@@ -1785,18 +1745,6 @@ function registerIpcHandlers() {
     await fs.writeFile(result.filePath, payload?.content || '', 'utf-8');
     return result.filePath;
   });
-}
-
-function guessMime(p) {
-  const ext = path.extname(p).toLowerCase();
-  const map = {
-    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
-    '.webp': 'image/webp', '.pdf': 'application/pdf', '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.txt': 'text/plain', '.zip': 'application/zip', '.mp4': 'video/mp4', '.mp3': 'audio/mpeg'
-  };
-  return map[ext] || 'application/octet-stream';
 }
 
 // 系统深/浅色变化 → 通知 renderer（跟随系统主题）

@@ -271,7 +271,6 @@ async function runAccountDataStoreCases() {
         handlers.set(channel, listener);
       },
     };
-    const originalHandle = ipcMain.handle;
     const sender = { id: 17 };
     const uiEntryPath = path.join(__dirname, '../ui/index.html');
     const window = {
@@ -280,7 +279,7 @@ async function runAccountDataStoreCases() {
     };
     const BrowserWindow = { fromWebContents: (candidate) => candidate === sender ? window : null };
 
-    installAccountDataBoundary({
+    const boundary = installAccountDataBoundary({
       ipcMain,
       BrowserWindow,
       uiEntryPath,
@@ -290,26 +289,20 @@ async function runAccountDataStoreCases() {
       ...cryptoOptions(),
     });
 
-    let oldAccountDataCalls = 0;
-    for (const channel of ['account-data:get-all', 'account-data:set', 'account-data:remove']) {
-      ipcMain.handle(channel, async () => { oldAccountDataCalls += 1; return 'OLD'; });
-    }
     let removeCalls = 0;
-    ipcMain.handle('accounts:remove', async (_event, id) => {
+    ipcMain.handle('accounts:remove', (event, id) => boundary.runAccountRemoval(event, id, async () => {
       removeCalls += 1;
       const state = JSON.parse(await fsp.readFile(path.join(dir, 'accounts.json'), 'utf8'));
       state.accounts = state.accounts.filter((item) => item.id !== id);
       await fsp.writeFile(path.join(dir, 'accounts.json'), JSON.stringify(state), 'utf8');
       return 'REMOVED';
-    });
+    }));
 
-    assert.equal(ipcMain.handle, originalHandle, 'all expected registrations must restore ipcMain.handle');
     const event = { sender };
     await handlers.get('account-data:set')(event, accountId, 'savedMessages', 'hello');
     assert.deepEqual(await handlers.get('account-data:get-all')(event, accountId), { savedMessages: 'hello' });
     await handlers.get('account-data:remove')(event, accountId, 'savedMessages');
     assert.deepEqual(await handlers.get('account-data:get-all')(event, accountId), {});
-    assert.equal(oldAccountDataCalls, 0, 'legacy in-main account-data listeners must stay inactive');
     await assert.rejects(
       handlers.get('account-data:set')(event, accountId, 'unknownKey', 'x'),
       { code: 'ACCOUNT_DATA_KEY_NOT_ALLOWED' },

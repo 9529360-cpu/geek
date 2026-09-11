@@ -22,9 +22,7 @@ function createManager() {
       invoked.push([jobId, action]);
       const job = jobs.get(jobId);
       assert.equal(action, 'stop');
-      if (job.state === 'scheduled' || job.state === 'queued') {
-        job.state = 'stopped'; emit(job); return { ...job };
-      }
+      if (job.state === 'scheduled' || job.state === 'queued') { job.state = 'stopped'; emit(job); return { ...job }; }
       job.state = 'stopping'; emit(job);
       await Promise.resolve();
       job.state = 'stopped'; emit(job);
@@ -37,28 +35,29 @@ function createManager() {
   const manager = createManager();
   assert.deepEqual(removal.liveJobsForAccount(manager, 'A').map(job => job.id).sort(), ['run-a', 'sched-a']);
   await removal.beforeAccountRemoval('A', { manager, timeoutMs: 1000 });
-  assert.deepEqual(manager.invoked.sort(), [['run-a', 'stop'], ['sched-a', 'stop']].sort(), 'only the removed account jobs may be stopped');
+  assert.deepEqual(manager.invoked.sort(), [['run-a', 'stop'], ['sched-a', 'stop']].sort());
   assert.equal(manager.jobs.get('run-a').state, 'stopped');
   assert.equal(manager.jobs.get('sched-a').state, 'stopped');
-  assert.equal(manager.jobs.get('run-b').state, 'running', 'other account execution must remain untouched');
+  assert.equal(manager.jobs.get('run-b').state, 'running');
 
   const source = fs.readFileSync(path.join(__dirname, '../ui/broadcast-account-removal.js'), 'utf8');
   const safetyLoader = fs.readFileSync(path.join(__dirname, '../ui/broadcast-safety.js'), 'utf8');
-  const mainEntry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
+  const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
   const accountBoundary = fs.readFileSync(path.join(__dirname, '../src/account-data-boundary.cjs'), 'utf8');
   const attachmentBoundary = fs.readFileSync(path.join(__dirname, '../src/scheduled-broadcast-attachment-boundary.cjs'), 'utf8');
   const attachmentStore = fs.readFileSync(path.join(__dirname, '../src/scheduled-broadcast-attachments.cjs'), 'utf8');
 
-  assert.match(source, /#ctx-menu \.ctx-item\[data-act="delete"\]/, 'delete action must be intercepted before legacy app.js mutates UI state');
-  assert.match(source, /event\.stopImmediatePropagation\(\)/, 'legacy delete handler must not run in parallel');
-  assert.ok(source.indexOf('await manager.invoke(job.id, \'stop\')') < source.indexOf('window.api.accounts.remove(accountId)'), 'all account jobs must stop before backend account removal');
-  assert.ok(source.indexOf('window.api.accounts.remove(accountId)') < source.indexOf('window.location.reload()'), 'renderer may rebuild UI only after backend deletion succeeds');
-  assert.match(source, /catch\(error => \{[\s\S]*alert/, 'failed stop/delete must leave current renderer state intact and report an error');
-  assert.match(safetyLoader, /broadcast-account-removal\.js/, 'account removal barrier must load with the account-scoped broadcast runtime');
-  assert.match(mainEntry, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.cleanupAccount\(accountId\)/, 'main account deletion must clean durable refs and materialized tokens before partition removal');
-  assert.ok(accountBoundary.indexOf('await beforeAccountRemove') < accountBoundary.indexOf('await listener(event, accountId'), 'external durable resources must be cleaned before the real accounts:remove handler');
-  assert.match(attachmentBoundary, /async function cleanupAccount\(accountId\)/, 'scheduled attachment boundary must own account-scoped ephemeral + durable cleanup');
-  assert.match(attachmentStore, /async function cleanupAccount\(accountId\)/, 'durable store needs an account-scoped cleanup operation');
+  assert.match(source, /#ctx-menu \.ctx-item\[data-act="delete"\]/);
+  assert.match(source, /event\.stopImmediatePropagation\(\)/);
+  assert.ok(source.indexOf("await manager.invoke(job.id, 'stop')") < source.indexOf('window.api.accounts.remove(accountId)'));
+  assert.ok(source.indexOf('window.api.accounts.remove(accountId)') < source.indexOf('window.location.reload()'));
+  assert.match(source, /catch\(error => \{[\s\S]*alert/);
+  assert.match(safetyLoader, /broadcast-account-removal\.js/);
+  assert.match(main, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.cleanupAccount\(accountId\)/, 'main composition must connect account deletion to scheduled attachment cleanup');
+  assert.match(main, /accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly enter the account-data lifecycle');
+  assert.ok(accountBoundary.indexOf('await beforeAccountRemove') < accountBoundary.indexOf('await removeImplementation(event, id'), 'durable resources must be cleaned before authoritative account deletion');
+  assert.match(attachmentBoundary, /async function cleanupAccount\(accountId\)/);
+  assert.match(attachmentStore, /async function cleanupAccount\(accountId\)/);
 
   console.log('BROADCAST_ACCOUNT_REMOVAL_CONTRACT_OK');
 })().catch(error => {

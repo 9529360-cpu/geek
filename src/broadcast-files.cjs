@@ -25,13 +25,6 @@ const CHANNELS = Object.freeze({
   telegramFilesToken: 'broadcast:telegram-files-token',
 });
 
-const LEGACY_CHANNELS = Object.freeze({
-  'file:pick': null,
-  'file:pick-csv': null,
-  'broadcast:send-file': CHANNELS.sendFileToken,
-  'broadcast:attach-file': CHANNELS.attachFileToken,
-  'broadcast:drop-file': CHANNELS.dropFileToken,
-});
 
 const POLICY_MESSAGES = Object.freeze({
   BROADCAST_FILE_COUNT_LIMIT: '一次最多选择 10 个附件。',
@@ -282,10 +275,11 @@ function installBroadcastFileBoundary(options = {}) {
   const fileURLToPathFn = options.fileURLToPath || fileURLToPath;
   const platform = options.platform || process.platform;
   const registry = createBroadcastFileRegistry(options);
-  const expectedLegacyChannels = new Set(Object.keys(LEGACY_CHANNELS));
-  const intercepted = new Set();
-  const originalHandleMethod = ipcMain.handle;
-  const callOriginalHandle = (channel, handler) => originalHandleMethod.call(ipcMain, channel, handler);
+  const registeredChannels = new Set();
+  const register = (channel, handler) => {
+    ipcMain.handle(channel, handler);
+    registeredChannels.add(channel);
+  };
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparablePath = (value) => platform === 'win32' ? value.toLowerCase() : value;
 
@@ -322,7 +316,7 @@ function installBroadcastFileBoundary(options = {}) {
     return null;
   }
 
-  callOriginalHandle(CHANNELS.pickToken, async (event) => {
+  register(CHANNELS.pickToken, async (event) => {
     const { ownerId, win } = assertMainRenderer(event);
     const result = await dialog.showOpenDialog(win, {
       title: '选择要群发的文件',
@@ -341,7 +335,7 @@ function installBroadcastFileBoundary(options = {}) {
     }
   });
 
-  callOriginalHandle(CHANNELS.releaseTokens, async (event, tokenValues) => {
+  register(CHANNELS.releaseTokens, async (event, tokenValues) => {
     const { ownerId } = assertMainRenderer(event);
     const tokens = Array.isArray(tokenValues) ? tokenValues : [tokenValues];
     if (tokens.length > registry.limits.maxRegistryEntries) {
@@ -350,13 +344,35 @@ function installBroadcastFileBoundary(options = {}) {
     return registry.releaseMany(tokens, ownerId);
   });
 
+
+  const tokenTransports = [
+    [CHANNELS.sendFileToken, options.sendFile],
+    [CHANNELS.attachFileToken, options.attachFile],
+    [CHANNELS.dropFileToken, options.dropFile],
+  ];
+  for (const [channel, transport] of tokenTransports) {
+    if (typeof transport !== 'function') throw new TypeError(`${channel} transport must be a function`);
+    register(channel, async (event, payload) => {
+      const { ownerId } = assertMainRenderer(event);
+      const source = payload && typeof payload === 'object' ? payload : {};
+      const selected = await registry.resolve(source.fileToken, ownerId);
+      const safePayload = { ...source };
+      delete safePayload.fileToken;
+      delete safePayload.filePath;
+      safePayload.filePath = selected.filePath;
+      safePayload.name = selected.name;
+      safePayload.mime = selected.mime;
+      return transport({ event, payload: safePayload });
+    });
+  }
+
   const sendTelegramFiles = options.sendTelegramFiles;
   if (sendTelegramFiles !== undefined && typeof sendTelegramFiles !== 'function') {
     throw new TypeError('sendTelegramFiles must be a function');
   }
 
   if (sendTelegramFiles) {
-    callOriginalHandle(CHANNELS.telegramFilesToken, async (event, payload) => {
+    register(CHANNELS.telegramFilesToken, async (event, payload) => {
       const { ownerId } = assertMainRenderer(event);
       const source = payload && typeof payload === 'object' ? payload : {};
       const tokens = Array.isArray(source.fileTokens) ? source.fileTokens.map((value) => String(value || '')) : [];
@@ -378,7 +394,7 @@ function installBroadcastFileBoundary(options = {}) {
     });
   }
 
-  callOriginalHandle(CHANNELS.pickCsvLimited, async (event) => {
+  register(CHANNELS.pickCsvLimited, async (event) => {
     const { win } = assertMainRenderer(event);
     const result = await dialog.showOpenDialog(win, {
       title: '选择联系人 CSV 文件',
@@ -393,43 +409,13 @@ function installBroadcastFileBoundary(options = {}) {
     }
   });
 
-  const legacyDisabled = async () => {
-    throw createPolicyError('BROADCAST_LEGACY_FILE_CHANNEL_DISABLED');
-  };
-
-  function restoreIfComplete() {
-    if (intercepted.size === expectedLegacyChannels.size && ipcMain.handle !== originalHandleMethod) {
-      ipcMain.handle = originalHandleMethod;
-    }
-  }
-
-  ipcMain.handle = function interceptedHandle(channel, listener) {
-    if (!expectedLegacyChannels.has(channel)) {
-      return originalHandleMethod.call(this, channel, listener);
-    }
-    intercepted.add(channel);
-    const tokenChannel = LEGACY_CHANNELS[channel];
-    const result = callOriginalHandle(channel, legacyDisabled);
-    if (tokenChannel) {
-      callOriginalHandle(tokenChannel, async (event, payload) => {
-        const { ownerId } = assertMainRenderer(event);
-        const selected = await registry.resolve(payload && payload.fileToken, ownerId);
-        const safePayload = { ...(payload && typeof payload === 'object' ? payload : {}) };
-        delete safePayload.fileToken;
-        delete safePayload.filePath;
-        safePayload.filePath = selected.filePath;
-        safePayload.name = selected.name;
-        safePayload.mime = selected.mime;
-        return listener(event, safePayload);
-      });
-    }
-    restoreIfComplete();
-    return result;
-  };
-
   return Object.freeze({
     registry,
-    restore: () => { ipcMain.handle = originalHandleMethod; },
+    dispose() {
+      if (typeof ipcMain.removeHandler !== 'function') return;
+      for (const channel of registeredChannels) ipcMain.removeHandler(channel);
+      registeredChannels.clear();
+    },
   });
 }
 
