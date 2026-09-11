@@ -30,14 +30,15 @@
   --border-strong: var(--scroll-thumb);
 
   /* 表面/悬停/输入（按主题整体切换） */
-  --card-bg: var(--card-bg);
-  --btn-bg: var(--btn-bg);
-  --hover-bg: var(--hover-bg);
-  --overlay-bg: var(--overlay-bg);
-  --active-bg: var(--active-bg);
-  --hover-strong: var(--hover-strong);
-  --input-bg: var(--card-bg);
-  --scroll-thumb: var(--scroll-thumb);
+  --card-bg: rgba(255, 255, 255, 0.06);
+  --btn-bg: rgba(255, 255, 255, 0.06);
+  --hover-bg: rgba(255, 255, 255, 0.1);
+  --bg-hover: var(--hover-bg);
+  --overlay-bg: rgba(255, 255, 255, 0.09);
+  --active-bg: rgba(255, 255, 255, 0.14);
+  --hover-strong: rgba(255, 255, 255, 0.12);
+  --input-bg: rgba(255, 255, 255, 0.08);
+  --scroll-thumb: rgba(255, 255, 255, 0.16);
 
   /* 危险色 */
   --danger: #e05d5d;
