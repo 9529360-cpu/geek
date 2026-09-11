@@ -353,6 +353,11 @@ describe('Geek account-scoped WebView navigation runtime', () => {
     assert.equal(attempt.willNavigate, true);
     assert.equal(attempt.mainFrame, true, 'navigation attempt must target the guest main frame');
     assert.equal(attempt.targetOrigin, 'https://web.telegram.org', 'observed target must be the synthetic Telegram cross-platform destination');
+    assert.equal(
+      attempt.didNavigate,
+      false,
+      'blocked WhatsApp -> Telegram navigation must never commit a main-frame document',
+    );
     assert.equal(attempt.destroyed, false, 'WhatsApp guest must remain alive after the blocked navigation');
     assert.equal(attempt.type, 'webview');
     assert.equal(attempt.partition, WHATSAPP_PARTITION, 'blocked navigation must retain the WhatsApp account Session');
@@ -397,6 +402,11 @@ describe('Geek account-scoped WebView navigation runtime', () => {
     assert.equal(blocked.willNavigate, true);
     assert.equal(blocked.mainFrame, true);
     assert.equal(blocked.targetOrigin, 'https://example.org', 'observed target must be Website B');
+    assert.equal(
+      blocked.didNavigate,
+      false,
+      'blocked Website A -> Website B navigation must never commit a main-frame document',
+    );
     assert.equal(blocked.destroyed, false, 'Website A guest must remain alive after the blocked navigation');
     assert.equal(blocked.type, 'webview');
     assert.equal(blocked.partition, websiteA.partition, 'Website A must retain its fixed account Session');
