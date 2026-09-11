@@ -11,12 +11,14 @@ async function main() {
   const root = path.resolve(__dirname, '..');
   const runner = fs.readFileSync(path.join(root, 'e2e', 'run.cjs'), 'utf8');
   const config = fs.readFileSync(path.join(root, 'e2e', 'wdio.conf.cjs'), 'utf8');
+  const restartConfig = fs.readFileSync(path.join(root, 'e2e', 'wdio.scheduled-restart.conf.cjs'), 'utf8');
   const spec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'shell-smoke.e2e.cjs'), 'utf8');
   const runtimeSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'session-permission-runtime.e2e.cjs'), 'utf8');
   const navigationRuntimeSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'webview-navigation-runtime.e2e.cjs'), 'utf8');
+  const restartSpec = fs.readFileSync(path.join(root, 'e2e', 'restart-specs', 'scheduled-attachment-restart.e2e.cjs'), 'utf8');
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'electron-e2e.yml'), 'utf8');
   const mainEntry = fs.readFileSync(path.join(root, 'src', 'main-entry.cjs'), 'utf8');
-  const combined = [runner, config, spec, runtimeSpec, navigationRuntimeSpec, workflow, mainEntry].join('\n');
+  const combined = [runner, config, restartConfig, spec, runtimeSpec, navigationRuntimeSpec, restartSpec, workflow, mainEntry].join('\n');
 
   assert.equal(pkg.scripts['test:e2e'], 'node e2e/run.cjs');
   assert.match(runner, /mkdtempSync\(path\.join\(os\.tmpdir\(\), 'geek-e2e-'\)\)/);
@@ -66,6 +68,7 @@ async function main() {
   assert.doesNotMatch(mainEntry, /\[geek-e2e\]/, 'temporary main-process E2E lifecycle diagnostics must not remain in product startup');
   assert.doesNotMatch(combined, /--no-sandbox|nodeIntegration\s*:\s*true|contextIsolation\s*:\s*false|webSecurity\s*:\s*false/);
   assert.doesNotMatch(combined, /%APPDATA%[\\/]geek|AppData[\\/]Roaming[\\/]geek/i);
+
   assert.match(spec, /BrowserWindow\.getAllWindows\(\)/, 'host content sizing must use Electron main-process APIs');
   assert.match(spec, /hostWindow\.setContentSize\(1280, 820\)/, 'host renderer content area must retain the explicit E2E viewport size');
   assert.match(spec, /hostWindow\.getContentSize\(\)/, 'host renderer content viewport must be verified after sizing');
@@ -114,6 +117,43 @@ async function main() {
   assert.doesNotMatch(navigationRuntimeSpec, /EventEmitter|\.emit\(['"]will-navigate/, 'navigation runtime E2E must not fake the will-navigate event');
   assert.doesNotMatch(navigationRuntimeSpec, /browser\.pause\(/, 'navigation runtime gate must use event/readiness predicates instead of browser.pause');
   assert.doesNotMatch(navigationRuntimeSpec, /document\.cookie|localStorage|sessionStorage|Authorization|location\.search|location\.hash|innerText|textContent|\btoken\b|qrData/i, 'navigation runtime gate must not collect credentials, page bodies, QR data, or URL query/hash content');
+
+  assert.match(restartConfig, /require\('\.\/wdio\.conf\.cjs'\)/, 'restart gate must reuse the canonical WDIO config');
+  assert.match(restartConfig, /specs:\s*\['\.\/restart-specs\/scheduled-attachment-restart\.e2e\.cjs'\]/, 'restart config must run only the restart gate');
+  assert.doesNotMatch(restartConfig, /appEntryPoint|appArgs|capabilities|after\s*:/, 'restart config must not fork Electron lifecycle/security truth');
+  const seedInvocation = "runWdio('wdio.scheduled-restart.conf.cjs', 'seed')";
+  const verifyInvocation = "runWdio('wdio.scheduled-restart.conf.cjs', 'verify')";
+  assert.ok(runner.includes(seedInvocation) && runner.includes(verifyInvocation), 'runner must launch both restart phases');
+  assert.ok(runner.indexOf(seedInvocation) < runner.indexOf(verifyInvocation), 'seed WDIO must complete before verify WDIO starts');
+  assert.match(runner, /await runWdio\('wdio\.scheduled-restart\.conf\.cjs', 'seed'\);\s*await runWdio\('wdio\.scheduled-restart\.conf\.cjs', 'verify'\);\s*await runWdio\('wdio\.conf\.cjs'\);/s, 'restart phases must be sequential and preserve the full existing E2E chain');
+  assert.match(runner, /GEEK_E2E_RESTART_PHASE:\s*phase/);
+  assert.match(runner, /scheduled-restart\.txt/);
+  assert.match(runner, /120_000/);
+
+  assert.match(restartSpec, /browser\.electron\.mock\('dialog', 'showOpenDialog'\)/, 'only the native file picker should be mocked');
+  assert.match(restartSpec, /mockResolvedValue\(\{ canceled: false, filePaths:/, 'picker mock must return the synthetic source file');
+  assert.match(restartSpec, /window\.api\.file\.pick\(/, 'seed must cross the real preload file picker API');
+  assert.match(restartSpec, /window\.api\.broadcastScheduled\.persist\(/, 'seed must cross the real scheduled persist API');
+  assert.match(restartSpec, /window\.api\.broadcastScheduled\.materialize\(/, 'verify must cross the real scheduled materialize API');
+  assert.match(restartSpec, /window\.api\.broadcastScheduled\.cleanup\(/, 'verify must cross the real scheduled cleanup API');
+  assert.match(restartSpec, /window\.api\.file\.release\(/, 'cleanup proof must probe the prior materialized short-lived capability');
+  assert.match(restartSpec, /process\.pid/, 'both phases must record the real Electron main-process PID');
+  assert.match(restartSpec, /electron\.app\.getPath\('userData'\)/, 'verify must prove the same isolated userData path');
+  assert.match(restartSpec, /identity\.pid !== handoff\.firstPid/, 'verify must require a different Electron main-process PID');
+  assert.match(restartSpec, /OTHER_ACCOUNT_ID = 'e2e-account-b'/, 'wrong-account isolation must be covered');
+  assert.match(restartSpec, /OTHER_TASK_ID = 'e2e-scheduled-other'/, 'wrong-task isolation must be covered');
+  assert.match(restartSpec, /appendFileSync\(fixture\.source, 'x'\)/, 'source size must be mutated after positive restore');
+  assert.match(restartSpec, /SCHEDULED_BROADCAST_ATTACHMENT_CHANGED/, 'source mutation must fail with the live policy category');
+  assert.match(restartSpec, /E2E_SCHEDULED_RESTART_SEED persisted=true storeOnDisk=true/, 'seed log must be bounded');
+  assert.match(restartSpec, /E2E_SCHEDULED_RESTART_VERIFY freshProcess=true restored=true wrongAccountBlocked=true wrongTaskBlocked=true mutationBlocked=true cleanup=true/, 'verify log must be bounded');
+  assert.match(restartSpec, /statSync\(fixture\.store\)/, 'seed must prove the durable Store snapshot exists on disk');
+  assert.doesNotMatch(restartSpec, /readFileSync\(fixture\.store|scheduled-broadcast-attachments[^\n]*readFile|JSON\.parse\([^\n]*fixture\.store/, 'restart gate must never read the Store JSON contents');
+  assert.doesNotMatch(restartSpec, /require\([^\n]*scheduled-broadcast-attachments|createScheduledBroadcastAttachmentStore|installScheduledBroadcastAttachmentBoundary|fake\s*(?:store|ipc|browserwindow)|EventEmitter/i, 'restart gate must not instantiate or fake Geek attachment internals');
+  assert.doesNotMatch(restartSpec, /app\.relaunch|reloadSession|browser\.pause\(/, 'restart proof must use independent WDIO processes and readiness predicates');
+  assert.doesNotMatch(restartSpec, /window\.api\.broadcast\.(?:sendFile|sendTelegramAttachments|dropFile|attachFile)|#broadcast-send/, 'restart gate must never invoke transport send paths');
+  assert.doesNotMatch(restartSpec, /console\.(?:log|error)\([^\n]*(?:\.ref|\.token|\.filePath|fixture\.source|fixture\.store)/, 'restart logs must not emit opaque capabilities or paths');
+  assert.doesNotMatch(restartSpec, /realpath(?:Sync)?\(/, 'restart gate must not canonicalize the source path for inspection');
+  assert.doesNotMatch(restartSpec, /document\.cookie|localStorage|sessionStorage|Authorization|location\.search|location\.hash|innerText|textContent|qrData/i, 'restart gate must not collect credentials, page bodies, QR data, or URL query/hash content');
 
   const tempRoot = path.join(os.tmpdir(), 'geek-e2e-contract-root');
   const allowedDir = path.join(tempRoot, 'geek-e2e-123');
