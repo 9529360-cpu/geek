@@ -47,11 +47,13 @@ const mainEntry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'),
 const profileAt = mainEntry.indexOf('configureRuntimeEnvironment({');
 const setPathAt = mainEntry.indexOf("app.setPath('userData', earlyUserDataDir)");
 const lockAt = mainEntry.indexOf('installSingleInstanceGuard({ app, BrowserWindow })');
-const fileBoundaryAt = mainEntry.indexOf('installBroadcastFileBoundary({');
-const scheduledBoundaryAt = mainEntry.indexOf('installScheduledBroadcastAttachmentBoundary({');
-const accountBoundaryAt = mainEntry.indexOf('installAccountDataBoundary({');
+const sessionAt = mainEntry.indexOf('installSessionPartitionCompat({ app, sessionModule: session })');
+const navigationAt = mainEntry.indexOf('installAccountScopedWebviewNavigationBoundary({');
+const permissionAt = mainEntry.indexOf('installAccountSessionPermissionBoundary({');
+const externalDebugAt = mainEntry.indexOf('installExternalDebuggingProbeGuard()');
 const mainAt = mainEntry.indexOf("require('./main.cjs')");
 assert.ok(profileAt >= 0 && setPathAt > profileAt && lockAt > setPathAt);
-assert.ok(fileBoundaryAt > lockAt && scheduledBoundaryAt > fileBoundaryAt && accountBoundaryAt > scheduledBoundaryAt && mainAt > accountBoundaryAt, 'all broadcast/account boundaries must remain behind the single-instance decision');
-assert.match(mainEntry, /if \(primaryInstance\) \{[\s\S]*installScheduledBroadcastAttachmentBoundary\([\s\S]*installAccountDataBoundary\([\s\S]*require\('\.\/main\.cjs'\)[\s\S]*\}/, 'legacy main bootstrap must remain inside the primary-instance boundary even when another startup gate awaits first');
+assert.ok(sessionAt > lockAt && navigationAt > sessionAt && permissionAt > navigationAt && externalDebugAt > permissionAt && mainAt > externalDebugAt, 'true early runtime/security boundaries must remain behind the single-instance decision and ahead of main');
+assert.doesNotMatch(mainEntry, /installBroadcastFileBoundary|installScheduledBroadcastAttachmentBoundary|installAccountDataBoundary|installAccountTypeBoundary/, 'deferred IPC capabilities must not return to startup interception');
+assert.match(mainEntry, /if \(primaryInstance\) \{[\s\S]*sessionPartitionCompat\.ready[\s\S]*require\('\.\/main\.cjs'\)[\s\S]*\}/, 'main bootstrap remains inside the primary-instance boundary');
 console.log('SINGLE_INSTANCE_CONTRACT_OK');
