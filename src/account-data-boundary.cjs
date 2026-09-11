@@ -9,7 +9,6 @@ const ACCOUNT_DATA_CHANNELS = Object.freeze([
   'account-data:set',
   'account-data:remove',
 ]);
-const REMOVE_ACCOUNT_CHANNEL = 'accounts:remove';
 
 function assertAccountId(accountId) {
   const value = String(accountId || '');
@@ -64,10 +63,11 @@ function installAccountDataBoundary(options = {}) {
   const beforeAccountRemove = options.beforeAccountRemove || (async () => {});
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparablePath = (value) => platform === 'win32' ? value.toLowerCase() : value;
-  const expectedRegistrations = new Set([...ACCOUNT_DATA_CHANNELS, REMOVE_ACCOUNT_CHANNEL]);
-  const intercepted = new Set();
-  const originalHandleMethod = ipcMain.handle;
-  const callOriginalHandle = (channel, handler) => originalHandleMethod.call(ipcMain, channel, handler);
+  const registeredChannels = new Set();
+  const register = (channel, handler) => {
+    ipcMain.handle(channel, handler);
+    registeredChannels.add(channel);
+  };
 
   function assertMainRenderer(event) {
     const sender = event && event.sender;
@@ -87,82 +87,59 @@ function installAccountDataBoundary(options = {}) {
     return win;
   }
 
-  callOriginalHandle('account-data:get-all', async (event, accountId) => {
+  register('account-data:get-all', async (event, accountId) => {
     assertMainRenderer(event);
     const partition = await resolveAccountPartition(accountId);
     return store.getAll(partition);
   });
 
-  callOriginalHandle('account-data:set', async (event, accountId, key, value) => {
+  register('account-data:set', async (event, accountId, key, value) => {
     assertMainRenderer(event);
     const partition = await resolveAccountPartition(accountId);
     return store.set(partition, key, value);
   });
 
-  callOriginalHandle('account-data:remove', async (event, accountId, key) => {
+  register('account-data:remove', async (event, accountId, key) => {
     assertMainRenderer(event);
     const partition = await resolveAccountPartition(accountId);
     return store.remove(partition, key);
   });
 
-  function restoreIfComplete() {
-    if (intercepted.size === expectedRegistrations.size && ipcMain.handle !== originalHandleMethod) {
-      ipcMain.handle = originalHandleMethod;
-    }
-  }
-
-  ipcMain.handle = function interceptedHandle(channel, listener) {
-    if (!expectedRegistrations.has(channel)) {
-      return originalHandleMethod.call(this, channel, listener);
-    }
-    intercepted.add(channel);
-
-    if (ACCOUNT_DATA_CHANNELS.includes(channel)) {
-      restoreIfComplete();
-      return undefined;
-    }
-
-    const result = callOriginalHandle(channel, async (event, accountId, ...rest) => {
-      assertMainRenderer(event);
-      const partition = await resolveAccountPartition(accountId);
-      await store.beginDelete(partition);
+  async function runAccountRemoval(event, accountId, removeImplementation, ...rest) {
+    if (typeof removeImplementation !== 'function') throw new TypeError('removeImplementation must be a function');
+    assertMainRenderer(event);
+    const id = assertAccountId(accountId);
+    const partition = await resolveAccountPartition(id);
+    await store.beginDelete(partition);
+    try {
+      await beforeAccountRemove({ event, accountId: id, partition });
+      const response = await removeImplementation(event, id, ...rest);
+      store.finalizeDelete(partition);
+      return response;
+    } catch (error) {
       try {
-        // Renderer has already stopped/cancelled this account's Jobs. Before the
-        // account partition is actually removed, clean durable main-process resources
-        // that live outside that partition. Any failure aborts account deletion.
-        await beforeAccountRemove({ event, accountId: String(accountId), partition });
-        const response = await listener(event, accountId, ...rest);
-        store.finalizeDelete(partition);
-        return response;
-      } catch (error) {
-        let stateError = null;
-        try {
-          await resolveAccountPartition(accountId);
-          store.cancelDelete(partition);
-        } catch (probeError) {
-          stateError = probeError;
+        await resolveAccountPartition(id);
+        store.cancelDelete(partition);
+      } catch (probeError) {
+        if (probeError?.code === 'ACCOUNT_DATA_ACCOUNT_MISSING') {
           store.finalizeDelete(partition);
-        }
-        // The legacy listener persists account removal before it performs best-effort
-        // session/partition cleanup. If the account is now definitively missing, the
-        // deletion commit already happened and cannot be rolled back. Treat that as a
-        // successful delete so the renderer reloads to backend truth; orphan partition
-        // data is retried by the existing startup cleanup path. Other state-read errors
-        // remain failures because they do not prove that the deletion committed.
-        if (stateError?.code === 'ACCOUNT_DATA_ACCOUNT_MISSING') {
           return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
         }
-        throw error;
+        store.cancelDelete(partition);
       }
-    });
-    restoreIfComplete();
-    return result;
-  };
+      throw error;
+    }
+  }
 
   return Object.freeze({
     store,
     resolveAccountPartition,
-    restore: () => { ipcMain.handle = originalHandleMethod; },
+    runAccountRemoval,
+    dispose() {
+      if (typeof ipcMain.removeHandler !== 'function') return;
+      for (const channel of registeredChannels) ipcMain.removeHandler(channel);
+      registeredChannels.clear();
+    },
   });
 }
 
