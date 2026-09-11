@@ -28,6 +28,7 @@ const main = read('src/main.cjs');
 const mainEntry = read('src/main-entry.cjs');
 const broadcast = read('src/broadcast-files.cjs');
 const accountData = read('src/account-data-boundary.cjs');
+const accountIpc = read('src/account-ipc.cjs');
 const preload = read('src/preload.cjs');
 
 for (const channel of ['file:pick', 'file:pick-csv', 'broadcast:send-file', 'broadcast:attach-file', 'broadcast:drop-file']) {
@@ -45,10 +46,17 @@ for (const channel of ['account-data:get-all','account-data:set','account-data:r
   assert.ok(accountData.includes(`register('${channel}'`), `account-data owner must directly register ${channel}`);
   assert.equal(main.includes(`ipcMain.handle('${channel}'`), false, `main must not duplicate account-data channel ${channel}`);
 }
-assert.match(main, /accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly cross the account-data deletion lifecycle');
+for (const channel of ['accounts:list','accounts:add','accounts:remove','accounts:switch','accounts:update','accounts:move','accounts:move-to']) {
+  assert.ok(accountIpc.includes(`'${channel}'`), `Account IPC owner must declare ${channel}`);
+  assert.equal(main.includes(`ipcMain.handle('${channel}'`), false, `main must not directly register Account channel ${channel}`);
+}
+assert.match(accountIpc, /normalizeAccountAddPayload\(payload\)/, 'accounts:add must cross the ingress payload gate before mutation');
+assert.match(accountIpc, /assertTrustedSender\(event\)[\s\S]*normalizeAccountAddPayload/, 'sender validation must precede accounts:add payload processing');
+assert.match(accountIpc, /dispose\(\)[\s\S]*ipcMain\.removeHandler/, 'Account IPC owner must own teardown');
+assert.match(main, /removeAccount:\s*\(event, accountId\) => accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly cross the account-data deletion lifecycle');
 assert.match(accountData, /store\.beginDelete\(partition\)[\s\S]*beforeAccountRemove[\s\S]*removeImplementation[\s\S]*store\.finalizeDelete\(partition\)/, 'account removal lifecycle must be begin -> external cleanup -> delete -> finalize');
 assert.match(accountData, /ACCOUNT_DATA_ACCOUNT_MISSING[\s\S]*cleanupPending:\s*true/, 'committed delete with later cleanup failure must preserve cleanupPending success');
-assert.match(main, /ACCOUNT_TYPE_UNSUPPORTED/, 'real accounts:add owner must reject unsupported account types');
+assert.match(main, /ACCOUNT_TYPE_UNSUPPORTED/, 'authoritative account mutation must reject unsupported account types');
 assert.match(main, /raw\.type === undefined \? 'whatsapp' : raw\.type/, 'historical default account type remains WhatsApp');
 assert.doesNotMatch(mainEntry, /installAccountTypeBoundary|installBroadcastFileBoundary|installAccountDataBoundary/, 'main-entry must not host deferred IPC registration shims');
 

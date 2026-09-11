@@ -33,8 +33,8 @@ const publicStateSource = main.slice(publicStateStart, publicStateEnd);
 assert.match(publicStateSource, /account\.type === 'website' && account\.customUrl[\s\S]*url = account\.customUrl/, 'restart/list state must restore Website customUrl as its public URL');
 assert.match(main, /function partitionFor\(accountId\)[\s\S]*`\$\{PARTITION_PREFIX\}\$\{accountId\}`/, 'Website reuses the existing per-account persistent partition owner');
 
-const updateStart = main.indexOf("ipcMain.handle('accounts:update'");
-const updateEnd = main.indexOf("ipcMain.handle('accounts:move'", updateStart);
+const updateStart = main.indexOf('async function updateAccount');
+const updateEnd = main.indexOf('async function moveAccount', updateStart);
 const updateSource = main.slice(updateStart, updateEnd);
 assert.doesNotMatch(updateSource, /customUrl\s*=/, 'Website customUrl remains immutable after creation');
 
