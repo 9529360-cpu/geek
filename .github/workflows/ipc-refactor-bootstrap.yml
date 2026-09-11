@@ -1,0 +1,46 @@
+name: ipc-refactor-bootstrap
+
+on:
+  push:
+    branches:
+      - refactor/ipc-registration-ownership
+    paths:
+      - scripts/ipc-refactor-bootstrap.cjs
+      - .github/workflows/ipc-refactor-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply deterministic IPC ownership refactor
+        run: node scripts/ipc-refactor-bootstrap.cjs
+      - name: Verify modified production syntax and ownership invariant
+        shell: bash
+        run: |
+          node --check src/main.cjs
+          node --check src/main-entry.cjs
+          node --check src/broadcast-files.cjs
+          node --check src/account-data-boundary.cjs
+          if grep -R -n -E 'ipcMain\.handle[[:space:]]*=' src --include='*.cjs' --include='*.js' --include='*.mjs'; then
+            echo 'ipcMain.handle monkey patch remains in src/' >&2
+            exit 1
+          fi
+      - name: Commit refactor result
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'refactor: make IPC registration ownership explicit'
+          git push origin HEAD:refactor/ipc-registration-ownership
