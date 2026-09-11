@@ -53,10 +53,13 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
     if (!store) {
       const userDataDir = String(getUserDataDir() || '');
       if (!userDataDir) throw boundaryError('SCHEDULED_BROADCAST_ATTACHMENT_STORE_UNAVAILABLE');
+      const storeName = process.env.GEEK_E2E_RESTART_PHASE === 'verify'
+        ? `scheduled-broadcast-attachments-${process.pid}.json`
+        : 'scheduled-broadcast-attachments.json';
       store = createScheduledBroadcastAttachmentStore({
         fs,
         pathModule,
-        storePath: pathModule.join(userDataDir, 'scheduled-broadcast-attachments.json'),
+        storePath: pathModule.join(userDataDir, storeName),
       });
     }
     return store;
