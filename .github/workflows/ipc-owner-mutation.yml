@@ -1,0 +1,43 @@
+name: ipc-owner-mutation
+
+on:
+  push:
+    branches:
+      - validation/ipc-owner-bypass-mutation
+    paths:
+      - .github/workflows/ipc-owner-mutation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bypass renderer owner validation
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const file = 'src/broadcast-files.cjs';
+          const source = fs.readFileSync(file, 'utf8');
+          const guard = "    if (entry.owner !== owner) throw createPolicyError('BROADCAST_FILE_TOKEN_INVALID');\n";
+          const count = source.split(guard).length - 1;
+          if (count !== 1) throw new Error(`expected exactly one owner guard, found ${count}`);
+          fs.writeFileSync(file, source.replace(guard, "    // MUTATION: owner guard deliberately bypassed for contract proof.\n"));
+          NODE
+          node --check src/broadcast-files.cjs
+      - name: Commit mutation
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/broadcast-files.cjs
+          git commit -m 'test: mutate broadcast token owner guard'
+          git push origin HEAD:validation/ipc-owner-bypass-mutation
