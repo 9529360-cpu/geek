@@ -12,9 +12,10 @@ async function main() {
   const runner = fs.readFileSync(path.join(root, 'e2e', 'run.cjs'), 'utf8');
   const config = fs.readFileSync(path.join(root, 'e2e', 'wdio.conf.cjs'), 'utf8');
   const spec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'shell-smoke.e2e.cjs'), 'utf8');
+  const runtimeSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'session-permission-runtime.e2e.cjs'), 'utf8');
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'electron-e2e.yml'), 'utf8');
   const mainEntry = fs.readFileSync(path.join(root, 'src', 'main-entry.cjs'), 'utf8');
-  const combined = [runner, config, spec, workflow, mainEntry].join('\n');
+  const combined = [runner, config, spec, runtimeSpec, workflow, mainEntry].join('\n');
 
   assert.equal(pkg.scripts['test:e2e'], 'node e2e/run.cjs');
   assert.match(runner, /mkdtempSync\(path\.join\(os\.tmpdir\(\), 'geek-e2e-'\)\)/);
@@ -25,6 +26,8 @@ async function main() {
   assert.doesNotMatch(runner, /email|phone|cookie|authorization|jwt|token/i, 'fake account fixture must not carry credentials or personal identifiers');
   assert.match(config, /appEntryPoint:\s*path\.join\(__dirname, '\.\.', 'src', 'main-entry\.cjs'\)/, 'E2E must launch the real Electron entry');
   assert.match(config, /specs:\s*\['\.\/specs\/shell-smoke\.e2e\.cjs'\]/, 'E2E spec path must resolve from the WDIO config directory');
+  assert.match(config, /\.\/specs\/whatsapp-live-bootstrap\.e2e\.cjs/, 'live WhatsApp bootstrap gate must remain enabled');
+  assert.match(config, /\.\/specs\/session-permission-runtime\.e2e\.cjs/, 'real Session permission runtime gate must remain enabled');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
   assert.match(config, /process\.env\.GEEK_E2E === '1'/, 'WDIO config must fail closed outside the E2E seam');
   assert.match(config, /path\.relative\(path\.resolve\(os\.tmpdir\(\)\), e2eUserDataDir\)/, 'Geek app profile must remain underneath the OS temp root');
@@ -72,6 +75,21 @@ async function main() {
   assert.match(spec, /#broadcast-overlay:not\(\.hidden\)/);
   assert.match(spec, /executeAsync/);
   assert.doesNotMatch(spec, /#broadcast-send[^\w-].*click|click\(.*#broadcast-send/s, 'smoke test must never send a broadcast');
+
+  assert.match(runtimeSpec, /persist:webview-page-e2e-account-a/, 'runtime gate must bind the exact synthetic WhatsApp partition');
+  assert.match(runtimeSpec, /getWebContentsId\(\)/, 'runtime gate must bind the host WebView to its exact guest id');
+  assert.match(runtimeSpec, /browser\.electron\.execute/, 'runtime gate must inspect the real Electron main process');
+  assert.match(runtimeSpec, /electron\.webContents\.getAllWebContents\(\)/, 'runtime gate must resolve a real guest WebContents');
+  assert.match(runtimeSpec, /target\.executeJavaScript/, 'StorageManager calls must execute inside the real guest renderer');
+  assert.match(runtimeSpec, /navigator\.storage\.persist\(\)/, 'runtime gate must request persistent storage through Chromium');
+  assert.match(runtimeSpec, /navigator\.storage\.persisted\(\)/, 'runtime gate must verify the resulting storage persistence state');
+  assert.match(runtimeSpec, /https:\/\/web\.whatsapp\.com/, 'runtime gate must use the current official WhatsApp Web origin');
+  assert.match(runtimeSpec, /session\?\.partition/, 'runtime gate must verify the target Session partition');
+  assert.match(runtimeSpec, /storagePath|getStoragePath/, 'runtime gate must independently cross-check the Session storage path');
+  assert.match(runtimeSpec, /getType\?\.\(\)/, 'runtime gate must prove the target is a WebView guest');
+  assert.doesNotMatch(runtimeSpec, /require\([^\n]*session-permission-boundary|isAccountPermissionAllowed|installPermissionHandlersForSession/, 'runtime E2E must not degrade into calling Geek permission helpers directly');
+  assert.doesNotMatch(runtimeSpec, /browser\.pause\(/, 'runtime permission gate must use readiness predicates instead of fixed sleeps');
+  assert.doesNotMatch(runtimeSpec, /document\.cookie|localStorage|sessionStorage|Authorization|location\.search|location\.hash|innerText|textContent|\btoken\b|qrData/i, 'runtime permission gate must not collect credentials, page bodies, QR data, or URL query/hash content');
 
   const tempRoot = path.join(os.tmpdir(), 'geek-e2e-contract-root');
   const allowedDir = path.join(tempRoot, 'geek-e2e-123');
