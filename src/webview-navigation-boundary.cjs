@@ -123,8 +123,8 @@ function installAccountScopedWebviewNavigationBoundary({ app, resolvePolicyForPa
     let policy = null;
     try { policy = resolvePolicyForPartition(partition) || null; } catch { policy = null; }
 
-    function blockIfOutsidePolicy(event, targetUrl) {
-      if (!policy || !isNavigationAllowed(policy, targetUrl)) event?.preventDefault?.();
+    function blockIfOutsidePolicy(_event, targetUrl) {
+      if (!policy || !isNavigationAllowed(policy, targetUrl)) return false;
     }
 
     contents.on?.('will-navigate', blockIfOutsidePolicy);
