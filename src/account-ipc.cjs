@@ -10,24 +10,9 @@ const ACCOUNT_IPC_CHANNELS = Object.freeze({
   moveTo: 'accounts:move-to',
 });
 
-function createAccountPayloadError() {
-  const error = new Error('ACCOUNT_PAYLOAD_INVALID');
-  error.code = 'ACCOUNT_PAYLOAD_INVALID';
-  return error;
-}
-
 function normalizeAccountAddPayload(payload) {
-  if (payload === undefined) return {};
   if (typeof payload === 'string') return { name: payload };
-  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw createAccountPayloadError();
-  }
-
-  const prototype = Object.getPrototypeOf(payload);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw createAccountPayloadError();
-  }
-  return payload;
+  return payload || {};
 }
 
 function installAccountIpc(options = {}) {
