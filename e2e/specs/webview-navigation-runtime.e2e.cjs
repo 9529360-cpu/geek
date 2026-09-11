@@ -11,6 +11,7 @@ const WEBSITE_A_URL = 'https://example.com/';
 const WEBSITE_A_CONTROL_URL = 'https://example.com/navigation-control';
 const WEBSITE_B_URL = 'https://example.org/';
 const RUNTIME_TIMEOUT = 15_000;
+const UI_TIMEOUT = 10_000;
 
 let websiteFixtureIds = [];
 
@@ -27,10 +28,25 @@ function diagnostic(state) {
   ].join(' ');
 }
 
+async function waitVisible(selector, timeout = UI_TIMEOUT) {
+  const element = await $(selector);
+  await element.waitForDisplayed({ timeout });
+  return element;
+}
+
+async function waitHidden(selector, timeout = UI_TIMEOUT) {
+  const element = await $(selector);
+  await browser.waitUntil(async () => !(await element.isDisplayed()), {
+    timeout,
+    interval: 100,
+    timeoutMsg: `${selector} remained visible`,
+  });
+}
+
 async function waitForHostApi() {
   await browser.waitUntil(async () => browser.execute(() =>
     document.readyState === 'complete' && !!window.api?.accounts), {
-    timeout: 10_000,
+    timeout: UI_TIMEOUT,
     interval: 100,
     timeoutMsg: 'Geek main renderer did not expose the account API',
   });
@@ -57,36 +73,62 @@ async function readAccount(accountId) {
   }, accountId);
 }
 
-async function createWebsiteFixtures() {
-  const result = await browser.executeAsync((websiteAUrl, websiteBUrl, done) => {
-    const clean = (value) => String(value || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
-    (async () => {
-      const before = await window.api.accounts.list();
-      const beforeIds = new Set((before?.accounts || []).map(account => account.id));
-      await window.api.accounts.add({ name: 'E2E Navigation Website A', type: 'website', customUrl: websiteAUrl });
-      await window.api.accounts.add({ name: 'E2E Navigation Website B', type: 'website', customUrl: websiteBUrl });
-      const after = await window.api.accounts.list();
-      const created = (after?.accounts || [])
-        .filter(account => account.type === 'website' && !beforeIds.has(account.id))
-        .map(account => ({
+async function createWebsiteThroughAppCenter(name, customUrl) {
+  const before = await browser.executeAsync((done) => {
+    window.api.accounts.list().then((state) => done({
+      ids: (state.accounts || []).map(account => String(account.id || '')),
+    })).catch(() => done({ ids: [] }));
+  });
+  const beforeIds = new Set(before.ids);
+
+  await (await waitVisible('#btn-app-center')).click();
+  await waitVisible('#add-overlay:not(.hidden)');
+  await (await waitVisible('.add-platform-card[data-type="website"]')).click();
+  await (await waitVisible('#add-custom-url')).setValue(customUrl);
+  await (await waitVisible('#add-name')).setValue(name);
+  await (await waitVisible('#add-count')).setValue('1');
+  await (await waitVisible('#add-confirm')).click();
+  await waitHidden('#add-overlay');
+
+  let created = null;
+  await browser.waitUntil(async () => {
+    const state = await browser.executeAsync((done) => {
+      window.api.accounts.list().then((value) => done({
+        accounts: (value.accounts || []).map(account => ({
           id: String(account.id || ''),
+          name: String(account.name || ''),
           type: String(account.type || ''),
           partition: String(account.partition || ''),
-          customOrigin: new URL(account.customUrl).origin,
-        }));
-      done({ ok: true, created });
-    })().catch((error) => done({ ok: false, errorCategory: clean(error?.name) || 'Error' }));
-  }, WEBSITE_A_URL, WEBSITE_B_URL);
+          customOrigin: account.customUrl ? new URL(account.customUrl).origin : '',
+        })),
+      })).catch(() => done({ accounts: [] }));
+    });
+    const candidates = state.accounts.filter(account => account.type === 'website' && !beforeIds.has(account.id));
+    if (candidates.length !== 1) return false;
+    created = candidates[0];
+    const host = await hostWebviewIdForPartition(created.partition);
+    return host.count === 1 && host.webContentsId > 0;
+  }, {
+    timeout: UI_TIMEOUT,
+    interval: 150,
+    timeoutMsg: `Renderer did not materialize the temporary Website guest for ${name}`,
+  });
 
-  assert.equal(result.ok, true, `Website fixture creation failed: ${result.errorCategory || 'Error'}`);
-  assert.equal(result.created.length, 2, 'navigation runtime gate must create exactly two temporary Website accounts');
-  const websiteA = result.created.find(account => account.customOrigin === 'https://example.com');
-  const websiteB = result.created.find(account => account.customOrigin === 'https://example.org');
-  assert.ok(websiteA, 'Website A fixture was not created');
-  assert.ok(websiteB, 'Website B fixture was not created');
+  assert.ok(created, `temporary Website account missing for ${name}`);
+  assert.equal(created.partition, `persist:webview-page-${created.id}`);
+  return created;
+}
+
+async function createWebsiteFixtures() {
+  const websiteA = await createWebsiteThroughAppCenter('E2E Navigation Website A', WEBSITE_A_URL);
+  websiteFixtureIds.push(websiteA.id);
+  const websiteB = await createWebsiteThroughAppCenter('E2E Navigation Website B', WEBSITE_B_URL);
+  websiteFixtureIds.push(websiteB.id);
+
+  assert.equal(websiteA.customOrigin, 'https://example.com');
+  assert.equal(websiteB.customOrigin, 'https://example.org');
   assert.notEqual(websiteA.id, websiteB.id, 'Website fixtures must have different account owners');
   assert.notEqual(websiteA.partition, websiteB.partition, 'Website fixtures must use different persistent Sessions');
-  websiteFixtureIds = [websiteA.id, websiteB.id];
   return { websiteA, websiteB };
 }
 
@@ -209,27 +251,18 @@ async function observePageNavigation(guest, targetUrl, expectedStartOrigin, requ
 
     contents.once('will-navigate', onWillNavigate);
     contents.once('did-navigate', onDidNavigate);
-    let executionError = '';
     try {
       await contents.executeJavaScript(`location.assign(${JSON.stringify(target)}); true`);
-    } catch (error) {
-      executionError = String(error?.name || 'Error').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'Error';
-    }
+    } catch {}
 
     const willObserved = await Promise.race([
       willNavigate,
       new Promise(resolve => setTimeout(() => resolve(false), 3000)),
     ]);
-
-    if (willObserved && shouldComplete) {
+    if (willObserved) {
       await Promise.race([
         didNavigate,
-        new Promise(resolve => setTimeout(() => resolve(false), 8000)),
-      ]);
-    } else if (willObserved && !shouldComplete) {
-      await Promise.race([
-        didNavigate,
-        new Promise(resolve => setTimeout(() => resolve(false), 2500)),
+        new Promise(resolve => setTimeout(() => resolve(false), shouldComplete ? 8000 : 2500)),
       ]);
     }
 
@@ -251,7 +284,6 @@ async function observePageNavigation(guest, targetUrl, expectedStartOrigin, requ
 
     return {
       category: willObserved ? 'NAVIGATION_ATTEMPT_OBSERVED' : 'WILL_NAVIGATE_NOT_OBSERVED',
-      executionError,
       ...observed,
       partition,
       storageLeaf,
@@ -335,8 +367,6 @@ describe('Geek account-scoped WebView navigation runtime', () => {
     const { websiteA, websiteB } = await createWebsiteFixtures();
     assert.equal(websiteA.type, 'website');
     assert.equal(websiteB.type, 'website');
-    assert.equal(websiteA.partition, `persist:webview-page-${websiteA.id}`);
-    assert.equal(websiteB.partition, `persist:webview-page-${websiteB.id}`);
 
     const guestA = await waitForGuest(websiteA, 'https://example.com');
     const guestB = await waitForGuest(websiteB, 'https://example.org');
