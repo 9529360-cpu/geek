@@ -1,0 +1,42 @@
+name: account-ipc-refactor-bootstrap
+
+on:
+  push:
+    branches:
+      - refactor/account-ipc-ingress-owner
+    paths:
+      - 'scripts/account-ipc-refactor-bootstrap.cjs'
+      - '.github/workflows/account-ipc-refactor-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: refactor/account-ipc-ingress-owner
+          fetch-depth: 0
+      - name: Apply exact Account IPC refactor
+        run: node scripts/account-ipc-refactor-bootstrap.cjs
+      - name: Validate diff
+        run: |
+          git diff --check
+          node test/ipc-account-ingress-contract.cjs
+          node test/ipc-registration-ownership-contract.cjs
+          node test/website-account-lifecycle-security-contract.cjs
+          if grep -R --line-number --include='*.cjs' --include='*.js' --include='*.mjs' 'ipcMain\.handle[[:space:]]*=' src; then
+            echo 'ipcMain.handle replacement found' >&2
+            exit 1
+          fi
+      - name: Commit final refactor and remove bootstrap helper
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'refactor: make account IPC ingress ownership explicit'
+          git push origin HEAD:refactor/account-ipc-ingress-owner
