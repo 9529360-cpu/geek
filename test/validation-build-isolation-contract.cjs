@@ -9,6 +9,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const validation = fs.readFileSync(path.join(root, 'electron-builder.validation.yml'), 'utf8');
 const production = fs.readFileSync(path.join(root, 'electron-builder.yml'), 'utf8');
 const mainEntry = fs.readFileSync(path.join(root, 'src', 'main-entry.cjs'), 'utf8');
+const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
 
 assert.match(pkg.scripts.pack, /--config\s+electron-builder\.validation\.yml/);
 assert.match(pkg.scripts['dist:test'], /--config\s+electron-builder\.validation\.yml/);
@@ -23,7 +24,7 @@ assert.match(production, /^appId:\s*com\.stardust\.geek\s*$/m);
 assert.match(production, /^productName:\s*极客\s*$/m);
 assert.match(production, /^publish:/m);
 assert.doesNotMatch(production, /geekRuntimeProfile:\s*validation/);
-const configureAt = mainEntry.indexOf('configureRuntimeEnvironment({');
-const scheduledBoundaryAt = mainEntry.indexOf('installScheduledBroadcastAttachmentBoundary({');
-assert.ok(configureAt >= 0 && scheduledBoundaryAt > configureAt, 'profile must be selected before broadcast persistence resolves userData');
+assert.ok(mainEntry.indexOf('configureRuntimeEnvironment({') >= 0);
+assert.ok(mainEntry.indexOf('configureRuntimeEnvironment({') < mainEntry.indexOf("require('./main.cjs')"), 'profile must be selected before main composition resolves userData');
+assert.match(main, /installScheduledBroadcastAttachmentBoundary\(/, 'scheduled attachment persistence remains installed by main composition');
 console.log('VALIDATION_BUILD_ISOLATION_CONTRACT_OK');
