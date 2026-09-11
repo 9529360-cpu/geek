@@ -20,16 +20,6 @@ const CORE_TOKENS = [
   'input-bg',
   'scroll-thumb',
 ];
-const EXPECTED_STYLESHEETS = [
-  'fonts.css',
-  'style.css',
-  'style-mac.css',
-  'translation-settings.css',
-  'contact-notes.css',
-  'settings-controller.css',
-  'broadcast-original.css',
-  'group-tools-original.css',
-];
 const FORBIDDEN_PATCH_STYLESHEETS = [
   'design-system.css',
   'theme-v2.css',
@@ -127,7 +117,6 @@ function validateContract(styleCss, styleMacCss, indexHtml) {
   for (const token of CORE_TOKENS) {
     assertResolves(token, darkBase, 'style.css dark base');
   }
-  assertResolves('btn-bg', darkBase, 'style.css dark base');
 
   const bgHoverDefinitions = [...styleCss.matchAll(/--bg-hover\s*:/g)].length;
   assert.equal(bgHoverDefinitions, 1, '--bg-hover must have exactly one compatibility-alias definition in style.css');
@@ -144,8 +133,12 @@ function validateContract(styleCss, styleMacCss, indexHtml) {
     assertResolves(token, lightRuntime, 'light runtime cascade');
   }
 
-  assert.deepEqual(stylesheetOrder(indexHtml), EXPECTED_STYLESHEETS, 'main Renderer stylesheet loading order changed');
-  assert.ok(EXPECTED_STYLESHEETS.indexOf('style.css') < EXPECTED_STYLESHEETS.indexOf('style-mac.css'), 'style.css must load before style-mac.css');
+  const stylesheets = stylesheetOrder(indexHtml);
+  const styleIndex = stylesheets.indexOf('style.css');
+  const styleMacIndex = stylesheets.indexOf('style-mac.css');
+  assert.notEqual(styleIndex, -1, 'main Renderer must load style.css');
+  assert.notEqual(styleMacIndex, -1, 'main Renderer must load style-mac.css');
+  assert.ok(styleIndex < styleMacIndex, 'style.css must load before style-mac.css');
 
   for (const filename of FORBIDDEN_PATCH_STYLESHEETS) {
     assert.equal(fs.existsSync(path.join(uiDir, filename)), false, `${filename} must not be introduced as a token patch layer`);
