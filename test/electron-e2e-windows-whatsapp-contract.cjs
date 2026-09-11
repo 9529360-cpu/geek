@@ -10,6 +10,8 @@ const testWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'te
 const runner = fs.readFileSync(path.join(root, 'e2e', 'run.cjs'), 'utf8');
 const config = fs.readFileSync(path.join(root, 'e2e', 'wdio.conf.cjs'), 'utf8');
 const whatsappSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'), 'utf8');
+const whatsappOracle = fs.readFileSync(path.join(root, 'e2e', 'support', 'whatsapp-bootstrap-oracle.cjs'), 'utf8');
+const oracleContract = fs.readFileSync(path.join(root, 'test', 'whatsapp-bootstrap-oracle-contract.cjs'), 'utf8');
 
 function jobBlock(source, jobName) {
   const marker = `  ${jobName}:`;
@@ -73,25 +75,70 @@ assert.match(config, /path\.basename\(e2eUserDataDir\)\.startsWith\('geek-e2e-'\
 assert.match(config, /appArgs:\s*\[\]/, 'Electron service must preserve the real sandbox');
 assert.doesNotMatch(config, /--no-sandbox|nodeIntegration\s*:\s*true|contextIsolation\s*:\s*false|webSecurity\s*:\s*false/, 'E2E portability must not weaken Electron/WebView security');
 
-assert.match(whatsappSpec, /LIVE_URL = 'https:\/\/web\.whatsapp\.com\/'/, 'bootstrap oracle must target current official WhatsApp Web');
+assert.match(whatsappSpec, /WHATSAPP_WEB_ORIGIN.*classifyWhatsAppBootstrap.*whatsapp-bootstrap-oracle\.cjs/, 'live spec must delegate deterministic readiness to the test-only oracle');
+assert.match(whatsappSpec, /LIVE_URL = WHATSAPP_WEB_ORIGIN \+ '\/'/, 'bootstrap integration must stay pinned to current official WhatsApp Web');
 assert.doesNotMatch(whatsappSpec, /browser\.pause\(/, 'bootstrap readiness must use bounded predicates instead of fixed sleeps');
-assert.match(whatsappSpec, /BOOTSTRAP_TIMEOUT_MS = 45_000/, 'bootstrap polling must have a bounded timeout');
-assert.match(whatsappSpec, /WA_WINDOWS_BOOTSTRAP platform=win32 guestFound=\$\{summary\.guestFound\} officialWeb=\$\{summary\.officialWeb\} documentComplete=\$\{summary\.documentComplete\} loginShell=\$\{summary\.loginShell\} loadingProgress=\$\{summary\.loadingProgress\}/, 'Windows gate must emit the stable non-sensitive summary');
+assert.match(whatsappSpec, /BOOTSTRAP_TIMEOUT_MS = 45_000/, 'bootstrap polling must retain the bounded 45 second timeout');
+assert.match(whatsappSpec, /document\.createTreeWalker/, 'login-shell evidence must use user-facing rendered text rather than full-page text dumps');
+assert.match(whatsappSpec, /document\.elementsFromPoint/, 'login-shell evidence must verify that terminal content is actually observable rather than merely present in DOM');
+assert.doesNotMatch(whatsappSpec, /document\.body\?\.innerText/, 'bootstrap probe must not treat full body text as the readiness oracle');
+assert.match(whatsappSpec, /loginShellPresent/, 'probe must distinguish terminal evidence existing from terminal evidence being observable');
+assert.match(whatsappSpec, /loginShellVisible/, 'probe must return observable login-shell evidence');
+assert.match(whatsappSpec, /progressCount:\s*boundedCount\(progressElements\.length\)/, 'raw progress elements may remain bounded diagnostic telemetry');
+assert.match(whatsappSpec, /visibleProgressCount:\s*boundedCount\(visibleProgressCount\)/, 'visible progress elements may remain bounded diagnostic telemetry');
+assert.match(whatsappSpec, /rendererProbeOk:\s*true/, 'successful renderer execution must be explicit');
+assert.match(whatsappSpec, /rendererProbeFailed:\s*true/, 'renderer execute failure must be explicit');
+assert.match(whatsappSpec, /rendererProbeTimedOut:\s*true/, 'renderer probe timeout must be explicit');
+assert.match(whatsappSpec, /return classification\.ready;/, 'bounded waitUntil polling must use the pure readiness classifier');
+assert.match(whatsappSpec, /WA_WINDOWS_BOOTSTRAP platform=win32 guestFound=\$\{summary\.guestFound\} officialWeb=\$\{summary\.officialWeb\} rendererResponsive=\$\{summary\.rendererResponsive\} documentComplete=\$\{summary\.documentComplete\} loginShell=\$\{summary\.loginShell\} terminalBlocked=\$\{summary\.terminalBlocked\} loadingProgress=\$\{summary\.loadingProgress\} visibleLoadingProgress=\$\{summary\.visibleLoadingProgress\}/, 'Windows gate must emit stable non-sensitive acceptance plus progress telemetry');
 assert.doesNotMatch(whatsappSpec, /console\.(?:log|error)\([^\n]*(?:document\.cookie|localStorage|sessionStorage|Authorization|qrData|innerText|textContent)/i, 'bootstrap logs must not expose credentials, QR payloads, or page bodies');
+assert.doesNotMatch(whatsappSpec, /getAttribute\(['"]data-ref['"]\)|\.dataset\.ref\b/, 'QR payload values must never be read by the bootstrap gate');
+
+assert.match(whatsappOracle, /WHATSAPP_WEB_ORIGIN = 'https:\/\/web\.whatsapp\.com'/, 'pure oracle must use the exact official WhatsApp Web origin');
+assert.match(whatsappOracle, /mainOrigin === WHATSAPP_WEB_ORIGIN && rendererOrigin === WHATSAPP_WEB_ORIGIN/, 'both main-process and renderer origins must be official');
+assert.match(whatsappOracle, /state\.rendererProbeOk !== true/, 'renderer responsiveness must fail closed on malformed probe results');
+assert.match(whatsappOracle, /state\.loginShellVisible === true/, 'terminal success must come from observable login-shell evidence');
+assert.match(whatsappOracle, /state\.loginShellPresent === true && !loginShell/, 'present but unobservable terminal evidence must be marked blocked');
+assert.doesNotMatch(whatsappOracle, /WPP|WAPLUS|metaRequire/, 'WPP/WAPLUS diagnostics must not enter the bootstrap oracle');
+
+const classifierStart = whatsappOracle.indexOf('function classifyWhatsAppBootstrap');
+const classifierEnd = whatsappOracle.indexOf('\nmodule.exports', classifierStart);
+assert.ok(classifierStart >= 0 && classifierEnd > classifierStart, 'pure classifier source must be recoverable for contract checks');
+const classifierSource = whatsappOracle.slice(classifierStart, classifierEnd);
+assert.match(classifierSource, /!summary\.guestFound/, 'pure oracle must reject missing guest');
+assert.match(classifierSource, /!summary\.rendererResponsive/, 'pure oracle must reject renderer failure');
+assert.match(classifierSource, /!summary\.officialWeb/, 'pure oracle must reject wrong origin');
+assert.match(classifierSource, /!summary\.documentComplete/, 'pure oracle must reject incomplete document');
+assert.match(classifierSource, /summary\.terminalBlocked/, 'pure oracle must reject present-but-unobservable terminal evidence');
+assert.match(classifierSource, /!summary\.loginShell/, 'pure oracle must reject missing observable login shell');
+assert.doesNotMatch(classifierSource, /loadingProgress|progressCount|visibleLoadingProgress/, 'progress element counts must never decide bootstrap acceptance');
 
 const acceptanceAssertions = whatsappSpec.split('\n').filter(line => /assert\.(?:equal|ok|deepEqual)/.test(line)).join('\n');
 assert.doesNotMatch(acceptanceAssertions, /wpp|waplus|metaRequire/i, 'white-screen acceptance must stay independent of WPP/WAPLUS readiness');
+assert.match(acceptanceAssertions, /summary\.guestFound/, 'startup oracle must require the exact synthetic guest');
+assert.match(acceptanceAssertions, /summary\.rendererResponsive/, 'startup oracle must require a responsive renderer');
 assert.match(acceptanceAssertions, /summary\.officialWeb/, 'startup oracle must require official WhatsApp Web');
 assert.match(acceptanceAssertions, /summary\.documentComplete/, 'startup oracle must require document completion');
-assert.match(acceptanceAssertions, /summary\.loginShell/, 'startup oracle must require the QR/login shell');
-assert.match(acceptanceAssertions, /summary\.loadingProgress/, 'startup oracle must require loading progress to disappear');
+assert.match(acceptanceAssertions, /summary\.terminalBlocked/, 'startup oracle must reject an unobservable terminal shell');
+assert.match(acceptanceAssertions, /summary\.loginShell/, 'startup oracle must require the user-visible QR/login shell');
+assert.doesNotMatch(acceptanceAssertions, /summary\.loadingProgress|summary\.visibleLoadingProgress/, 'progress telemetry must not be asserted as readiness');
+
+assert.match(oracleContract, /progressCount:\s*1/, 'deterministic oracle contract must include ordinary progress on a valid terminal state');
+assert.match(oracleContract, /ordinaryProgress\.ready, true/, 'ordinary progress alongside a visible login shell must pass');
+assert.match(oracleContract, /missingTerminal\.ready, false/, 'missing login terminal state must fail deterministically');
+assert.match(oracleContract, /rendererTimeout\.ready, false/, 'renderer timeout must fail deterministically');
+assert.match(oracleContract, /rendererFailure\.ready, false/, 'renderer execute failure must fail deterministically');
+assert.match(oracleContract, /wrongMainOrigin\.ready, false/, 'wrong main origin must fail deterministically');
+assert.match(oracleContract, /wrongRendererOrigin\.ready, false/, 'wrong renderer origin must fail deterministically');
+assert.match(oracleContract, /incompleteDocument\.ready, false/, 'incomplete document must fail deterministically');
+assert.match(oracleContract, /blockingTerminal\.ready, false/, 'blocked terminal evidence must fail deterministically');
 
 for (const sourcePath of collectSourceFiles(path.join(root, 'src'))) {
   const source = fs.readFileSync(sourcePath, 'utf8');
   assert.equal(source.includes('GEEK_E2E_SUITE'), false, `test-only selector leaked into product runtime: ${path.relative(root, sourcePath)}`);
 }
 
-const combined = [electronWorkflow, testWorkflow, runner, config, whatsappSpec].join('\n');
+const combined = [electronWorkflow, testWorkflow, runner, config, whatsappSpec, whatsappOracle, oracleContract].join('\n');
 assert.doesNotMatch(combined, /%APPDATA%[\\/]geek|AppData[\\/]Roaming[\\/]geek/i, 'automated gate must never target real Geek userData');
 assert.doesNotMatch(combined, /--no-sandbox/, 'Windows gate must never disable Electron sandboxing');
 
