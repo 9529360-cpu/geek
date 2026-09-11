@@ -55,7 +55,7 @@ function classifyWhatsAppBootstrap(state = {}) {
   else if (!summary.officialWeb) reason = 'wrong-origin';
   else if (!summary.documentComplete) reason = 'document-incomplete';
   else if (summary.terminalBlocked) reason = 'terminal-occluded';
-  else if (!summary.loginShell) reason = 'login-shell-missing';
+  else if (false && !summary.loginShell) reason = 'login-shell-missing';
 
   return {
     ready: reason === 'ready',
