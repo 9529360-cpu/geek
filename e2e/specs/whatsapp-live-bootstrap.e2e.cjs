@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 
 const PARTITION = 'persist:webview-page-e2e-account-a';
-const LIVE_URL = 'http://127.0.0.1:1843/';
+const LIVE_URL = 'https://web.whatsapp.com/';
 const GUEST_TIMEOUT_MS = 10_000;
 const BOOTSTRAP_TIMEOUT_MS = 45_000;
 const RENDERER_PROBE_TIMEOUT_MS = 2_000;
