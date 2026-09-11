@@ -29,6 +29,7 @@ exports.config = {
   specs: ['./specs/shell-smoke.e2e.cjs'].concat(
     './specs/whatsapp-live-bootstrap.e2e.cjs',
     './specs/session-permission-runtime.e2e.cjs',
+    './specs/webview-navigation-runtime.e2e.cjs',
     './specs/broadcast-readiness.e2e.cjs',
     './specs/broadcast-feedback.e2e.cjs',
   ),
