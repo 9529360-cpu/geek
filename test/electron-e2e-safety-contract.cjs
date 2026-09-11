@@ -32,7 +32,7 @@ async function main() {
   assert.match(config, /\.\/specs\/webview-navigation-runtime\.e2e\.cjs/, 'real account navigation runtime gate must remain enabled');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
   assert.match(config, /process\.env\.GEEK_E2E === '1'/, 'WDIO config must fail closed outside the E2E seam');
-  assert.match(config, /path\.relative\(path\.resolve\(os\.tmpdir\(\), e2eUserDataDir\)/, 'Geek app profile must remain underneath the OS temp root');
+  assert.match(config, /path\.relative\(path\.resolve\(os\.tmpdir\(\)\), e2eUserDataDir\)/, 'Geek app profile must remain underneath the OS temp root');
   assert.match(config, /path\.basename\(e2eUserDataDir\)\.startsWith\('geek-e2e-'\)/, 'Geek app profile must use the isolated geek-e2e-* prefix');
   assert.match(config, /--user-data-dir=\$\{e2eUserDataDir\}/, 'ChromeDriver and Electron must share the isolated fixture profile for session startup');
   assert.match(config, /after:\s*async function/);
@@ -107,7 +107,7 @@ async function main() {
   assert.match(navigationRuntimeSpec, /https:\/\/example\.com/, 'runtime gate must include Website A');
   assert.match(navigationRuntimeSpec, /https:\/\/example\.org/, 'runtime gate must include Website B');
   assert.match(navigationRuntimeSpec, /didNavigate.*true/s, 'same-owner Website control must require a real completed navigation');
-  assert.match(navigationRuntimeSpec, /window\.api\.accounts\.add/, 'Website fixtures must be created after shell smoke through the real renderer account API');
+  assert.match(navigationRuntimeSpec, /#add-custom-url/, 'temporary Website fixtures must use the real renderer add flow so their WebViews materialize');
   assert.match(navigationRuntimeSpec, /window\.api\.accounts\.remove/, 'temporary Website fixtures must be removed after the runtime proof');
   assert.doesNotMatch(navigationRuntimeSpec, /webContents\.loadURL\(|\.loadURL\(TELEGRAM_TARGET|\.loadURL\(WEBSITE_B_URL/, 'navigation E2E must not replace page-initiated navigation with Electron loadURL');
   assert.doesNotMatch(navigationRuntimeSpec, /isNavigationAllowed|policyForAccount|policyFromAccountState|installAccountScopedWebviewNavigationBoundary|webview-navigation-boundary/, 'navigation runtime E2E must not call Geek navigation helpers directly');
