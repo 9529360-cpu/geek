@@ -164,7 +164,7 @@ function createBroadcastFileRegistry(options = {}) {
       throw createPolicyError('BROADCAST_FILE_TOKEN_EXPIRED');
     }
     pruneExpired(currentTime);
-    if (entry.owner !== owner) throw createPolicyError('BROADCAST_FILE_TOKEN_INVALID');
+    // MUTATION: owner guard deliberately bypassed for contract proof.
 
     let stat;
     try {
