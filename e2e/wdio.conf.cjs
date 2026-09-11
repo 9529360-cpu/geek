@@ -66,13 +66,14 @@ exports.config = {
   }],
   services: ['electron'],
   // Mocha has already produced the real test result before this hook runs. Own the
-  // two process lifecycles explicitly: terminate only the isolated Electron app,
-  // then use ChromeDriver's documented server shutdown endpoint. Clearing sessionId
-  // makes WDIO Runner.endSession skip the known-hanging W3C DELETE /session path.
+  // two process lifecycles explicitly: ask the isolated Electron app to terminate
+  // on the next main-loop turn so execute can return cleanly, then use ChromeDriver's
+  // documented server shutdown endpoint. Clearing sessionId makes WDIO Runner.endSession
+  // skip the known-hanging W3C DELETE /session path.
   after: async function () {
     const shutdownUrl = chromeDriverShutdownUrl(browser.options);
     await browser.electron.execute((electron) => {
-      electron.app.exit(0);
+      setImmediate(() => electron.app.exit(0));
       return true;
     });
 
