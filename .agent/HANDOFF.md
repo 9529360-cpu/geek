@@ -1,105 +1,73 @@
-# Geek Agent Handoff
+# Geek Maintenance Recovery Contract
 
-Updated: 2026-08-29
+This file is a recovery contract, not a live status database. A new maintainer or AI session must recover current state from GitHub before choosing or continuing work.
 
-## 2026-08-30 累计验证基线纠正
+## Source of truth order
 
-- 用户指出联系人备注测试包不应遗漏其他尚未进入 master 的近期已验证能力；先前从 `origin/master` 构建孤立功能包的做法不适合作为日常累计测试版。
-- 当前集成分支：`integration/latest-notes-translation-fix`，以真实客户端通过的 `aed52c3` 为基线，叠加六字段联系人备注和翻译双回车修复。
-- Git 祖先核验：`aed52c3` 与 WhatsApp 翻译缓存恢复 `c7d7290` 均为当前 HEAD 祖先。
-- 聚焦测试：翻译缓存恢复、双回车、联系人备注均通过。完整本地测试仅被已知 Windows 中文用户名 `icacls` 乱码环境问题阻断。
-- 旧验证包 `02ec076` 作废；下一安装包必须从本集成分支 exact HEAD 生成。
+When sources disagree, use this order:
 
-## 2026-08-30 Telegram 标签群发语义纠偏
+1. live GitHub `master` source and HEAD;
+2. live `package.json`;
+3. live `.github/release-client-version`;
+4. live tests, contracts, and GitHub workflows / CI results;
+5. live open Issues and pull requests, including their newest relevant comments;
+6. the newest dated checkpoint on Issue #50;
+7. dated historical snapshots in this file or other Markdown.
 
-- 用户确认产品语义：保存标签只是批量恢复普通收件人选择，不是新的发送类型。Job、runtime 和 transport 都不得知道 target 是否来自标签。
-- 已撤销 `2ef88be` 的 saved-tag 专用路由方案；验证 artifact `9722230157` / `geek-validation-2ef88be...` 作废，不得用于验收。
-- 新边界：`app.js` 是 `broadcastSelected` 的唯一 owner，并提供统一 canonical target snapshot；手动勾选与标签恢复进入完全相同的 custom audience。
-- TG 的直接 `switchChat + chat identity` 成功路径保持不变。仅当通用 `platform.openChat` 找不到/无法确认目标时，才使用 provenance-free 的虚拟聊天列表滚动恢复；恢复仍要求真实选中行与 current chat identity 同时一致，否则 fail-closed。
-- 禁止重新引入 `telegramSavedTarget`、标签专用 Job 字段、全局 transport wrapper 或 `location.hash` 自证导航。
-- 下一门禁：完整本地 contract（已知本机 ACL 代码页问题单列）、exact-head CI/validation build；真实客户端必须分别验证普通 TG 群发和标签快捷恢复后群发，两者从 Job 创建起应没有行为差异。
+**Any SHA or version written in Markdown is a dated snapshot only. It must never be treated as live current state.** Always query GitHub again before acting.
 
-## 2026-08-30 联系人备注施工现场
+## Recovery procedure for a new session
 
-- Telegram 标签群发修复 `aed52c382ffb881ee16254490a4e4ff20df6f7ca` 已由用户在真实客户端确认通过：标签只恢复普通收件人选择，不再走专用发送路由。证据已记录在 Draft PR #166。
-- 当前分支：`feat/contact-notes`，基于在线 `origin/master` 的 `cc047df`；联系人备注与群发修复保持独立。
-- 当前实现：WhatsApp / Telegram / LINE 共用顶部“备注”入口，包含客户名称、国家/地区、来源渠道、跟进状态、下次跟进时间、备注六项；按账号加密数据仓 + 平台 + 当前聊天 ID 隔离，不进入消息正文或 WebView 注入链路。
-- 数据键：`contactNotes`；单条上限 2000 字、每账号最多 2000 条。支持查看、保存、删除及聊天切换时刷新。
-- 验证：`npm test` 全部 85 项通过；`git diff --check` 仅报告仓库既有 Windows 行尾提示，无空白错误。
-- 边界：尚未生成测试安装包、尚未做三平台真实客户端交互验证、尚未发布正式客户端。
+1. Read `AGENTS.md` and this contract, but do not start work from a SHA, version, branch, PR, or priority named in prose.
+2. Fetch live `master` HEAD, `package.json`, `.github/release-client-version`, open PRs, open Issues, and the latest `master` CI runs.
+3. If a dated checkpoint differs from live `master`, inspect intervening merges and current source/tests before deciding whether old Issue or PR text is still actionable.
+4. Read the active code owner and its contracts for the task. Treat old Issue bodies, old PR bodies, validation artifacts, and diagnostic branches as archaeology until live source proves they are still relevant.
+5. Use Issue #50 only as a persistent checkpoint/index after live state has been fetched. Its comments are snapshots, not authority over newer repository state.
+6. Keep one root cause per Issue/branch/PR. Ordinary maintenance must not modify `.github/release-client-version`; a client release is a separate explicitly authorized operation.
 
-## 2026-08-30 翻译双回车修复
+## Durable architecture and security invariants
 
-- 当前叠加分支：`fix/translation-double-enter`，基于联系人备注提交 `65fd2c3`，方便生成同时包含备注和修复的验证安装包。
-- 根因：Telegram / LINE 翻译发送锁命中时直接返回，却没有吞掉第二次真实用户回车或发送按钮事件，导致事件落入平台原生发送链路并发出原文；该缺口早于本轮群发标签修复。
-- 修复：锁定期间只拦截 `isTrusted` 的用户重复发送；保留翻译完成后程序化提交译文的非可信事件。
-- 验证：新增 `translation-double-enter-contract.cjs`；`npm test` 全部 86 项通过。仍需真实客户端快速双击回车验证。
+These are intended to survive individual maintenance rounds. Reconfirm them against live source/tests when working near the boundary.
 
-## 当前目标
+- The real Electron entrypoint is `src/main-entry.cjs`; do not infer runtime ownership from an older entrypoint description.
+- Each account owns a persistent Electron Session/partition. Account identity, partition, guest `WebContents`, and account-scoped state must not be silently rebound by UI focus or another account.
+- Remote WebViews keep `sandbox=true`, `nodeIntegration=false`, and `webSecurity=true`; insecure content is not enabled as a maintenance shortcut.
+- WhatsApp and Telegram use `contextIsolation=true`. LINE has a deliberately scoped `contextIsolation=false` compatibility exception; do not remove or broaden it without the authenticated evidence described by #16/#130.
+- Post-attach WebView navigation is account-scoped and fail-closed when account/partition ownership cannot be established. Popup, navigation, and redirect policy must not become a global cross-account allowlist.
+- WebView permission decisions are account/session scoped and fail closed outside each platform/account policy.
+- Immediate broadcast files use opaque main-process capabilities; renderer code must not receive arbitrary filesystem paths.
+- Scheduled broadcast attachments use durable opaque refs owned by account + task/job. Canonical paths remain main-process state; materialization revalidates source metadata and owner binding, and terminal/cancel cleanup invalidates refs.
+- Real Electron E2E uses an isolated `geek-e2e-*` userData profile under the OS temp root. Synthetic E2E evidence proves only the mechanism it actually exercises; it does not substitute for authenticated WA/TG/LINE compatibility evidence.
+- Website is a first-class account type: custom URLs are HTTPS-only, accounts have distinct persistent Sessions, navigation is scoped to that account's configured host policy, and Website guests receive no privileged preload bridge.
+- Normal maintenance must not bump package version, change `.github/release-client-version`, publish updater metadata, or trigger a formal client release unless the task explicitly authorizes a release.
 
-继续收口 Draft PR #166 `feat: make broadcast runtime account-scoped`。群发执行层已账号级 Job 化；当前重点是用真实 Windows validation 客户端把编辑器、联系人加载、收件人名单、定时任务、附件和多账号恢复闭环验证。正式 `master` / Geek 1.2.16 继续作为稳定参照，真实客户端通过前 #166 保持 Draft。
+## Remaining live gates at the last verification
 
-## 实时仓库状态
+These entries describe unresolved evidence/decisions, not an instruction to implement them automatically. Refresh each Issue before acting.
 
-- `master`: `c7d7290bf3e45cf2e8782bf83d5870bfd5f23157`
-- `ux/broadcast-account-jobs`: 本 HANDOFF 提交前 `6ca645ae1233d0e9dd2fb71d60b4c99fc74caf4c`
-- PR #166: Draft
-- `package.json.version`: `1.2.16`
-- `.github/release-client-version`: `1.2.16`
-- 未 force push、未历史重写、未触发正式 `release-client`。
+- **#223 — account-scoped WebView navigation.** The production account-scoped navigation fix is in `master`, and PR #323 added a synthetic real-Electron guest runtime gate proving page `location.assign(...)` reaches main-process `will-navigate` while forbidden WA -> TG and Website A -> B destinations never commit via `did-navigate`; same-owner Website navigation remains the positive control. **Keep #223 open** until authenticated WA/TG/LINE login, messaging, restart/session-persistence compatibility evidence is recorded. Do not treat #323 as that authenticated proof.
+- **#167 — durable scheduled attachments.** `ScheduledBroadcastAttachmentStore`, account + job/task owner binding, restart persistence, source mutation detection, opaque renderer refs, and cleanup contracts already exist in `master`. Do not reimplement the Store from the stale Issue body. **Keep #167 open** for real-client WA/TG/LINE restart, cancel, source-mutation, send, and cleanup/isolation validation.
+- **#130 / #16 — LINE compatibility evidence.** The Electron upgrade is complete, but authenticated LINE post-login behavior remains the gate for changing the scoped `contextIsolation=false` exception. Do not remove that exception based on unauthenticated or static contracts alone.
+- **#3 — historical credentials/runtime data.** Current code-side exposure is contained. Remaining credential rotation / risk acceptance / Git history rewrite is an owner-controlled and potentially destructive decision. Never expose historical secrets, rewrite history, or force-push as routine maintenance.
+- **Old WhatsApp diagnostic PRs, including #314/#315/#316.** Re-evaluate them against live `master` before using any finding. A diagnostic branch or artifact is not a product fix and must not be merged merely because its old observation was once valid.
 
-## 当前最高优先级
+## Last verified snapshot
 
-| 优先级 | 状态 | 任务 | 当前证据 / 下一条件 |
-|---|---|---|---|
-| P1 | real_client_fix | #231 群发编辑器产品闭环 | 用户在 exact validation `4ee50766...` 发现点击群发后“正在准备 WhatsApp 群发联系人”会把原入口拦住，页面表现为卡死。根因为 Workbench capture-phase `preventDefault + stopImmediatePropagation` 后异步等待 WPP。PR #236 已删除该错误边界：Workbench 不再探测 WPP/拦入口，只增强已打开弹窗；联系人状态仅 inline、非阻塞。PR CI `33219720307` success；已合 #166 为 `6ca645ae...`。需新 exact validation 实机确认。 |
-| P1 | code_done | 群发四步 Workbench | 内容→对象→设置→检查；保留高级收件方式、附件、名片、随机间隔和账号级任务中心。Workbench 现在仅负责 presentation，不再重复 transport/readiness。 |
-| P1 | code_done | 联系人/群组保存语义 | 主入口“保存收件人名单”支持联系人+群组；“保存群组集合”只表示群组筛选。需实机验证实际保存/恢复。 |
-| P1 | code_done | 定时任务主路径 | 旧 `scheduleTasks + setTimeout + 改写编辑器` UI 已退役；入口统一到 account-scoped `scheduled/queued BroadcastJob`、fixed targets、durable attachment ref、restart restore/cancel/recovery。需真实到点/重启验证。 |
-| P1 | real_client_pass | #233 WhatsApp 翻译缓存 A→B→A 回显 | #234 已合 master 并同步 #166。用户已在 `4ee50766...` 实机确认“翻译的那个倒是修好了”。继续保留主进程 partition safeStorage 缓存和独立 `translation-whatsapp-rehydrate.js`。 |
-| P1 | in_progress | exact HEAD CI + validation artifact | 本 HANDOFF 提交会产生最终 exact HEAD 并触发 test/acl-windows/validation-client-build；只使用该 HEAD 的新验证包。 |
-| P1 | blocked | #166 其余真实客户端回归 | WA/TG/LINE 登录/文本/附件；A/B/C 并发；pause/resume/stop；scheduled/queued；重启恢复；账号删除；附件源变更 fail-closed。 |
-| P1 | planned | #166 Ready / merge | 真实客户端 gate 通过后。 |
-| P1 | planned | 正式客户端发布 | 独立人工授权动作；当前禁止。 |
-| P2 | open | #230 website 账号入口不可达 | 独立处理，不阻塞当前 WA/TG/LINE gate。 |
+**Historical checkpoint — refresh live state before acting.**
 
-## 最近实际验证
+Last verified before this handoff change: **2026-09-11**.
 
-### 群发入口回归与修复
+- audited `master` snapshot: `9c6d8687a1e7f1657dea4241a6b960bff477161b`;
+- audited `package.json.version`: `1.2.21`;
+- audited `.github/release-client-version`: `1.2.21`;
+- latest audited `master` push gates at that point: `test` #1029 success and `electron-e2e` #189 success;
+- PR #296 had already made Website a supported first-class account type;
+- PR #323 had already merged the synthetic real-Electron navigation mechanism gate.
 
-- 用户安装 exact validation HEAD `4ee507660cef021b07cc54bb4f8d259edd9be569` 后，点击群发出现“正在准备 WhatsApp 群发联系人”，随后整个页面看起来不动。
-- 代码根因已追到 `ui/broadcast-workbench.js`：capture-phase 拦截 `#bc-menu-send`，同步阻止原 handler，再异步 `awaitBroadcastReadiness()`；readiness 未按预期完成时原群发弹窗永远不会打开。
-- PR #236 `fix: keep broadcast contact loading non-blocking` 删除 `bypassNextOpen / probeWhatsAppReadiness / awaitBroadcastReadiness / prepareAndReopen` 及入口 capture 拦截。
-- Workbench 现在只观察已打开的 `broadcast-overlay` / `broadcast-meta`，联系人同步中提示“可继续编辑消息”；失败只提示“不影响编辑”，不会冻结主界面。
-- 新 contract 明确禁止 Workbench 再出现 `#bc-menu-send` 拦截、`preventDefault()`、`stopImmediatePropagation()`、WPP 直接 probe 或重复 readiness orchestration。
-- PR #236 head `69eb6525cd7377940908abe1def80471c531c239`，GitHub `test` run `33219720307`: success；merge `6ca645ae1233d0e9dd2fb71d60b4c99fc74caf4c` 已进入 #166。
-- 这只证明代码/CI 修复，尚需新 validation 客户端确认点击群发立即打开且联系人加载只局部异步。
+The values above are intentionally frozen as evidence of what was reviewed on that date. They are **not** a declaration of the current master or current released version after this document changes.
 
-### 翻译回显
+## Historical / Git archaeology
 
-- Issue #233 / PR #234 已修 WhatsApp A→B→A 后 DOM 重建不重新挂载缓存译文的问题。
-- 主进程加密翻译缓存未改；新增独立 `translation-whatsapp-rehydrate.js` 只在 chat identity 变化时调用既有 `__geekRefreshTranslationView()`。
-- PR #234 CI success，已合 master `c7d7290bf3e45cf2e8782bf83d5870bfd5f23157` 并同步 #166。
-- 用户已在 validation `4ee50766...` 真实客户端确认翻译修复有效。
+Older HANDOFF revisions contain useful history around broad broadcast stabilization (#166), the #231 editor/readiness regression, validation artifacts, translation/contact-note work, and temporary integration branches. Preserve that history in Git, but do not restore those branch names, artifact SHAs, Draft states, or "current target" language into this recovery contract unless live GitHub and current source independently show they are active again.
 
-## 关键产品/安全边界
-
-- Broadcast Job 固定 `accountId / partition / platform / WebView owner / targets / message / attachments / interval`；切换查看账号不能重定向 Job。
-- 不同账号可并发，同账号 executing Job 串行；定时碰撞进入 queued。
-- 定时附件使用主进程 durable opaque ref；renderer 不获得 canonical path。
-- 发送继续复用 `GeekPlatformTransports` 与 `GeekBroadcastSafety.authorizeSend`。
-- Workbench 只负责 UI/presentation，不直接访问 WPP readiness，不阻断原群发入口。
-- WebView 安全策略不降低；LINE 既有局部兼容例外不扩散。
-- 翻译正文/译文缓存继续位于账号 partition 并使用 `safeStorage`；DOM 不是缓存源。
-- 不记录/上传真实联系人、聊天正文、Cookie、Token、密码或用户数据作为诊断证据。
-- validation build 使用独立 appId/product/runtime profile，`--publish never`，只允许验证版 EXE artifact。
-- 普通维护禁止修改版本/release marker；正式 Windows release 仍需独立人工授权。
-
-## 下一步
-
-1. 以本 HANDOFF 提交后的 exact #166 HEAD 为唯一候选，核 Linux `test`、Windows `acl-windows`、`validation-client-build`。
-2. 核 validation artifact 只包含 `geek-validation-setup-1.2.16.exe`，记录 artifact id/digest/EXE SHA-256，并交用户安装。
-3. 第一优先实机验证：点击群发必须立即打开编辑器；联系人加载只能局部显示同步状态，页面和消息编辑始终可操作；联系人最终出现。
-4. 继续验证“保存收件人名单”和定时任务 scheduled/queued/cancel/到点/重启恢复。
-5. 再做附件、多账号并发、暂停/继续/停止、账号删除等 #166 全 gate。
-6. 真实 gate 通过前保持 Draft；正式 Windows 发布仍需用户独立授权。
+When archaeology is needed, inspect the historical commit/PR/Issue directly. Do not promote a historical snapshot into a current maintenance plan by copying it here.
