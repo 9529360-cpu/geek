@@ -166,15 +166,46 @@ async function probeRejectedAccountType() {
   return browser.executeAsync((done) => {
     (async () => {
       const before = await window.api.accounts.list();
-      let message = '';
-      try {
-        await window.api.accounts.add({ name: 'E2E invalid type', type: 'telegrm' });
-      } catch (error) {
-        message = String(error?.message || error || '');
+      const results = [];
+      for (const type of ['telegrm', '', null, ' whatsapp']) {
+        let message = '';
+        try {
+          await window.api.accounts.add({ name: 'E2E invalid type', type });
+        } catch (error) {
+          message = String(error?.message || error || '');
+        }
+        results.push({ type: String(type), rejected: message.includes('ACCOUNT_TYPE_UNSUPPORTED') });
       }
       const after = await window.api.accounts.list();
       done({
-        rejected: message.includes('ACCOUNT_TYPE_UNSUPPORTED'),
+        rejected: results.every(item => item.rejected),
+        rejectedCount: results.filter(item => item.rejected).length,
+        beforeIds: Array.isArray(before?.accounts) ? before.accounts.map(account => account.id) : [],
+        afterIds: Array.isArray(after?.accounts) ? after.accounts.map(account => account.id) : [],
+        beforeActive: String(before?.activeAccountId || ''),
+        afterActive: String(after?.activeAccountId || ''),
+      });
+    })().catch((error) => done({ rejected: false, probeError: String(error?.name || 'Error').slice(0, 80) }));
+  });
+}
+
+async function probeMalformedAccountPayloads() {
+  return browser.executeAsync((done) => {
+    (async () => {
+      const before = await window.api.accounts.list();
+      const results = [];
+      for (const payload of [null, []]) {
+        let message = '';
+        try {
+          await window.api.accounts.add(payload);
+        } catch (error) {
+          message = String(error?.message || error || '');
+        }
+        results.push({ rejected: message.includes('ACCOUNT_PAYLOAD_INVALID') });
+      }
+      const after = await window.api.accounts.list();
+      done({
+        rejected: results.every(item => item.rejected),
         beforeIds: Array.isArray(before?.accounts) ? before.accounts.map(account => account.id) : [],
         afterIds: Array.isArray(after?.accounts) ? after.accounts.map(account => account.id) : [],
         beforeActive: String(before?.activeAccountId || ''),
@@ -418,10 +449,16 @@ assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui
     assert.equal(accountDataProbe.ok, true, `accountData.getAll failed: ${accountDataProbe.code || 'unknown'}`);
 
     const rejectedTypeProbe = await probeRejectedAccountType();
-    console.log(`E2E_ACCOUNT_TYPE rejected=${rejectedTypeProbe.rejected === true} stateUnchanged=${JSON.stringify(rejectedTypeProbe.beforeIds) === JSON.stringify(rejectedTypeProbe.afterIds) && rejectedTypeProbe.beforeActive === rejectedTypeProbe.afterActive}`);
+    console.log(`E2E_ACCOUNT_TYPE rejected=${rejectedTypeProbe.rejected === true} rejectedCount=${rejectedTypeProbe.rejectedCount || 0} stateUnchanged=${JSON.stringify(rejectedTypeProbe.beforeIds) === JSON.stringify(rejectedTypeProbe.afterIds) && rejectedTypeProbe.beforeActive === rejectedTypeProbe.afterActive}`);
     assert.equal(rejectedTypeProbe.rejected, true, `real accounts:add did not reject explicit unknown type: ${rejectedTypeProbe.probeError || 'unknown'}`);
     assert.deepEqual(rejectedTypeProbe.afterIds, rejectedTypeProbe.beforeIds, 'rejected account type must not create or remove account state');
     assert.equal(rejectedTypeProbe.afterActive, rejectedTypeProbe.beforeActive, 'rejected account type must not switch active account state');
+
+    const malformedPayloadProbe = await probeMalformedAccountPayloads();
+    console.log(`E2E_ACCOUNT_PAYLOAD rejected=${malformedPayloadProbe.rejected === true} stateUnchanged=${JSON.stringify(malformedPayloadProbe.beforeIds) === JSON.stringify(malformedPayloadProbe.afterIds) && malformedPayloadProbe.beforeActive === malformedPayloadProbe.afterActive}`);
+    assert.equal(malformedPayloadProbe.rejected, true, `real accounts:add did not reject malformed payloads: ${malformedPayloadProbe.probeError || 'unknown'}`);
+    assert.deepEqual(malformedPayloadProbe.afterIds, malformedPayloadProbe.beforeIds, 'malformed account payload must not create or remove account state');
+    assert.equal(malformedPayloadProbe.afterActive, malformedPayloadProbe.beforeActive, 'malformed account payload must not switch active account state');
 
     const accounts = await $$('.nav-account');
     assert.equal(accounts.length, 2, 'isolated fixture must render exactly two fake accounts');

@@ -23,6 +23,7 @@ const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { assertSafeTranslationOutput } = require('./translation-output-safety.cjs');
 const { normalizeWebsiteUrl, parseWebsiteUrl } = require('./website-url.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
+const { installAccountIpc } = require('./account-ipc.cjs');
 const { ACCOUNT_DATA_KEYS } = require('./account-data-store.cjs');
 const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
@@ -1047,6 +1048,92 @@ async function translateViaRemoteGateway(event, payload) {
   try { return await request; } finally { if (translationInflight.get(inflightKey) === request) translationInflight.delete(inflightKey); }
 }
 
+let accountIpcBoundary = null;
+
+async function updateAccount(event, accountId, patchData) {
+  assertTrustedSender(event);
+  assertValidAccountId(accountId);
+
+  const account = accountsState.accounts.find((item) => item.id === accountId);
+  if (!account) {
+    throw new Error('账号不存在');
+  }
+
+  const raw = patchData && typeof patchData === 'object' ? patchData : {};
+
+  if (typeof raw.name === 'string') {
+    const name = sanitizeAccountName(raw.name, account.name);
+    if (name) {
+      account.name = name;
+    }
+  }
+  if (Number.isInteger(raw.fontSize) && raw.fontSize >= 10 && raw.fontSize <= 28) {
+    account.fontSize = raw.fontSize;
+  }
+  if (typeof raw.fontColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.fontColor)) {
+    account.fontColor = raw.fontColor;
+  }
+  if (typeof raw.openProxy === 'boolean') {
+    account.openProxy = raw.openProxy;
+  }
+  if (raw.protocal === 'http' || raw.protocal === 'https' || raw.protocal === 'socks4' || raw.protocal === 'socks5') {
+    account.protocal = raw.protocal;
+  }
+  if (typeof raw.host === 'string') account.host = raw.host;
+  if (typeof raw.port === 'string') account.port = raw.port;
+  if (typeof raw.huser === 'string') account.huser = raw.huser;
+  if (typeof raw.hpwd === 'string') account.hpwd = raw.hpwd;
+
+  await persistAccounts();
+  await applyProxyForPartition(
+    account.partition,
+    account.openProxy ? account : (configState.openProxy ? configState : null)
+  );
+  notifyAccountsChanged();
+
+  return publicState();
+}
+
+async function moveAccount(event, accountId, direction) {
+  assertTrustedSender(event);
+  assertValidAccountId(accountId);
+
+  const index = accountsState.accounts.findIndex((item) => item.id === accountId);
+  if (index === -1) {
+    throw new Error('账号不存在');
+  }
+  const target = direction === 'up' ? index - 1 : index + 1;
+  if (target < 0 || target >= accountsState.accounts.length) {
+    throw new Error('已经是边缘位置');
+  }
+
+  const [moved] = accountsState.accounts.splice(index, 1);
+  accountsState.accounts.splice(target, 0, moved);
+
+  await persistAccounts();
+  notifyAccountsChanged();
+
+  return publicState();
+}
+
+async function moveAccountTo(event, accountId, targetIndex) {
+  assertTrustedSender(event);
+  assertValidAccountId(accountId);
+
+  const index = accountsState.accounts.findIndex((item) => item.id === accountId);
+  if (index === -1) {
+    throw new Error('账号不存在');
+  }
+  const insertAt = Math.max(0, Math.min(accountsState.accounts.length - 1, targetIndex | 0));
+  const [moved] = accountsState.accounts.splice(index, 1);
+  accountsState.accounts.splice(insertAt, 0, moved);
+
+  await persistAccounts();
+  notifyAccountsChanged();
+
+  return publicState();
+}
+
 function registerIpcHandlers() {
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
   const remoteDebuggingRequested = externalDebuggingRequested({ argv: process.argv });
@@ -1095,6 +1182,17 @@ function registerIpcHandlers() {
       const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
       console.error('[account-data] compaction retry required:', code.slice(0, 80));
     },
+  });
+  accountIpcBoundary = installAccountIpc({
+    ipcMain,
+    assertTrustedSender,
+    listAccounts: async () => publicState(),
+    addAccount,
+    removeAccount: (event, accountId) => accountDataBoundary.runAccountRemoval(event, accountId, removeAccount),
+    switchAccount,
+    updateAccount,
+    moveAccount,
+    moveAccountTo,
   });
   ipcMain.handle('translation:translate', translateViaRemoteGateway);
   ipcMain.handle('webview:register', async (event, accountId, guestId, token) => {
@@ -1159,101 +1257,6 @@ function registerIpcHandlers() {
     if (!runtimeAssetAllowed('bridge')) throw new Error('翻译桥完整性校验失败，已阻止加载');
     const { pathToFileURL } = require('node:url');
     return pathToFileURL(path.join(RESOURCES_DIR, 'bridge-preload.cjs')).href;
-  });
-
-  ipcMain.handle('accounts:list', async (event) => {
-    assertTrustedSender(event);
-    return publicState();
-  });
-
-  ipcMain.handle('accounts:add', addAccount);
-  ipcMain.handle('accounts:remove', (event, accountId) => accountDataBoundary.runAccountRemoval(event, accountId, removeAccount));
-  ipcMain.handle('accounts:switch', switchAccount);
-
-  ipcMain.handle('accounts:update', async (event, accountId, patchData) => {
-    assertTrustedSender(event);
-    assertValidAccountId(accountId);
-
-    const account = accountsState.accounts.find((item) => item.id === accountId);
-    if (!account) {
-      throw new Error('账号不存在');
-    }
-
-    const raw = patchData && typeof patchData === 'object' ? patchData : {};
-
-    if (typeof raw.name === 'string') {
-      const name = sanitizeAccountName(raw.name, account.name);
-      if (name) {
-        account.name = name;
-      }
-    }
-    if (Number.isInteger(raw.fontSize) && raw.fontSize >= 10 && raw.fontSize <= 28) {
-      account.fontSize = raw.fontSize;
-    }
-    if (typeof raw.fontColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.fontColor)) {
-      account.fontColor = raw.fontColor;
-    }
-    if (typeof raw.openProxy === 'boolean') {
-      account.openProxy = raw.openProxy;
-    }
-    if (raw.protocal === 'http' || raw.protocal === 'https' || raw.protocal === 'socks4' || raw.protocal === 'socks5') {
-      account.protocal = raw.protocal;
-    }
-    if (typeof raw.host === 'string') account.host = raw.host;
-    if (typeof raw.port === 'string') account.port = raw.port;
-    if (typeof raw.huser === 'string') account.huser = raw.huser;
-    if (typeof raw.hpwd === 'string') account.hpwd = raw.hpwd;
-
-    await persistAccounts();
-    await applyProxyForPartition(
-      account.partition,
-      account.openProxy ? account : (configState.openProxy ? configState : null)
-    );
-    notifyAccountsChanged();
-
-    return publicState();
-  });
-
-  ipcMain.handle('accounts:move', async (event, accountId, direction) => {
-    assertTrustedSender(event);
-    assertValidAccountId(accountId);
-
-    const index = accountsState.accounts.findIndex((item) => item.id === accountId);
-    if (index === -1) {
-      throw new Error('账号不存在');
-    }
-    const target = direction === 'up' ? index - 1 : index + 1;
-    if (target < 0 || target >= accountsState.accounts.length) {
-      throw new Error('已经是边缘位置');
-    }
-
-    const [moved] = accountsState.accounts.splice(index, 1);
-    accountsState.accounts.splice(target, 0, moved);
-
-    await persistAccounts();
-    notifyAccountsChanged();
-
-    return publicState();
-  });
-
-  // 拖拽排序：把账号移动到指定下标（对齐原版拖拽排序体验）
-  ipcMain.handle('accounts:move-to', async (event, accountId, targetIndex) => {
-    assertTrustedSender(event);
-    assertValidAccountId(accountId);
-
-    const index = accountsState.accounts.findIndex((item) => item.id === accountId);
-    if (index === -1) {
-      throw new Error('账号不存在');
-    }
-    let insertAt = Math.max(0, Math.min(accountsState.accounts.length - 1, targetIndex | 0));
-    const [moved] = accountsState.accounts.splice(index, 1);
-    // 目标位置在移除位置之后时，插入下标不变（因为前面的元素少了一个）
-    accountsState.accounts.splice(insertAt, 0, moved);
-
-    await persistAccounts();
-    notifyAccountsChanged();
-
-    return publicState();
   });
 
   ipcMain.handle('config:get', async (event) => {
@@ -2421,12 +2424,8 @@ app.on('child-process-gone', (_event, details) => {
 
 app.on('before-quit', () => {
   isQuitting = true; // 允许窗口真正关闭（托盘"退出"路径）
-  ipcMain.removeHandler('accounts:list');
-  ipcMain.removeHandler('accounts:add');
-  ipcMain.removeHandler('accounts:remove');
-  ipcMain.removeHandler('accounts:switch');
-  ipcMain.removeHandler('accounts:update');
-  ipcMain.removeHandler('accounts:move');
+  accountIpcBoundary?.dispose();
+  accountIpcBoundary = null;
   ipcMain.removeHandler('config:get');
   ipcMain.removeHandler('config:set');
   ipcMain.removeHandler('window:relaunch');
