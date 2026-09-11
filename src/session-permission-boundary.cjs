@@ -26,7 +26,6 @@ const SUPPORTED_PERMISSION_MATRIX = Object.freeze({
     kinds: Object.freeze(['whatsapp', 'telegram']),
     mediaTypes: Object.freeze(['audio', 'video']),
   }),
-  'persistent-storage': Object.freeze({ kinds: Object.freeze(['whatsapp']) }),
 });
 
 const sessionsWithPermissionHandlers = new WeakSet();
