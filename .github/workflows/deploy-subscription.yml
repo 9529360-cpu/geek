@@ -6,23 +6,15 @@ on:
     branches:
       - master
     paths:
+      - 'scripts/geek-subscription-atomic-entry.js'
+      - 'scripts/geek-subscription-entry.js'
       - 'scripts/geek-subscription-worker.js'
       - 'scripts/geek-subscription-worker-core.js'
-      - 'scripts/subscription-order-pay-method.mjs'
-      - 'scripts/geek-subscription-entry.js'
-      - 'scripts/geek-subscription-atomic-entry.js'
       - 'scripts/atomic-rate-limit.mjs'
       - 'scripts/atomic-admin-login.mjs'
-      - 'scripts/account-live-smoke.mjs'
-      - 'scripts/cloudflare-deploy-report.cjs'
+      - 'scripts/subscription-order-pay-method.mjs'
+      - 'scripts/account-number.mjs'
       - 'wrangler-subscription.toml'
-      - 'test/account-*.cjs'
-      - 'test/atomic-rate-limit-contract.cjs'
-      - 'test/atomic-admin-login-contract.cjs'
-      - 'test/subscription-order-pay-method-contract.cjs'
-      - 'test/subscription-deploy-path-contract.cjs'
-      - 'test/cloudflare-deploy-observability-contract.cjs'
-      - '.github/workflows/deploy-subscription.yml'
 
 permissions:
   contents: read
@@ -63,6 +55,7 @@ jobs:
           node --check scripts/geek-subscription-atomic-entry.js
           node --check scripts/atomic-rate-limit.mjs
           node --check scripts/atomic-admin-login.mjs
+          node --check scripts/account-number.mjs
           node --check scripts/account-live-smoke.mjs
           node --check scripts/cloudflare-deploy-report.cjs
 
