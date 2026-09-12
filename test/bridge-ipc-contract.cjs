@@ -6,6 +6,7 @@ const { ACCOUNT_DATA_KEYS, DEFAULT_LIMITS } = require('../src/account-data-store
 
 const bridge = fs.readFileSync(path.join(__dirname, '../resources/bridge-preload.cjs'), 'utf8');
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+const translationRuntime = fs.readFileSync(path.join(__dirname, '../src/translation-runtime.cjs'), 'utf8');
 const mainEntry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
 const accountBoundary = fs.readFileSync(path.join(__dirname, '../src/account-data-boundary.cjs'), 'utf8');
 const accountStore = fs.readFileSync(path.join(__dirname, '../src/account-data-store.cjs'), 'utf8');
@@ -30,10 +31,10 @@ assert.match(app, /TRANSLATION_REQUEST_PREFIX/);
 assert.match(app, /NATIVE_INPUT_REQUEST_PREFIX/);
 assert.match(adapters, /data-geek-bridge/);
 assert.match(adapters, /native-input-request/);
-assert.match(main, /translation:translate/);
-assert.match(main, /concurrency|并发|MAX_CONCURRENT|Semaphore|queue/i);
+assert.match(translationRuntime, /translation:translate/);
+assert.match(translationRuntime, /TRANSLATION_REMOTE_LIMIT|remoteQueue|enqueueRemote/i);
 assert.match(adapters, /translateHistory|transOldHistory|history/);
-assert.doesNotMatch(adapters + main + app, /快捷话术|quickPhrase|quick-phrase/i);
+assert.doesNotMatch(adapters + main + translationRuntime + app, /快捷话术|quickPhrase|quick-phrase/i);
 
 assert.doesNotMatch(mainEntry, /installAccountDataBoundary\(/, 'account data is no longer a startup registration shim');
 assert.match(main, /const accountDataBoundary = installAccountDataBoundary\(/, 'main composition installs the account-data owner explicitly');
