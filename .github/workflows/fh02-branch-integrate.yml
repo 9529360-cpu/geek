@@ -1,0 +1,33 @@
+name: fh02-branch-integrate
+
+on:
+  push:
+    branches:
+      - foundation/fh-02-config-state-owner
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: foundation/fh-02-config-state-owner
+          fetch-depth: 0
+      - name: Apply deterministic integration
+        run: node scripts/fh02-integrate-config-owner.cjs
+      - name: Validate generated main
+        run: node --check src/main.cjs
+      - name: Commit generated integration
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main.cjs
+          git diff --cached --check
+          git commit -m "refactor: compose config state and IPC owners"
+          git push origin HEAD:foundation/fh-02-config-state-owner
