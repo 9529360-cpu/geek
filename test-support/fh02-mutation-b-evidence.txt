@@ -1,0 +1,1 @@
+Mutation B evidence trigger only: malformed config is deliberately overwritten with defaults on this never-merge branch.
