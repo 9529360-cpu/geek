@@ -40,8 +40,8 @@ async function probeMainRendererCspAndFont() {
       const violations = [];
       const onViolation = (event) => {
         violations.push({
-effectiveDirective: String(event.effectiveDirective || ''),
-blockedURI: String(event.blockedURI || ''),
+          effectiveDirective: String(event.effectiveDirective || ''),
+          blockedURI: String(event.blockedURI || ''),
         });
       };
       window.addEventListener('securitypolicyviolation', onViolation);
@@ -56,19 +56,19 @@ blockedURI: String(event.blockedURI || ''),
       for (const sheet of Array.from(document.styleSheets)) {
         let rules;
         try {
-rules = Array.from(sheet.cssRules || []);
+          rules = Array.from(sheet.cssRules || []);
         } catch {
-continue;
+          continue;
         }
         for (const rule of rules) {
-if (rule.type !== CSSRule.FONT_FACE_RULE) continue;
-const family = String(rule.style.getPropertyValue('font-family') || '').trim().replace(/^['"]|['"]$/g, '');
-if (family !== 'Inter') continue;
-const src = String(rule.style.getPropertyValue('src') || '');
-const urlMatch = src.match(/url\(\s*(['"]?)(.*?)\1\s*\)/i);
-if (urlMatch?.[2]) {
-  fontRuleSources.push(new URL(urlMatch[2], sheet.href || document.baseURI).href);
-}
+          if (rule.type !== CSSRule.FONT_FACE_RULE) continue;
+          const family = String(rule.style.getPropertyValue('font-family') || '').trim().replace(/^['"]|['"]$/g, '');
+          if (family !== 'Inter') continue;
+          const src = String(rule.style.getPropertyValue('src') || '');
+          const urlMatch = src.match(/url\(\s*(['"]?)(.*?)\1\s*\)/i);
+          if (urlMatch?.[2]) {
+            fontRuleSources.push(new URL(urlMatch[2], sheet.href || document.baseURI).href);
+          }
         }
       }
 
@@ -259,7 +259,6 @@ async function rightClick(element) {
     .perform();
 }
 
-
 async function createWebsiteAccountsThroughAppCenter() {
   await (await waitVisible('#btn-app-center')).click();
   await waitVisible('#add-overlay:not(.hidden)');
@@ -342,27 +341,31 @@ async function createWebsiteAccountsThroughAppCenter() {
   console.log(`E2E_WEBSITE created=${websites.length} partitions=${new Set(websites.map(account => account.partition)).size} noPreload=${ui.rows.every(row => row.preload === null)} enhancementsHidden=${ui.broadcastHidden && ui.translationHidden && ui.notesHidden}`);
   await heartbeat('website-app-center');
 
+  // Durable account deletion also clears the real Electron Session/partition.
+  // The heartbeat helper intentionally keeps renderer probes at 2.5s, but that
+  // is not a valid upper bound for two sequential durable deletes plus storage cleanup.
+  await browser.setTimeout({ script: 15_000 });
 
-// All specs intentionally share one isolated synthetic userData directory.
-// Restore the original fixture after this mutation-heavy smoke so the
-// unrelated broadcast specs start from their documented two-account state.
-const cleanup = await browser.executeAsync((ids, fallbackId, done) => {
-  (async () => {
-    for (const id of ids) await window.api.accounts.remove(id);
-    await window.api.accounts.switch(fallbackId);
-    const state = await window.api.accounts.list();
-    done({
-      ids: state.accounts.map(account => account.id),
-      activeAccountId: state.activeAccountId,
-      websiteCount: state.accounts.filter(account => account.type === 'website').length,
-    });
-  })().catch((error) => done({ error: String(error?.message || error || 'cleanup failed') }));
-}, websites.map(account => account.id), ACCOUNT_A);
-assert.equal(cleanup.error, undefined, `Website cleanup failed: ${cleanup.error || ''}`);
-assert.deepEqual(cleanup.ids, [ACCOUNT_A, ACCOUNT_B], 'Website E2E cleanup must restore the shared synthetic fixture');
-assert.equal(cleanup.activeAccountId, ACCOUNT_A);
-assert.equal(cleanup.websiteCount, 0);
-await heartbeat('website-cleanup');
+  // All specs intentionally share one isolated synthetic userData directory.
+  // Restore the original fixture after this mutation-heavy smoke so the
+  // unrelated broadcast specs start from their documented two-account state.
+  const cleanup = await browser.executeAsync((ids, fallbackId, done) => {
+    (async () => {
+      for (const id of ids) await window.api.accounts.remove(id);
+      await window.api.accounts.switch(fallbackId);
+      const state = await window.api.accounts.list();
+      done({
+        ids: state.accounts.map(account => account.id),
+        activeAccountId: state.activeAccountId,
+        websiteCount: state.accounts.filter(account => account.type === 'website').length,
+      });
+    })().catch((error) => done({ error: String(error?.message || error || 'cleanup failed') }));
+  }, websites.map(account => account.id), ACCOUNT_A);
+  assert.equal(cleanup.error, undefined, `Website cleanup failed: ${cleanup.error || ''}`);
+  assert.deepEqual(cleanup.ids, [ACCOUNT_A, ACCOUNT_B], 'Website E2E cleanup must restore the shared synthetic fixture');
+  assert.equal(cleanup.activeAccountId, ACCOUNT_A);
+  assert.equal(cleanup.websiteCount, 0);
+  await heartbeat('website-cleanup');
 }
 
 async function openAndCloseAccountSettings(iteration) {
@@ -414,20 +417,20 @@ describe('Geek Electron shell smoke', () => {
     });
     await installErrorWatch();
 
-  const cspProbe = await probeMainRendererCspAndFont();
-  console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} rules=${cspProbe.fontRuleSources?.length || 0} loadedFaces=${cspProbe.loadedFaceCount || 0} resourceEntries=${cspProbe.fontResources?.length || 0}`);
-  assert.equal(cspProbe.probeError, undefined, `main renderer CSP/font probe failed: ${cspProbe.probeError || 'unknown'}`);
-  assert.equal(cspProbe.executed, false, 'main renderer CSP must block a data: script probe');
-  assert.ok(cspProbe.violations.some(item => item.effectiveDirective.startsWith('script-src') && item.blockedURI === 'data'), 'main renderer must report the data: script as a script-src CSP violation');
-  assert.deepEqual(cspProbe.googleResources, [], 'main renderer must not request Google Fonts resources');
-  assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
-assert.ok(cspProbe.fontRuleSources.length >= 1, 'main renderer must register an Inter @font-face rule');
-assert.ok(cspProbe.fontRuleSources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter @font-face must resolve to local ui/fonts bytes: ${JSON.stringify(cspProbe.fontRuleSources)}`);
-assert.ok(cspProbe.loadedFaceCount >= 1, 'document.fonts.load must resolve at least one CSS-backed Inter FontFace');
-assert.ok(cspProbe.loadedFaceStatuses.every(status => status === 'loaded'), `matched Inter FontFace must be loaded: ${JSON.stringify(cspProbe.loadedFaceStatuses)}`);
-assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `any reported Inter resource must remain local: ${JSON.stringify(cspProbe.fontResources)}`);
+    const cspProbe = await probeMainRendererCspAndFont();
+    console.log(`E2E_MAIN_CSP blocked=${cspProbe.executed !== true} violations=${cspProbe.violations?.length || 0} google=${cspProbe.googleResources?.length || 0} rules=${cspProbe.fontRuleSources?.length || 0} loadedFaces=${cspProbe.loadedFaceCount || 0} resourceEntries=${cspProbe.fontResources?.length || 0}`);
+    assert.equal(cspProbe.probeError, undefined, `main renderer CSP/font probe failed: ${cspProbe.probeError || 'unknown'}`);
+    assert.equal(cspProbe.executed, false, 'main renderer CSP must block a data: script probe');
+    assert.ok(cspProbe.violations.some(item => item.effectiveDirective.startsWith('script-src') && item.blockedURI === 'data'), 'main renderer must report the data: script as a script-src CSP violation');
+    assert.deepEqual(cspProbe.googleResources, [], 'main renderer must not request Google Fonts resources');
+    assert.equal(cspProbe.interAvailable, true, 'Inter must be available after document.fonts.ready');
+    assert.ok(cspProbe.fontRuleSources.length >= 1, 'main renderer must register an Inter @font-face rule');
+    assert.ok(cspProbe.fontRuleSources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `Inter @font-face must resolve to local ui/fonts bytes: ${JSON.stringify(cspProbe.fontRuleSources)}`);
+    assert.ok(cspProbe.loadedFaceCount >= 1, 'document.fonts.load must resolve at least one CSS-backed Inter FontFace');
+    assert.ok(cspProbe.loadedFaceStatuses.every(status => status === 'loaded'), `matched Inter FontFace must be loaded: ${JSON.stringify(cspProbe.loadedFaceStatuses)}`);
+    assert.ok(cspProbe.fontResources.every(name => /^file:\/\//i.test(name) && /\/ui\/fonts\/InterVariable\.woff2(?:$|[?#])/i.test(name)), `any reported Inter resource must remain local: ${JSON.stringify(cspProbe.fontResources)}`);
 
-  const appInfo = await browser.electron.execute((electron) => ({
+    const appInfo = await browser.electron.execute((electron) => ({
       name: electron.app.getName(),
       packaged: electron.app.isPackaged,
       windows: electron.BrowserWindow.getAllWindows().filter(win => !win.isDestroyed()).length,

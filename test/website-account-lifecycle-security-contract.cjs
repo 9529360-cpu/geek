@@ -12,34 +12,31 @@ const readText = (relativePath) => fs
   .readFileSync(path.join(root, relativePath), 'utf8')
   .replace(/\r\n?/g, '\n');
 const main = readText('src/main.cjs');
+const owner = readText('src/account-state.cjs');
 const renderer = readText('ui/app.js');
 const html = readText('ui/index.html');
 
 const appTypes = main.match(/const APP_TYPES = \{([\s\S]*?)\n\};\n\nfunction appTypeConfig/);
 assert.ok(appTypes, 'APP_TYPES must remain discoverable');
 assert.match(appTypes[1], /website:\s*\{\s*name:\s*'自定义网站',\s*short:\s*'WEB'\s*\}/, 'Website is a first-class platform without a fake default URL');
-
-const addStart = main.indexOf('async function addAccount');
-const addEnd = main.indexOf('\nasync function switchAccount', addStart);
-const addSource = main.slice(addStart, addEnd);
-assert.ok(addStart >= 0 && addEnd > addStart);
-assert.ok(addSource.indexOf("normalizeWebsiteUrl(raw.customUrl)") < addSource.indexOf('createAccountId()'), 'Website URL must validate before account id/partition creation');
-assert.match(addSource, /raw\.type === undefined \? 'whatsapp' : raw\.type/, 'omitted type keeps the historical WhatsApp default');
-assert.match(addSource, /ACCOUNT_TYPE_UNSUPPORTED/, 'explicit unknown types remain fail-closed');
-
-const publicStateStart = main.indexOf('function publicState()');
-const publicStateEnd = main.indexOf('\nfunction normalizeConfig', publicStateStart);
-const publicStateSource = main.slice(publicStateStart, publicStateEnd);
-assert.match(publicStateSource, /account\.type === 'website' && account\.customUrl[\s\S]*url = account\.customUrl/, 'restart/list state must restore Website customUrl as its public URL');
-assert.match(main, /function partitionFor\(accountId\)[\s\S]*`\$\{PARTITION_PREFIX\}\$\{accountId\}`/, 'Website reuses the existing per-account persistent partition owner');
-
-const updateStart = main.indexOf('async function updateAccount');
-const updateEnd = main.indexOf('async function moveAccount', updateStart);
-const updateSource = main.slice(updateStart, updateEnd);
+assert.match(main, /normalizeWebsiteUrl,\s*\n\s*isEncryptionAvailable/, 'Website URL policy must be injected into Account State owner');
+assert.match(owner, /const type = raw\.type === undefined \? 'whatsapp' : raw\.type/, 'omitted type keeps the historical WhatsApp default');
+assert.match(owner, /ACCOUNT_TYPE_UNSUPPORTED/, 'explicit unknown types remain fail-closed');
+assert.match(owner, /type === 'website' \? normalizeWebsiteUrl\(raw\.customUrl\) : ''/, 'Website customUrl must be validated by the existing URL authority before creation');
+assert.match(owner, /const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-'/, 'Website reuses the existing per-account persistent partition identity');
+const updateStart = owner.indexOf('function update(accountId, patchData)');
+const updateEnd = owner.indexOf('\n  function move(', updateStart);
+const updateSource = owner.slice(updateStart, updateEnd);
+assert.ok(updateStart >= 0 && updateEnd > updateStart);
 assert.doesNotMatch(updateSource, /customUrl\s*=/, 'Website customUrl remains immutable after creation');
 
+const publicStateStart = main.indexOf('function publicState(');
+const publicStateEnd = main.indexOf('\nfunction normalizeConfig', publicStateStart);
+const publicStateSource = main.slice(publicStateStart, publicStateEnd);
+assert.match(publicStateSource, /account\.type === 'website' && account\.customUrl[\s\S]*url = account\.customUrl/, 'restart/list projection must restore Website customUrl as its public URL');
+
 const securityStart = main.indexOf('function configureWebviewSecurity(window)');
-const securityEnd = main.indexOf('\nfunction createMainWindow', securityStart);
+const securityEnd = main.indexOf('\nlet subscriptionWindow', securityStart);
 const securitySource = main.slice(securityStart, securityEnd);
 assert.match(securitySource, /const isWebsite = account\.type === 'website'/);
 assert.match(securitySource, /else if \(isWebsite\)[\s\S]*delete webPreferences\.preload;[\s\S]*webPreferences\.contextIsolation = true/, 'Website must strip any guest preload');

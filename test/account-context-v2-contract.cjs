@@ -7,6 +7,7 @@ const app = read('ui/app.js');
 const settings = read('ui/settings-controller.js');
 const subscription = read('ui/subscription.html');
 const main = read('src/main.cjs');
+const accountState = read('src/account-state.cjs');
 
 // V2 intentionally rejects PR #275's duplicate personal-center/settings ownership model.
 // Subscription state has one owner. The existing subscription home remains canonical; application Settings may expose a read-only mirror.
@@ -45,8 +46,8 @@ assert.match(app, /showProxyDialog\(account\)/);
 // settings-controller no longer owns account instance persistence.
 assert.doesNotMatch(settings, /updateAccount|acc-select|accountPatch|loadAccount\(/);
 
-// Preserve the two real proxy fixes found in v1 audit.
-assert.match(main, /raw\.protocal === 'http'/);
+// Preserve the two real proxy fixes found in v1 audit while the account mutation authority moves out of main.
+assert.match(accountState, /raw\.protocal === 'http'/);
 assert.match(main, /account\.openProxy \? account : \(configState\.openProxy \? configState : null\)/);
 
 console.log('ACCOUNT_CONTEXT_V2_CONTRACT_OK');
