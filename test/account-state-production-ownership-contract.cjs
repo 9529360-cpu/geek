@@ -27,7 +27,11 @@ const transaction = owner.match(/function enqueueTransition\(buildCandidate\) \{
 assert.ok(transaction.indexOf('const candidate = cloneState(state)') >= 0);
 assert.ok(transaction.indexOf('await durableWrite(candidate)') > transaction.indexOf('const candidate = cloneState(state)'));
 assert.ok(transaction.indexOf('state = candidate') > transaction.indexOf('await durableWrite(candidate)'), 'canonical memory commit must happen after durable write');
-assert.match(owner, /await fs\.writeFile\(temporaryFile, snapshot, 'utf8'\)[\s\S]*await fs\.rename\(temporaryFile, filePath\)/, 'durable write must remain temp-file then rename');
+assert.match(owner, /async function writeSynced\(file, content\)[\s\S]*handle\.writeFile\(content, 'utf8'\)[\s\S]*handle\.sync\(\)[\s\S]*handle\.close\(\)/,
+  'durable writes must sync and close the temp file before atomic replacement');
+assert.match(owner, /await writeSynced\(temporaryFile, snapshot\)[\s\S]*await fs\.rename\(temporaryFile, filePath\)/,
+  'durable write must remain synced temp-file then atomic rename');
+assert.match(owner, /await syncDirectory\(directory\)/, 'durable replacement must retain best-effort directory sync');
 assert.match(owner, /const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-'/, 'partition identity must remain stable');
 
 function functionBody(name, nextMarker) {
