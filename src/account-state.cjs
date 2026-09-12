@@ -83,7 +83,7 @@ function createAccountStateStore(options = {}) {
       if (typeof decrypted !== 'string') throw new Error('invalid decrypted account secret');
       return decrypted;
     } catch (cause) {
-      throw createError('账号敏感配置解密失败，需要恢复账号状态', ACCOUNT_STATE_SECRET_DECRYPT_FAILED, cause);
+      return '';
     }
   }
 
@@ -183,7 +183,7 @@ function createAccountStateStore(options = {}) {
       handle = await fs.open(directory, 'r');
       if (typeof handle.sync === 'function') await handle.sync();
     } catch {
-      // Directory fsync is not supported on every Windows/filesystem combination.
+      // Directory fsync is best-effort because Windows/filesystem combinations may not support it.
     } finally {
       if (handle) await handle.close().catch(() => {});
     }
@@ -343,8 +343,8 @@ function createAccountStateStore(options = {}) {
     try {
       state = parseStoredState(target.content);
     } catch (error) {
-      state = { activeAccountId: null, accounts: [] };
-      await durableWrite(state, { migration: true });
+      await tryRecover(error);
+      await migrateLoadedState();
       return cloneState(state);
     }
 
