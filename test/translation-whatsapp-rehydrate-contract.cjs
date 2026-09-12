@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const adapter = fs.readFileSync(path.join(__dirname, '../ui/translation-whatsapp-rehydrate.js'), 'utf8');
 const core = fs.readFileSync(path.join(__dirname, '../ui/translation-core.js'), 'utf8');
-const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+const runtime = fs.readFileSync(path.join(__dirname, '../src/translation-runtime.cjs'), 'utf8');
 
 assert.match(core, /translation-whatsapp-rehydrate\.js/, 'translation core must load the isolated WhatsApp rehydrate module');
 assert.match(adapter, /activeChatId/, 'rehydration must be keyed to the active WhatsApp chat identity');
@@ -19,8 +19,8 @@ assert.doesNotMatch(adapter, /setInterval\s*\(/, 'rehydration must not add a per
 assert.doesNotMatch(adapter, /localStorage|sessionStorage/, 'translation text must not be cached in renderer storage');
 assert.doesNotMatch(adapter, /api\.translation|fetch\s*\(/, 'rehydration must not introduce a second translation transport');
 
-assert.match(main, /geek-translation-cache\.jsonl/, 'translation cache remains main-process account-partition storage');
-assert.match(main, /safeStorage\.encryptString/, 'translation cache remains encrypted at rest');
-assert.match(main, /if \(cached\)[\s\S]*cached: true/, 'cache hits must still return before a new remote translation');
+assert.match(runtime, /geek-translation-cache\.jsonl/, 'translation cache remains main-process account-partition storage');
+assert.match(runtime, /safeStorage\.encryptString/, 'translation cache remains encrypted at rest');
+assert.match(runtime, /if \(cached\)[\s\S]*cached: true/, 'cache hits must still return before a new remote translation');
 
 console.log('TRANSLATION_WHATSAPP_REHYDRATE_CONTRACT_OK');
