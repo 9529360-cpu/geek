@@ -277,8 +277,9 @@ function createConfigStateStore(options = {}) {
     try {
       state = parseStored(target.content);
     } catch (error) {
-      await recover(error);
-      await migrateLoadedState();
+      const defaults = cloneConfig(DEFAULT_CONFIG);
+      await durableWrite(defaults, { migration: true });
+      state = defaults;
       return cloneConfig(state);
     }
 
