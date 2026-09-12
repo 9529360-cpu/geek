@@ -30,6 +30,26 @@ assert.ok(transaction.indexOf('state = candidate') > transaction.indexOf('await 
 assert.match(owner, /await fs\.writeFile\(temporaryFile, snapshot, 'utf8'\)[\s\S]*await fs\.rename\(temporaryFile, filePath\)/, 'durable write must remain temp-file then rename');
 assert.match(owner, /const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-'/, 'partition identity must remain stable');
 
+function functionBody(name, nextMarker) {
+  const start = main.indexOf(`async function ${name}(`);
+  const end = main.indexOf(nextMarker, start);
+  assert.ok(start >= 0 && end > start, `must locate ${name}`);
+  return main.slice(start, end);
+}
+
+const removeBody = functionBody('removeAccount', '\n\nconst TRANSLATION_CACHE_VERSION');
+const removeCommit = removeBody.indexOf('await accountState.remove(accountId)');
+assert.ok(removeCommit >= 0, 'account removal must cross the durable state owner');
+for (const effect of ['deletedTranslationPartitions.add', 'webContents.getAllWebContents', 'clearStorageData()', 'notifyAccountsChanged(result.snapshot)']) {
+  assert.ok(removeBody.indexOf(effect) > removeCommit, `${effect} must remain a post-commit removal effect`);
+}
+
+const updateBody = functionBody('updateAccount', '\n\nasync function moveAccount');
+const updateCommit = updateBody.indexOf('await accountState.update(accountId, patchData)');
+assert.ok(updateCommit >= 0, 'account update must cross the durable state owner');
+assert.ok(updateBody.indexOf('await applyProxyForPartition') > updateCommit, 'proxy application must remain post-commit');
+assert.ok(updateBody.indexOf('notifyAccountsChanged(result.snapshot)') > updateCommit, 'account change notification must remain post-commit');
+
 assert.match(main, /resolveAccountPartition:\s*accountId => accountState\.resolvePartition\(accountId\)/,
   'production Account Data boundary must resolve account existence/partition through Account State owner');
 assert.match(accountData, /options\.resolveAccountPartition \|\| createAccountPartitionResolver/, 'fallback parser may remain only as an isolated fallback/test helper');
