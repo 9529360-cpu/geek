@@ -29,7 +29,7 @@ main = replaceRegexOnce(
 );
 main = replaceOnce(main, 'resolveTypeConfig: appTypeConfig,', 'resolveTypeConfig: platformConfig,', 'account state catalog injection');
 main = main.replace(/\bappTypeConfig\(/g, 'platformConfig(');
-main = main.replace(/\bAPP_TYPES\[account\.type\]/g, 'PLATFORM_CATALOG[account.type]');
+main = main.replace(/\bAPP_TYPES\b/g, 'PLATFORM_CATALOG');
 main = replaceRegexOnce(
   main,
   /    const hostname = parsedSource\.hostname\.toLowerCase\(\);[\s\S]*?    if \(!isAllowed\) \{\n      event\.preventDefault\(\);\n      return;\n    \}\n/,
@@ -81,7 +81,6 @@ website = replaceRegexOnce(
   "assert.match(catalog, /website:\\s*freezeConfig\\(\\{\\s*name:\\s*'自定义网站',\\s*short:\\s*'WEB',\\s*navigationKind:\\s*'website'\\s*\\}\\)/, 'Website is a first-class platform without a fake default URL');\nassert.doesNotMatch(main, /const APP_TYPES\\s*=/, 'main must consume, not duplicate, the platform catalog');",
   'website catalog authority test'
 );
-website = website.replace(/assert\.match\(securitySource, \/ownerIsWhatsApp\[\\s\\S\]\*did-finish-load\[\\s\\S\]\*ownerIsWhatsApp &&\/, 'WPP injection must be gated by the owning account type, not URL alone'\);/, "assert.match(securitySource, /ownerIsWhatsApp[\\s\\S]*did-finish-load[\\s\\S]*ownerIsWhatsApp &&/, 'WPP injection must be gated by the owning account type, not URL alone');");
 fs.writeFileSync('test/website-account-lifecycle-security-contract.cjs', website);
 
 let unknown = fs.readFileSync('test/webview-unknown-partition-contract.cjs', 'utf8').replace(/\r\n?/g, '\n');
