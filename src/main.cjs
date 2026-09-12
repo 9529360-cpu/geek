@@ -25,6 +25,8 @@ const { normalizeWebsiteUrl, parseWebsiteUrl } = require('./website-url.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installAccountIpc } = require('./account-ipc.cjs');
 const { createAccountStateStore, ACCOUNT_PARTITION_PREFIX } = require('./account-state.cjs');
+const { createConfigStateStore } = require('./config-state.cjs');
+const { installConfigIpc } = require('./config-ipc.cjs');
 const { ACCOUNT_DATA_KEYS } = require('./account-data-store.cjs');
 const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
@@ -232,6 +234,19 @@ const accountState = createAccountStateStore({
   },
 });
 
+const configStore = createConfigStateStore({
+  fs,
+  filePath: CONFIG_FILE,
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
+  decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),
+  onRecoveryEvent: (error, meta) => {
+    const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
+    const phase = typeof meta?.phase === 'string' ? meta.phase : 'load';
+    console.error(`[config-state] ${phase} failed: ${code.slice(0, 80)} recovered=${meta?.recovered === true ? 'yes' : 'no'}`);
+  },
+});
+
 // LINE 官方浏览器扩展（复刻项目自带副本，供 line / line-business 账号登录使用）
 // 用 MV3 原始扩展（与 Hello-GPT 原版完全一致）；Electron 35.5.1 下 SW 注册行为待验证
 // 打包后扩展目录会被 asarUnpack 到真实磁盘（ses.extensions.loadExtension 需要真实文件），
@@ -339,25 +354,6 @@ async function loadLineExtension(partition) {
 
 let mainWindow = null;
 
-const DEFAULT_CONFIG = {
-  autoLaunch: false,
-  isStartupMinimize: false,
-  messageSound: true,
-  theme: 'system',
-  accent: 'green',
-  broadcastGroups: [],
-  lockPassword: '',
-  openProxy: false,
-  protocal: 'http',
-  host: '',
-  port: '',
-  login: '',
-  password: ''
-};
-
-let configState = { ...DEFAULT_CONFIG };
-let configQueue = Promise.resolve();
-
 function publicState(snapshot = accountState.getSnapshot()) {
   return {
     activeAccountId: snapshot.activeAccountId,
@@ -380,93 +376,12 @@ function publicState(snapshot = accountState.getSnapshot()) {
   };
 }
 
-function normalizeConfig(raw) {
-  const value = raw && typeof raw === 'object' ? raw : {};
-  return {
-    autoLaunch: typeof value.autoLaunch === 'boolean' ? value.autoLaunch : DEFAULT_CONFIG.autoLaunch,
-    isStartupMinimize: typeof value.isStartupMinimize === 'boolean' ? value.isStartupMinimize : DEFAULT_CONFIG.isStartupMinimize,
-    messageSound: typeof value.messageSound === 'boolean' ? value.messageSound : DEFAULT_CONFIG.messageSound,
-    theme: ['system','light'].includes(value.theme) ? value.theme : value.theme === 'dark' ? 'dark' : 'system',
-    broadcastGroups: Array.isArray(value.broadcastGroups) ? value.broadcastGroups.filter(g => g && g.id && g.name) : [],
-    accent: ['green','blue','purple','cyan','orange','pink'].includes(value.theme) ? value.theme
-      : ['green','blue','purple','cyan','orange','pink'].includes(value.accent) ? value.accent : 'green',
-    lockPassword: typeof value.lockPassword === 'string'
-      ? (value.lockPassword.startsWith('enc:') ? safeDecrypt(value.lockPassword.slice(4)) : value.lockPassword)
-      : '',
-    openProxy: typeof value.openProxy === 'boolean' ? value.openProxy : DEFAULT_CONFIG.openProxy,
-    protocal: value.protocal === 'https' || value.protocal === 'socks4' || value.protocal === 'socks5' ? value.protocal : 'http',
-    host: typeof value.host === 'string' ? value.host : DEFAULT_CONFIG.host,
-    port: typeof value.port === 'string' ? value.port : DEFAULT_CONFIG.port,
-    login: typeof value.login === 'string' ? value.login : DEFAULT_CONFIG.login,
-    password: typeof value.password === 'string'
-      ? (value.password.startsWith('enc:') ? safeDecrypt(value.password.slice(4)) : value.password)
-      : DEFAULT_CONFIG.password
-  };
-}
-
-async function loadConfig() {
-  await fs.mkdir(path.dirname(CONFIG_FILE), { recursive: true });
-  try {
-    const content = await fs.readFile(CONFIG_FILE, 'utf8');
-    configState = normalizeConfig(JSON.parse(content));
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      console.error('读取配置文件失败:', error);
-    }
-    configState = { ...DEFAULT_CONFIG };
-    await persistConfig();
-    return;
-  }
-  try {
-    await persistConfig();
-  } catch (error) {
-    console.error('[security] 配置敏感字段迁移失败，保留原文件:', error.message);
-  }
-}
-
-function safeDecrypt(b64) {
-  try { return safeStorage.decryptString(Buffer.from(b64, 'base64')); } catch { return ''; }
-}
-function safeEncrypt(text) {
-  if (!safeStorage.isEncryptionAvailable()) {
-    const error = new Error('系统安全存储不可用，拒绝明文保存敏感配置');
-    error.code = 'SECURE_STORAGE_UNAVAILABLE';
-    throw error;
-  }
-  try {
-    return 'enc:' + safeStorage.encryptString(String(text)).toString('base64');
-  } catch (cause) {
-    const error = new Error('敏感配置加密失败，未写入磁盘');
-    error.code = 'SECURE_STORAGE_ENCRYPT_FAILED';
-    error.cause = cause;
-    throw error;
-  }
-}
-
-function persistConfig() {
-  const snapshot = JSON.stringify({
-    ...configState,
-    lockPassword: configState.lockPassword ? safeEncrypt(configState.lockPassword) : '',
-    password: configState.password ? safeEncrypt(configState.password) : ''
-  }, null, 2);
-  configQueue = configQueue
-    .catch(() => {})
-    .then(async () => {
-      const directory = path.dirname(CONFIG_FILE);
-      const temporaryFile = `${CONFIG_FILE}.tmp`;
-      await fs.mkdir(directory, { recursive: true });
-      await fs.writeFile(temporaryFile, snapshot, 'utf8');
-      await fs.rename(temporaryFile, CONFIG_FILE);
-    });
-  return configQueue;
-}
-
-function applyLoginItemSettings() {
+function applyLoginItemSettings(config = configStore.getSnapshot()) {
   if (process.platform !== 'win32') return;
   try {
     app.setLoginItemSettings({
-      openAtLogin: configState.autoLaunch,
-      openAsHidden: configState.isStartupMinimize
+      openAtLogin: config.autoLaunch,
+      openAsHidden: config.isStartupMinimize
     });
   } catch (error) {
     console.error('设置开机自启失败:', error);
@@ -825,14 +740,16 @@ async function translateViaRemoteGateway(event, payload) {
 }
 
 let accountIpcBoundary = null;
+let configIpcBoundary = null;
 
 async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
   const result = await accountState.update(accountId, patchData);
   const account = result.account;
+  const globalConfig = configStore.getSnapshot();
   await applyProxyForPartition(
     account.partition,
-    account.openProxy ? account : (configState.openProxy ? configState : null)
+    account.openProxy ? account : (globalConfig.openProxy ? globalConfig : null)
   );
   notifyAccountsChanged(result.snapshot);
   return publicState(result.snapshot);
@@ -978,31 +895,24 @@ function registerIpcHandlers() {
     return pathToFileURL(path.join(RESOURCES_DIR, 'bridge-preload.cjs')).href;
   });
 
-  ipcMain.handle('config:get', async (event) => {
-    assertTrustedSender(event);
-    return { ...configState };
-  });
-
-  ipcMain.handle('config:set', async (event, patchData) => {
-    assertTrustedSender(event);
-    const raw = patchData && typeof patchData === 'object' ? patchData : {};
-    configState = normalizeConfig({ ...configState, ...raw });
-    await persistConfig();
-    applyLoginItemSettings();
-
-    const globalProxy = configState.openProxy ? configState : null;
-    const snapshot = accountState.getSnapshot();
-    await Promise.all(
-      snapshot.accounts.map((account) =>
-        applyProxyForPartition(
-          account.partition,
-          account.openProxy ? account : globalProxy
+  configIpcBoundary = installConfigIpc({
+    ipcMain,
+    assertTrustedSender,
+    store: configStore,
+    onCommitted: async (config) => {
+      applyLoginItemSettings(config);
+      const globalProxy = config.openProxy ? config : null;
+      const snapshot = accountState.getSnapshot();
+      await Promise.all(
+        snapshot.accounts.map((account) =>
+          applyProxyForPartition(
+            account.partition,
+            account.openProxy ? account : globalProxy
+          )
         )
-      )
-    );
-    notifyAccountsChanged(snapshot);
-
-    return { ...configState };
+      );
+      notifyAccountsChanged(snapshot);
+    },
   });
 
   ipcMain.handle('window:relaunch', async (event) => {
@@ -1549,10 +1459,11 @@ function configureWebviewSecurity(window) {
         ? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=no,spellcheck=no'
         : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
 
+    const globalConfig = configStore.getSnapshot();
     const accountProxy = account.openProxy
       ? account
-      : configState.openProxy
-        ? configState
+      : globalConfig.openProxy
+        ? globalConfig
         : null;
     applyProxyForPartition(partition, accountProxy);
 
@@ -1839,7 +1750,7 @@ function createMainWindow() {
     }
     if (relaunchLimiter.allow()) {
       console.error('[crash] 主窗口渲染进程崩溃，5分钟内限频2次内自动重启');
-      Promise.all([accountState.whenIdle(), configQueue]).catch(() => {}).finally(() => {
+      Promise.all([accountState.whenIdle(), configStore.whenIdle()]).catch(() => {}).finally(() => {
         setTimeout(() => {
           try { app.relaunch(); app.exit(0); } catch (e) { console.error('[crash] 自动重启失败:', e.message); }
         }, 500);
@@ -1982,8 +1893,8 @@ app.whenReady().then(async () => {
     console.error('迁移历史运行数据失败（不影响启动）:', e.message);
   }
   await accountState.load();
-  await loadConfig();
-  applyLoginItemSettings();
+  await configStore.load();
+  applyLoginItemSettings(configStore.getSnapshot());
   registerIpcHandlers();
   registerSubscriptionIpcHandlers();
   await enforceSubscriptionGate();
@@ -2024,8 +1935,8 @@ app.on('before-quit', () => {
   isQuitting = true;
   accountIpcBoundary?.dispose();
   accountIpcBoundary = null;
-  ipcMain.removeHandler('config:get');
-  ipcMain.removeHandler('config:set');
+  configIpcBoundary?.dispose();
+  configIpcBoundary = null;
   ipcMain.removeHandler('window:relaunch');
   ipcMain.removeHandler('subscription:get-state');
   ipcMain.removeHandler('subscription:refresh');
