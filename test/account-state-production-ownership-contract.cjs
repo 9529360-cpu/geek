@@ -9,6 +9,7 @@ const read = relative => fs.readFileSync(path.join(root, relative), 'utf8').repl
 const main = read('src/main.cjs');
 const owner = read('src/account-state.cjs');
 const accountData = read('src/account-data-boundary.cjs');
+const runtimePaths = read('src/runtime-paths.cjs');
 
 assert.match(main, /createAccountStateStore/);
 assert.match(main, /const accountState = createAccountStateStore\(/, 'main must compose the single Account State owner');
@@ -32,6 +33,8 @@ assert.match(owner, /const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-'/, 
 assert.match(main, /resolveAccountPartition:\s*accountId => accountState\.resolvePartition\(accountId\)/,
   'production Account Data boundary must resolve account existence/partition through Account State owner');
 assert.match(accountData, /options\.resolveAccountPartition \|\| createAccountPartitionResolver/, 'fallback parser may remain only as an isolated fallback/test helper');
+assert.match(runtimePaths, /function isEmptyAccounts\(value\)/, 'startup migration may inspect only whether a destination is an empty shadow');
+assert.doesNotMatch(runtimePaths, /partition|activeAccountId|find\s*\([^)]*account/i, 'runtime-path migration must not become a second account identity/partition authority');
 
 const productionSourceDir = path.join(root, 'src');
 const accountJsonParsers = [];
@@ -39,9 +42,9 @@ for (const entry of fs.readdirSync(productionSourceDir, { withFileTypes: true })
   if (!entry.isFile() || !/\.(?:cjs|mjs|js)$/.test(entry.name)) continue;
   const relative = `src/${entry.name}`;
   const source = read(relative);
-  if (relative === 'src/account-state.cjs' || relative === 'src/account-data-boundary.cjs') continue;
+  if (['src/account-state.cjs', 'src/account-data-boundary.cjs', 'src/runtime-paths.cjs'].includes(relative)) continue;
   if (/accounts\.json/.test(source) && /JSON\.parse/.test(source)) accountJsonParsers.push(relative);
 }
-assert.deepEqual(accountJsonParsers, [], 'production must not grow another accounts.json parser outside owner/fallback helper');
+assert.deepEqual(accountJsonParsers, [], 'production must not grow another account identity/partition parser outside owner, fallback helper, or startup migration helper');
 
 console.log('ACCOUNT_STATE_PRODUCTION_OWNERSHIP_CONTRACT_OK');
