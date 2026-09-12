@@ -1,5 +1,6 @@
 'use strict';
 
+// Mutation B evidence trigger only; ownership oracle behavior is unchanged.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
