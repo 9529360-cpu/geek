@@ -1,5 +1,6 @@
 'use strict';
 
+// Merge-gate refresh only; ownership assertions below are unchanged.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
