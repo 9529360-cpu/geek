@@ -6,6 +6,8 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const normalizeLineEndings = (value) => String(value).replace(/\r\n?/g, '\n');
 const mainSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8'));
+const catalogSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'platform-catalog.cjs'), 'utf8'));
+const navigationSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'webview-navigation-boundary.cjs'), 'utf8'));
 const coreSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'ui', 'translation-core.js'), 'utf8'));
 const appSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8'));
 const adapterSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8'));
@@ -47,9 +49,14 @@ assert.match(
 );
 
 assert.match(
-  mainSource,
-  /const isLineExtensionPage =\s*\(account\.type === 'line' \|\| account\.type === 'line-business'\)/,
-  'LINE Business 必须通过扩展页面加载白名单'
+  catalogSource,
+  /'line-business':\s*freezeConfig\(\{[\s\S]*?navigationKind:\s*'line'[\s\S]*?hostnames:\s*\['manager\.line\.biz', 'access\.line\.me', 'line\.me'\][\s\S]*?extensionId:\s*LINE_EXTENSION_ID[\s\S]*?needsExtension:\s*true/,
+  'LINE Business 扩展与官方域名白名单必须由 platform catalog 统一持有'
+);
+assert.match(
+  navigationSource,
+  /if \(policy\.extensionId && url\.protocol === 'chrome-extension:' && hostname === policy\.extensionId\) return true;/,
+  'LINE Business 扩展页面必须通过统一导航 authority 放行'
 );
 
 const lineIpcSource = appSource.match(/async function handleLineTranslationIpc\(wv, event\) \{[\s\S]*?\n  \}/)?.[0] || '';
