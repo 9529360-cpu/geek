@@ -9,7 +9,7 @@ const { sanitizeTranslationOutput, assessTranslationOutput, assertSafeTranslatio
 const root = path.resolve(__dirname, '..');
 const workerSource = fs.readFileSync(path.join(root, 'scripts', 'geek-translate-worker.js'), 'utf8');
 const localGatewaySource = fs.readFileSync(path.join(root, 'scripts', 'local_translation_gateway.py'), 'utf8');
-const mainSource = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
+const runtimeSource = fs.readFileSync(path.join(root, 'src', 'translation-runtime.cjs'), 'utf8');
 const adapterSource = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8');
 const appSource = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
 
@@ -66,8 +66,8 @@ assert.throws(
 assert.match(workerSource, /You are a translation engine, not an assistant/, '云端网关必须使用严格翻译提示词');
 assert.match(workerSource, /validateTranslationOutput\(text, result, target\)/, '云端每个模型结果必须质量校验后才能返回');
 assert.match(localGatewaySource, /validate_translation_output\(text, result, target\)/, '本地网关也必须校验模型输出');
-assert.match(mainSource, /assertSafeTranslationOutput\(\{ source: text, output: cached\.text, target \}\)/, '历史缓存必须重新校验，禁止复用脏译文');
-assert.match(mainSource, /assertSafeTranslationOutput\(\{ source: text, output: result\.text, target \}\)/, '客户端主进程必须对网关结果做最终校验');
+assert.match(runtimeSource, /assertSafeTranslationOutput\(\{ source: text, output: cached\.text, target \}\)/, '历史缓存必须重新校验，禁止复用脏译文');
+assert.match(runtimeSource, /assertSafeTranslationOutput\(\{ source: text, output: result\.text, target \}\)/, 'Translation Runtime 必须对网关结果做最终校验');
 
 assert.match(appSource, /shouldGuardRawSend[\s\S]*翻译尚未就绪，已阻止原文发送/, 'WhatsApp 钩子未就绪时必须拦截原文');
 assert.match(appSource, /live\.sendTextMsgToChat !== window\.__geekWhatsAppWrappedSend/, 'WhatsApp 必须在发送时检查翻译钩子仍然存活');
