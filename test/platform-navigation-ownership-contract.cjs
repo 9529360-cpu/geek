@@ -20,6 +20,7 @@ assert.doesNotMatch(main, /\bconst\s+APP_TYPES\s*=/, 'main must not reintroduce 
 assert.doesNotMatch(main, /\bfunction\s+appTypeConfig\s*\(/, 'main must not reintroduce a second platform resolver');
 assert.doesNotMatch(main, /\bhostAllowed\b/, 'legacy global navigation allowlist must stay removed');
 
+// Scan every production CommonJS module so a later refactor cannot hide a second catalog elsewhere.
 const srcDir = path.join(root, 'src');
 for (const filename of fs.readdirSync(srcDir).filter(name => name.endsWith('.cjs') && name !== 'platform-catalog.cjs')) {
   const source = read(path.join('src', filename));
