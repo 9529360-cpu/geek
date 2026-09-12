@@ -10,7 +10,7 @@ const { createSubscriptionStore } = require('../src/subscription.cjs');
 const runtimeSource = fs.readFileSync(path.join(__dirname, '../src/translation-runtime.cjs'), 'utf8');
 assert.match(
   runtimeSource,
-  /sub\.getQuota\(\{\s*network:\s*false\s*\}\)/,
+  /getSubscriptionStore\(\)\.getQuota\(\{\s*network:\s*false\s*\}\)/,
   '翻译热路径必须继续明确请求 quota 本地只读模式'
 );
 
