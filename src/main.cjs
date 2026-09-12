@@ -491,6 +491,7 @@ async function moveAccountTo(event, accountId, targetIndex) {
 }
 
 function registerIpcHandlers() {
+  ipcMain.handle('translation:health', async () => ({ ok: true })); // MUTATION duplicate owner
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
   const remoteDebuggingRequested = externalDebuggingRequested({ argv: process.argv });
   const telegramNativeAttachments = createTelegramNativeAttachmentHandler({
