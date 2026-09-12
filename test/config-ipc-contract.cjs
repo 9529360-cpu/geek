@@ -19,7 +19,7 @@ function ipcHarness() {
   };
 }
 
-async function main() {
+async function successContract() {
   const ipc = ipcHarness();
   let state = { theme: 'system', host: '' };
   const calls = [];
@@ -42,6 +42,31 @@ async function main() {
   owner.dispose();
   assert.equal(ipc.handlers.size, 0);
   assert.deepEqual(ipc.removed, ['config:get', 'config:set']);
+}
+
+async function failedCommitHasNoEffects() {
+  const ipc = ipcHarness();
+  let effects = 0;
+  installConfigIpc({
+    ipcMain: ipc.ipcMain,
+    assertTrustedSender() {},
+    store: {
+      getSnapshot() { return { theme: 'system' }; },
+      async update() {
+        const error = new Error('synthetic durable failure');
+        error.code = 'EIO';
+        throw error;
+      },
+    },
+    async onCommitted() { effects += 1; },
+  });
+  await assert.rejects(ipc.handlers.get('config:set')({}, { theme: 'dark' }), error => error?.code === 'EIO');
+  assert.equal(effects, 0, 'failed durable mutation must not apply login/proxy/notify side effects');
+}
+
+async function main() {
+  await successContract();
+  await failedCommitHasNoEffects();
   console.log('CONFIG_IPC_CONTRACT_OK');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
