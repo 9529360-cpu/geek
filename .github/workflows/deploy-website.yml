@@ -9,8 +9,6 @@ on:
       - 'scripts/geek-website-worker.js'
       - 'scripts/website-payment-qr.mjs'
       - 'wrangler-website.toml'
-      - 'test/website-*.cjs'
-      - '.github/workflows/deploy-website.yml'
 
 permissions:
   contents: read
@@ -43,7 +41,9 @@ jobs:
         run: npm test
 
       - name: Validate Worker syntax
-        run: node --check scripts/geek-website-worker.js
+        run: |
+          node --check scripts/geek-website-worker.js
+          node --check scripts/website-payment-qr.mjs
 
       - name: Deploy website Worker
         id: deploy
