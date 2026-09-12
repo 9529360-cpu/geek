@@ -20,6 +20,12 @@ assert.doesNotMatch(main, /\bconst\s+APP_TYPES\s*=/, 'main must not reintroduce 
 assert.doesNotMatch(main, /\bfunction\s+appTypeConfig\s*\(/, 'main must not reintroduce a second platform resolver');
 assert.doesNotMatch(main, /\bhostAllowed\b/, 'legacy global navigation allowlist must stay removed');
 
+const srcDir = path.join(root, 'src');
+for (const filename of fs.readdirSync(srcDir).filter(name => name.endsWith('.cjs') && name !== 'platform-catalog.cjs')) {
+  const source = read(path.join('src', filename));
+  assert.doesNotMatch(source, /\bconst\s+APP_TYPES\s*=/, `${filename} must not declare a second platform metadata table`);
+}
+
 assert.match(catalog, /const PLATFORM_CATALOG = Object\.freeze\(/, 'platform catalog must own platform metadata');
 for (const marker of [
   "'https://web.whatsapp.com/'",
