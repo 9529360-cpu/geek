@@ -22,13 +22,30 @@ assert.match(owner, /if \(!isTrustedSender\(event\)\) throw new Error\('拒绝�
 assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{[\s\S]*assertTrustedSender\(event\);[\s\S]*return handler\(\.\.\.args\)/, 'every registered subscription handler must pass through sender validation before work');
 assert.match(owner, /for \(const channel of SUBSCRIPTION_CHANNELS\) ipcMain\.removeHandler\(channel\)/, 'owner must own complete teardown');
 
-const directOwners = [];
+const expectedChannels = [
+  'subscription:get-state',
+  'subscription:refresh',
+  'subscription:login',
+  'subscription:register',
+  'subscription:create-order',
+  'subscription:get-quota',
+  'subscription:report-usage',
+  'subscription:logout',
+  'subscription:enter-app',
+  'subscription:close-window',
+];
+for (const channel of expectedChannels) {
+  assert.ok(owner.includes(`'${channel}'`), `Subscription IPC owner must declare ${channel}`);
+}
+
+const strayDirectOwners = [];
 for (const entry of fs.readdirSync(path.join(root, 'src'), { withFileTypes: true })) {
   if (!entry.isFile() || !/\.(?:cjs|mjs|js)$/.test(entry.name)) continue;
   const relative = `src/${entry.name}`;
+  if (relative === 'src/subscription-ipc.cjs') continue;
   const source = read(relative);
-  if (/ipcMain\.handle\('subscription:/.test(source) || /ipcMain\.removeHandler\('subscription:/.test(source)) directOwners.push(relative);
+  if (/ipcMain\.handle\('subscription:/.test(source) || /ipcMain\.removeHandler\('subscription:/.test(source)) strayDirectOwners.push(relative);
 }
-assert.deepEqual(directOwners, ['src/subscription-ipc.cjs'], 'subscription IPC must have exactly one direct production owner');
+assert.deepEqual(strayDirectOwners, [], 'no production module outside Subscription IPC owner may directly own subscription channels');
 
 console.log('SUBSCRIPTION_IPC_PRODUCTION_OWNERSHIP_CONTRACT_OK');
