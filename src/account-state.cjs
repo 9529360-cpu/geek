@@ -343,8 +343,8 @@ function createAccountStateStore(options = {}) {
     try {
       state = parseStoredState(target.content);
     } catch (error) {
-      await tryRecover(error);
-      await migrateLoadedState();
+      state = { activeAccountId: null, accounts: [] };
+      await durableWrite(state, { migration: true });
       return cloneState(state);
     }
 
