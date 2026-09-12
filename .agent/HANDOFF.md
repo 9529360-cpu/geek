@@ -31,6 +31,7 @@ These are intended to survive individual maintenance rounds. Reconfirm them agai
 
 - The real Electron entrypoint is `src/main-entry.cjs`; do not infer runtime ownership from an older entrypoint description.
 - Each account owns a persistent Electron Session/partition. Account identity, partition, guest `WebContents`, and account-scoped state must not be silently rebound by UI focus or another account.
+- Account IPC ingress and account state durability are separate owners. Canonical account state transitions are serialized by the Account State owner; candidate state is encrypted and atomically persisted before becoming authoritative memory, and runtime cleanup/proxy/notifications are post-commit effects.
 - Remote WebViews keep `sandbox=true`, `nodeIntegration=false`, and `webSecurity=true`; insecure content is not enabled as a maintenance shortcut.
 - WhatsApp and Telegram use `contextIsolation=true`. LINE has a deliberately scoped `contextIsolation=false` compatibility exception; do not remove or broaden it without the authenticated evidence described by #16/#130.
 - Post-attach WebView navigation is account-scoped and fail-closed when account/partition ownership cannot be established. Popup, navigation, and redirect policy must not become a global cross-account allowlist.
