@@ -24,6 +24,7 @@ const { assertSafeTranslationOutput } = require('./translation-output-safety.cjs
 const { normalizeWebsiteUrl, parseWebsiteUrl } = require('./website-url.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installAccountIpc } = require('./account-ipc.cjs');
+const { createAccountStateStore, ACCOUNT_PARTITION_PREFIX } = require('./account-state.cjs');
 const { ACCOUNT_DATA_KEYS } = require('./account-data-store.cjs');
 const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
@@ -146,9 +147,8 @@ try {
 
 // 运行期 accounts/config 固定写入 Electron userData，不再写入项目 data/。
 // 首次运行时会从旧 data/ 安全迁移（目标已存在则以目标为准）。
-const ACCOUNTS_FILE = runtimePaths.accountsFile(USER_DATA_DIR);
 const CONFIG_FILE = runtimePaths.configFile(USER_DATA_DIR);
-const PARTITION_PREFIX = 'persist:webview-page-';
+const PARTITION_PREFIX = ACCOUNT_PARTITION_PREFIX;
 // Ordinary Chrome UA so WhatsApp/Telegram Web don't reject the embedded browser.
 // Same UA family the original Hello-GPT ships (verified working with WhatsApp Web).
 const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.243 Safari/537.36';
@@ -217,6 +217,20 @@ const APP_TYPES = {
 function appTypeConfig(type) {
   return APP_TYPES[type] || null;
 }
+
+const accountState = createAccountStateStore({
+  fs,
+  filePath: runtimePaths.accountsFile(USER_DATA_DIR),
+  resolveTypeConfig: appTypeConfig,
+  normalizeWebsiteUrl,
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
+  decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),
+  onMigrationError: (error, meta) => {
+    const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
+    console.error(`[account-state] ${meta?.phase === 'migration' ? 'migration' : 'load'} failed:`, code.slice(0, 80));
+  },
+});
 
 // LINE 官方浏览器扩展（复刻项目自带副本，供 line / line-business 账号登录使用）
 // 用 MV3 原始扩展（与 Hello-GPT 原版完全一致）；Electron 35.5.1 下 SW 注册行为待验证
@@ -287,8 +301,6 @@ async function loadLineExtension(partition) {
       ses.webRequest.onBeforeSendHeaders((details, callback) => {
         if (/checkQrCodeVerified/.test(details.url)) {
           const h = details.requestHeaders || {};
-          // 安全日志：凭证头只记录存在性布尔值，绝不输出原值；
-          // URL 只记录 host+pathname，去掉 query（可能携带会话/令牌参数）
           let urlSafe = '';
           try {
             const u = new URL(details.url);
@@ -298,12 +310,10 @@ async function loadLineExtension(partition) {
           }
           console.log(`[line-hdr] ${urlSafe} UA=${(h['User-Agent']||'').slice(0,50)} OriginPresent=${h['Origin']?'yes':'no'} RefererPresent=${h['Referer']?'yes':'no'} CT=${h['Content-Type']||''} XSID=${h['X-Line-Session-ID']?'yes':'no'} XLST=${h['X-LST']?'yes':'no'}`);
         }
-        // 必须调用 callback，否则请求被阻塞（Electron webRequest API 要求）
         callback({ requestHeaders: details.requestHeaders });
       });
       ses.webRequest.onCompleted((details) => {
         if (/line-chrome-gw/.test(details.url)) {
-          // 安全日志：URL 只记录 host+pathname，去掉 query（可能携带会话/令牌参数）
           let urlSafe = '';
           try {
             const u = new URL(details.url);
@@ -318,7 +328,6 @@ async function loadLineExtension(partition) {
     const ext = await ses.extensions.loadExtension(LINE_EXTENSION_PATH);
     if (ext) {
       console.log(`[line] 扩展已加载到 ${partition}: ${ext.name} ${ext.version}`);
-      // 扩展就绪后通知 renderer 重载对应 webview（原版 onPluginInstalled 模式）
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('line:extension-ready', partition);
       }
@@ -329,21 +338,17 @@ async function loadLineExtension(partition) {
 }
 
 let mainWindow = null;
-let accountsState = {
-  activeAccountId: null,
-  accounts: []
-};
 
 const DEFAULT_CONFIG = {
   autoLaunch: false,
   isStartupMinimize: false,
   messageSound: true,
-  theme: 'system', // 整体主题：system | dark | light
-  accent: 'green', // 强调色：green | blue | purple | cyan | orange | pink
-  broadcastGroups: [], // 群组预设 [{id, name, chatIds:[], createdAt}]
-  lockPassword: '', // 锁屏密码（挂机锁）
+  theme: 'system',
+  accent: 'green',
+  broadcastGroups: [],
+  lockPassword: '',
   openProxy: false,
-  protocal: 'http', // 代理协议：http | socks5（对齐原版字段名）
+  protocal: 'http',
   host: '',
   port: '',
   login: '',
@@ -353,102 +358,19 @@ const DEFAULT_CONFIG = {
 let configState = { ...DEFAULT_CONFIG };
 let configQueue = Promise.resolve();
 
-let persistenceQueue = Promise.resolve();
-
-function createAccountId() {
-  return crypto.randomUUID();
-}
-
-function partitionFor(accountId) {
-  return `${PARTITION_PREFIX}${accountId}`;
-}
-
-function sanitizeAccountName(name, fallback) {
-  if (typeof name !== 'string') {
-    return fallback;
-  }
-
-  const normalized = name.trim().replace(/\s+/g, ' ');
-  return normalized.slice(0, 40) || fallback;
-}
-
-function normalizeStoredState(value) {
-  const rawAccounts = Array.isArray(value)
-    ? value
-    : Array.isArray(value?.accounts)
-      ? value.accounts
-      : [];
-
-  const seenIds = new Set();
-  const accounts = [];
-
-  for (const item of rawAccounts) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-
-    const id = typeof item.id === 'string' ? item.id.trim() : '';
-    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || seenIds.has(id)) {
-      continue;
-    }
-
-    seenIds.add(id);
-    const type = appTypeConfig(item.type) ? item.type : 'whatsapp';
-    accounts.push({
-      id,
-      type,
-      name: sanitizeAccountName(item.name, `账号 ${accounts.length + 1}`),
-      partition: partitionFor(id),
-      customUrl: typeof item.customUrl === 'string' ? item.customUrl : '',
-      fontSize: Number.isInteger(item.fontSize) ? item.fontSize : 16,
-      fontColor: typeof item.fontColor === 'string' ? item.fontColor : '#18A058',
-      openProxy: item.openProxy === true,
-      protocal: item.protocal === 'https' || item.protocal === 'socks4' || item.protocal === 'socks5' ? item.protocal : 'http',
-      host: typeof item.host === 'string' ? item.host : '',
-      port: typeof item.port === 'string' ? item.port : '',
-      huser: typeof item.huser === 'string' ? item.huser : '',
-      // 代理密码：兼容旧版明文 + 新版 enc: 密文
-      hpwd: typeof item.hpwd === 'string'
-        ? (item.hpwd.startsWith('enc:') ? safeDecrypt(item.hpwd.slice(4)) : item.hpwd)
-        : '',
-      createdAt:
-        typeof item.createdAt === 'string'
-          ? item.createdAt
-          : new Date().toISOString()
-    });
-  }
-
-  const requestedActiveId =
-    !Array.isArray(value) && typeof value?.activeAccountId === 'string'
-      ? value.activeAccountId
-      : rawAccounts.find((item) => item?.active)?.id;
-
-  const activeAccountId = accounts.some(
-    (account) => account.id === requestedActiveId
-  )
-    ? requestedActiveId
-    : accounts[0]?.id ?? null;
-
+function publicState(snapshot = accountState.getSnapshot()) {
   return {
-    activeAccountId,
-    accounts
-  };
-}
-
-function publicState() {
-  return {
-    activeAccountId: accountsState.activeAccountId,
-    accounts: accountsState.accounts.map((account) => {
+    activeAccountId: snapshot.activeAccountId,
+    accounts: snapshot.accounts.map((account) => {
       const config = appTypeConfig(account.type);
       let url = config ? config.url : APP_TYPES[account.type].url;
-      // WhatsApp 强制本地托管（旧版页面——媒体 API 匹配，图+文秒发）——已验证可用方案
       if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') url = WA_LOCAL_URL;
       if (account.type === 'website' && account.customUrl) {
         url = account.customUrl;
       }
       return {
         ...account,
-        active: account.id === accountsState.activeAccountId,
+        active: account.id === snapshot.activeAccountId,
         url,
         typeName: config ? config.name : account.type,
         typeShort: config && config.short ? config.short : account.type.slice(0, 2).toUpperCase(),
@@ -466,7 +388,6 @@ function normalizeConfig(raw) {
     messageSound: typeof value.messageSound === 'boolean' ? value.messageSound : DEFAULT_CONFIG.messageSound,
     theme: ['system','light'].includes(value.theme) ? value.theme : value.theme === 'dark' ? 'dark' : 'system',
     broadcastGroups: Array.isArray(value.broadcastGroups) ? value.broadcastGroups.filter(g => g && g.id && g.name) : [],
-    // 迁移：旧版 theme 存的是强调色（green/blue...）→ 转为 accent + 跟随系统
     accent: ['green','blue','purple','cyan','orange','pink'].includes(value.theme) ? value.theme
       : ['green','blue','purple','cyan','orange','pink'].includes(value.accent) ? value.accent : 'green',
     lockPassword: typeof value.lockPassword === 'string'
@@ -477,7 +398,6 @@ function normalizeConfig(raw) {
     host: typeof value.host === 'string' ? value.host : DEFAULT_CONFIG.host,
     port: typeof value.port === 'string' ? value.port : DEFAULT_CONFIG.port,
     login: typeof value.login === 'string' ? value.login : DEFAULT_CONFIG.login,
-    // 代理密码加密存储（safeStorage DPAPI），兼容旧版明文（enc: 前缀是加密的）
     password: typeof value.password === 'string'
       ? (value.password.startsWith('enc:') ? safeDecrypt(value.password.slice(4)) : value.password)
       : DEFAULT_CONFIG.password
@@ -497,7 +417,6 @@ async function loadConfig() {
     await persistConfig();
     return;
   }
-  // 迁移失败不能进入“读取失败”分支，否则会用默认值覆盖用户配置。
   try {
     await persistConfig();
   } catch (error) {
@@ -525,7 +444,6 @@ function safeEncrypt(text) {
 }
 
 function persistConfig() {
-  // 代理密码、锁屏密码等敏感字段加密后再落盘（内存里保留明文用于鉴权/解锁，磁盘不落明文）
   const snapshot = JSON.stringify({
     ...configState,
     lockPassword: configState.lockPassword ? safeEncrypt(configState.lockPassword) : '',
@@ -544,9 +462,7 @@ function persistConfig() {
 }
 
 function applyLoginItemSettings() {
-  if (process.platform !== 'win32') {
-    return;
-  }
+  if (process.platform !== 'win32') return;
   try {
     app.setLoginItemSettings({
       openAtLogin: configState.autoLaunch,
@@ -558,19 +474,13 @@ function applyLoginItemSettings() {
 }
 
 function proxyRulesFor(config) {
-  if (!config || !config.openProxy) {
-    return null;
-  }
+  if (!config || !config.openProxy) return null;
   const host = String(config.host || '').trim();
   const port = String(config.port || '').trim();
-  if (!host || !port) {
-    return null;
-  }
-  // 协议：http | https | socks4 | socks5（对齐原版 http/socks5 并补全）
+  if (!host || !port) return null;
   const protocal = config.protocal === 'https' || config.protocal === 'socks4' || config.protocal === 'socks5'
     ? config.protocal
     : 'http';
-  // 认证：账号代理用 huser/hpwd，全局代理用 login/password
   const login = String(config.login || config.huser || '').trim();
   const password = String(config.password || config.hpwd || '');
   const auth = login ? `${encodeURIComponent(login)}:${encodeURIComponent(password)}@` : '';
@@ -598,127 +508,39 @@ async function applyProxyForPartition(partition, config) {
   }
 }
 
-async function loadAccounts() {
-  await fs.mkdir(path.dirname(ACCOUNTS_FILE), { recursive: true });
-
-  try {
-    const content = await fs.readFile(ACCOUNTS_FILE, 'utf8');
-    accountsState = normalizeStoredState(JSON.parse(content));
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      console.error('读取账号文件失败:', error);
-    }
-
-    accountsState = {
-      activeAccountId: null,
-      accounts: []
-    };
-
-    await persistAccounts();
-    return;
-  }
-  // 迁移失败不能清空账号列表；保留已加载内存状态和原磁盘文件。
-  try {
-    await persistAccounts();
-  } catch (error) {
-    console.error('[security] 账号敏感字段迁移失败，保留原文件:', error.message);
-  }
-}
-
-function persistAccounts() {
-  // 敏感字段（代理密码 hpwd）加密落盘，内存保留明文用于代理鉴权
-  const accountsForDisk = accountsState.accounts.map((account) => ({
-    ...account,
-    hpwd: account.hpwd ? safeEncrypt(account.hpwd) : '',
-  }));
-  const snapshot = JSON.stringify(
-    {
-      activeAccountId: accountsState.activeAccountId,
-      accounts: accountsForDisk
-    },
-    null,
-    2
-  );
-
-  persistenceQueue = persistenceQueue
-    .catch(() => {})
-    .then(async () => {
-      const directory = path.dirname(ACCOUNTS_FILE);
-      const temporaryFile = `${ACCOUNTS_FILE}.tmp`;
-
-      await fs.mkdir(directory, { recursive: true });
-      await fs.writeFile(temporaryFile, snapshot, 'utf8');
-      await fs.rename(temporaryFile, ACCOUNTS_FILE);
-    });
-
-  return persistenceQueue;
-}
-
 function isTrustedSender(event) {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return false;
-  }
-
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
   return event.sender.id === mainWindow.webContents.id;
 }
 
 function assertTrustedSender(event) {
-  if (!isTrustedSender(event)) {
-    throw new Error('拒绝来自未授权页面的 IPC 请求');
-  }
+  if (!isTrustedSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
 }
 
 function assertValidAccountId(accountId) {
-  if (
-    typeof accountId !== 'string' ||
-    !/^[a-zA-Z0-9_-]{1,100}$/.test(accountId)
-  ) {
+  if (typeof accountId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(accountId)) {
     throw new Error('无效的账号 ID');
   }
 }
 
-function notifyAccountsChanged() {
+function notifyAccountsChanged(snapshot = accountState.getSnapshot()) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('accounts:changed', publicState());
+    mainWindow.webContents.send('accounts:changed', publicState(snapshot));
   }
 }
 
 async function addAccount(_event, payload = {}) {
   assertTrustedSender(_event);
-
-  const raw = typeof payload === 'string' ? { name: payload } : payload || {};
-  const type = raw.type === undefined ? 'whatsapp' : raw.type;
-  const config = appTypeConfig(type);
-  if (!config) {
-    const error = new Error('ACCOUNT_TYPE_UNSUPPORTED');
-    error.code = 'ACCOUNT_TYPE_UNSUPPORTED';
-    throw error;
-  }
-
-  const customUrl = type === 'website' ? normalizeWebsiteUrl(raw.customUrl) : '';
-
-  const id = createAccountId();
-  const account = {
-    id,
-    type,
-    name: sanitizeAccountName(raw.name, `账号 ${accountsState.accounts.length + 1}`),
-    partition: partitionFor(id),
-    customUrl,
-    createdAt: new Date().toISOString()
-  };
-
-  accountsState.accounts.push(account);
-  accountsState.activeAccountId = id;
-
-  await persistAccounts();
-  notifyAccountsChanged();
-
+  const result = await accountState.add(payload);
+  const account = result.account;
+  const config = appTypeConfig(account.type);
+  notifyAccountsChanged(result.snapshot);
   return {
-    state: publicState(),
+    state: publicState(result.snapshot),
     account: {
       ...account,
       active: true,
-      url: type === 'website' ? customUrl : config.url,
+      url: account.type === 'website' ? account.customUrl : config.url,
       userAgent: CHROME_USER_AGENT
     }
   };
@@ -726,36 +548,16 @@ async function addAccount(_event, payload = {}) {
 
 async function switchAccount(event, accountId) {
   assertTrustedSender(event);
-  assertValidAccountId(accountId);
-
-  const exists = accountsState.accounts.some(
-    (account) => account.id === accountId
-  );
-
-  if (!exists) {
-    throw new Error('账号不存在');
-  }
-
-  accountsState.activeAccountId = accountId;
-  await persistAccounts();
-  notifyAccountsChanged();
-
-  return publicState();
+  const result = await accountState.activate(accountId);
+  notifyAccountsChanged(result.snapshot);
+  return publicState(result.snapshot);
 }
 
 async function removeAccount(event, accountId) {
   assertTrustedSender(event);
-  assertValidAccountId(accountId);
+  const result = await accountState.remove(accountId);
+  const removedAccount = result.removedAccount;
 
-  const accountIndex = accountsState.accounts.findIndex(
-    (account) => account.id === accountId
-  );
-
-  if (accountIndex === -1) {
-    throw new Error('账号不存在');
-  }
-
-  const [removedAccount] = accountsState.accounts.splice(accountIndex, 1);
   deletedTranslationPartitions.add(removedAccount.partition);
   translationCaches.delete(removedAccount.partition);
   translationCacheLoaded.delete(removedAccount.partition);
@@ -763,16 +565,6 @@ async function removeAccount(event, accountId) {
   for (const key of translationLatestRequest.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationLatestRequest.delete(key);
   for (const key of translationInflight.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationInflight.delete(key);
 
-  if (accountsState.activeAccountId === accountId) {
-    accountsState.activeAccountId =
-      accountsState.accounts[accountIndex]?.id ??
-      accountsState.accounts[accountIndex - 1]?.id ??
-      null;
-  }
-
-  await persistAccounts();
-
-  // 强制销毁该账号的 webContents（释放 session 文件锁，否则分区目录删不掉）
   try {
     const guests = webContents.getAllWebContents().filter(
       (wc) => wc.session?.partition === removedAccount.partition
@@ -782,18 +574,13 @@ async function removeAccount(event, accountId) {
     }
   } catch (e) { /* 销毁失败不影响 */ }
 
-  const accountSession = session.fromPartition(removedAccount.partition, {
-    cache: true
-  });
-
+  const accountSession = session.fromPartition(removedAccount.partition, { cache: true });
   try {
     await accountSession.clearStorageData();
     await accountSession.clearCache();
     await accountSession.clearAuthCache();
     await accountSession.clearHostResolverCache();
     await accountSession.flushStorageData();
-    // 沙箱自毁：物理删除该账号的分区目录（磁盘上不留任何数据）
-    // Windows 文件锁可能延迟释放 → 重试，仍失败则记录到退出时兜底清理
     try {
       const dirName = removedAccount.partition.replace(/^persist:/, '');
       const partDir = path.join(app.getPath('userData'), 'Partitions', dirName);
@@ -820,14 +607,14 @@ async function removeAccount(event, accountId) {
     console.error(`清理账号 ${accountId} 的会话数据失败:`, error);
     throw new Error('账号已删除，但登录数据清理失败');
   } finally {
-    notifyAccountsChanged();
+    notifyAccountsChanged(result.snapshot);
   }
 
-  return publicState();
+  return publicState(result.snapshot);
 }
 
 const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
-const translationCaches = new Map(); // partition -> Map(hash -> encrypted-local translation)
+const translationCaches = new Map();
 const translationCacheLoaded = new Set();
 const deletedTranslationPartitions = new Set();
 const translationInflight = new Map();
@@ -873,10 +660,7 @@ async function appendTranslationCache(partition, key, item) {
 }
 
 function resolveAccountPartition(accountId) {
-  assertValidAccountId(accountId);
-  const account = accountsState.accounts.find(item => item.id === accountId);
-  if (!account?.partition) throw new Error('账号沙箱不存在');
-  return account.partition;
+  return accountState.resolvePartition(accountId);
 }
 
 function translationGatewayEndpoints() {
@@ -884,8 +668,6 @@ function translationGatewayEndpoints() {
   const list = configured
     ? configured.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean)
     : [];
-  // 未配置环境变量时：默认走云端翻译 Worker（geek-translate.9529360.workers.dev）。
-  // 本地网关（127.0.0.1:18991）仅当显式通过 GEEK_TRANSLATION_GATEWAY_URL 配置时才使用。
   const endpoints = list.length ? list : ['https://geek-translate.9529360.workers.dev'];
   if (!endpoints.length) throw new Error('远程翻译服务尚未配置');
   for (const endpoint of endpoints) {
@@ -924,7 +706,6 @@ async function checkTranslationGateway(event) {
   const pool = getTranslationGatewayPool();
   const health = await pool.healthCheckAll();
   const okCount = Object.values(health).filter(Boolean).length;
-  // 不暴露端点 URL 列表（内部网络信息），只返回数量与状态
   return { ok: okCount > 0, models: okCount, endpointCount: Object.keys(health).length };
 }
 
@@ -958,7 +739,7 @@ async function translateViaRemoteGateway(event, payload) {
   if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/.test(target) || target === 'auto') throw new Error('目标语言不合法');
   const accountId = String(body.accountId || '');
   assertValidAccountId(accountId);
-  const account = accountsState.accounts.find(item => item.id === accountId);
+  const account = accountState.findById(accountId);
   if (!account?.partition) throw new Error('翻译账号沙箱不存在');
   const partition = account.partition;
   const cache = await loadTranslationCache(partition);
@@ -977,8 +758,6 @@ async function translateViaRemoteGateway(event, payload) {
     if (body.isHistory === true && body.translateHistory !== true) return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true };
     if (translationInflight.has(inflightKey)) return translationInflight.get(inflightKey);
   }
-  // 字符余额检查：只读本地缓存（不发起网络请求），额度用完抛错（UI 静默处理）。
-  // 额度固定：服务端原子扣减并返回剩余值，客户端本地更新；本地无缓存则放行（服务端兜底 402）。
   if (body.skipQuota !== true) {
     const sub = initSubscriptionStore();
     const quota = await sub.getQuota({ network: false }).catch(() => ({ remaining_chars: null }));
@@ -997,8 +776,6 @@ async function translateViaRemoteGateway(event, payload) {
   const translationRequestId = crypto.randomUUID();
   translationLatestRequest.set(inflightKey, requestSequence);
   const request = enqueueTranslationRemote(async () => {
-    // 多端点故障切换：优先健康端点（primary），失败切换 backup；全部失败抛最后错误。
-    // 整个请求有 30s 总预算，避免端点×超时放大。
     let lastError = null;
     const attempts = Math.max(1, pool.endpoints.length);
     const deadline = Date.now() + 30000;
@@ -1033,7 +810,6 @@ async function translateViaRemoteGateway(event, payload) {
         const item = { text: translated, at: Date.now() };
         cache.set(key, item);
         await appendTranslationCache(partition, key, item);
-        // 远程翻译 Worker 已服务端原子扣额；客户端不再二次上报，避免重复计费。
         return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, route: picked.route };
       } catch (error) {
         pool.reportFailure(endpoint);
@@ -1052,86 +828,28 @@ let accountIpcBoundary = null;
 
 async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
-  assertValidAccountId(accountId);
-
-  const account = accountsState.accounts.find((item) => item.id === accountId);
-  if (!account) {
-    throw new Error('账号不存在');
-  }
-
-  const raw = patchData && typeof patchData === 'object' ? patchData : {};
-
-  if (typeof raw.name === 'string') {
-    const name = sanitizeAccountName(raw.name, account.name);
-    if (name) {
-      account.name = name;
-    }
-  }
-  if (Number.isInteger(raw.fontSize) && raw.fontSize >= 10 && raw.fontSize <= 28) {
-    account.fontSize = raw.fontSize;
-  }
-  if (typeof raw.fontColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.fontColor)) {
-    account.fontColor = raw.fontColor;
-  }
-  if (typeof raw.openProxy === 'boolean') {
-    account.openProxy = raw.openProxy;
-  }
-  if (raw.protocal === 'http' || raw.protocal === 'https' || raw.protocal === 'socks4' || raw.protocal === 'socks5') {
-    account.protocal = raw.protocal;
-  }
-  if (typeof raw.host === 'string') account.host = raw.host;
-  if (typeof raw.port === 'string') account.port = raw.port;
-  if (typeof raw.huser === 'string') account.huser = raw.huser;
-  if (typeof raw.hpwd === 'string') account.hpwd = raw.hpwd;
-
-  await persistAccounts();
+  const result = await accountState.update(accountId, patchData);
+  const account = result.account;
   await applyProxyForPartition(
     account.partition,
     account.openProxy ? account : (configState.openProxy ? configState : null)
   );
-  notifyAccountsChanged();
-
-  return publicState();
+  notifyAccountsChanged(result.snapshot);
+  return publicState(result.snapshot);
 }
 
 async function moveAccount(event, accountId, direction) {
   assertTrustedSender(event);
-  assertValidAccountId(accountId);
-
-  const index = accountsState.accounts.findIndex((item) => item.id === accountId);
-  if (index === -1) {
-    throw new Error('账号不存在');
-  }
-  const target = direction === 'up' ? index - 1 : index + 1;
-  if (target < 0 || target >= accountsState.accounts.length) {
-    throw new Error('已经是边缘位置');
-  }
-
-  const [moved] = accountsState.accounts.splice(index, 1);
-  accountsState.accounts.splice(target, 0, moved);
-
-  await persistAccounts();
-  notifyAccountsChanged();
-
-  return publicState();
+  const result = await accountState.move(accountId, direction);
+  notifyAccountsChanged(result.snapshot);
+  return publicState(result.snapshot);
 }
 
 async function moveAccountTo(event, accountId, targetIndex) {
   assertTrustedSender(event);
-  assertValidAccountId(accountId);
-
-  const index = accountsState.accounts.findIndex((item) => item.id === accountId);
-  if (index === -1) {
-    throw new Error('账号不存在');
-  }
-  const insertAt = Math.max(0, Math.min(accountsState.accounts.length - 1, targetIndex | 0));
-  const [moved] = accountsState.accounts.splice(index, 1);
-  accountsState.accounts.splice(insertAt, 0, moved);
-
-  await persistAccounts();
-  notifyAccountsChanged();
-
-  return publicState();
+  const result = await accountState.moveTo(accountId, targetIndex);
+  notifyAccountsChanged(result.snapshot);
+  return publicState(result.snapshot);
 }
 
 function registerIpcHandlers() {
@@ -1174,6 +892,7 @@ function registerIpcHandlers() {
     getUserDataDir: () => app.getPath('userData'),
     uiEntryPath,
     allowedKeys: [...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS],
+    resolveAccountPartition: accountId => accountState.resolvePartition(accountId),
     beforeAccountRemove: ({ accountId }) => scheduledAttachmentBoundary.cleanupAccount(accountId),
     isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
     encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
@@ -1186,7 +905,7 @@ function registerIpcHandlers() {
   accountIpcBoundary = installAccountIpc({
     ipcMain,
     assertTrustedSender,
-    listAccounts: async () => publicState(),
+    listAccounts: async () => publicState(accountState.getSnapshot()),
     addAccount,
     removeAccount: (event, accountId) => accountDataBoundary.runAccountRemoval(event, accountId, removeAccount),
     switchAccount,
@@ -1198,7 +917,7 @@ function registerIpcHandlers() {
   ipcMain.handle('webview:register', async (event, accountId, guestId, token) => {
     assertTrustedSender(event);
     const partition = resolveAccountPartition(accountId);
-    const account = accountsState.accounts.find(item => item.id === accountId);
+    const account = accountState.findById(accountId);
     const guest = webContents.fromId(Number(guestId));
     const guestUrl = guest?.getURL?.() || '';
     const isTelegram = ['telegram-z', 'telegram', 'telegram-pure', 'telegram-k'].includes(account?.type);
@@ -1272,15 +991,16 @@ function registerIpcHandlers() {
     applyLoginItemSettings();
 
     const globalProxy = configState.openProxy ? configState : null;
+    const snapshot = accountState.getSnapshot();
     await Promise.all(
-      accountsState.accounts.map((account) =>
+      snapshot.accounts.map((account) =>
         applyProxyForPartition(
           account.partition,
           account.openProxy ? account : globalProxy
         )
       )
     );
-    notifyAccountsChanged();
+    notifyAccountsChanged(snapshot);
 
     return { ...configState };
   });
@@ -1298,9 +1018,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('window:minimize', async (event) => {
     assertTrustedSender(event);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.minimize();
-    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
   });
 
   ipcMain.handle('window:maximize', async (event) => {
@@ -1313,9 +1031,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('window:close', async (event) => {
     assertTrustedSender(event);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.close();
-    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
   });
 
   ipcMain.handle('notify:show', async (event, payload) => {
@@ -1334,17 +1050,13 @@ function registerIpcHandlers() {
     }
   });
 
-  // 系统主题（跟随系统用）
   ipcMain.handle('theme:get-system', async (event) => {
     assertTrustedSender(event);
     return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
   });
 
-  // WA 媒体发送链路（HelloWorld 同款）：隐藏 input 接收 File → prepRawMedia → sendMediaMsgToChat
-  // 传输层由调用方提供 send(method, params)，不关心内部/外部 CDP。
   async function waSendFileViaCdp(send, { filePath, chatId, caption }) {
     await send('DOM.enable');
-    // 1. 页面创建隐藏 input
     const created = await send('Runtime.evaluate', { expression: `(() => {
       const i = document.createElement('input');
       i.type = 'file';
@@ -1354,13 +1066,11 @@ function registerIpcHandlers() {
       return !!i;
     })()`, returnByValue: true });
     if (!created.result.value) throw new Error('创建文件输入框失败');
-    // 2. 注入文件（File 对象到 input.files）
     const doc = await send('DOM.getDocument', { depth: -1 });
     const q = await send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: '#__hw_file_input' });
     const nodeIds = q.nodeIds || [];
     if (!nodeIds.length) throw new Error('找不到文件输入框');
     await send('DOM.setFileInputFiles', { nodeId: nodeIds[0], files: [filePath] });
-    // 3. 页面内 File → prepRawMedia → sendMediaMsgToChat（HelloWorld 同款链路）
     const expr = `(async () => {
       try {
         const inp = document.getElementById('__hw_file_input');
@@ -1390,7 +1100,6 @@ function registerIpcHandlers() {
     return r.result ? r.result.value : 'EMPTY';
   }
 
-  // 外部 CDP（9344）传输：给页面级流程提供 { send, onEvent }
   async function withExternalCdpSend(targetUrl, run) {
     return await new Promise((resolve, reject) => {
       const sock = new WebSocket(targetUrl);
@@ -1450,10 +1159,9 @@ function registerIpcHandlers() {
     return target.webSocketDebuggerUrl;
   }
 
-  // 群发文件（WA 底层 API——HelloWorld 同款）：CDP 注入 File 对象到页面（不传 base64——大图不卡）
   async function sendBroadcastFile(event, payload) {
     assertTrustedSender(event);
-    const { partition, filePath, chatId, caption, mime, name } = payload || {};
+    const { partition, filePath, chatId, caption } = payload || {};
     if (!partition || !filePath || !chatId) throw new Error('参数错误');
     if (externalDebuggingActive) {
       const targets = await externalTargets();
@@ -1463,13 +1171,10 @@ function registerIpcHandlers() {
     return await internalCdp.run(partition, 'whatsapp', ({ send }) => waSendFileViaCdp(send, { filePath, chatId, caption }));
   }
 
-  // 群发附件（WA UI 路径）：拦截文件选择器 + 点附件 + 照片菜单 + 喂文件（真实鼠标——React 一定响应）
-  // UI 文件注入：拦截文件选择器 + 真实鼠标点附件/照片 + 喂文件（React 一定响应）
   async function attachFileViaCdp({ send, onEvent }, filePath) {
     await send('Page.enable');
     await send('DOM.enable');
     await send('Page.setInterceptFileChooserDialog', { enabled: true });
-    // 文件选择器打开 → 喂文件
     const off = onEvent((method, params) => {
       if (method === 'Page.fileChooserOpened' && params && params.backendNodeId) {
         send('DOM.setFileInputFiles', { backendNodeId: params.backendNodeId, files: [filePath] })
@@ -1483,7 +1188,6 @@ function registerIpcHandlers() {
     };
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     try {
-      // 1. 确保打开了聊天（附件按钮只在聊天页）——没打开就真实点击第一个聊天行
       let btn = await send('Runtime.evaluate', { expression: `(() => {
         const b = document.querySelector('[data-testid="plus-rounded"]');
         if (!b) return JSON.stringify({ ok: false });
@@ -1492,7 +1196,6 @@ function registerIpcHandlers() {
       })()`, returnByValue: true });
       let bp = JSON.parse(btn.result.value);
       if (!bp.ok) {
-        // 循环尝试点击聊天行（排除过滤行/Business 广告行），直到聊天打开（输入框出现）
         let opened = false;
         for (let attempt = 0; attempt < 6 && !opened; attempt++) {
           const row = await send('Runtime.evaluate', { expression: `(() => {
@@ -1514,7 +1217,6 @@ function registerIpcHandlers() {
           await sleep(2500);
           const chk = await send('Runtime.evaluate', { expression: `!!document.querySelector('[contenteditable="true"][data-tab="10"]')`, returnByValue: true });
           if (chk.result.value) { opened = true; break; }
-          // 没打开：关掉可能的弹层（Esc）再试下一个
           await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
           await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
         }
@@ -1530,7 +1232,6 @@ function registerIpcHandlers() {
       }
       await realClick(bp.x, bp.y);
       await sleep(1200);
-      // 2. 点"照片和视频"菜单
       const menu = await send('Runtime.evaluate', { expression: `(() => {
         const items = [...document.querySelectorAll('[role="menuitem"]')];
         const photo = items.find(b => /照片|photo/i.test(b.textContent || ''));
@@ -1542,11 +1243,9 @@ function registerIpcHandlers() {
       if (mp.ok) {
         await realClick(mp.x, mp.y);
         console.log('[attach] 照片菜单已点，等待文件选择器…');
-        // 3. 等 fileChooserOpened（onEvent 处理器喂文件）
         await sleep(3000);
         return true;
       }
-      // 没有照片菜单（可能菜单没开/或当前没有附件按钮）——直接注入 file input
       const doc = await send('DOM.getDocument', { depth: -1 });
       const q = await send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: 'input[type="file"]' });
       const nodeIds = q.nodeIds || [];
@@ -1571,7 +1270,6 @@ function registerIpcHandlers() {
     return await internalCdp.run(partition, targetPlatform, (ctx) => attachFileViaCdp(ctx, filePath));
   }
 
-  // 群发附件：真实拖拽文件到账号页面（应用内 CDP；开发模式探测到 9344 时走外部 CDP）
   async function dropFileViaCdp({ send }, { filePath, mime, pos, platform, action }) {
     if (platform === 'line' && action === 'send') {
       const point = await send('Runtime.evaluate', {
@@ -1583,11 +1281,7 @@ function registerIpcHandlers() {
           if (itemCount <= 0) return JSON.stringify({ ok: false, reason: 'LINE_FILE_ITEM_NOT_READY' });
           const rect = sendButton.getBoundingClientRect();
           if (!rect || rect.width <= 0 || rect.height <= 0) return JSON.stringify({ ok: false, reason: 'FILE_SEND_BUTTON_NOT_VISIBLE' });
-          return JSON.stringify({
-            ok: true,
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2)
-          });
+          return JSON.stringify({ ok: true, x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) });
         })()`,
         returnByValue: true
       });
@@ -1692,7 +1386,6 @@ function registerIpcHandlers() {
     await send('Input.dispatchDragEvent', { type: 'dragEnter', x: pos.x, y: pos.y, data: dragData });
     await send('Input.dispatchDragEvent', { type: 'dragOver', x: pos.x, y: pos.y, data: dragData });
     await send('Input.dispatchDragEvent', { type: 'drop', x: pos.x, y: pos.y, data: dragData });
-    // 验证弹窗
     const chk = await send('Runtime.evaluate', { expression: `(() => {
       const modalBtn = [...document.querySelectorAll('.modal-dialog button, .modal-container button')].find(b => /primary/.test((b.className || '').toString()));
       return modalBtn ? 'MODAL_OK' : 'NO_MODAL';
@@ -1701,7 +1394,6 @@ function registerIpcHandlers() {
   }
 
   async function getDropPos(partition) {
-    // 拿输入区坐标（同 webContents executeJavaScript——先通过主窗口 webContents 找 guest）
     const wc = webContents.getAllWebContents().find((w) => {
       if (w.isDestroyed()) return false;
       try { return (w.session?.storagePath || '').includes(partition.replace(/^persist:/, '')); } catch (e) { return false; }
@@ -1735,7 +1427,6 @@ function registerIpcHandlers() {
     }
     return await internalCdp.run(partition, targetPlatform, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos, platform: targetPlatform, action }), targetPlatform === 'line' ? guestId : null);
   }
-  // 保存文件（群发失败名单导出）
   ipcMain.handle('file:save', async (event, payload) => {
     assertTrustedSender(event);
     const { dialog } = require('electron');
@@ -1750,7 +1441,6 @@ function registerIpcHandlers() {
   });
 }
 
-// 系统深/浅色变化 → 通知 renderer（跟随系统主题）
 function watchSystemTheme() {
   nativeTheme.on('updated', () => {
     const theme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
@@ -1762,14 +1452,11 @@ function watchSystemTheme() {
 
 function configureWebviewSecurity(window) {
   window.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    // 禁止后台节流：display:none 的 webview 页面 JS 继续运行（后台平台收消息实时更新未读）
     webPreferences.backgroundThrottling = false;
     const partition = String(params.partition || '');
     const source = String(params.src || '');
 
-    const account = accountsState.accounts.find(
-      (item) => item.partition === partition
-    );
+    const account = accountState.findByPartition(partition);
     const config = account ? appTypeConfig(account.type) : null;
 
     let parsedSource;
@@ -1786,7 +1473,6 @@ function configureWebviewSecurity(window) {
     }
 
     const hostname = parsedSource.hostname.toLowerCase();
-
     let customAllowed = false;
     if (account.type === 'website' && account.customUrl) {
       try {
@@ -1798,13 +1484,10 @@ function configureWebviewSecurity(window) {
       }
     }
 
-    // Line 账号允许加载 LINE 官方扩展页面（chrome-extension://）
     const isLineExtensionPage =
       (account.type === 'line' || account.type === 'line-business') &&
       parsedSource.protocol === 'chrome-extension:' &&
       parsedSource.host === LINE_EXTENSION_ID;
-
-    // WhatsApp 本地托管服务例外（http://127.0.0.1:1843——旧版页面媒体 API 匹配）
     const isWaLocal =
       parsedSource.protocol === 'http:' &&
       parsedSource.hostname === '127.0.0.1' &&
@@ -1836,16 +1519,12 @@ function configureWebviewSecurity(window) {
       }
     }
     if (isLine) {
-      // LINE 扩展页面兼容注入 —— 原版 s3loYR.js（chrome API mock + _pluginKD 补全）
       webPreferences.preload = path.join(__dirname, '..', 'resources', 's3loYR.js');
       webPreferences.contextIsolation = false;
     } else if (isWebsite) {
-      // 任意第三方 Website 只获得纯 Chromium Web 能力，不继承 Geek/LINE preload。
       delete webPreferences.preload;
       webPreferences.contextIsolation = true;
     } else {
-      // WA/TG：桥 preload（翻译/原生输入 sendToHost）由主进程直接设置，
-      // 避免 params.webpreferences 覆盖 renderer 属性时把 preload 丢弃。
       webPreferences.preload = path.join(RESOURCES_DIR, 'bridge-preload.cjs');
       webPreferences.contextIsolation = true;
     }
@@ -1859,13 +1538,10 @@ function configureWebviewSecurity(window) {
     params.src = isWebsite ? normalizeWebsiteUrl(account.customUrl) : config.url;
     params.partition = partition;
     params.allowpopups = false;
-    // 对齐原版：LINE 页面 URL 带 lw-key 参数（原版: ?lw-key=mw1fq&1786627670770）
     if (isLine) {
       const lwKey = Math.random().toString(36).slice(2, 8);
       params.src = `${LINE_EXTENSION_URL}?lw-key=${lwKey}&${Date.now()}`;
     }
-    // 对齐原版 webview 配置（逆向自原版 DOM: contextIsolation=no,sandbox=false,nativeWindowOpen=yes,spellcheck=no[,backgroundThrottling=false]）
-    // 沙箱强化：sandbox 改为 true（Chromium OS 沙箱保护渲染进程）
     webPreferences.sandbox = true;
     params.webpreferences = isLine
       ? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'
@@ -1873,7 +1549,6 @@ function configureWebviewSecurity(window) {
         ? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=no,spellcheck=no'
         : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
 
-    // 按账号配置（账号优先，否则全局）应用代理。
     const accountProxy = account.openProxy
       ? account
       : configState.openProxy
@@ -1881,16 +1556,12 @@ function configureWebviewSecurity(window) {
         : null;
     applyProxyForPartition(partition, accountProxy);
 
-    // LINE 系列账号加载官方扩展（登录聊天必需）。
     if (account.type === 'line' || account.type === 'line-business') {
       loadLineExtension(partition);
     }
-    // WhatsApp 系列账号：不加载第三方 pragmaz 扩展（安全：含原版硬编码代理凭据 + pragmaz.ai 通信）
-    // 极客自有群发/翻译/发送走 WPP+CDP，无需扩展
   });
 
   window.webContents.on('did-attach-webview', (_event, webContents) => {
-    // 收集 LINE guest webContents（token 定时备份用）
     const part = webContents.session?.partition || '';
     if (part.startsWith(PARTITION_PREFIX)) {
       webContents.on('did-navigate', (event, url) => {
@@ -1899,7 +1570,6 @@ function configureWebviewSecurity(window) {
         }
       });
     }
-    // 诊断：记录 webview 导航与失败（Line 扩展页面排查用）
     webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       const safeUrl = sanitizeUrlForLog(validatedURL);
       console.log(`[wv] did-fail-load code=${errorCode} desc=${errorDescription} url=${safeUrl}`);
@@ -1918,15 +1588,14 @@ function configureWebviewSecurity(window) {
       });
     });
     webContents.on('did-navigate', (event, url) => {
-      wppInjected.delete(part); // 主框架导航后需要重新注入 WPP（刷新/重载）
+      wppInjected.delete(part);
       console.log(`[wv] did-navigate url=${sanitizeUrlForLog(url)}`);
     });
     webContents.on('did-navigate-in-page', (event, url) => {
       console.log(`[wv] did-navigate-in-page url=${sanitizeUrlForLog(url)}`);
     });
 
-    // WhatsApp：页面加载完成后注入 WPP（内部 API 直发，对齐原版/HelloWorld）
-    const ownerAccount = accountsState.accounts.find((account) => account.partition === part);
+    const ownerAccount = accountState.findByPartition(part);
     const ownerIsWhatsApp = ownerAccount?.type === 'whatsapp' || ownerAccount?.type === 'whatsapp-pure';
     webContents.on('did-finish-load', async () => {
       const url = webContents.getURL() || '';
@@ -1935,7 +1604,6 @@ function configureWebviewSecurity(window) {
       }
     });
 
-  // 注入 WPP/WAPLUS 并验证（WAPLUS_WPP.chat 就绪才算成功，失败重试——新账号登录过程中页面会多次导航）
   async function injectWppWithRetry(wc, part) {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -1949,7 +1617,6 @@ function configureWebviewSecurity(window) {
         if (ok) {
           wppInjected.add(part);
           console.log('[wpp] 注入成功', part);
-          // 扩展面板默认收起（不挡聊天——需要时用户点展开/或群发菜单触发）
           wc.executeJavaScript(`(async () => {
             for (let i = 0; i < 10; i++) {
               const arrow = document.querySelector('.bulk-sender .el-icon-arrow-left');
@@ -1970,18 +1637,13 @@ function configureWebviewSecurity(window) {
     function hostAllowed(url) {
       try {
         const target = new URL(url);
-
-        // Line 扩展页面（chrome-extension://）
         if (
           target.protocol === 'chrome-extension:' &&
           target.hostname === LINE_EXTENSION_ID
-        ) {
-          return true;
-        }
+        ) return true;
 
         const hostname = target.hostname.toLowerCase();
         if (target.protocol !== 'https:') {
-          // WhatsApp 本地托管服务例外（http://127.0.0.1:1843——旧版页面媒体 API 匹配）
           if (hostname === '127.0.0.1' && target.port === String(WA_LOCAL_PORT)) return true;
           return false;
         }
@@ -1989,14 +1651,10 @@ function configureWebviewSecurity(window) {
         if (types.some((config) =>
           config.hostnames?.includes(hostname) ||
           (config.allowSuffix && hostname.endsWith(config.allowSuffix))
-        )) {
-          return true;
-        }
-        // 自定义网站：放行该账号 customUrl 的域名
-        return accountsState.accounts.some((a) => {
-          if (a.type !== 'website' || !a.customUrl) {
-            return false;
-          }
+        )) return true;
+
+        return accountState.getSnapshot().accounts.some((a) => {
+          if (a.type !== 'website' || !a.customUrl) return false;
           try {
             const customHost = parseWebsiteUrl(a.customUrl).hostname.toLowerCase();
             return hostname === customHost || hostname.endsWith(`.${customHost}`);
@@ -2009,36 +1667,23 @@ function configureWebviewSecurity(window) {
       }
     }
 
-    webContents.setWindowOpenHandler(({ url }) => {
-      if (hostAllowed(url)) {
-        return { action: 'allow' };
-      }
-      return { action: 'deny' };
-    });
-
+    webContents.setWindowOpenHandler(({ url }) => hostAllowed(url) ? { action: 'allow' } : { action: 'deny' });
     webContents.on('will-navigate', (event, url) => {
-      if (!hostAllowed(url)) {
-        event.preventDefault();
-      }
+      if (!hostAllowed(url)) event.preventDefault();
     });
-
     webContents.on('will-redirect', (event, url) => {
-      if (!hostAllowed(url)) {
-        event.preventDefault();
-      }
+      if (!hostAllowed(url)) event.preventDefault();
     });
   });
 }
 
-// ---------- 付费订阅（登录/锁定窗口） ----------
 let subscriptionWindow = null;
 let subscriptionStore = null;
-let subscriptionCheckDone = false; // 启动检查是否完成（避免重复弹窗）
+let subscriptionCheckDone = false;
 
 function initSubscriptionStore() {
   if (!subscriptionStore) {
     subscriptionStore = createSubscriptionStore({ userDataDir: USER_DATA_DIR });
-    // 注入 safeStorage 加解密：token 落盘加密（DPAPI），防止木马直接读明文凭据
     try {
       subscriptionStore._injectCrypto({
         encrypt: (text) => safeStorage.encryptString(text).toString('base64'),
@@ -2125,7 +1770,6 @@ function registerSubscriptionIpcHandlers() {
     if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
     return initSubscriptionStore().logout();
   });
-  // 订阅窗口点"进入极客"→ 关闭订阅窗，打开主窗口
   ipcMain.handle('subscription:enter-app', async (event) => {
     if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
     if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
@@ -2136,14 +1780,11 @@ function registerSubscriptionIpcHandlers() {
   ipcMain.handle('subscription:close-window', async (event) => {
     if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
     if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
-    // 若主窗口也没开（启动锁定页直接关）→ 退出应用
     if (!mainWindow || mainWindow.isDestroyed()) { isQuitting = true; app.quit(); }
     return { ok: true };
   });
 }
 
-// 启动时登录门禁（Freemium）：已登录 → 直接进主窗口（翻译额度用完不锁客户端）；
-// 未登录 → 弹登录/注册窗口。有本地 token 但本地状态不明确时先进主窗口并后台刷新。
 async function enforceSubscriptionGate() {
   if (subscriptionCheckDone) return;
   subscriptionCheckDone = true;
@@ -2151,12 +1792,10 @@ async function enforceSubscriptionGate() {
     const store = initSubscriptionStore();
     const local = await store.getState();
     if (local.loggedIn) {
-      // 已登录 → 进主窗口（无论是否有订阅；翻译额度用完不锁客户端）
       createMainWindow();
       store.refresh().catch(() => {});
       return;
     }
-    // 未登录 → 弹登录/注册窗口
     createSubscriptionWindow();
   } catch (e) {
     console.error('[subscription] 启动门禁检查失败（放行）:', e.message);
@@ -2171,8 +1810,8 @@ function createMainWindow() {
     minWidth: 960,
     minHeight: 640,
     show: true,
-    frame: false, // 无边框，自绘窗口控制按钮（对齐原版）
-    icon: path.join(__dirname, '..', 'build', 'icon.ico'), // 窗口/任务栏图标
+    frame: false,
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     backgroundColor: '#111318',
     title: '极客',
     autoHideMenuBar: true,
@@ -2190,11 +1829,8 @@ function createMainWindow() {
 
   configureWebviewSecurity(mainWindow);
 
-  mainWindow.webContents.setWindowOpenHandler(() => ({
-    action: 'deny'
-  }));
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
-  // 主窗口渲染进程崩溃 → 限频 relaunch（避免崩溃循环；更新安装期间跳过，防竞态）
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     diagnostics.log('main-window-crash', { reason: details?.reason, exitCode: details?.exitCode });
     if (isUpdateInstalling()) {
@@ -2203,8 +1839,7 @@ function createMainWindow() {
     }
     if (relaunchLimiter.allow()) {
       console.error('[crash] 主窗口渲染进程崩溃，5分钟内限频2次内自动重启');
-      // 等待账号/配置持久化队列落盘后再重启，避免丢失最后一次变更
-      Promise.all([persistenceQueue, configQueue]).catch(() => {}).finally(() => {
+      Promise.all([accountState.whenIdle(), configQueue]).catch(() => {}).finally(() => {
         setTimeout(() => {
           try { app.relaunch(); app.exit(0); } catch (e) { console.error('[crash] 自动重启失败:', e.message); }
         }, 500);
@@ -2217,35 +1852,22 @@ function createMainWindow() {
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const destination = new URL(url);
     const localIndex = new URL(`file://${path.join(__dirname, '../ui/index.html')}`);
-
-    if (
-      destination.protocol !== 'file:' ||
-      destination.pathname !== localIndex.pathname
-    ) {
+    if (destination.protocol !== 'file:' || destination.pathname !== localIndex.pathname) {
       event.preventDefault();
     }
   });
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
-
-  // 关闭窗口 → 缩到托盘（挂机收消息），托盘菜单"退出"才真正退出
+  mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('close', (event) => {
     if (!isQuitting && tray) {
       event.preventDefault();
       mainWindow.hide();
     }
   });
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
-
+  mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.loadFile(path.join(__dirname, '../ui/index.html'));
 }
 
-// ---------- 系统托盘 ----------
 let tray = null;
 let isQuitting = false;
 
@@ -2260,9 +1882,7 @@ function createTray() {
       { label: '显示主窗口', click: () => showMainWindow() },
       { label: '锁屏', click: () => {
           showMainWindow();
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('tray:lock');
-          }
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('tray:lock');
       } },
       { type: 'separator' },
       { label: '一键重启', click: () => {
@@ -2277,14 +1897,10 @@ function createTray() {
       } },
     ]);
     tray.setContextMenu(menu);
-    // 左键单击：显示/隐藏切换
     tray.on('click', () => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (mainWindow.isVisible()) {
-        mainWindow.hide();
-      } else {
-        showMainWindow();
-      }
+      if (mainWindow.isVisible()) mainWindow.hide();
+      else showMainWindow();
     });
   } catch (e) {
     console.error('[tray] 创建托盘失败:', e.message);
@@ -2298,15 +1914,12 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
-// 网络优化：DNS over HTTPS（DoH，用 Google/Cloudflare 加密 DNS——避免 ISP DNS 慢/污染）
 try {
   app.commandLine.appendSwitch('enable-features', 'DnsOverHttps');
   app.commandLine.appendSwitch('dns-over-https-templates', 'https://dns.google/dns-query https://cloudflare-dns.com/dns-query');
-  // 界面/扩展语言固定中文（WAPlus 扩展按浏览器语言 i18n——不设则英文面板）
   app.commandLine.appendSwitch('lang', 'zh-CN');
 } catch (e) { /* 忽略 */ }
 
-// WhatsApp 本地托管服务（HelloWorld 同款：固定旧版页面——媒体 API 匹配，图+文秒发）
 async function startWaLocalServer() {
   try {
     const httpMod = require('node:http');
@@ -2323,26 +1936,23 @@ async function startWaLocalServer() {
   } catch (e) { console.log('[wa-local] 启动失败:', e.message); }
 }
 
-// 启动时清理已删除账号遗留的孤儿分区目录（不误删当前账号 partition）
 async function cleanupOrphanPartitions() {
   try {
-    // 安全闸：账号列表为空（读取失败/首次启动）时绝不清理——避免误删全部真实分区
-    if (!accountsState.accounts || !accountsState.accounts.length) return;
+    const snapshot = accountState.getSnapshot();
+    if (!snapshot.accounts.length) return;
     const partitionRoot = path.join(USER_DATA_DIR, 'Partitions');
     let entries;
     try { entries = await fs.readdir(partitionRoot); } catch { return; }
-    const activePartitions = accountsState.accounts.map((account) => account.partition);
+    const activePartitions = snapshot.accounts.map((account) => account.partition);
     const orphans = collectOrphanPartitions({ entries, activePartitions });
     if (!orphans.length) return;
     for (const name of orphans) {
       const dir = path.join(partitionRoot, name);
-      // 已在待删列表（removeAccount 失败兜底）→ 跳过，避免重复尝试
       if (pendingPartitionDeletions.has(dir)) continue;
       try {
         await fs.rm(dir, { recursive: true, force: true });
         diagnostics.log('orphan-partition-removed', { partition: name });
       } catch (e) {
-        // 文件锁等原因删除失败 → 退出时兜底
         pendingPartitionDeletions.add(dir);
         console.error('[cleanup] 孤儿分区删除失败（退出时兜底）:', name, e.message);
       }
@@ -2353,10 +1963,6 @@ async function cleanupOrphanPartitions() {
 }
 
 app.whenReady().then(async () => {
-  // 0) Windows 正式版启动：先修复 userData ACL（一次性、幂等；老版本 /inheritance:r 曾清空子目录 ACL）。
-  //    diagnostics 对象在模块加载时创建，但 log() 每次写入前会自动重试 mkdir——
-  //    因此即使修复前目录损坏，修复完成后日志自动恢复，无需重新初始化。
-  //    runStartupAclRepair 从不抛出；后续流程（含 createMainWindow）照常执行，不受修复成败影响。
   await runStartupAclRepair({
     shouldRun: app.isPackaged && process.platform === 'win32',
     userDataDir: USER_DATA_DIR,
@@ -2375,27 +1981,21 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error('迁移历史运行数据失败（不影响启动）:', e.message);
   }
-  await loadAccounts();
+  await accountState.load();
   await loadConfig();
   applyLoginItemSettings();
   registerIpcHandlers();
   registerSubscriptionIpcHandlers();
-  // 订阅门禁：有有效订阅→主窗口；未登录/过期→订阅窗口
   await enforceSubscriptionGate();
   createTray();
   initAutoUpdater();
   watchSystemTheme();
-  // 窗口/会话建立后再清理孤儿分区（避免竞态）；账号为空时清理函数内部自保护
   setTimeout(() => { cleanupOrphanPartitions().catch(() => {}); }, 3000);
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      enforceSubscriptionGate();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) enforceSubscriptionGate();
   });
 
-  // 退出时兜底清理：删除账号后因文件锁未删掉的分区目录。
-  // will-quit 不能等待异步 Promise，因此这里必须使用同步文件系统删除。
   app.on('will-quit', () => {
     diagnostics.log('app-will-quit', {});
     const cleanup = cleanupPendingPartitions(pendingPartitionDeletions);
@@ -2408,9 +2008,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('child-process-gone', (_event, details) => {
@@ -2423,7 +2021,7 @@ app.on('child-process-gone', (_event, details) => {
 });
 
 app.on('before-quit', () => {
-  isQuitting = true; // 允许窗口真正关闭（托盘"退出"路径）
+  isQuitting = true;
   accountIpcBoundary?.dispose();
   accountIpcBoundary = null;
   ipcMain.removeHandler('config:get');
