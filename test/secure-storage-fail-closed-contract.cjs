@@ -32,9 +32,12 @@ const { runAccountDataStoreCases } = require('../test-support/account-data-store
   assert.doesNotMatch(disk, /SECRET_TOKEN_MUST_NOT_REACH_DISK/, '加密失败时绝不能把 token 明文写盘');
 
   const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+  const configState = fs.readFileSync(path.join(__dirname, '../src/config-state.cjs'), 'utf8');
   assert.doesNotMatch(main, /safeStorage\.encryptString[^\n]*catch\s*\{\s*return text/, '主进程敏感字段不得降级明文');
   assert.doesNotMatch(main, /lineTokenEncrypt[\s\S]{0,300}catch\s*\{\s*return text/, 'LINE token 不得降级明文');
-  assert.match(main, /配置敏感字段迁移失败，保留原文件/, '配置迁移失败必须保留原文件');
+  assert.match(configState, /SECURE_STORAGE_UNAVAILABLE/, 'Config State owner must fail closed when secure storage is unavailable');
+  assert.match(configState, /report\(error, 'migration', false\)/, 'Config State migration failure must be reported without replacing canonical memory');
+  assert.match(configState, /await durableWrite\(state, \{ migration: true \}\)/, 'Config State owner must keep secure migration inside its durability boundary');
 
   const accountDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-account-secure-storage-'));
   const accountsFile = path.join(accountDir, 'accounts.json');
