@@ -62,11 +62,9 @@ if (primaryInstance) {
   // compatibility getter before main.cjs can create or classify any account guest.
   const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
 
-  // Legacy post-attach navigation uses a global host allowlist. Add a stricter
-  // account-guest boundary before any BrowserWindow/WebView is created. Navigation
-  // policy comes from the authoritative account record that owns the fixed partition;
-  // missing/corrupt/mismatched account state fails closed instead of inferring owner
-  // from the first URL observed in the guest.
+  // Bind the sole account-guest post-attach navigation authority before any
+  // BrowserWindow/WebView is created. Policy resolves from the authoritative account
+  // record for the fixed partition; missing/corrupt/mismatched state fails closed.
   installAccountScopedWebviewNavigationBoundary({
     app,
     resolvePolicyForPartition: resolveAccountPolicyForPartition,
@@ -85,7 +83,7 @@ if (primaryInstance) {
   // Navigation and Web permissions resolve the same authoritative account owner.
   // A function declaration is intentionally used so both early boundaries can share
   // one resolver while the existing source-order contract can still verify that the
-  // navigation boundary is installed before the resolver implementation and legacy main.
+  // navigation boundary is installed before the resolver implementation and main composition.
   function resolveAccountPolicyForPartition(partition) {
     try {
       const accountState = nodeFs.readFileSync(accountsFilePath, 'utf8');
