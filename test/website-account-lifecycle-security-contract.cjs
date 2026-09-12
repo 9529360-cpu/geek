@@ -17,7 +17,7 @@ const catalog = readText('src/platform-catalog.cjs');
 const renderer = readText('ui/app.js');
 const html = readText('ui/index.html');
 
-assert.match(catalog, /website:\s*freezeConfig\(\{\s*name:\s*'自定义网站',\s*short:\s*'WEB',\s*navigationKind:\s*'website'\s*\}\)/, 'Website is a first-class platform without a fake default URL');
+assert.match(catalog, /website:\s*freezeConfig\(\{\s*name:\s*'自定义网站',\s*short:\s*'WEB',\s*navigationKind:\s*'website',?\s*\}\)/, 'Website is a first-class platform without a fake default URL');
 assert.doesNotMatch(main, /const APP_TYPES\s*=/, 'main must consume, not duplicate, the platform catalog');
 assert.match(main, /normalizeWebsiteUrl,\s*\n\s*isEncryptionAvailable/, 'Website URL policy must be injected into Account State owner');
 assert.match(owner, /const type = raw\.type === undefined \? 'whatsapp' : raw\.type/, 'omitted type keeps the historical WhatsApp default');
