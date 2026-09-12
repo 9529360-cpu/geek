@@ -7,11 +7,7 @@ on:
       - master
     paths:
       - 'scripts/geek-release-worker.js'
-      - 'scripts/cloudflare-deploy-report.cjs'
       - 'wrangler.toml'
-      - 'test/release-*.cjs'
-      - 'test/cloudflare-deploy-observability-contract.cjs'
-      - '.github/workflows/deploy-release-worker.yml'
 
 permissions:
   contents: read

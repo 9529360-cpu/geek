@@ -39,6 +39,7 @@ These are intended to survive individual maintenance rounds. Reconfirm them agai
 - Scheduled broadcast attachments use durable opaque refs owned by account + task/job. Canonical paths remain main-process state; materialization revalidates source metadata and owner binding, and terminal/cancel cleanup invalidates refs.
 - Real Electron E2E uses an isolated `geek-e2e-*` userData profile under the OS temp root. Synthetic E2E evidence proves only the mechanism it actually exercises; it does not substitute for authenticated WA/TG/LINE compatibility evidence.
 - Website is a first-class account type: custom URLs are HTTPS-only, accounts have distinct persistent Sessions, navigation is scoped to that account's configured host policy, and Website guests receive no privileged preload bridge.
+- Cloudflare Worker validation and production deployment are separate control planes: PR/master validation may run tests, syntax checks and Wrangler dry-run without production credentials, while automatic production deploy `push.paths` must represent only the matching Wrangler config plus the Worker's repository-local deployable dependency closure. Tests, deployment observers, smoke runners and deploy workflow files do not automatically publish production Workers.
 - Normal maintenance must not bump package version, change `.github/release-client-version`, publish updater metadata, or trigger a formal client release unless the task explicitly authorizes a release.
 
 ## Remaining live gates at the last verification

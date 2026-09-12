@@ -7,11 +7,7 @@ on:
       - master
     paths:
       - 'scripts/geek-translate-worker.js'
-      - 'scripts/cloudflare-deploy-report.cjs'
       - 'wrangler-translate.toml'
-      - 'test/translation-*.cjs'
-      - 'test/cloudflare-deploy-observability-contract.cjs'
-      - '.github/workflows/deploy-translate.yml'
 
 permissions:
   contents: read
