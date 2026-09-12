@@ -21,7 +21,9 @@ const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { assertSafeTranslationOutput } = require('./translation-output-safety.cjs');
-const { normalizeWebsiteUrl, parseWebsiteUrl } = require('./website-url.cjs');
+const { normalizeWebsiteUrl } = require('./website-url.cjs');
+const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_LOCAL_PORT, WA_LOCAL_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
+const { isAccountNavigationAllowed } = require('./webview-navigation-boundary.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installAccountIpc } = require('./account-ipc.cjs');
 const { createAccountStateStore, ACCOUNT_PARTITION_PREFIX } = require('./account-state.cjs');
@@ -155,75 +157,11 @@ const PARTITION_PREFIX = ACCOUNT_PARTITION_PREFIX;
 // Same UA family the original Hello-GPT ships (verified working with WhatsApp Web).
 const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.243 Safari/537.36';
 
-// LINE 官方扩展 ID 与页面（原版方案：Line 聊天窗跑在扩展自身页面里）
-const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
-const LINE_EXTENSION_URL = `chrome-extension://${LINE_EXTENSION_ID}/index.html`;
-
-// WhatsApp 启动页使用当前官方 Web，避免冻结快照与在线静态资源失配。
-// 旧本地快照仅保留历史兼容参考，不再作为产品启动入口。
-const WA_LOCAL_PORT = 1843;
-const WA_LOCAL_URL = `http://127.0.0.1:${WA_LOCAL_PORT}/`;
-const WA_WEB_URL = 'https://web.whatsapp.com/';
-
-const APP_TYPES = {
-  whatsapp: {
-    name: 'WhatsApp',
-    short: 'WA',
-    url: WA_WEB_URL,
-    hostnames: ['web.whatsapp.com'],
-    allowSuffix: '.whatsapp.com'
-  },
-  'whatsapp-pure': {
-    name: 'WhatsApp 纯净版',
-    short: 'WAP',
-    url: WA_WEB_URL,
-    hostnames: ['web.whatsapp.com'],
-    allowSuffix: '.whatsapp.com'
-  },
-  'telegram-z': {
-    name: 'TelegramZ',
-    short: 'TGZ',
-    url: 'https://web.telegram.org/a',
-    hostnames: ['web.telegram.org'],
-    allowSuffix: '.telegram.org'
-  },
-  'telegram-k': {
-    name: 'TelegramK',
-    short: 'TGK',
-    url: 'https://web.telegram.org/k/',
-    hostnames: ['web.telegram.org'],
-    allowSuffix: '.telegram.org'
-  },
-  line: {
-    name: 'Line',
-    short: 'LN',
-    url: LINE_EXTENSION_URL,
-    hostnames: ['access.line.me', 'line.me'],
-    allowSuffix: '.line.me',
-    needsExtension: true
-  },
-  'line-business': {
-    name: 'Line 商业版',
-    short: 'LNB',
-    url: 'https://manager.line.biz/',
-    hostnames: ['manager.line.biz', 'access.line.me', 'line.me'],
-    allowSuffix: '.line.me',
-    needsExtension: true
-  },
-  website: {
-    name: '自定义网站',
-    short: 'WEB'
-  }
-};
-
-function appTypeConfig(type) {
-  return APP_TYPES[type] || null;
-}
 
 const accountState = createAccountStateStore({
   fs,
   filePath: runtimePaths.accountsFile(USER_DATA_DIR),
-  resolveTypeConfig: appTypeConfig,
+  resolveTypeConfig: platformConfig,
   normalizeWebsiteUrl,
   isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
   encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
@@ -358,8 +296,8 @@ function publicState(snapshot = accountState.getSnapshot()) {
   return {
     activeAccountId: snapshot.activeAccountId,
     accounts: snapshot.accounts.map((account) => {
-      const config = appTypeConfig(account.type);
-      let url = config ? config.url : APP_TYPES[account.type].url;
+      const config = platformConfig(account.type);
+      let url = config ? config.url : PLATFORM_CATALOG[account.type].url;
       if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') url = WA_LOCAL_URL;
       if (account.type === 'website' && account.customUrl) {
         url = account.customUrl;
@@ -448,7 +386,7 @@ async function addAccount(_event, payload = {}) {
   assertTrustedSender(_event);
   const result = await accountState.add(payload);
   const account = result.account;
-  const config = appTypeConfig(account.type);
+  const config = platformConfig(account.type);
   notifyAccountsChanged(result.snapshot);
   return {
     state: publicState(result.snapshot),
@@ -879,7 +817,7 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('platforms:list', async (event) => {
     assertTrustedSender(event);
-    return Object.entries(APP_TYPES).map(([type, cfg]) => ({
+    return Object.entries(PLATFORM_CATALOG).map(([type, cfg]) => ({
       type,
       name: cfg.name,
       short: cfg.short || type.slice(0, 2).toUpperCase(),
@@ -1367,7 +1305,7 @@ function configureWebviewSecurity(window) {
     const source = String(params.src || '');
 
     const account = accountState.findByPartition(partition);
-    const config = account ? appTypeConfig(account.type) : null;
+    const config = account ? platformConfig(account.type) : null;
 
     let parsedSource;
     try {
@@ -1382,37 +1320,7 @@ function configureWebviewSecurity(window) {
       return;
     }
 
-    const hostname = parsedSource.hostname.toLowerCase();
-    let customAllowed = false;
-    if (account.type === 'website' && account.customUrl) {
-      try {
-        const customHost = parseWebsiteUrl(account.customUrl).hostname.toLowerCase();
-        customAllowed = parsedSource.protocol === 'https:' &&
-          (hostname === customHost || hostname.endsWith(`.${customHost}`));
-      } catch {
-        customAllowed = false;
-      }
-    }
-
-    const isLineExtensionPage =
-      (account.type === 'line' || account.type === 'line-business') &&
-      parsedSource.protocol === 'chrome-extension:' &&
-      parsedSource.host === LINE_EXTENSION_ID;
-    const isWaLocal =
-      parsedSource.protocol === 'http:' &&
-      parsedSource.hostname === '127.0.0.1' &&
-      parsedSource.port === String(WA_LOCAL_PORT);
-
-    const isAllowed =
-      isLineExtensionPage ||
-      isWaLocal ||
-      (config &&
-        parsedSource.protocol === 'https:' &&
-        ((config.hostnames && config.hostnames.includes(hostname)) ||
-          (config.allowSuffix && hostname.endsWith(config.allowSuffix)) ||
-          customAllowed));
-
-    if (!isAllowed) {
+    if (!isAccountNavigationAllowed(account, partition, parsedSource.href)) {
       event.preventDefault();
       return;
     }
@@ -1545,46 +1453,6 @@ function configureWebviewSecurity(window) {
     console.log('[wpp] 注入失败（5 次重试后仍不可用）', part);
   }
 
-    function hostAllowed(url) {
-      try {
-        const target = new URL(url);
-        if (
-          target.protocol === 'chrome-extension:' &&
-          target.hostname === LINE_EXTENSION_ID
-        ) return true;
-
-        const hostname = target.hostname.toLowerCase();
-        if (target.protocol !== 'https:') {
-          if (hostname === '127.0.0.1' && target.port === String(WA_LOCAL_PORT)) return true;
-          return false;
-        }
-        const types = Object.values(APP_TYPES);
-        if (types.some((config) =>
-          config.hostnames?.includes(hostname) ||
-          (config.allowSuffix && hostname.endsWith(config.allowSuffix))
-        )) return true;
-
-        return accountState.getSnapshot().accounts.some((a) => {
-          if (a.type !== 'website' || !a.customUrl) return false;
-          try {
-            const customHost = parseWebsiteUrl(a.customUrl).hostname.toLowerCase();
-            return hostname === customHost || hostname.endsWith(`.${customHost}`);
-          } catch {
-            return false;
-          }
-        });
-      } catch {
-        return false;
-      }
-    }
-
-    webContents.setWindowOpenHandler(({ url }) => hostAllowed(url) ? { action: 'allow' } : { action: 'deny' });
-    webContents.on('will-navigate', (event, url) => {
-      if (!hostAllowed(url)) event.preventDefault();
-    });
-    webContents.on('will-redirect', (event, url) => {
-      if (!hostAllowed(url)) event.preventDefault();
-    });
   });
 }
 

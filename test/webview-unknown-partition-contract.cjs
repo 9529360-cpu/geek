@@ -7,7 +7,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
 const start = main.indexOf('function configureWebviewSecurity(window)');
-const end = main.indexOf("window.webContents.on('did-attach-webview'", start);
+const end = main.indexOf("\nlet subscriptionWindow", start);
 assert.ok(start >= 0 && end > start, 'configureWebviewSecurity block must exist');
 const block = main.slice(start, end);
 
