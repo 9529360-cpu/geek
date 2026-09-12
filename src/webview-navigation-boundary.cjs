@@ -1,10 +1,9 @@
 'use strict';
 
 const { parseWebsiteUrl } = require('./website-url.cjs');
+const { LINE_EXTENSION_ID, WA_LOCAL_ORIGIN, platformConfig } = require('./platform-catalog.cjs');
 
-const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-';
-const WA_LOCAL_ORIGIN = 'http://127.0.0.1:1843';
 
 function hostnameMatches(hostname, exactHosts = [], suffix = '') {
   const host = String(hostname || '').toLowerCase();
@@ -26,38 +25,21 @@ function policyForAccount(account, partitionValue) {
   const expectedPartition = `${ACCOUNT_PARTITION_PREFIX}${accountId}`;
   if (account.partition && String(account.partition) !== expectedPartition) return null;
 
-  const type = String(account.type || '');
-  if (type === 'whatsapp' || type === 'whatsapp-pure') {
-    return Object.freeze({
-      kind: 'whatsapp',
-      exactHosts: Object.freeze(['web.whatsapp.com']),
-      suffix: '.whatsapp.com',
-      localOrigin: WA_LOCAL_ORIGIN,
-    });
-  }
-  if (type === 'telegram-z' || type === 'telegram-k') {
-    return Object.freeze({
-      kind: 'telegram',
-      exactHosts: Object.freeze(['web.telegram.org']),
-      suffix: '.telegram.org',
-    });
-  }
-  if (type === 'line' || type === 'line-business') {
-    return Object.freeze({
-      kind: 'line',
-      exactHosts: Object.freeze(type === 'line-business'
-        ? ['manager.line.biz', 'access.line.me', 'line.me']
-        : ['access.line.me', 'line.me']),
-      suffix: '.line.me',
-      extensionId: LINE_EXTENSION_ID,
-    });
-  }
-  if (type === 'website') {
+  const config = platformConfig(account.type);
+  if (!config) return null;
+  if (config.navigationKind === 'website') {
     let custom;
     try { custom = parseWebsiteUrl(account.customUrl); } catch { return null; }
     return Object.freeze({ kind: 'website', hostname: custom.hostname.toLowerCase() });
   }
-  return null;
+
+  return Object.freeze({
+    kind: config.navigationKind,
+    exactHosts: config.hostnames || Object.freeze([]),
+    suffix: config.allowSuffix || '',
+    localOrigin: config.localOrigin || '',
+    extensionId: config.extensionId || '',
+  });
 }
 
 function policyFromAccountState(partitionValue, stateValue) {
@@ -82,22 +64,17 @@ function isNavigationAllowed(policy, value) {
   try { url = new URL(String(value || '')); } catch { return false; }
   const hostname = url.hostname.toLowerCase();
 
-  if (policy.kind === 'whatsapp') {
-    if (url.protocol === 'http:' && url.origin === policy.localOrigin) return true;
-    return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
-  }
-  if (policy.kind === 'telegram') {
-    return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
-  }
-  if (policy.kind === 'line') {
-    if (url.protocol === 'chrome-extension:' && hostname === policy.extensionId) return true;
-    return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
-  }
   if (policy.kind === 'website') {
     return url.protocol === 'https:'
       && (hostname === policy.hostname || hostname.endsWith(`.${policy.hostname}`));
   }
-  return false;
+  if (policy.extensionId && url.protocol === 'chrome-extension:' && hostname === policy.extensionId) return true;
+  if (policy.localOrigin && url.protocol === 'http:' && url.origin === policy.localOrigin) return true;
+  return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
+}
+
+function isAccountNavigationAllowed(account, partitionValue, value) {
+  return isNavigationAllowed(policyForAccount(account, partitionValue), value);
 }
 
 function accountPartition(contents) {
@@ -129,20 +106,11 @@ function installAccountScopedWebviewNavigationBoundary({ app, resolvePolicyForPa
 
     contents.on?.('will-navigate', blockIfOutsidePolicy);
     contents.on?.('will-redirect', blockIfOutsidePolicy);
-
-    // Legacy main.cjs installs its own wider global allowlist later. Compose that
-    // downstream handler with this fixed account/partition policy so it can only
-    // further restrict navigation, never widen it to another platform or account.
-    if (typeof contents.setWindowOpenHandler === 'function') {
-      const nativeSetWindowOpenHandler = contents.setWindowOpenHandler.bind(contents);
-      contents.setWindowOpenHandler = (handler) => nativeSetWindowOpenHandler((details) => {
-        if (!policy || !isNavigationAllowed(policy, details?.url)) return { action: 'deny' };
-        const response = typeof handler === 'function' ? handler(details) : null;
-        return response && (response.action === 'allow' || response.action === 'deny')
-          ? response
-          : { action: 'deny' };
-      });
-    }
+    contents.setWindowOpenHandler?.((details) => (
+      policy && isNavigationAllowed(policy, details?.url)
+        ? { action: 'allow' }
+        : { action: 'deny' }
+    ));
   });
 
   return Object.freeze({ installed: true });
@@ -156,5 +124,6 @@ module.exports = {
   policyForAccount,
   policyFromAccountState,
   isNavigationAllowed,
+  isAccountNavigationAllowed,
   installAccountScopedWebviewNavigationBoundary,
 };
