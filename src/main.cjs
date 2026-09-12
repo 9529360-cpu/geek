@@ -4,7 +4,6 @@ const { app, BrowserWindow, dialog, ipcMain, session, Notification, nativeTheme,
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
-const crypto = require('node:crypto');
 const { initAutoUpdater } = require('./updater.cjs');
 const { quitAndInstallForUpdate, isUpdateInstalling } = require('./updater.cjs');
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
@@ -13,14 +12,12 @@ const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
 const { createInternalCdp } = require('./internal-cdp.cjs');
 const { createRateLimiter } = require('./crash-recovery.cjs');
-const { createGatewayPool } = require('./gateway-failover.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
 const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
-const { assertSafeTranslationOutput } = require('./translation-output-safety.cjs');
 const { normalizeWebsiteUrl } = require('./website-url.cjs');
 const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_LOCAL_PORT, WA_LOCAL_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
 const { isAccountNavigationAllowed } = require('./webview-navigation-boundary.cjs');
@@ -29,6 +26,7 @@ const { installAccountIpc } = require('./account-ipc.cjs');
 const { createAccountStateStore, ACCOUNT_PARTITION_PREFIX } = require('./account-state.cjs');
 const { createConfigStateStore } = require('./config-state.cjs');
 const { installConfigIpc } = require('./config-ipc.cjs');
+const { createTranslationRuntime } = require('./translation-runtime.cjs');
 const { ACCOUNT_DATA_KEYS } = require('./account-data-store.cjs');
 const { BROADCAST_ACCOUNT_DATA_KEYS } = require('./broadcast-account-data-keys.cjs');
 const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
@@ -411,12 +409,7 @@ async function removeAccount(event, accountId) {
   const result = await accountState.remove(accountId);
   const removedAccount = result.removedAccount;
 
-  deletedTranslationPartitions.add(removedAccount.partition);
-  translationCaches.delete(removedAccount.partition);
-  translationCacheLoaded.delete(removedAccount.partition);
-  translationCacheWrites.delete(removedAccount.partition);
-  for (const key of translationLatestRequest.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationLatestRequest.delete(key);
-  for (const key of translationInflight.keys()) if (key.startsWith(`${removedAccount.partition}:`)) translationInflight.delete(key);
+  translationRuntime?.deleteAccount(removedAccount.partition);
 
   try {
     const guests = webContents.getAllWebContents().filter(
@@ -466,219 +459,9 @@ async function removeAccount(event, accountId) {
   return publicState(result.snapshot);
 }
 
-const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
-const translationCaches = new Map();
-const translationCacheLoaded = new Set();
-const deletedTranslationPartitions = new Set();
-const translationInflight = new Map();
-const translationCacheWrites = new Map();
-const translationLatestRequest = new Map();
-let translationRequestSequence = 0;
-
-function translationCacheFile(partition) {
-  const dirName = String(partition || '').replace(/^persist:/, '');
-  if (!/^[a-zA-Z0-9_-]+$/.test(dirName)) throw new Error('账号沙箱不合法');
-  return path.join(app.getPath('userData'), 'Partitions', dirName, 'geek-translation-cache.jsonl');
-}
-function translationCacheKey(body, text, target) {
-  return crypto.createHash('sha256').update(JSON.stringify({ version: TRANSLATION_CACHE_VERSION, text, source: body.source || 'auto', target, provider: body.provider || 'auto', route: body.route || 'default' })).digest('hex');
-}
-async function loadTranslationCache(partition) {
-  if (!translationCaches.has(partition)) translationCaches.set(partition, new Map());
-  const cache = translationCaches.get(partition);
-  if (translationCacheLoaded.has(partition)) return cache;
-  translationCacheLoaded.add(partition);
-  if (!safeStorage.isEncryptionAvailable()) return cache;
-  try {
-    const lines = (await fs.readFile(translationCacheFile(partition), 'utf-8')).split(/\r?\n/);
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const item = JSON.parse(line);
-        if (item.version !== TRANSLATION_CACHE_VERSION || !item.key || !item.value) continue;
-        cache.set(item.key, { text: safeStorage.decryptString(Buffer.from(item.value, 'base64')), at: Number(item.at) || 0 });
-      } catch {}
-    }
-  } catch {}
-  return cache;
-}
-async function appendTranslationCache(partition, key, item) {
-  if (deletedTranslationPartitions.has(partition) || !safeStorage.isEncryptionAvailable()) return;
-  const file = translationCacheFile(partition);
-  const record = { version: TRANSLATION_CACHE_VERSION, key, at: item.at, value: safeStorage.encryptString(item.text).toString('base64') };
-  const previous = translationCacheWrites.get(partition) || Promise.resolve();
-  const write = previous.catch(() => {}).then(async () => { if (deletedTranslationPartitions.has(partition)) return; await fs.mkdir(path.dirname(file), { recursive: true }); await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8'); });
-  translationCacheWrites.set(partition, write);
-  try { await write; } catch {} finally { if (translationCacheWrites.get(partition) === write) translationCacheWrites.delete(partition); }
-}
-
-function resolveAccountPartition(accountId) {
-  return accountState.resolvePartition(accountId);
-}
-
-function translationGatewayEndpoints() {
-  const configured = String(process.env.GEEK_TRANSLATION_GATEWAY_URL || '').trim();
-  const list = configured
-    ? configured.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean)
-    : [];
-  const endpoints = list.length ? list : ['https://geek-translate.9529360.workers.dev'];
-  if (!endpoints.length) throw new Error('远程翻译服务尚未配置');
-  for (const endpoint of endpoints) {
-    let parsed;
-    try { parsed = new URL(endpoint); } catch { throw new Error('翻译服务配置不安全'); }
-    const allowedLocal = parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1';
-    const allowedHttps = parsed.protocol === 'https:';
-    if (!allowedLocal && !allowedHttps) throw new Error('翻译服务配置不安全');
-    if (parsed.port && (Number(parsed.port) < 1 || Number(parsed.port) > 65535)) throw new Error('翻译服务配置不安全');
-  }
-  return endpoints;
-}
-
-let translationGatewayPool = null;
-function getTranslationGatewayPool() {
-  if (!translationGatewayPool) {
-    translationGatewayPool = createGatewayPool({
-      endpoints: translationGatewayEndpoints(),
-      healthFetch: async (url) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
-        try {
-          const response = await fetch(url, { signal: controller.signal });
-          if (!response.ok) return { ok: false };
-          const data = await response.json().catch(() => ({}));
-          return { ok: data.ok !== false };
-        } finally { clearTimeout(timer); }
-      }
-    });
-  }
-  return translationGatewayPool;
-}
-
-async function checkTranslationGateway(event) {
-  assertTrustedSender(event);
-  const pool = getTranslationGatewayPool();
-  const health = await pool.healthCheckAll();
-  const okCount = Object.values(health).filter(Boolean).length;
-  return { ok: okCount > 0, models: okCount, endpointCount: Object.keys(health).length };
-}
-
-const translationRemoteQueue = [];
-let translationRemoteActive = 0;
-const TRANSLATION_REMOTE_LIMIT = 20;
-function enqueueTranslationRemote(task) {
-  return new Promise((resolve, reject) => {
-    translationRemoteQueue.push({ task, resolve, reject });
-    drainTranslationRemoteQueue();
-  });
-}
-function drainTranslationRemoteQueue() {
-  while (translationRemoteActive < TRANSLATION_REMOTE_LIMIT && translationRemoteQueue.length) {
-    const item = translationRemoteQueue.shift();
-    translationRemoteActive++;
-    Promise.resolve().then(item.task).then(item.resolve, item.reject).finally(() => {
-      translationRemoteActive--;
-      drainTranslationRemoteQueue();
-    });
-  }
-}
-
-async function translateViaRemoteGateway(event, payload) {
-  assertTrustedSender(event);
-  const body = payload && typeof payload === 'object' ? payload : {};
-  const pool = getTranslationGatewayPool();
-  const text = String(body.text || '');
-  const target = String(body.target || '').toLowerCase();
-  if (!text.trim()) throw new Error('翻译内容不能为空');
-  if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/.test(target) || target === 'auto') throw new Error('目标语言不合法');
-  const accountId = String(body.accountId || '');
-  assertValidAccountId(accountId);
-  const account = accountState.findById(accountId);
-  if (!account?.partition) throw new Error('翻译账号沙箱不存在');
-  const partition = account.partition;
-  const cache = await loadTranslationCache(partition);
-  const key = translationCacheKey(body, text, target);
-  const inflightKey = `${partition}:${key}`;
-  if (body.refresh !== true) {
-    const cached = cache.get(key);
-    if (cached) {
-      try {
-        const safeCachedText = assertSafeTranslationOutput({ source: text, output: cached.text, target });
-        return { text: safeCachedText, source: body.source || 'auto', target, cached: true };
-      } catch {
-        cache.delete(key);
-      }
-    }
-    if (body.isHistory === true && body.translateHistory !== true) return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true };
-    if (translationInflight.has(inflightKey)) return translationInflight.get(inflightKey);
-  }
-  if (body.skipQuota !== true) {
-    const sub = initSubscriptionStore();
-    const quota = await sub.getQuota({ network: false }).catch(() => ({ remaining_chars: null }));
-    if (quota.remaining_chars != null && quota.remaining_chars <= 0) {
-      const error = new Error('翻译额度已用完，请前往个人中心开通');
-      error.code = 'QUOTA_EXHAUSTED';
-      throw error;
-    }
-  }
-  const requestSequence = ++translationRequestSequence;
-  const needsRemoteAuthorization = pool.endpoints.some((endpoint) => {
-    const parsed = new URL(endpoint);
-    return !(parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1');
-  });
-  const remoteAuthorization = needsRemoteAuthorization ? await initSubscriptionStore().getTranslationToken() : '';
-  const translationRequestId = crypto.randomUUID();
-  translationLatestRequest.set(inflightKey, requestSequence);
-  const request = enqueueTranslationRemote(async () => {
-    let lastError = null;
-    const attempts = Math.max(1, pool.endpoints.length);
-    const deadline = Date.now() + 30000;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) { lastError = lastError || new Error('翻译网关请求超时'); break; }
-      const picked = pool.pick();
-      const endpoint = picked.endpoint;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), remaining);
-      try {
-        const parsedEndpoint = new URL(endpoint);
-        const isLocalGateway = parsedEndpoint.protocol === 'http:' && parsedEndpoint.hostname === '127.0.0.1';
-        const headers = { 'Content-Type': 'application/json', 'X-Geek-Client': '1', 'X-Request-ID': translationRequestId };
-        if (!isLocalGateway) headers.Authorization = `Bearer ${remoteAuthorization}`;
-        const response = await fetch(`${endpoint}/v1/translate`, { method: 'POST', headers, body: JSON.stringify({ text, source: body.source || 'auto', target, provider: body.provider || 'auto', route: body.route || picked.route }), signal: controller.signal });
-        const raw = await response.text();
-        let result; try { result = JSON.parse(raw); } catch { result = {}; }
-        if (!response.ok) { pool.reportFailure(endpoint); lastError = new Error(String(result.error || `翻译网关错误 ${response.status}`).slice(0, 300)); continue; }
-        if (!result.text || typeof result.text !== 'string') { pool.reportFailure(endpoint); lastError = new Error('翻译网关返回格式错误'); continue; }
-        let translated;
-        try {
-          translated = assertSafeTranslationOutput({ source: text, output: result.text, target });
-        } catch (error) {
-          pool.reportFailure(endpoint);
-          lastError = error;
-          continue;
-        }
-        pool.reportSuccess(endpoint);
-        if (deletedTranslationPartitions.has(partition)) throw new Error('翻译账号已删除');
-        if (translationLatestRequest.get(inflightKey) !== requestSequence) return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, superseded: true, route: picked.route };
-        const item = { text: translated, at: Date.now() };
-        cache.set(key, item);
-        await appendTranslationCache(partition, key, item);
-        return { text: translated, source: result.source || body.source || 'auto', target: result.target || target, cached: false, route: picked.route };
-      } catch (error) {
-        pool.reportFailure(endpoint);
-        if (error?.name === 'AbortError') lastError = new Error('翻译网关请求超时');
-        else if (error?.message === '翻译账号已删除') { lastError = error; break; }
-        else lastError = error;
-      } finally { clearTimeout(timer); }
-    }
-    throw lastError || new Error('翻译网关不可用');
-  });
-  translationInflight.set(inflightKey, request);
-  try { return await request; } finally { if (translationInflight.get(inflightKey) === request) translationInflight.delete(inflightKey); }
-}
-
 let accountIpcBoundary = null;
 let configIpcBoundary = null;
+let translationRuntime = null;
 
 async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
@@ -768,10 +551,21 @@ function registerIpcHandlers() {
     moveAccount,
     moveAccountTo,
   });
-  ipcMain.handle('translation:translate', translateViaRemoteGateway);
+  translationRuntime = createTranslationRuntime({
+    ipcMain,
+    fs,
+    safeStorage,
+    getUserDataDir: () => app.getPath('userData'),
+    accountState,
+    createGatewayPool: require('./gateway-failover.cjs').createGatewayPool,
+    assertSafeTranslationOutput: require('./translation-output-safety.cjs').assertSafeTranslationOutput,
+    assertTrustedSender,
+    assertValidAccountId,
+    getSubscriptionStore: () => initSubscriptionStore(),
+  }).install();
   ipcMain.handle('webview:register', async (event, accountId, guestId, token) => {
     assertTrustedSender(event);
-    const partition = resolveAccountPartition(accountId);
+    const partition = accountState.resolvePartition(accountId);
     const account = accountState.findById(accountId);
     const guest = webContents.fromId(Number(guestId));
     const guestUrl = guest?.getURL?.() || '';
@@ -786,7 +580,7 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('webview:insert-text', async (event, accountId, guestId, text, token) => {
     assertTrustedSender(event);
-    const partition = resolveAccountPartition(accountId);
+    const partition = accountState.resolvePartition(accountId);
     const value = String(text ?? '');
     if (!value || value.length > 10000) throw new Error('输入文本不合法');
     const guest = webContents.fromId(Number(guestId));
@@ -810,7 +604,6 @@ function registerIpcHandlers() {
     await guest.insertText(value);
     return true;
   });
-  ipcMain.handle('translation:health', checkTranslationGateway);
   ipcMain.handle('app:get-version', async (event) => {
     assertTrustedSender(event);
     return app.getVersion();
@@ -1805,6 +1598,8 @@ app.on('before-quit', () => {
   accountIpcBoundary = null;
   configIpcBoundary?.dispose();
   configIpcBoundary = null;
+  translationRuntime?.dispose();
+  translationRuntime = null;
   ipcMain.removeHandler('window:relaunch');
   ipcMain.removeHandler('subscription:get-state');
   ipcMain.removeHandler('subscription:refresh');

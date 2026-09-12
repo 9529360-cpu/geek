@@ -41,10 +41,10 @@ function functionBody(name, nextMarker) {
   return main.slice(start, end);
 }
 
-const removeBody = functionBody('removeAccount', '\n\nconst TRANSLATION_CACHE_VERSION');
+const removeBody = functionBody('removeAccount', '\n\nlet accountIpcBoundary');
 const removeCommit = removeBody.indexOf('await accountState.remove(accountId)');
 assert.ok(removeCommit >= 0, 'account removal must cross the durable state owner');
-for (const effect of ['deletedTranslationPartitions.add', 'webContents.getAllWebContents', 'clearStorageData()', 'notifyAccountsChanged(result.snapshot)']) {
+for (const effect of ['translationRuntime?.deleteAccount', 'webContents.getAllWebContents', 'clearStorageData()', 'notifyAccountsChanged(result.snapshot)']) {
   assert.ok(removeBody.indexOf(effect) > removeCommit, `${effect} must remain a post-commit removal effect`);
 }
 

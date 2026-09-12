@@ -11,7 +11,7 @@ const subscriptionSource = [
   fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker.js'), 'utf8'),
   fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker-core.js'), 'utf8'),
 ].join('\n');
-const mainSource = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
+const runtimeSource = fs.readFileSync(path.join(root, 'src/translation-runtime.cjs'), 'utf8');
 const schema = fs.readFileSync(path.join(root, 'scripts/geek-subscription-schema.sql'), 'utf8');
 
 function loadWorker() {
@@ -36,9 +36,11 @@ function loadWorker() {
   assert.match(schema, /request_id TEXT PRIMARY KEY/, '请求 ID 必须数据库唯一');
   assert.match(subscriptionSource, /aud:\s*'geek-translate'/, '订阅 Worker 必须签发限定 audience 的短期令牌');
   assert.match(subscriptionSource, /exp:\s*now \+ 5 \* 60/, '翻译令牌有效期必须为 5 分钟');
-  assert.match(mainSource, /headers\.Authorization = `Bearer \$\{remoteAuthorization\}`/, '远程翻译必须携带短期 Bearer token');
-  assert.match(mainSource, /'X-Request-ID': translationRequestId/, '每次翻译必须携带幂等请求 ID');
-  assert.doesNotMatch(mainSource.slice(mainSource.indexOf('async function translateViaRemoteGateway'), mainSource.indexOf('function registerIpcHandlers')), /reportUsage\(/, '主进程不得在服务端扣费后再次上报扣费');
+  assert.match(runtimeSource, /headers\.Authorization = `Bearer \$\{remoteAuthorization\}`/, '远程翻译必须携带短期 Bearer token');
+  assert.match(runtimeSource, /const needsRemoteAuthorization = pool\.endpoints\.some/, 'Translation Runtime 必须只在远程网关需要授权时取短期令牌');
+  assert.match(runtimeSource, /parsed\.protocol === 'http:' && parsed\.hostname === '127\.0\.0\.1'/, '本地回环网关必须保持无远程凭据例外');
+  assert.match(runtimeSource, /'X-Request-ID': requestId/, '每次翻译必须携带幂等请求 ID');
+  assert.doesNotMatch(runtimeSource, /reportUsage\(/, 'Translation Runtime 不得在服务端扣费后再次上报扣费');
 
   const worker = loadWorker();
   const env = { ZAI_API_KEY: 'configured', JWT_SECRET: 'secret', geek_subscriptions: {} };
