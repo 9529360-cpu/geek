@@ -26,9 +26,29 @@ The infrastructure token must remain limited to the Geek Cloudflare account and 
 
 Provider/application secrets may be mirrored into GitHub only when an intentional rotation or automated secret-management workflow is added. Existing Worker secrets are not read or printed by deployment workflows.
 
+## Worker validation plane
+
+Cloudflare Worker validation and production deployment are separate ownership planes.
+
+`.github/workflows/cloudflare-worker-validation.yml` is the non-production validation plane. It runs for relevant pull requests and `master` pushes when Worker/deployment source, tests, Wrangler config, deploy workflows, observer/smoke tooling, this control-plane documentation, or the recovery contract changes. It uses only `contents: read`, does not enter a production GitHub environment, does not write Issues, and does not consume Cloudflare deployment credentials.
+
+The validation job installs dependencies with lifecycle scripts disabled, runs the repository test suite, syntax-checks Worker/deployment JavaScript, and bundles all four production Workers with the repository's current Wrangler deployment version using `wrangler deploy --dry-run --outdir ...`. Wrangler dry-run is the non-production bundle oracle: it proves that Wrangler can build the production config/entry graph without uploading a Worker.
+
+Validation inputs are intentionally broader than production deployment inputs. In particular:
+
+```text
+test change != production artifact change
+deployment observer change != Worker artifact change
+deploy workflow change != automatic production deploy
+```
+
+A change to tests, `scripts/cloudflare-deploy-report.cjs`, `scripts/account-live-smoke.mjs`, a deploy workflow, or other validation/control-plane tooling must be able to revalidate the system without automatically publishing a Worker. Pull-request code must never receive production Worker deployment credentials.
+
 ## Automatic production deployment
 
-Production deployment workflows run only from matching `master` path changes or an explicit `workflow_dispatch`. They do not deploy pull-request code and therefore do not expose production deployment credentials to PR code.
+Production deployment workflows run only from a matching `master` production artifact/config change or an explicit `workflow_dispatch`. They do not deploy pull-request code and therefore do not expose production deployment credentials to PR code.
+
+For automatic `master` deployment, each Worker's `push.paths` is owned by its deployable input closure: the matching Wrangler config plus the repository-local modules reachable from that config's production `main` entry. Tests, smoke runners, deployment reporters, documentation, CI helpers and the deploy workflow file itself are validation inputs, not automatic production deployment inputs.
 
 | Workflow | Independent production target | Public verification | Status channel |
 |---|---|---|---|
