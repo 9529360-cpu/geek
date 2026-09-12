@@ -46,8 +46,10 @@ assert.match(app, /showProxyDialog\(account\)/);
 // settings-controller no longer owns account instance persistence.
 assert.doesNotMatch(settings, /updateAccount|acc-select|accountPatch|loadAccount\(/);
 
-// Preserve the two real proxy fixes found in v1 audit while the account mutation authority moves out of main.
+// Preserve the two real proxy fixes found in v1 audit while account/global config mutation authority lives in explicit owners.
 assert.match(accountState, /raw\.protocal === 'http'/);
-assert.match(main, /account\.openProxy \? account : \(configState\.openProxy \? configState : null\)/);
+const updateBody = main.match(/async function updateAccount\([\s\S]*?\n\}/)?.[0] || '';
+assert.match(updateBody, /const globalConfig = configStore\.getSnapshot\(\)/);
+assert.match(updateBody, /account\.openProxy \? account : \(globalConfig\.openProxy \? globalConfig : null\)/);
 
 console.log('ACCOUNT_CONTEXT_V2_CONTRACT_OK');
