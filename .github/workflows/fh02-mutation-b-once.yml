@@ -1,0 +1,37 @@
+name: fh02-mutation-b-once
+
+on:
+  push:
+    branches:
+      - validation/fh-02-mutation
+
+permissions:
+  contents: write
+
+jobs:
+  mutate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: validation/fh-02-mutation
+          fetch-depth: 0
+      - name: Apply mutation and self-remove
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const file = 'src/config-state.cjs';
+          let s = fs.readFileSync(file, 'utf8');
+          const oldText = `    try {\n      state = parseStored(target.content);\n    } catch (error) {\n      await recover(error);\n      await migrateLoadedState();\n      return cloneConfig(state);\n    }`;
+          const newText = `    try {\n      state = parseStored(target.content);\n    } catch (error) {\n      const defaults = cloneConfig(DEFAULT_CONFIG);\n      await durableWrite(defaults, { migration: true });\n      state = defaults;\n      return cloneConfig(state);\n    }`;
+          if (!s.includes(oldText)) throw new Error('mutation target missing');
+          s = s.replace(oldText, newText);
+          fs.writeFileSync(file, s);
+          NODE
+          rm .github/workflows/fh02-mutation-b-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/config-state.cjs .github/workflows/fh02-mutation-b-once.yml
+          git commit -m "mutation: overwrite malformed config with defaults"
+          git push origin HEAD:validation/fh-02-mutation
