@@ -98,13 +98,13 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function save(patch) {
     const current = await load();
-    // 内存 cache 保留明文（request 等需要明文 token），写盘时加密敏感字段
-    cache = { ...current, ...patch };
-    const identity = normalizeUserIdentity(cache);
-    cache.user_id = identity.user_id;
-    cache.account_no = identity.account_no;
-    cache.account_ref = identity.account_ref;
-    const disk = { ...cache };
+    // 先构造候选状态；只有磁盘原子提交成功后，候选才成为内存 authority。
+    const next = { ...current, ...patch };
+    const identity = normalizeUserIdentity(next);
+    next.user_id = identity.user_id;
+    next.account_no = identity.account_no;
+    next.account_ref = identity.account_ref;
+    const disk = { ...next };
     if (disk.token) disk.token = encryptField(disk.token);
     try {
       await writeStateDisk(disk);
@@ -112,6 +112,7 @@ function createSubscriptionStore({ userDataDir }) {
       console.error('[subscription] 状态写入失败:', e.message);
       throw e;
     }
+    cache = next;
     return cache;
   }
 
