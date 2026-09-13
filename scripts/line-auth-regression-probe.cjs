@@ -1,10 +1,5 @@
 'use strict';
 
-// Local authenticated LINE evidence tool only. Start Geek explicitly with
-// --remote-debugging-port=9344, then run:
-//   node scripts/line-auth-regression-probe.cjs [target-index]
-// Stop the debug-enabled Geek instance after evidence collection.
-
 const http = require('node:http');
 
 const DEBUG_HOST = '127.0.0.1';
@@ -12,6 +7,7 @@ const DEBUG_PORT = 9344;
 const DEBUG_PATH = '/json';
 const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const LINE_EXTENSION_PAGE = '/index.html';
+const GEEK_HOST_PAGE_SUFFIX = '/ui/index.html';
 const HTTP_TIMEOUT_MS = 3000;
 const CDP_TIMEOUT_MS = 5000;
 const MAX_DEBUG_RESPONSE_BYTES = 1024 * 1024;
@@ -34,6 +30,7 @@ const ALLOWED_ERROR_CODES = new Set([
   'DEBUG_HTTP_STATUS_INVALID',
   'DEBUG_RESPONSE_TOO_LARGE',
   'INVALID_DEBUG_RESPONSE',
+  'GEEK_HOST_TARGET_NOT_FOUND',
   'LINE_TARGET_NOT_FOUND',
   'TARGET_INDEX_OUT_OF_RANGE',
   'DEBUG_TARGET_SOCKET_INVALID',
@@ -106,18 +103,6 @@ function formatProbeOutput(input) {
   return JSON.stringify(projectProbeState(input));
 }
 
-function isLineExtensionTarget(target) {
-  if (!target || target.type !== 'page') return false;
-  try {
-    const url = new URL(String(target.url || ''));
-    return url.protocol === 'chrome-extension:'
-      && url.hostname === LINE_EXTENSION_ID
-      && url.pathname === LINE_EXTENSION_PAGE;
-  } catch {
-    return false;
-  }
-}
-
 function isLocalDebuggerSocket(value) {
   try {
     const url = new URL(String(value || ''));
@@ -130,12 +115,56 @@ function isLocalDebuggerSocket(value) {
   }
 }
 
+function isGeekHostTarget(target) {
+  if (!target || target.type !== 'page' || !isLocalDebuggerSocket(target.webSocketDebuggerUrl)) return false;
+  try {
+    const url = new URL(String(target.url || ''));
+    const pathname = decodeURIComponent(url.pathname).replace(/\\/g, '/');
+    return url.protocol === 'file:' && pathname.endsWith(GEEK_HOST_PAGE_SUFFIX);
+  } catch {
+    return false;
+  }
+}
+
 function parseTargetIndex(value) {
   if (value === undefined) return 0;
   if (!/^(?:0|[1-9][0-9]*)$/.test(String(value))) throw codedError('TARGET_INDEX_INVALID');
   const index = Number(value);
   if (!Number.isSafeInteger(index)) throw codedError('TARGET_INDEX_INVALID');
   return index;
+}
+
+function buildHostBridgeExpression(targetIndex) {
+  const guestExpression = JSON.stringify(buildProbeExpression());
+  return `(async () => {
+    const extensionId = ${JSON.stringify(LINE_EXTENSION_ID)};
+    const extensionPage = ${JSON.stringify(LINE_EXTENSION_PAGE)};
+    const index = ${Number(targetIndex)};
+    const lineWebviews = Array.from(document.querySelectorAll('webview')).filter((webview) => {
+      if (typeof webview?.executeJavaScript !== 'function') return false;
+      let currentUrl = '';
+      try { currentUrl = typeof webview.getURL === 'function' ? webview.getURL() : ''; } catch {}
+      if (!currentUrl) {
+        try { currentUrl = webview.getAttribute('src') || ''; } catch {}
+      }
+      try {
+        const parsed = new URL(currentUrl);
+        return parsed.protocol === 'chrome-extension:'
+          && parsed.hostname === extensionId
+          && parsed.pathname === extensionPage;
+      } catch {
+        return false;
+      }
+    });
+    if (!lineWebviews.length) return { kind: 'LINE_TARGET_NOT_FOUND' };
+    if (index >= lineWebviews.length) return { kind: 'TARGET_INDEX_OUT_OF_RANGE' };
+    try {
+      const state = await lineWebviews[index].executeJavaScript(${guestExpression}, false);
+      return { kind: 'PROBE_RESULT', state };
+    } catch {
+      return { kind: 'PROBE_EVALUATION_FAILED' };
+    }
+  })()`;
 }
 
 function getDebugTargets({ httpModule = http } = {}) {
@@ -288,7 +317,7 @@ function evaluateTarget(target, expression, { WebSocketCtor = globalThis.WebSock
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
           throw codedError('PROBE_RESULT_INVALID');
         }
-        finish(null, projectProbeState(value));
+        finish(null, value);
       } catch (error) {
         const code = ALLOWED_ERROR_CODES.has(error?.code) ? error.code : 'CDP_COMMAND_FAILED';
         finish(codedError(code));
@@ -297,16 +326,23 @@ function evaluateTarget(target, expression, { WebSocketCtor = globalThis.WebSock
   });
 }
 
+async function probeLineWebviewState(targets, targetIndex, options = {}) {
+  const hostTarget = Array.isArray(targets) ? targets.find(isGeekHostTarget) : null;
+  if (!hostTarget) throw codedError('GEEK_HOST_TARGET_NOT_FOUND');
+  const result = await evaluateTarget(hostTarget, buildHostBridgeExpression(targetIndex), options);
+  if (result.kind === 'LINE_TARGET_NOT_FOUND') throw codedError('LINE_TARGET_NOT_FOUND');
+  if (result.kind === 'TARGET_INDEX_OUT_OF_RANGE') throw codedError('TARGET_INDEX_OUT_OF_RANGE');
+  if (result.kind === 'PROBE_EVALUATION_FAILED') throw codedError('PROBE_EVALUATION_FAILED');
+  if (result.kind !== 'PROBE_RESULT' || !result.state || typeof result.state !== 'object' || Array.isArray(result.state)) {
+    throw codedError('PROBE_RESULT_INVALID');
+  }
+  return projectProbeState(result.state);
+}
+
 async function main(argv = process.argv.slice(2)) {
   const targetIndex = parseTargetIndex(argv[0]);
   const targets = await getDebugTargets();
-  const lineTargets = targets.filter(isLineExtensionTarget);
-  if (!lineTargets.length) throw codedError('LINE_TARGET_NOT_FOUND');
-  if (targetIndex >= lineTargets.length) throw codedError('TARGET_INDEX_OUT_OF_RANGE');
-
-  const target = lineTargets[targetIndex];
-  if (!isLocalDebuggerSocket(target.webSocketDebuggerUrl)) throw codedError('DEBUG_TARGET_SOCKET_INVALID');
-  const state = await evaluateTarget(target, buildProbeExpression());
+  const state = await probeLineWebviewState(targets, targetIndex);
   process.stdout.write(`${formatProbeOutput(state)}\n`);
 }
 
@@ -322,11 +358,13 @@ module.exports = {
   OUTPUT_KEYS,
   collectAuthenticatedLineState,
   buildProbeExpression,
+  buildHostBridgeExpression,
   projectProbeState,
   formatProbeOutput,
-  isLineExtensionTarget,
+  isGeekHostTarget,
   isLocalDebuggerSocket,
   parseTargetIndex,
   getDebugTargets,
   evaluateTarget,
+  probeLineWebviewState,
 };
