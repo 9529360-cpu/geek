@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const updater = fs.readFileSync(path.join(__dirname, '../src/updater.cjs'), 'utf8');
+const statusRelay = fs.readFileSync(path.join(__dirname, '../src/updater-status-relay.cjs'), 'utf8');
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
 const desktopIpc = fs.readFileSync(path.join(__dirname, '../src/desktop-ipc.cjs'), 'utf8');
 const preload = fs.readFileSync(path.join(__dirname, '../src/preload.cjs'), 'utf8');
@@ -15,9 +16,15 @@ assert.match(yml, /provider:\s*generic/, '必须使用 generic provider');
 assert.match(yml, /url:\s*https:\/\/geek-release\.9529360\.workers\.dev/, '必须使用正式 R2 更新地址');
 assert.doesNotMatch(yml, /provider:\s*github|GH_TOKEN|private:\s*true/, '客户端构建配置不得依赖 GitHub 发布凭据');
 
-// 2) updater 事件转发给 renderer（UI 可见）
-assert.match(updater, /webContents\.send\(STATUS_CHANNEL/, 'updater 必须把事件转发给主窗口');
-assert.match(updater, /updater:status/, '必须使用 updater:status 通道');
+// 2) updater 状态由单一 relay 持有：当前窗口实时广播，后创建窗口 load 完成后重放。
+assert.match(updater, /createUpdaterStatusRelay/, 'updater 必须组合状态 relay owner');
+assert.match(updater, /getWindows:\s*\(\) => BrowserWindow\.getAllWindows\(\)/, 'relay 必须从 Electron 获取当前窗口集合');
+assert.match(updater, /app\.on\('browser-window-created',[\s\S]*statusRelay\.replayAfterLoad\(window\)/, '后创建窗口必须挂载状态重放');
+assert.doesNotMatch(updater, /getAllWindows\(\)\.find\(/, '更新状态不得再依赖第一个 BrowserWindow 的隐含顺序');
+assert.match(statusRelay, /for \(const window of currentWindows\(\)\) deliver\(window, latestStatus\)/, '当前窗口必须全部获得实时状态');
+assert.match(statusRelay, /contents\.once\('did-finish-load',[\s\S]*replayTo\(window\)/, '后创建窗口必须在 renderer load 完成后重放');
+assert.match(statusRelay, /sequence:\s*\+\+sequence/, '状态快照必须有单调序号');
+assert.match(updater, /updater:status/, '必须继续使用 updater:status 通道');
 assert.match(updater, /update-downloaded/, '下载完成事件必须转发');
 assert.match(updater, /sendStatus\(\{ phase: 'downloaded'/, '下载完成必须走用户确认路径');
 const quitAndInstallCount = (updater.match(/quitAndInstall\(\)/g) || []).length;
