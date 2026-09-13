@@ -9,13 +9,15 @@ const { buildRuntimeIntegrityManifest, verifyRuntimeIntegrity } = require('../sr
 
 const root = path.join(__dirname, '..');
 const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
+const desktopIpc = fs.readFileSync(path.join(root, 'src', 'desktop-ipc.cjs'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const release = fs.readFileSync(path.join(root, 'scripts', 'release-build.cjs'), 'utf8');
 const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
 
 assert.match(main, /verifyPackagedUnpackedAssets\(\)/, 'main process must define packaged unpacked-asset verification');
 assert.ok(main.indexOf('await verifyPackagedUnpackedAssets();') < main.indexOf('await enforceSubscriptionGate();'), 'runtime assets must be verified before any main app window can be created');
-assert.match(main, /if \(!runtimeAssetAllowed\('bridge'\)\) throw new Error/, 'renderer must not receive a tampered bridge preload path');
+assert.match(main, /runtimeAssetAllowed,/, 'main must inject runtime integrity authority into the Desktop IPC owner');
+assert.match(desktopIpc, /if \(!runtimeAssetAllowed\('bridge'\)\) throw new Error/, 'renderer must not receive a tampered bridge preload path');
 assert.match(main, /if \(!runtimeAssetAllowed\('lineExtension'\)\)/, 'LINE extension loader must fail closed after integrity failure');
 assert.match(main, /const integrityComponent = isLine \? 'lineExtension' : 'bridge';[\s\S]{0,300}event\.preventDefault\(\);[\s\S]{0,100}return;/, 'tampered webview runtime assets must prevent guest attachment');
 assert.match(pkg.scripts['integrity:generate'] || '', /generate-unpacked-integrity/, 'packaging must have a manifest generator');
