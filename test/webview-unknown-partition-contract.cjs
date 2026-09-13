@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
+const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8').replace(/\r\n?/g, '\n');
 const start = main.indexOf("window.webContents.on('will-attach-webview'");
 const end = main.indexOf("\n  window.webContents.on('did-attach-webview'", start);
 assert.ok(start >= 0 && end > start, 'will-attach-webview security block must exist');
