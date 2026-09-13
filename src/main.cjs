@@ -91,58 +91,8 @@ try {
   app.setPath('userData', USER_DATA_DIR);
 } catch (e) { /* 设置失败不影响 */ }
 
-// LINE 登录 token 宿主文件备份（对齐原版 line.json 机制：登出清 localStorage 也不丢）
-// 敏感数据：token 用 safeStorage(DPAPI) 加密落盘，防止木马直接读明文
-const LINE_TOKENS_FILE = () => path.join(app.getPath('userData'), 'line-tokens.json');
-let lineTokensCache = {}; // partition -> token JSON 字符串
-const lineGuestContents = new Map(); // partition -> LINE guest webContents（token 备份用）
 const wppInjected = new Set(); // 已注入 WPP 的 partition（WA 内部 API 直发）
 const pendingPartitionDeletions = new Set(); // 删除失败的分区目录，退出时兜底清理
-function lineTokenEncrypt(text) {
-  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储不可用，拒绝明文保存 LINE token');
-  return 'enc:' + safeStorage.encryptString(String(text)).toString('base64');
-}
-function lineTokenDecrypt(value) {
-  if (typeof value === 'string' && value.startsWith('enc:')) {
-    try { return safeStorage.decryptString(Buffer.from(value.slice(4), 'base64')); } catch { return ''; }
-  }
-  return value;
-}
-async function writeLineTokensEncrypted(values) {
-  const encrypted = {};
-  for (const [key, value] of Object.entries(values)) encrypted[key] = lineTokenEncrypt(value);
-  const target = LINE_TOKENS_FILE();
-  const temporary = `${target}.tmp`;
-  await fs.writeFile(temporary, JSON.stringify(encrypted), 'utf-8');
-  await fs.rename(temporary, target);
-}
-async function loadLineTokens() {
-  try {
-    const raw = await fs.readFile(LINE_TOKENS_FILE(), 'utf-8');
-    const parsed = JSON.parse(raw || '{}');
-    let needsMigrate = false;
-    // 兼容旧版明文：解密 enc: 前缀字段
-    for (const [k, v] of Object.entries(parsed)) {
-      lineTokensCache[k] = lineTokenDecrypt(v);
-      if (typeof v === 'string' && !v.startsWith('enc:')) needsMigrate = true;
-    }
-    // 安全迁移：旧明文 token 立即加密重写（防止明文长期滞留磁盘）
-    if (needsMigrate) {
-      try {
-        await writeLineTokensEncrypted(lineTokensCache);
-      } catch (error) {
-        console.error('[security] LINE token 明文迁移失败，保留原文件且本次不写新明文:', error.message);
-      }
-    }
-  } catch { lineTokensCache = {}; }
-}
-async function saveLineToken(partition, tokenJson) {
-  if (!tokenJson) return;
-  lineTokensCache[partition] = tokenJson;
-  try {
-    await writeLineTokensEncrypted(lineTokensCache);
-  } catch (e) { /* 写失败不影响 */ }
-}
 
 // 保留经过验证且不降低网页安全边界的进程参数。
 try {
@@ -1080,13 +1030,6 @@ function configureWebviewSecurity(window) {
 
   window.webContents.on('did-attach-webview', (_event, webContents) => {
     const part = webContents.session?.partition || '';
-    if (part.startsWith(PARTITION_PREFIX)) {
-      webContents.on('did-navigate', (event, url) => {
-        if (url.startsWith(`chrome-extension://${LINE_EXTENSION_ID}`)) {
-          lineGuestContents.set(part, webContents);
-        }
-      });
-    }
     webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       const safeUrl = sanitizeUrlForLog(validatedURL);
       console.log(`[wv] did-fail-load code=${errorCode} desc=${errorDescription} url=${safeUrl}`);
