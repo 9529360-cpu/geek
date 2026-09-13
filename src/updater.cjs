@@ -60,8 +60,8 @@ function scheduleUpdateCheck(delayMs) {
 }
 
 async function runUpdateCheck() {
-  if (downloadedVersion || isInstallingUpdate) return;
-  if (checkInFlight) {
+  if (downloadedVersion) return;
+  if (checkInFlight || isInstallingUpdate) {
     scheduleUpdateCheck(RECHECK_INTERVAL_MS);
     return;
   }
@@ -147,7 +147,10 @@ function quitAndInstallForUpdate() {
   }
   try {
     isInstallingUpdate = true;
-    clearCheckTimer();
+    if (checkTimer) {
+      clearTimeout(checkTimer);
+      checkTimer = null;
+    }
     autoUpdater.quitAndInstall();
     return true;
   } catch (error) {
