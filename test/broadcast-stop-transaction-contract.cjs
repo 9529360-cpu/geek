@@ -41,6 +41,26 @@ const jobApi = require('../ui/broadcast-job-manager.js');
   manager.markStopped(job.id);
   assert.equal(manager.hasActive('account-a'), false);
 
+  const concurrentManager = jobApi.createManager();
+  const concurrentJob = concurrentManager.start({ id: 'job-b', accountId: 'account-b', targets: [{ id: 'b1' }] });
+  let releaseStop;
+  let stopCalls = 0;
+  concurrentManager.attachControls(concurrentJob.id, {
+    stop: async () => {
+      stopCalls += 1;
+      await new Promise(resolve => { releaseStop = resolve; });
+    },
+  });
+  const firstStop = concurrentManager.invoke(concurrentJob.id, 'stop');
+  const secondStop = concurrentManager.invoke(concurrentJob.id, 'stop');
+  await Promise.resolve();
+  assert.equal(stopCalls, 1, 'concurrent stop requests must share one in-flight stop signal');
+  releaseStop();
+  const [firstResult, secondResult] = await Promise.all([firstStop, secondStop]);
+  assert.equal(firstResult.state, 'stopping');
+  assert.equal(secondResult.state, 'stopping');
+  assert.equal(stopCalls, 1, 'coalesced stop requests must not duplicate handler side effects');
+
   console.log('BROADCAST_STOP_TRANSACTION_CONTRACT_OK');
 })().catch(error => {
   console.error(error);
