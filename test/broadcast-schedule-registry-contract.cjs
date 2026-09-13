@@ -1,4 +1,5 @@
 'use strict';
+
 const assert = require('node:assert/strict');
 const { createRegistry, MAX_TIMER_DELAY_MS } = require('../ui/broadcast-schedule-registry.js');
 
