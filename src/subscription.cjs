@@ -74,6 +74,7 @@ function createSubscriptionStore({ userDataDir }) {
   }
 
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
+  let loadPromise = null;
   let translationTokenCache = null;
   let stateMutationQueue = Promise.resolve();
 
@@ -85,29 +86,37 @@ function createSubscriptionStore({ userDataDir }) {
   }
 
   async function load() {
+    if (loadPromise) return loadPromise;
     if (cache) return cache;
+    loadPromise = (async () => {
+      try {
+        const raw = await fs.readFile(stateFile(), 'utf-8');
+        cache = JSON.parse(raw || '{}');
+        // 兼容：解密加密的 token（enc: 前缀）
+        if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
+          cache.token = decryptField(cache.token);
+        }
+        // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
+        const identity = normalizeUserIdentity(cache);
+        cache.account_no = identity.account_no;
+        cache.account_ref = identity.account_ref;
+        // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
+        if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
+          try {
+            const disk = { ...cache, token: encryptField(cache.token) };
+            await writeStateDisk(disk);
+          } catch (e) { /* 迁移失败不阻塞 */ }
+        }
+      } catch {
+        cache = {};
+      }
+      return cache;
+    })();
     try {
-      const raw = await fs.readFile(stateFile(), 'utf-8');
-      cache = JSON.parse(raw || '{}');
-      // 兼容：解密加密的 token（enc: 前缀）
-      if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
-        cache.token = decryptField(cache.token);
-      }
-      // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
-      const identity = normalizeUserIdentity(cache);
-      cache.account_no = identity.account_no;
-      cache.account_ref = identity.account_ref;
-      // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
-      if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
-        try {
-          const disk = { ...cache, token: encryptField(cache.token) };
-          await writeStateDisk(disk);
-        } catch (e) { /* 迁移失败不阻塞 */ }
-      }
-    } catch {
-      cache = {};
+      return await loadPromise;
+    } finally {
+      loadPromise = null;
     }
-    return cache;
   }
 
   function save(patch) {
