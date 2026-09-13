@@ -29,7 +29,6 @@ const expectedChannels = [
   'subscription:register',
   'subscription:create-order',
   'subscription:get-quota',
-  'subscription:report-usage',
   'subscription:logout',
   'subscription:enter-app',
   'subscription:close-window',
@@ -37,6 +36,7 @@ const expectedChannels = [
 for (const channel of expectedChannels) {
   assert.ok(owner.includes(`'${channel}'`), `Subscription IPC owner must declare ${channel}`);
 }
+assert.equal(owner.includes("'subscription:report-usage'"), false, 'obsolete client usage accounting channel must stay retired');
 
 const strayDirectOwners = [];
 for (const entry of fs.readdirSync(path.join(root, 'src'), { withFileTypes: true })) {

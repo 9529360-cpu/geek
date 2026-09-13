@@ -38,12 +38,42 @@ function authProbeRequest(request) {
   return new Request(new URL('/api/me', request.url), { method: 'GET', headers });
 }
 
+function csrfAllowed(request) {
+  if (request.headers.get('Authorization')) return true;
+  const origin = request.headers.get('Origin');
+  return Boolean(origin && origin === new URL(request.url).origin);
+}
+
+async function authenticatedProfile(request, env, ctx) {
+  const response = await coreWorker.fetch(authProbeRequest(request), env, ctx);
+  if (!response.ok) return { response };
+  const data = await response.clone().json().catch(() => ({}));
+  return { response, user: data?.user || null };
+}
+
 async function invalidPayMethodResponse(request, env, ctx) {
   // Preserve the existing authentication boundary: unauthenticated requests
   // still receive the core Worker's auth response before input validation.
-  const authResponse = await coreWorker.fetch(authProbeRequest(request), env, ctx);
-  if (!authResponse.ok) return authResponse;
+  const auth = await authenticatedProfile(request, env, ctx);
+  if (!auth.response.ok) return auth.response;
   return json({ error: 'invalid_pay_method' }, 400);
+}
+
+async function legacyUsageCompatibilityResponse(request, env, ctx) {
+  // Quota charging is owned by the authenticated translation gateway. Keep the
+  // historical endpoint readable for older released clients, but never let it
+  // reach the core Worker's obsolete second quota-decrement implementation.
+  const auth = await authenticatedProfile(request, env, ctx);
+  if (!auth.response.ok) return auth.response;
+  if (!csrfAllowed(request)) return json({ error: 'invalid_origin' }, 403);
+
+  const remaining = Number(auth.user?.quota_chars);
+  return json({
+    ok: true,
+    remaining_chars: Number.isFinite(remaining) ? Math.max(0, Math.floor(remaining)) : 0,
+    deducted: 0,
+    deprecated: true,
+  });
 }
 
 export default {
@@ -60,6 +90,10 @@ export default {
         return json({ error: 'rate_limited' }, 429);
       }
       scopedEnv = withSubscriptionDatabase(env, scopeLegacyRateLimitBypass(db));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/usage') {
+      return legacyUsageCompatibilityResponse(request, scopedEnv, ctx);
     }
 
     if (request.method !== 'POST' || url.pathname !== '/api/orders') {
