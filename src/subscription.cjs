@@ -60,8 +60,12 @@ function createSubscriptionStore({ userDataDir }) {
   const stateFile = () => path.join(userDataDir, 'subscription.json');
   let diskWriteQueue = Promise.resolve();
 
-  function writeStateDisk(disk) {
+  function writeStateDisk(disk, options = {}) {
+    const expectedSessionGeneration = options.expectedSessionGeneration;
     const queued = diskWriteQueue.then(async () => {
+      // Cold-load compatibility rewrites may be queued behind a logout write. Re-check
+      // lifecycle ownership at physical execution time so an old rewrite cannot follow the tombstone.
+      assertSessionGeneration(expectedSessionGeneration);
       const target = stateFile();
       const temporary = `${target}.tmp`;
       await fs.mkdir(path.dirname(target), { recursive: true });
@@ -105,29 +109,36 @@ function createSubscriptionStore({ userDataDir }) {
   async function load() {
     if (loadPromise) return loadPromise;
     if (cache) return cache;
+    const generation = sessionGeneration;
     loadPromise = (async () => {
       try {
         const raw = await fs.readFile(stateFile(), 'utf-8');
-        cache = JSON.parse(raw || '{}');
+        const loaded = JSON.parse(raw || '{}');
         // 兼容：解密加密的 token（enc: 前缀）
-        if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
-          cache.token = decryptField(cache.token);
+        if (loaded.token && typeof loaded.token === 'string' && loaded.token.startsWith('enc:')) {
+          loaded.token = decryptField(loaded.token);
         }
         // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
-        const identity = normalizeUserIdentity(cache);
-        cache.account_no = identity.account_no;
-        cache.account_ref = identity.account_ref;
+        const identity = normalizeUserIdentity(loaded);
+        loaded.account_no = identity.account_no;
+        loaded.account_ref = identity.account_ref;
+        if (generation !== sessionGeneration) return cache || {};
         // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
-        if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
+        if (loaded.token && !String(loaded.token).startsWith('enc:') && secureCrypto) {
           try {
-            const disk = { ...cache, token: encryptField(cache.token) };
-            await writeStateDisk(disk);
-          } catch (e) { /* 迁移失败不阻塞 */ }
+            const disk = { ...loaded, token: encryptField(loaded.token) };
+            await writeStateDisk(disk, { expectedSessionGeneration: generation });
+          } catch (e) {
+            if (e.code === 'SUBSCRIPTION_SESSION_CHANGED') return cache || {};
+            // 兼容迁移失败不阻塞当前已存在的登录态。
+          }
         }
+        if (generation !== sessionGeneration) return cache || {};
+        cache = loaded;
       } catch {
-        cache = {};
+        if (generation === sessionGeneration) cache = {};
       }
-      return cache;
+      return cache || {};
     })();
     try {
       return await loadPromise;
@@ -335,7 +346,9 @@ function createSubscriptionStore({ userDataDir }) {
       );
       return quota;
     } catch (e) {
-      if (e.code === 'SUBSCRIPTION_SESSION_CHANGED') return localQuota(await load(), null);
+      if (generation !== sessionGeneration || e.code === 'SUBSCRIPTION_SESSION_CHANGED') {
+        return localQuota(await load(), null);
+      }
       // 网络失败：回退本地缓存（离线容忍）；无缓存则视为有额度（不阻断已有用户）
       return localQuota(state, Number.MAX_SAFE_INTEGER);
     }
