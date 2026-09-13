@@ -54,6 +54,7 @@ jobs:
 
       - name: Validate Worker and deployment-tooling syntax
         run: |
+          node --check scripts/geek-website-entry.js
           node --check scripts/geek-website-worker.js
           node --check scripts/website-payment-qr.mjs
           node --check scripts/geek-subscription-atomic-entry.js
