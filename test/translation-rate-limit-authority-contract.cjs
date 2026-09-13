@@ -153,6 +153,18 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
     .run();
   assert.equal(passthroughInsert.meta.changes, 1, 'unrelated D1 statements must pass through untouched');
 
+  await db.prepare(policy.TRANSLATION_RATE_LIMIT_SQL.reset)
+    .bind('unrelated:legacy', '2026-09-13 18:11:00')
+    .run();
+  await db.prepare(policy.TRANSLATION_RATE_LIMIT_SQL.increment)
+    .bind('2026-09-13 18:11:01', 'unrelated:legacy')
+    .run();
+  assert.equal(
+    sqlite.prepare('SELECT count FROM rate_limits WHERE bucket = ?').get('unrelated:legacy').count,
+    2,
+    'legacy-shaped SQL for unrelated buckets must pass through instead of being neutralized'
+  );
+
   sqlite.close();
   console.log('TRANSLATION_RATE_LIMIT_AUTHORITY_CONTRACT_OK');
 })().catch((error) => {
