@@ -1,0 +1,41 @@
+name: windows-source-contract-once
+
+on:
+  push:
+    branches:
+      - fix/windows-webview-navigation-contract-eol
+    paths:
+      - .github/workflows/windows-source-contract-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  windows-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windows-webview-navigation-contract-eol
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run repository tests on Windows checkout
+        run: npm test
+
+      - name: Self-remove validation workflow
+        shell: bash
+        run: |
+          rm .github/workflows/windows-source-contract-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/windows-source-contract-once.yml
+          git commit -m "ci: remove one-shot Windows source contract validation"
+          git push origin HEAD:fix/windows-webview-navigation-contract-eol
