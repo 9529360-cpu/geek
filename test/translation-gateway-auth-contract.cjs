@@ -31,7 +31,15 @@ function loadWorker() {
   assert.doesNotMatch(workerSource, /Access-Control-Allow-Origin['"]?\s*:\s*['"]\*['"]/, '翻译 Worker 不得允许任意来源 CORS');
   assert.match(workerSource, /payload\.aud !== 'geek-translate'/, '必须校验令牌 audience');
   assert.match(workerSource, /payload\.purpose !== 'translate'/, '必须校验令牌 purpose');
-  assert.match(workerSource, /quota_chars\s*=\s*quota_chars\s*-\s*\?[^;]+quota_chars\s*>=\s*\?/s, '额度预扣必须是带余额条件的原子 UPDATE');
+  const reserveStart = workerSource.indexOf('async function reserveUsage(');
+  const reserveEnd = workerSource.indexOf('\n}\n\nasync function refundUsage', reserveStart);
+  assert.ok(reserveStart >= 0 && reserveEnd > reserveStart, '额度预扣实现必须可检查');
+  const reserveBody = workerSource.slice(reserveStart, reserveEnd);
+  assert.match(
+    reserveBody,
+    /db\.batch\(\[[\s\S]*WHERE id = \? AND status = 'active' AND quota_chars >= \?[\s\S]*SET quota_chars = quota_chars - \?[\s\S]*WHERE request_id = \? AND user_id = \? AND reserved_chars = \? AND status = \?/,
+    '额度预扣必须在同一事务中先校验余额，再只对精确 owner reservation 扣减'
+  );
   assert.match(workerSource, /translation_usage/, '必须用请求记录保证幂等');
   assert.match(schema, /request_id TEXT PRIMARY KEY/, '请求 ID 必须数据库唯一');
   assert.match(subscriptionSource, /aud:\s*'geek-translate'/, '订阅 Worker 必须签发限定 audience 的短期令牌');
