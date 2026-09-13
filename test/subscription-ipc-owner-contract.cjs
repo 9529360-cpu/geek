@@ -24,7 +24,6 @@ function createHarness({ trusted = true } = {}) {
     register: async (...args) => { calls.push(['register', ...args]); return { ok: true }; },
     createOrder: async (...args) => { calls.push(['createOrder', ...args]); return { ok: true }; },
     getQuota: async (...args) => { calls.push(['getQuota', ...args]); return { remaining_chars: 1 }; },
-    reportUsage: async (...args) => { calls.push(['reportUsage', ...args]); return { ok: true }; },
     logout: async () => { calls.push(['logout']); return { ok: true }; },
   };
   const boundary = installSubscriptionIpc({
@@ -45,7 +44,6 @@ function createHarness({ trusted = true } = {}) {
     'subscription:register',
     'subscription:create-order',
     'subscription:get-quota',
-    'subscription:report-usage',
     'subscription:logout',
     'subscription:enter-app',
     'subscription:close-window',
@@ -72,7 +70,6 @@ function createHarness({ trusted = true } = {}) {
     await handlers.get('subscription:register')({}, 'a@example.test', 456);
     await handlers.get('subscription:create-order')({}, null);
     await handlers.get('subscription:get-quota')({}, 1);
-    await handlers.get('subscription:report-usage')({}, '42');
     await handlers.get('subscription:logout')({});
     await handlers.get('subscription:enter-app')({});
     await handlers.get('subscription:close-window')({});
@@ -84,7 +81,6 @@ function createHarness({ trusted = true } = {}) {
       ['register', 'a@example.test', '456'],
       ['createOrder', ''],
       ['getQuota', false],
-      ['reportUsage', 42],
       ['logout'],
       ['enterApp'],
       ['closeWindow'],
