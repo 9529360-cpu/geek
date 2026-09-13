@@ -62,6 +62,8 @@ function createD1(options = {}) {
     INSERT INTO users (id, status, quota_chars) VALUES (42, 'active', 100);
   `);
 
+  let throwAfterReservationCommit = Boolean(options.throwAfterReservationCommit);
+  let throwBeforeReservationCommit = Boolean(options.throwBeforeReservationCommit);
   let throwAfterFinishCommit = Boolean(options.throwAfterFinishCommit);
 
   function prepare(sql) {
@@ -96,6 +98,20 @@ function createD1(options = {}) {
   const db = {
     prepare,
     async batch(statements) {
+      const isReservationBatch = statements.some((statement) =>
+        /INSERT\s+INTO\s+translation_usage/i.test(statement.sql)
+      ) && statements.some((statement) =>
+        /SET\s+quota_chars\s*=\s*quota_chars\s*-\s*\?/i.test(statement.sql)
+      );
+      const isFinishBatch = statements.some((statement) =>
+        /UPDATE\s+translation_usage\s+SET\s+target_chars\s*=\s*\?/i.test(statement.sql)
+      );
+
+      if (throwBeforeReservationCommit && isReservationBatch) {
+        throwBeforeReservationCommit = false;
+        throw new Error('simulated_d1_precommit_failure');
+      }
+
       const results = [];
       sqlite.exec('BEGIN IMMEDIATE');
       try {
@@ -106,12 +122,13 @@ function createD1(options = {}) {
         throw error;
       }
 
-      const isFinishBatch = statements.some((statement) =>
-        /UPDATE\s+translation_usage\s+SET\s+target_chars\s*=\s*\?/i.test(statement.sql)
-      );
+      if (throwAfterReservationCommit && isReservationBatch) {
+        throwAfterReservationCommit = false;
+        throw new Error('simulated_d1_unknown_reservation_outcome_after_commit');
+      }
       if (throwAfterFinishCommit && isFinishBatch) {
         throwAfterFinishCommit = false;
-        throw new Error('simulated_d1_unknown_outcome_after_commit');
+        throw new Error('simulated_d1_unknown_finish_outcome_after_commit');
       }
       return results;
     },
@@ -173,6 +190,16 @@ function successResponse() {
   });
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 (async () => {
   // 1. Success keeps the documented source + target charging rule and closes the ledger row.
   {
@@ -193,7 +220,7 @@ function successResponse() {
     sqlite.close();
   }
 
-  // 2. A real upstream failure refunds only the still-reserved source charge and removes the placeholder.
+  // 2. A real upstream failure refunds only this attempt's reservation and removes its placeholder.
   {
     const { db, sqlite } = createD1();
     let fail = true;
@@ -207,7 +234,7 @@ function successResponse() {
     const failed = await worker.fetch(translateRequest(requestId), envFor(db));
     assert.equal(failed.status, 502);
     assert.equal(quota(sqlite), 100, 'failed upstream call must restore the source reservation');
-    assert.equal(usage(sqlite, requestId), null, 'failed upstream call must remove the reserved placeholder');
+    assert.equal(usage(sqlite, requestId), null, 'failed upstream call must remove the owned reservation row');
 
     fail = false;
     const retried = await worker.fetch(translateRequest(requestId), envFor(db));
@@ -218,8 +245,95 @@ function successResponse() {
     sqlite.close();
   }
 
-  // 3. Simulate the hard case: D1 commits finishUsage, then the caller observes an exception.
-  //    The outer catch will call refundUsage, which must see the terminal row and do nothing.
+  // 3. The reservation transaction commits, but the caller loses the response. Durable ownership proves
+  //    this exact attempt already reserved source quota, so it continues instead of returning 409.
+  {
+    const { db, sqlite } = createD1({ throwAfterReservationCommit: true });
+    let upstreamCalls = 0;
+    const worker = loadWorker(async () => { upstreamCalls += 1; return successResponse(); });
+    const requestId = nodeCrypto.randomUUID();
+    const response = await worker.fetch(translateRequest(requestId), envFor(db));
+    assert.equal(response.status, 200, 'owned reservation must reconcile an unknown post-COMMIT outcome');
+    assert.equal(upstreamCalls, 1, 'reconciled reservation must make exactly one provider call');
+    assert.equal(quota(sqlite), 91, 'reconciliation must not double-debit source quota');
+    const row = usage(sqlite, requestId);
+    assert.equal(row.status, 'complete');
+    assert.equal(Number(row.reserved_chars), 5);
+    assert.equal(Number(row.target_chars), 4);
+    sqlite.close();
+  }
+
+  // 4. While request A owns a durable reservation, request B with the same request ID is a real duplicate.
+  //    It must not call the provider and cannot finish/refund A's owner marker.
+  {
+    const { db, sqlite } = createD1();
+    const providerEntered = deferred();
+    const releaseProvider = deferred();
+    let upstreamCalls = 0;
+    const worker = loadWorker(async () => {
+      upstreamCalls += 1;
+      if (upstreamCalls > 1) throw new Error('duplicate_request_reached_provider');
+      providerEntered.resolve();
+      await releaseProvider.promise;
+      return successResponse();
+    });
+    const requestId = nodeCrypto.randomUUID();
+    const firstPromise = worker.fetch(translateRequest(requestId), envFor(db));
+    await providerEntered.promise;
+
+    assert.equal(quota(sqlite), 95, 'first request must own the committed source reservation while provider is active');
+    const inFlight = usage(sqlite, requestId);
+    assert.match(String(inFlight.status), /^reserved:[0-9a-f-]{36}$/i);
+
+    const duplicate = await worker.fetch(translateRequest(requestId), envFor(db));
+    assert.equal(duplicate.status, 409);
+    assert.equal((await duplicate.json()).error, 'duplicate_request');
+    assert.equal(upstreamCalls, 1, 'duplicate request must be rejected before another provider call');
+    assert.equal(quota(sqlite), 95, 'duplicate request must not mutate the first reservation');
+    assert.equal(usage(sqlite, requestId).status, inFlight.status, 'duplicate request must not replace owner marker');
+
+    releaseProvider.resolve();
+    const first = await firstPromise;
+    assert.equal(first.status, 200);
+    assert.equal(quota(sqlite), 91);
+    assert.equal(usage(sqlite, requestId).status, 'complete');
+    sqlite.close();
+  }
+
+  // 5. Insufficient source quota creates no reservation row and never reaches a provider.
+  {
+    const { db, sqlite } = createD1();
+    sqlite.prepare('UPDATE users SET quota_chars = 4 WHERE id = 42').run();
+    let upstreamCalls = 0;
+    const worker = loadWorker(async () => { upstreamCalls += 1; return successResponse(); });
+    const requestId = nodeCrypto.randomUUID();
+    const response = await worker.fetch(translateRequest(requestId), envFor(db));
+    assert.equal(response.status, 402);
+    assert.equal((await response.json()).error, 'quota_exhausted');
+    assert.equal(upstreamCalls, 0);
+    assert.equal(quota(sqlite), 4);
+    assert.equal(usage(sqlite, requestId), null);
+    sqlite.close();
+  }
+
+  // 6. A genuine pre-COMMIT D1 failure has no durable owner row. It is a translation/storage failure,
+  //    not a duplicate request, and leaves quota untouched.
+  {
+    const { db, sqlite } = createD1({ throwBeforeReservationCommit: true });
+    let upstreamCalls = 0;
+    const worker = loadWorker(async () => { upstreamCalls += 1; return successResponse(); });
+    const requestId = nodeCrypto.randomUUID();
+    const response = await worker.fetch(translateRequest(requestId), envFor(db));
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error, 'translation_failed');
+    assert.equal(upstreamCalls, 0);
+    assert.equal(quota(sqlite), 100);
+    assert.equal(usage(sqlite, requestId), null);
+    sqlite.close();
+  }
+
+  // 7. Existing hard case: finishUsage commits, then the caller observes an exception. The catch/refund
+  //    path must see the terminal row, leave quota charged, and keep the request ID non-replayable.
   {
     const { db, sqlite } = createD1({ throwAfterFinishCommit: true });
     let upstreamCalls = 0;
@@ -241,9 +355,16 @@ function successResponse() {
     sqlite.close();
   }
 
-  // The production SQL itself must bind terminal transitions to the exact user/request and reserved state.
-  assert.match(workerSource, /DELETE FROM translation_usage WHERE request_id = \? AND user_id = \? AND reserved_chars = \? AND status = 'reserved'/);
-  assert.match(workerSource, /UPDATE translation_usage SET target_chars = \?, status = 'complete',[^\n]+WHERE request_id = \? AND user_id = \? AND status = 'reserved'/);
+  // Production SQL must bind recovery/refund/finalization to one attempt-owned reservation marker.
+  assert.match(workerSource, /const owner = `reserved:\$\{crypto\.randomUUID\(\)\}`/);
+  assert.match(workerSource, /SELECT user_id, reserved_chars, status FROM translation_usage WHERE request_id = \?/);
+  assert.match(workerSource, /String\(row\.status\) === owner/);
+  assert.match(workerSource, /DELETE FROM translation_usage WHERE request_id = \? AND user_id = \? AND reserved_chars = \? AND status = \?/);
+  assert.match(workerSource, /UPDATE translation_usage SET target_chars = \?, status = 'complete',[^\n]+WHERE request_id = \? AND user_id = \? AND status = \?/);
+  assert.match(workerSource, /reservationOwner = reservation\.owner/);
+  assert.match(workerSource, /finishUsage\(db, auth\.uid, requestId, countChars\(result\), reservationOwner\)/);
+  assert.match(workerSource, /refundUsage\(db, auth\.uid, requestId, reserved, reservationOwner\)/);
+  assert.doesNotMatch(workerSource, /status = 'reserved'[^\n]*\)\.bind\(requestId, userId, chars\)/, 'attempt cleanup must not rely on a shared reserved state');
 
   console.log('TRANSLATION_USAGE_STATE_CONTRACT_OK');
 })().catch((error) => {
