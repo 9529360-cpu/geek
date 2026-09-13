@@ -73,13 +73,13 @@ assert.match(
 );
 assert.match(
   main,
-  /if \(isLine\) \{\s*webPreferences\.preload = path\.join\(__dirname, '\.\.', 'resources', 's3loYR\.js'\);\s*webPreferences\.contextIsolation = false;/,
-  'LINE compatibility preload and scoped contextIsolation=false exception must remain unchanged'
+  /if \(isLine\) \{\s*webPreferences\.preload = path\.join\(__dirname, '\.\.', 'resources', 's3loYR\.js'\);\s*webPreferences\.contextIsolation = true;/,
+  'LINE candidate must keep the same compatibility preload while enabling contextIsolation'
 );
 assert.match(
   main,
-  /params\.webpreferences = isLine\s*\? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'/,
-  'LINE WebView compatibility preferences must remain scoped and unchanged'
+  /params\.webpreferences = isLine\s*\? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'/,
+  'LINE candidate must change only contextIsolation in its scoped WebView preferences'
 );
 
 assert.equal(LINE_EXTENSION_ID, 'ophjlpahpchlmihnnnihgmmeilfjmjjc', 'LINE extension ID must remain unchanged');
