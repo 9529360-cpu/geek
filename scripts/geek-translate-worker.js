@@ -149,8 +149,9 @@ async function rateLimited(db, bucket, limit, windowSeconds) {
 
 async function reserveUsage(db, userId, requestId, chars) {
   const owner = `reserved:${crypto.randomUUID()}`;
+  let results;
   try {
-    const results = await db.batch([
+    results = await db.batch([
       db.prepare(`INSERT INTO translation_usage (request_id, user_id, reserved_chars, status)
         SELECT ?, ?, ?, ?
         WHERE EXISTS (
@@ -165,9 +166,6 @@ async function reserveUsage(db, userId, requestId, chars) {
             WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = ?
           )`).bind(chars, userId, requestId, userId, chars, owner),
     ]);
-    if (!results[0]?.meta?.changes) return { ok: false, error: 'quota_exhausted' };
-    if (!results[1]?.meta?.changes) throw new Error('translation_reservation_debit_failed');
-    return { ok: true, owner };
   } catch (error) {
     const row = await db.prepare(
       'SELECT user_id, reserved_chars, status FROM translation_usage WHERE request_id = ?'
@@ -178,6 +176,13 @@ async function reserveUsage(db, userId, requestId, chars) {
     if (row) return { ok: false, error: 'duplicate_request' };
     throw error;
   }
+  if (!results[0]?.meta?.changes) return { ok: false, error: 'quota_exhausted' };
+  if (!results[1]?.meta?.changes) {
+    await db.prepare('DELETE FROM translation_usage WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = ?')
+      .bind(requestId, userId, chars, owner).run();
+    throw new Error('translation_reservation_debit_failed');
+  }
+  return { ok: true, owner };
 }
 
 async function refundUsage(db, userId, requestId, chars, owner) {
