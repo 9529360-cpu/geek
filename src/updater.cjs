@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { shouldCheckForUpdates } = require('./updater-policy.cjs');
 const { installSubscriptionWindowVisibilityRecovery } = require('./subscription-window-visibility.cjs');
+const { createUpdaterStatusRelay } = require('./updater-status-relay.cjs');
 
 // main.cjs 在创建窗口前加载 updater.cjs，因此这里能提前捕获登录窗口创建事件。
 // 只针对 subscription.html；ready-to-show 异常时由 did-finish-load/超时兜底显示。
@@ -19,17 +20,27 @@ const LOG_PREFIX = '[updater]';
 const STATUS_CHANNEL = 'updater:status';
 const INITIAL_CHECK_DELAY_MS = 10 * 1000;
 const RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const statusRelay = createUpdaterStatusRelay({
+  getWindows: () => BrowserWindow.getAllWindows(),
+  statusChannel: STATUS_CHANNEL,
+});
 let downloadedVersion = null; // 已下载待安装版本；未下载完成时拒绝手动安装
 let isInstallingUpdate = false; // 安装中标志：禁止崩溃恢复 relaunch 竞态
 let checkTimer = null;
 let checkInFlight = false;
+let statusReplayInstalled = false;
 
-// 把更新状态转发给主窗口（renderer 显示提示）
+// 更新状态同时广播给当前窗口，并保留最新快照供之后创建的主窗口重放。
 function sendStatus(payload) {
-  try {
-    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-    win?.webContents.send(STATUS_CHANNEL, payload);
-  } catch { /* 转发失败不影响 */ }
+  return statusRelay.publish(payload);
+}
+
+function installFutureWindowStatusReplay() {
+  if (statusReplayInstalled) return;
+  statusReplayInstalled = true;
+  app.on('browser-window-created', (_event, window) => {
+    statusRelay.replayAfterLoad(window);
+  });
 }
 
 function scheduleUpdateCheck(delayMs) {
@@ -72,6 +83,8 @@ function initAutoUpdater() {
     console.log(`${LOG_PREFIX} 未配置发布渠道，跳过自动更新检查`);
     return;
   }
+
+  installFutureWindowStatusReplay();
 
   autoUpdater.autoDownload = true; // 发现新版自动下载
   autoUpdater.autoInstallOnAppQuit = true; // 退出时自动安装
