@@ -1,0 +1,64 @@
+name: release-1.2.24-prep-r2-once
+
+on:
+  push:
+    branches:
+      - release/client-1.2.24-r2
+    paths:
+      - .github/workflows/release-1.2.24-prep-r2-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/client-1.2.24-r2
+          fetch-depth: 0
+
+      - name: Verify exact release base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = "5564bebfc96317f3c0e4b2444e0463b36cb9fd8b"
+          test "$(node -p "require('./package.json').version")" = "1.2.23"
+          test "$(cat .github/release-client-version)" = "1.2.23"
+          grep -q "const FALLBACK_VERSION = '1.2.22';" scripts/geek-website-worker.js
+
+      - name: Prepare 1.2.24 metadata
+        shell: bash
+        run: |
+          npm version 1.2.24 --no-git-tag-version
+          printf '1.2.24\n' > .github/release-client-version
+
+      - name: Validate release-only diff
+        shell: bash
+        run: |
+          test "$(node -p "require('./package.json').version")" = "1.2.24"
+          test "$(node -p "require('./package-lock.json').version")" = "1.2.24"
+          test "$(node -p "require('./package-lock.json').packages[''].version")" = "1.2.24"
+          test "$(cat .github/release-client-version)" = "1.2.24"
+          grep -q "const FALLBACK_VERSION = '1.2.22';" scripts/geek-website-worker.js
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' '.github/release-client-version' 'package-lock.json' 'package.json' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Run release prep tests
+        shell: bash
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
+      - name: Commit release metadata and self-remove workflow
+        shell: bash
+        run: |
+          rm .github/workflows/release-1.2.24-prep-r2-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add package.json package-lock.json .github/release-client-version .github/workflows/release-1.2.24-prep-r2-once.yml
+          git commit -m "release: prepare Geek 1.2.24"
+          git push origin HEAD:release/client-1.2.24-r2
