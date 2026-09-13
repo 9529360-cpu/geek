@@ -10,14 +10,41 @@ function withTranslationDatabase(env, db) {
   });
 }
 
+async function sanitizePublicHealthResponse(response) {
+  const payload = await response.clone().json().catch(() => null);
+  if (!payload || typeof payload !== 'object' || !payload.models || typeof payload.models !== 'object') {
+    return response;
+  }
+
+  const safeModels = {};
+  for (const [provider, state] of Object.entries(payload.models)) {
+    if (!state || typeof state !== 'object') {
+      safeModels[provider] = state;
+      continue;
+    }
+    const { lastError: _lastError, ...safeState } = state;
+    safeModels[provider] = safeState;
+  }
+
+  return new Response(JSON.stringify({ ...payload, models: safeModels }), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const db = env.geek_subscriptions;
-    if (!db || typeof db.prepare !== 'function') {
-      return baseWorker.fetch(request, env, ctx);
+    const workerEnv = db && typeof db.prepare === 'function'
+      ? withTranslationDatabase(env, scopeTranslationRateLimitAuthority(db))
+      : env;
+    const response = await baseWorker.fetch(request, workerEnv, ctx);
+    const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/health') {
+      return sanitizePublicHealthResponse(response);
     }
-    const scopedDb = scopeTranslationRateLimitAuthority(db);
-    return baseWorker.fetch(request, withTranslationDatabase(env, scopedDb), ctx);
+    return response;
   },
 
   async scheduled(controller, env, ctx) {
