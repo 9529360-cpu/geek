@@ -58,9 +58,8 @@ function installDesktopIpc(options = {}) {
   let disposed = false;
 
   const register = (channel, handler) => {
-    ipcMain.handle(channel, async (event, ...args) => {
-      assertTrustedSender(event);
-      return handler(...args);
+    ipcMain.handle(channel, async (_event, ...args) => {
+      return handler(...args); // MUTATION: trusted-sender guard removed
     });
     registeredChannels.add(channel);
   };
