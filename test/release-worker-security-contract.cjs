@@ -188,7 +188,10 @@ function releaseBucket(key, body) {
     assert.equal(res.headers.get('content-range'), testCase.contentRange);
     assert.equal(res.headers.get('content-length'), String(testCase.range.length));
     assert.equal(res.headers.get('accept-ranges'), 'bytes');
-    assert.deepEqual(bucket.calls.get, [{ key, options: { range: testCase.range } }]);
+    assert.equal(bucket.calls.get.length, 1, `${testCase.header} 必须只读取一个 R2 范围`);
+    assert.equal(bucket.calls.get[0].key, key, `${testCase.header} 必须读取正确对象`);
+    assert.equal(bucket.calls.get[0].options?.range?.offset, testCase.range.offset, `${testCase.header} R2 offset 必须精确`);
+    assert.equal(bucket.calls.get[0].options?.range?.length, testCase.range.length, `${testCase.header} R2 length 必须精确`);
   }
 
   // 10. 无效/不可满足/多 Range 必须 416，且不能触发 R2 body 读取。
