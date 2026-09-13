@@ -59,7 +59,7 @@ function installWebviewIpc(options = {}) {
   const resolveAccountBinding = (accountId, errorMessage) => {
     const partition = accountState.resolvePartition(accountId);
     const account = accountState.findById(accountId);
-    if (!account || typeof partition !== 'string' || !partition || String(account.partition || '') !== partition) {
+    if (!account || typeof partition !== 'string' || !partition) {
       throw new Error(errorMessage);
     }
     return { account, partition };
