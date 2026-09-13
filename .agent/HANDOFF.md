@@ -35,6 +35,7 @@ These are intended to survive individual maintenance rounds. Reconfirm them agai
 - WebView invoke ingress for `webview:register` and `webview:insert-text` is owned by `src/webview-ipc.cjs`, composed and disposed by `src/main.cjs`. `src/webview-ownership.cjs` remains the sole ownership-registry authority; the IPC owner must inject and consult that registry plus Account State/WebContents/Session authorities rather than copying ownership state.
 - Remote WebViews keep `sandbox=true`, `nodeIntegration=false`, and `webSecurity=true`; insecure content is not enabled as a maintenance shortcut.
 - WhatsApp and Telegram use `contextIsolation=true`. LINE has a deliberately scoped `contextIsolation=false` compatibility exception; do not remove or broaden it without the authenticated evidence described by #16/#130.
+- `line-tokens.json` may remain on upgraded installations as a legacy sensitive artifact. Current production runtime does not use it as LINE login-state authority and must not read or write it; runtime migration and Windows ACL repair must preserve any existing legacy file rather than deleting or replacing it.
 - Post-attach WebView navigation is account-scoped and fail-closed when account/partition ownership cannot be established. Popup, navigation, and redirect policy must not become a global cross-account allowlist.
 - WebView permission decisions are account/session scoped and fail closed outside each platform/account policy.
 - Immediate broadcast files use opaque main-process capabilities; renderer code must not receive arbitrary filesystem paths.
