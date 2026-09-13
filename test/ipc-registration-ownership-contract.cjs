@@ -57,7 +57,7 @@ assert.match(accountIpc, /dispose\(\)[\s\S]*ipcMain\.removeHandler/, 'Account IP
 assert.match(main, /const accountState = createAccountStateStore\(/, 'main composes but does not own account state');
 assert.match(main, /resolveAccountPartition:\s*accountId => accountState\.resolvePartition\(accountId\)/, 'Account Data production existence/partition resolution must come from Account State owner');
 assert.match(main, /removeAccount:\s*\(event, accountId\) => accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly cross the account-data deletion lifecycle');
-assert.match(accountData, /store\.beginDelete\(partition\)[\s\S]*beforeAccountRemove[\s\S]*removeImplementation[\s\S]*store\.finalizeDelete\(partition\)/, 'account removal lifecycle must be begin -> external cleanup -> durable account delete -> finalize');
+assert.match(accountData, /store\.beginDelete\(partition\)[\s\S]*removeImplementation[\s\S]*committedAccountCleanup[\s\S]*store\.finalizeDelete\(partition\)/, 'account removal lifecycle must be begin -> durable account delete -> committed child cleanup -> finalize');
 assert.match(accountData, /ACCOUNT_DATA_ACCOUNT_MISSING[\s\S]*cleanupPending:\s*true/, 'committed delete with later cleanup failure must preserve cleanupPending success');
 assert.match(accountState, /ACCOUNT_TYPE_UNSUPPORTED/, 'authoritative account mutation must reject unsupported account types');
 assert.match(accountState, /raw\.type === undefined \? 'whatsapp' : raw\.type/, 'historical default account type remains WhatsApp');
