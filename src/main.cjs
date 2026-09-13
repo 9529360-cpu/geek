@@ -14,6 +14,7 @@ const { createInternalCdp } = require('./internal-cdp.cjs');
 const { createRateLimiter } = require('./crash-recovery.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
+const { installSubscriptionIpc } = require('./subscription-ipc.cjs');
 const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
@@ -1252,6 +1253,7 @@ function configureWebviewSecurity(window) {
 let subscriptionWindow = null;
 let subscriptionStore = null;
 let subscriptionCheckDone = false;
+let subscriptionIpcBoundary = null;
 
 function initSubscriptionStore() {
   if (!subscriptionStore) {
@@ -1307,54 +1309,6 @@ function createSubscriptionWindow() {
   subscriptionWindow.on('closed', () => { subscriptionWindow = null; });
   subscriptionWindow.loadFile(path.join(__dirname, '../ui/subscription.html'));
   return subscriptionWindow;
-}
-
-function registerSubscriptionIpcHandlers() {
-  ipcMain.handle('subscription:get-state', async (event) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().getState();
-  });
-  ipcMain.handle('subscription:refresh', async (event) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().refresh();
-  });
-  ipcMain.handle('subscription:login', async (event, email, password) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().login(String(email || ''), String(password || ''));
-  });
-  ipcMain.handle('subscription:register', async (event, email, password) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().register(String(email || ''), String(password || ''));
-  });
-  ipcMain.handle('subscription:create-order', async (event, plan) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().createOrder(String(plan || ''));
-  });
-  ipcMain.handle('subscription:get-quota', async (event, force) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().getQuota(force === true);
-  });
-  ipcMain.handle('subscription:report-usage', async (event, chars) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().reportUsage(Number(chars) || 0);
-  });
-  ipcMain.handle('subscription:logout', async (event) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    return initSubscriptionStore().logout();
-  });
-  ipcMain.handle('subscription:enter-app', async (event) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
-    if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
-    else mainWindow.show();
-    return { ok: true };
-  });
-  ipcMain.handle('subscription:close-window', async (event) => {
-    if (!isTrustedSubscriptionSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
-    if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
-    if (!mainWindow || mainWindow.isDestroyed()) { isQuitting = true; app.quit(); }
-    return { ok: true };
-  });
 }
 
 async function enforceSubscriptionGate() {
@@ -1557,7 +1511,22 @@ app.whenReady().then(async () => {
   await configStore.load();
   applyLoginItemSettings(configStore.getSnapshot());
   registerIpcHandlers();
-  registerSubscriptionIpcHandlers();
+  subscriptionIpcBoundary = installSubscriptionIpc({
+    ipcMain,
+    isTrustedSender: isTrustedSubscriptionSender,
+    getStore: initSubscriptionStore,
+    enterApp: async () => {
+      if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
+      if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
+      else mainWindow.show();
+      return { ok: true };
+    },
+    closeWindow: async () => {
+      if (subscriptionWindow && !subscriptionWindow.isDestroyed()) subscriptionWindow.close();
+      if (!mainWindow || mainWindow.isDestroyed()) { isQuitting = true; app.quit(); }
+      return { ok: true };
+    },
+  });
   await enforceSubscriptionGate();
   createTray();
   initAutoUpdater();
@@ -1600,13 +1569,7 @@ app.on('before-quit', () => {
   configIpcBoundary = null;
   translationRuntime?.dispose();
   translationRuntime = null;
+  subscriptionIpcBoundary?.dispose();
+  subscriptionIpcBoundary = null;
   ipcMain.removeHandler('window:relaunch');
-  ipcMain.removeHandler('subscription:get-state');
-  ipcMain.removeHandler('subscription:refresh');
-  ipcMain.removeHandler('subscription:login');
-  ipcMain.removeHandler('subscription:register');
-  ipcMain.removeHandler('subscription:create-order');
-  ipcMain.removeHandler('subscription:logout');
-  ipcMain.removeHandler('subscription:enter-app');
-  ipcMain.removeHandler('subscription:close-window');
 });
