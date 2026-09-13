@@ -986,7 +986,7 @@ function configureWebviewSecurity(window) {
     }
     if (isLine) {
       webPreferences.preload = path.join(__dirname, '..', 'resources', 's3loYR.js');
-      webPreferences.contextIsolation = false;
+      webPreferences.contextIsolation = true;
     } else if (isWebsite) {
       delete webPreferences.preload;
       webPreferences.contextIsolation = true;
@@ -1010,7 +1010,7 @@ function configureWebviewSecurity(window) {
     }
     webPreferences.sandbox = true;
     params.webpreferences = isLine
-      ? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'
+      ? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'
       : isWebsite
         ? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=no,spellcheck=no'
         : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
