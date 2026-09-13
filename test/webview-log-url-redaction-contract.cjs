@@ -17,6 +17,15 @@ assert.equal(sanitizeUrlForLog('about:blank#secret'), 'about:blank');
 assert.equal(sanitizeUrlForLog('not-a-url?token=secret#state'), 'not-a-url');
 assert.doesNotMatch(sanitizeUrlForLog('https://example.com/path?token=secret#state'), /secret|token|state/);
 
+const malformedUserinfo = sanitizeUrlForLog('https://alice:secret@example.com:bad/path?token=x#state');
+assert.equal(malformedUserinfo, 'https://[REDACTED]@example.com:bad/path');
+assert.doesNotMatch(malformedUserinfo, /alice|secret|token|state/, 'malformed URL fallback must not expose userinfo/query/hash secrets');
+assert.equal(
+  sanitizeUrlForLog('not-a-valid-url/path?token=secret#state'),
+  'not-a-valid-url/path',
+  'unrelated malformed fallback behavior must remain unchanged'
+);
+
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
 assert.match(main, /require\('\.\/log-url\.cjs'\)/, '主进程必须复用 URL 日志脱敏 helper');
 

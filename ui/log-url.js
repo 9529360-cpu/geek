@@ -10,7 +10,10 @@
       const authority = parsed.host ? `//${parsed.host}` : '';
       return `${parsed.protocol}${authority}${parsed.pathname}`;
     } catch {
-      return raw.split(/[?#]/, 1)[0].slice(0, 512);
+      const withoutQuery = raw.split(/[?#]/, 1)[0];
+      return withoutQuery
+        .replace(/^([a-z][a-z0-9+.-]*:\/\/)(?:[^/@]+@)/i, '$1[REDACTED]@')
+        .slice(0, 512);
     }
   }
 
