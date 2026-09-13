@@ -53,6 +53,7 @@ function authenticatedState(overrides = {}) {
 (async () => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'geek-subscription-generation-'));
   const originalFetch = global.fetch;
+  const originalReadFile = fsp.readFile;
 
   try {
     // 1. A short translation-token response that arrives after logout must not repopulate cache.
@@ -85,7 +86,7 @@ function authenticatedState(overrides = {}) {
         'short-token completion from the old session must be rejected after logout'
       );
       assert.deepEqual(await store.getState(), { loggedIn: false });
-      assert.deepEqual(JSON.parse(await fsp.readFile(stateFile, 'utf8')), {});
+      assert.deepEqual(JSON.parse(await originalReadFile(stateFile, 'utf8')), {});
 
       await assert.rejects(
         store.getTranslationToken(),
@@ -121,7 +122,7 @@ function authenticatedState(overrides = {}) {
       assert.equal(quota.remaining_chars, null, 'stale quota completion must fall back to current logged-out local state');
       assert.equal(quota.email, '', 'stale quota completion must not expose the old account email');
       assert.equal(quota.account_no, '', 'stale quota completion must not expose the old account number');
-      assert.deepEqual(JSON.parse(await fsp.readFile(stateFile, 'utf8')), {}, 'stale quota completion must not dirty the logout tombstone');
+      assert.deepEqual(JSON.parse(await originalReadFile(stateFile, 'utf8')), {}, 'stale quota completion must not dirty the logout tombstone');
       const restarted = createStore(dir);
       assert.deepEqual(await restarted.getState(), { loggedIn: false });
     }
@@ -174,7 +175,7 @@ function authenticatedState(overrides = {}) {
       assert.equal(current.email, 'new@example.invalid');
       assert.equal(current.account_no, NEW_ACCOUNT_NO);
       assert.equal(current.remaining_chars, 777);
-      const disk = JSON.parse(await fsp.readFile(stateFile, 'utf8'));
+      const disk = JSON.parse(await originalReadFile(stateFile, 'utf8'));
       assert.equal(disk.token, 'enc:new-session-token');
       assert.equal(disk.email, 'new@example.invalid');
     }
@@ -211,10 +212,41 @@ function authenticatedState(overrides = {}) {
         'late login response must lose to a later completed logout'
       );
       assert.deepEqual(await store.getState(), { loggedIn: false });
-      assert.deepEqual(JSON.parse(await fsp.readFile(stateFile, 'utf8')), {});
+      assert.deepEqual(JSON.parse(await originalReadFile(stateFile, 'utf8')), {});
     }
 
-    // 5. Same-generation token flow remains functional and cached.
+    // 5. A cold disk read that captured the old session before logout must not complete after logout
+    //    by repopulating memory or running its compatibility rewrite over the logout tombstone.
+    {
+      const dir = path.join(root, 'stale-cold-load');
+      const stateFile = path.join(dir, 'subscription.json');
+      await writeState(stateFile, authenticatedState());
+      const store = createStore(dir);
+      const readStarted = deferred();
+      const releaseRead = deferred();
+      let held = false;
+      fsp.readFile = async (file, ...args) => {
+        if (!held && path.resolve(file) === path.resolve(stateFile)) {
+          held = true;
+          const captured = await originalReadFile(file, ...args);
+          readStarted.resolve();
+          await releaseRead.promise;
+          return captured;
+        }
+        return originalReadFile(file, ...args);
+      };
+
+      const staleLoad = store.getState();
+      await readStarted.promise;
+      await store.logout();
+      releaseRead.resolve();
+      assert.deepEqual(await staleLoad, { loggedIn: false }, 'old cold-load result must be discarded after logout generation changes');
+      assert.deepEqual(await store.getState(), { loggedIn: false });
+      fsp.readFile = originalReadFile;
+      assert.deepEqual(JSON.parse(await originalReadFile(stateFile, 'utf8')), {}, 'old cold-load migration must not rewrite the logout tombstone');
+    }
+
+    // 6. Same-generation token flow remains functional and cached.
     {
       const dir = path.join(root, 'normal-token');
       const stateFile = path.join(dir, 'subscription.json');
@@ -234,6 +266,7 @@ function authenticatedState(overrides = {}) {
     }
   } finally {
     global.fetch = originalFetch;
+    fsp.readFile = originalReadFile;
     fs.rmSync(root, { recursive: true, force: true });
   }
 
