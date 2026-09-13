@@ -7,6 +7,7 @@ const fs = nodeFs.promises;
 const { initAutoUpdater } = require('./updater.cjs');
 const { quitAndInstallForUpdate, isUpdateInstalling } = require('./updater.cjs');
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
+const { installWebviewIpc } = require('./webview-ipc.cjs');
 const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
@@ -465,6 +466,7 @@ let accountIpcBoundary = null;
 let configIpcBoundary = null;
 let translationRuntime = null;
 let desktopIpcBoundary = null;
+let webviewIpcBoundary = null;
 
 async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
@@ -566,46 +568,14 @@ function registerIpcHandlers() {
     assertValidAccountId,
     getSubscriptionStore: () => initSubscriptionStore(),
   }).install();
-  ipcMain.handle('webview:register', async (event, accountId, guestId, token) => {
-    assertTrustedSender(event);
-    const partition = accountState.resolvePartition(accountId);
-    const account = accountState.findById(accountId);
-    const guest = webContents.fromId(Number(guestId));
-    const guestUrl = guest?.getURL?.() || '';
-    const isTelegram = ['telegram-z', 'telegram', 'telegram-pure', 'telegram-k'].includes(account?.type);
-    const isLine = account?.type === 'line' || account?.type === 'line-business';
-    const allowedPage = (isTelegram && /^https:\/\/web\.telegram\.org\//.test(guestUrl))
-      || (isLine && /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl));
-    if (!account || !guest || guest === event.sender || guest.hostWebContents !== event.sender || guest.session !== session.fromPartition(partition) || !allowedPage) throw new Error('WebView登记失败');
-    webviewOwnership.register({ guestId: guest.id, accountId, partition, token, senderId: event.sender.id });
-    guest.once('destroyed', () => webviewOwnership.remove(guest.id));
-    return true;
-  });
-  ipcMain.handle('webview:insert-text', async (event, accountId, guestId, text, token) => {
-    assertTrustedSender(event);
-    const partition = accountState.resolvePartition(accountId);
-    const value = String(text ?? '');
-    if (!value || value.length > 10000) throw new Error('输入文本不合法');
-    const guest = webContents.fromId(Number(guestId));
-    const guestUrl = guest?.getURL?.() || '';
-    const allowedInputPage = /^https:\/\/web\.telegram\.org\//.test(guestUrl) || /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//.test(guestUrl);
-    const ownershipOk = webviewOwnership.authorize({ guestId, accountId, partition, token, senderId: event.sender.id });
-    if (!guest || guest === event.sender || guest.session !== session.fromPartition(partition) || !allowedInputPage || !ownershipOk || typeof guest.insertText !== 'function') throw new Error('账号输入页面不可用');
-    const focusedComposer = await guest.executeJavaScript(`(() => {
-      if (/^https:\\/\\/web\\.telegram\\.org\\//.test(location.href)) {
-        const editor = document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"]');
-        return !!editor && (document.activeElement === editor || editor.contains(document.activeElement));
-      }
-      if (/^chrome-extension:\\/\\/ophjlpahpchlmihnnnihgmmeilfjmjjc\\//.test(location.href)) {
-        const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
-        const textarea = host?.shadowRoot?.querySelector('textarea');
-        return /#\\/chats\\/[^/?#]+/.test(location.hash) && !!textarea && (document.activeElement === host || host.shadowRoot?.activeElement === textarea);
-      }
-      return false;
-    })()`);
-    if (!focusedComposer) throw new Error('消息输入框未获得焦点');
-    await guest.insertText(value);
-    return true;
+
+  webviewIpcBoundary = installWebviewIpc({
+    ipcMain,
+    assertTrustedSender,
+    accountState,
+    webviewOwnership,
+    getWebContentsById: (guestId) => webContents.fromId(guestId),
+    getSessionForPartition: (partition) => session.fromPartition(partition),
   });
 
   configIpcBoundary = installConfigIpc({
@@ -1505,6 +1475,8 @@ app.on('before-quit', () => {
   translationRuntime = null;
   subscriptionIpcBoundary?.dispose();
   subscriptionIpcBoundary = null;
+  webviewIpcBoundary?.dispose();
+  webviewIpcBoundary = null;
   desktopIpcBoundary?.dispose();
   desktopIpcBoundary = null;
 });
