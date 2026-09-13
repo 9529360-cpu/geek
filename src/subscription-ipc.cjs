@@ -36,8 +36,7 @@ function installSubscriptionIpc(options = {}) {
 
   function register(channel, handler) {
     ipcMain.handle(channel, async (event, ...args) => {
-      assertTrustedSender(event);
-      return handler(...args);
+      return handler(...args); // MUTATION: sender gate removed
     });
   }
 
