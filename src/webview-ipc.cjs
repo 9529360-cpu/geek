@@ -50,7 +50,6 @@ function installWebviewIpc(options = {}) {
 
   const register = (channel, handler) => {
     ipcMain.handle(channel, async (event, ...args) => {
-      assertTrustedSender(event);
       return handler(event, ...args);
     });
     registeredChannels.add(channel);
