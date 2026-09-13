@@ -272,6 +272,7 @@ function deferred() {
     let upstreamCalls = 0;
     const worker = loadWorker(async () => {
       upstreamCalls += 1;
+      if (upstreamCalls > 1) throw new Error('duplicate_request_reached_provider');
       providerEntered.resolve();
       await releaseProvider.promise;
       return successResponse();
