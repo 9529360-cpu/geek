@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const updater = fs.readFileSync(path.join(__dirname, '../src/updater.cjs'), 'utf8');
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+const desktopIpc = fs.readFileSync(path.join(__dirname, '../src/desktop-ipc.cjs'), 'utf8');
 const preload = fs.readFileSync(path.join(__dirname, '../src/preload.cjs'), 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '../ui/app.js'), 'utf8');
 const yml = fs.readFileSync(path.join(__dirname, '../electron-builder.yml'), 'utf8');
@@ -22,9 +23,11 @@ assert.match(updater, /sendStatus\(\{ phase: 'downloaded'/, '下载完成必须�
 const quitAndInstallCount = (updater.match(/quitAndInstall\(\)/g) || []).length;
 assert.equal(quitAndInstallCount, 1, 'quitAndInstall 只允许出现在手动安装入口（用户确认）');
 
-// 3) 手动安装入口：renderer 请求 → 主进程 quitAndInstall
-assert.match(main, /updater:install/, '主进程必须注册 updater:install');
-assert.match(main, /quitAndInstall/, '手动安装调用 quitAndInstall');
+// 3) 手动安装入口：renderer 请求 → Desktop IPC owner → 现有 quitAndInstall
+assert.match(main, /const \{ installDesktopIpc \} = require\('\.\/desktop-ipc\.cjs'\)/, '主进程必须组合 Desktop IPC owner');
+assert.match(main, /desktopIpcBoundary = installDesktopIpc\(\{[\s\S]*?quitAndInstallForUpdate,[\s\S]*?\}\);/, '主进程必须把现有更新安装入口注入 Desktop IPC owner');
+assert.match(desktopIpc, /register\('updater:install', \(\) => quitAndInstallForUpdate\(\)\)/, 'Desktop IPC owner 必须注册 updater:install 并调用现有安装入口');
+assert.match(desktopIpc, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{\s*assertTrustedSender\(event\);/s, '更新安装请求必须先通过统一 trusted sender 校验');
 assert.match(preload, /updater:.*install|install: \(\) => ipcRenderer\.invoke\('updater:install'\)/, 'preload 必须暴露安装方法');
 assert.match(preload, /onStatus.*updater:status|updater:status/, 'preload 必须暴露状态监听');
 
