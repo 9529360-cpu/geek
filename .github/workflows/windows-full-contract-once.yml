@@ -1,0 +1,33 @@
+name: windows-full-contract-once
+
+on:
+  push:
+    branches:
+      - fix/1.2.24-webview-source-contract-eol
+    paths:
+      - '.github/workflows/windows-full-contract-once.yml'
+      - 'test/webview-navigation-boundary-contract.cjs'
+      - 'test/webview-unknown-partition-contract.cjs'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-full-contract:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Run full repository contracts on Windows
+        run: npm test
