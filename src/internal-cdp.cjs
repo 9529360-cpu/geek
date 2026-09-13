@@ -11,6 +11,7 @@ function storagePathLeaf(storagePath) {
 
 function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebugging = false }) {
   const manager = new EventEmitter();
+  const partitionRuns = new Map();
 
   function isPlatformUrl(url, platform) {
     if (platform === 'whatsapp' || platform === 'whatsapp-pure') {
@@ -39,53 +40,67 @@ function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebug
     return guests.find(matches) || null;
   }
 
+  function runExclusive(partition, task) {
+    const key = String(partition || '');
+    const previous = partitionRuns.get(key) || Promise.resolve();
+    const next = previous.catch(() => {}).then(task);
+    let tracked;
+    tracked = next.finally(() => {
+      if (partitionRuns.get(key) === tracked) partitionRuns.delete(key);
+    });
+    partitionRuns.set(key, tracked);
+    return tracked;
+  }
+
   async function run(partition, platform, callback, preferredGuestId = null) {
     if (externalDebugging) {
       throw new Error('外部调试端口模式，禁止内部CDP');
     }
-    const guest = findGuest(partition, platform, preferredGuestId);
-    if (!guest) {
-      throw new Error('未找到匹配的guest');
-    }
-
-    const wasAttached = guest.debugger.isAttached();
-    if (!wasAttached) {
-      await guest.debugger.attach('1.3');
-    }
-
-    try {
-      const send = async (method, params = {}) => {
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error('CDP命令超时')), timeoutMs);
-          guest.debugger.sendCommand(method, params).then(
-            (result) => { clearTimeout(timer); resolve(result); },
-            (error) => { clearTimeout(timer); reject(error); }
-          );
-        });
-      };
-
-      const listeners = new Set();
-      const onEvent = (handler) => {
-        listeners.add(handler);
-        return () => listeners.delete(handler);
-      };
-      const onMessage = (_event, method, params) => {
-        for (const handler of listeners) {
-          try { handler(method, params); } catch { /* 事件处理器异常不影响命令流 */ }
-        }
-      };
-      guest.debugger.addListener('message', onMessage);
-      try {
-        return await callback({ send, onEvent });
-      } finally {
-        guest.debugger.removeListener('message', onMessage);
-        listeners.clear();
+    return runExclusive(partition, async () => {
+      const guest = findGuest(partition, platform, preferredGuestId);
+      if (!guest) {
+        throw new Error('未找到匹配的guest');
       }
-    } finally {
+
+      const wasAttached = guest.debugger.isAttached();
       if (!wasAttached) {
-        await guest.debugger.detach();
+        await guest.debugger.attach('1.3');
       }
-    }
+
+      try {
+        const send = async (method, params = {}) => {
+          return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('CDP命令超时')), timeoutMs);
+            guest.debugger.sendCommand(method, params).then(
+              (result) => { clearTimeout(timer); resolve(result); },
+              (error) => { clearTimeout(timer); reject(error); }
+            );
+          });
+        };
+
+        const listeners = new Set();
+        const onEvent = (handler) => {
+          listeners.add(handler);
+          return () => listeners.delete(handler);
+        };
+        const onMessage = (_event, method, params) => {
+          for (const handler of listeners) {
+            try { handler(method, params); } catch { /* 事件处理器异常不影响命令流 */ }
+          }
+        };
+        guest.debugger.addListener('message', onMessage);
+        try {
+          return await callback({ send, onEvent });
+        } finally {
+          guest.debugger.removeListener('message', onMessage);
+          listeners.clear();
+        }
+      } finally {
+        if (!wasAttached) {
+          await guest.debugger.detach();
+        }
+      }
+    });
   }
 
   manager.findGuest = findGuest;
