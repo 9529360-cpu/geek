@@ -101,6 +101,50 @@ assert.equal(relay.replayTo(main.window), true);
 assert.deepEqual(relay.getLatest(), beforeReplay, 'manual replay must not advance or mutate status sequence');
 assert.equal(main.sent.at(-1).payload.sequence, 2);
 
+// Once a package is downloaded, it remains the pending-install authority for this
+// process. Transient checks/errors must not hide the restart-to-install capability.
+const downloaded = relay.publish({ phase: 'downloaded', version: '1.2.23' });
+assert.deepEqual(downloaded, { phase: 'downloaded', version: '1.2.23', sequence: 3 });
+const sentCountsAtDownload = {
+  login: login.sent.length,
+  secondary: secondary.sent.length,
+  main: main.sent.length,
+};
+for (const transient of [
+  { phase: 'checking' },
+  { phase: 'error', message: 'temporary network failure' },
+  { phase: 'up-to-date' },
+  { phase: 'downloading', percent: 1 },
+  { phase: 'available', version: '1.2.24' },
+]) {
+  assert.deepEqual(
+    relay.publish(transient),
+    downloaded,
+    `${transient.phase} must not replace an already-downloaded pending-install snapshot`
+  );
+  assert.deepEqual(relay.getLatest(), downloaded, 'ignored transient status must not advance sequence');
+}
+assert.equal(login.sent.length, sentCountsAtDownload.login, 'ignored transient statuses must not rebroadcast to login window');
+assert.equal(secondary.sent.length, sentCountsAtDownload.secondary, 'ignored transient statuses must not rebroadcast to secondary window');
+assert.equal(main.sent.length, sentCountsAtDownload.main, 'ignored transient statuses must not rebroadcast to main window');
+
+// A later downloaded event is allowed to replace the pending package/version.
+const newerDownloaded = relay.publish({ phase: 'downloaded', version: '1.2.24' });
+assert.deepEqual(newerDownloaded, { phase: 'downloaded', version: '1.2.24', sequence: 4 });
+assert.deepEqual(main.sent.at(-1), {
+  channel: 'updater:status',
+  payload: { phase: 'downloaded', version: '1.2.24', sequence: 4 },
+});
+
+const futureMain = createWindow();
+windows.push(futureMain.window);
+assert.equal(relay.replayAfterLoad(futureMain.window), true);
+futureMain.finishLoad();
+assert.deepEqual(futureMain.sent, [{
+  channel: 'updater:status',
+  payload: { phase: 'downloaded', version: '1.2.24', sequence: 4 },
+}], 'future windows must replay the still-actionable downloaded snapshot');
+
 main.setDestroyed(true);
 assert.equal(relay.replayTo(main.window), false, 'destroyed future windows must fail closed');
 assert.equal(relay.replayAfterLoad(main.window), false, 'destroyed windows must not arm load replay');
