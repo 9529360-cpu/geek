@@ -165,16 +165,31 @@ async function reserveUsage(db, userId, requestId, chars) {
 
 async function refundUsage(db, userId, requestId, chars) {
   await db.batch([
-    db.prepare('UPDATE users SET quota_chars = quota_chars + ? WHERE id = ?').bind(chars, userId),
-    db.prepare('DELETE FROM translation_usage WHERE request_id = ?').bind(requestId),
+    db.prepare(`UPDATE users
+      SET quota_chars = quota_chars + ?
+      WHERE id = ?
+        AND EXISTS (
+          SELECT 1 FROM translation_usage
+          WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = 'reserved'
+        )`).bind(chars, userId, requestId, userId, chars),
+    db.prepare("DELETE FROM translation_usage WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = 'reserved'")
+      .bind(requestId, userId, chars),
   ]);
 }
 
 async function finishUsage(db, userId, requestId, targetChars) {
-  await db.batch([
-    db.prepare('UPDATE users SET quota_chars = MAX(0, quota_chars - ?) WHERE id = ?').bind(targetChars, userId),
-    db.prepare("UPDATE translation_usage SET target_chars = ?, status = 'complete', completed_at = datetime('now') WHERE request_id = ?").bind(targetChars, requestId),
+  const results = await db.batch([
+    db.prepare(`UPDATE users
+      SET quota_chars = MAX(0, quota_chars - ?)
+      WHERE id = ?
+        AND EXISTS (
+          SELECT 1 FROM translation_usage
+          WHERE request_id = ? AND user_id = ? AND status = 'reserved'
+        )`).bind(targetChars, userId, requestId, userId),
+    db.prepare("UPDATE translation_usage SET target_chars = ?, status = 'complete', completed_at = datetime('now') WHERE request_id = ? AND user_id = ? AND status = 'reserved'")
+      .bind(targetChars, requestId, userId),
   ]);
+  if (!results[1]?.meta?.changes) throw new Error('translation_usage_not_reserved');
 }
 
 function buildMessages(text, target) {
