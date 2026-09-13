@@ -29,8 +29,8 @@ jobs:
             echo "master moved: expected=$EXPECTED_MASTER_SHA actual=$master_sha" >&2
             exit 1
           fi
-          package_version="$(gh api "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=master" --jq -r '.content' | tr -d '\n' | base64 -d | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).version))")"
-          marker="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.github/release-client-version?ref=master" --jq -r '.content' | tr -d '\n' | base64 -d | tr -d '\r\n')"
+          package_version="$(gh api -H 'Accept: application/vnd.github.raw+json' "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=master" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).version))")"
+          marker="$(gh api -H 'Accept: application/vnd.github.raw+json' "repos/${GITHUB_REPOSITORY}/contents/.github/release-client-version?ref=master" | tr -d '\r\n')"
           if [ "$package_version" != "$EXPECTED_VERSION" ] || [ "$marker" != "$EXPECTED_VERSION" ]; then
             echo "release version mismatch: package=$package_version marker=$marker expected=$EXPECTED_VERSION" >&2
             exit 1
