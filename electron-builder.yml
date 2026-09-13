@@ -37,6 +37,9 @@ electronFuses:
 publish:
   provider: generic
   url: https://geek-release.9529360.workers.dev
+  # Release Worker intentionally supports one byte range per request. This keeps the
+  # public R2 boundary simple while still enabling electron-updater differential downloads.
+  useMultipleRangeRequest: false
 
 win:
   target:
