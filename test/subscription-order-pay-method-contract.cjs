@@ -64,6 +64,10 @@ function normalizeSql(value) {
     normalizeSql(coreSource).includes(normalizeSql(policy.LEGACY_PENDING_ORDER_SQL)),
     '兼容层锁定的旧 pending 查询必须继续对应核心 Worker 的实际查询'
   );
+  assert.ok(
+    normalizeSql(coreSource).includes(normalizeSql(policy.LEGACY_ORDER_INSERT_SQL)),
+    '原子金额兼容层锁定的旧订单 INSERT 必须继续对应核心 Worker 的实际写路径'
+  );
   assert.match(wrapperSource, /hasOwnProperty\.call\(body, 'pay_method'\)/, '必须区分省略字段与显式非法值');
   assert.match(
     wrapperSource,
@@ -72,11 +76,22 @@ function normalizeSql(value) {
   );
   assert.match(
     wrapperSource,
-    /return coreWorker\.fetch\(request, withSubscriptionDatabase\(scopedEnv, scopedDb\), ctx\)/,
-    '支付方式 scope 必须继续传入核心 Worker，不能丢失已有请求级 DB guard'
+    /scopeUsdtOrderAmountAllocation\(scopedDb, payMethod\)/,
+    'USDT 金额原子分配必须叠加在 pending 复用 scope 之后'
   );
+  assert.match(
+    wrapperSource,
+    /return await coreWorker\.fetch\(request, withSubscriptionDatabase\(scopedEnv, scopedDb\), ctx\)/,
+    '组合后的支付 scope 必须继续传入核心 Worker，不能丢失已有请求级 DB guard'
+  );
+  assert.match(wrapperSource, /payment_slots_exhausted/, '100 个金额槽耗尽时必须返回稳定错误');
   assert.match(wrapperSource, /new URL\('\/api\/me', request\.url\)/, '非法支付方式不得绕过原有用户鉴权');
   assert.doesNotMatch(wrapperSource, /release-client-version|package\.json/, '后端修复不得触碰客户端发布边界');
+  assert.match(
+    policy.ATOMIC_USDT_ORDER_INSERT_SQL,
+    /status IN \('pending', 'processing'\)/,
+    'pending 与 processing USDT 金额都必须视为活跃占用'
+  );
 
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(`
@@ -138,8 +153,82 @@ function normalizeSql(value) {
     .all();
   assert.deepEqual(passthrough.results.map((row) => row.id), [1, 2, 3], '无关 D1 查询不得被兼容层改写');
   assert.throws(() => policy.scopePendingOrderReuse(d1, 'card'), /Unsupported order pay method/);
-
   sqlite.close();
+
+  const allocationSqlite = new DatabaseSync(':memory:');
+  allocationSqlite.exec(`
+    CREATE TABLE orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      plan TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      pay_method TEXT NOT NULL,
+      amount_cents INTEGER
+    );
+  `);
+  const allocationDb = createD1Adapter(allocationSqlite);
+  const scopedAllocationDb = policy.scopeUsdtOrderAmountAllocation(allocationDb, 'usdt');
+  const insertOrder = (db, userId, preferredAmountCents, payMethod = 'usdt') => db
+    .prepare(policy.LEGACY_ORDER_INSERT_SQL)
+    .bind(userId, 'basic', 25, 'USD', payMethod, preferredAmountCents)
+    .run();
+  const orderById = (id) => allocationSqlite.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+
+  const first = await insertOrder(scopedAllocationDb, 101, 2499);
+  assert.equal(orderById(first.meta.last_row_id).amount_cents, 2499, '首选 USDT 唯一金额空闲时必须原样使用');
+
+  const second = await insertOrder(scopedAllocationDb, 102, 2499);
+  assert.equal(orderById(second.meta.last_row_id).amount_cents, 2498, '并发同首选金额冲突时必须原子换到下一个合法槽');
+
+  allocationSqlite.prepare(
+    "INSERT INTO orders (user_id, plan, amount, currency, status, pay_method, amount_cents) VALUES (?, 'basic', 25, 'USD', 'processing', 'usdt', ?)"
+  ).run(103, 2497);
+  const afterProcessing = await insertOrder(scopedAllocationDb, 104, 2497);
+  assert.equal(orderById(afterProcessing.meta.last_row_id).amount_cents, 2496, 'processing 金额必须继续保留，不能被新订单复用');
+
+  allocationSqlite.prepare(
+    "INSERT INTO orders (user_id, plan, amount, currency, status, pay_method, amount_cents) VALUES (?, 'basic', 25, 'USD', 'paid', 'usdt', ?)"
+  ).run(105, 2495);
+  const afterPaid = await insertOrder(scopedAllocationDb, 106, 2495);
+  assert.equal(orderById(afterPaid.meta.last_row_id).amount_cents, 2495, 'paid 金额不再活跃，应允许后续订单复用');
+
+  const manualAllocationDb = policy.scopeUsdtOrderAmountAllocation(allocationDb, 'manual');
+  const manualInsert = await insertOrder(manualAllocationDb, 107, null, 'manual');
+  assert.equal(orderById(manualInsert.meta.last_row_id).pay_method, 'manual', 'manual 订单 INSERT 必须保持原始透传行为');
+  allocationSqlite.close();
+
+  const fullSqlite = new DatabaseSync(':memory:');
+  fullSqlite.exec(`
+    CREATE TABLE orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      plan TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      pay_method TEXT NOT NULL,
+      amount_cents INTEGER
+    );
+  `);
+  const fill = fullSqlite.prepare(
+    "INSERT INTO orders (user_id, plan, amount, currency, status, pay_method, amount_cents) VALUES (?, 'basic', 25, 'USD', ?, 'usdt', ?)"
+  );
+  for (let discount = 1; discount <= 100; discount += 1) {
+    fill.run(200 + discount, discount % 2 === 0 ? 'pending' : 'processing', 2500 - discount);
+  }
+  const fullDb = policy.scopeUsdtOrderAmountAllocation(createD1Adapter(fullSqlite), 'usdt');
+  await assert.rejects(
+    () => insertOrder(fullDb, 999, 2399),
+    (error) => error?.code === policy.USDT_PAYMENT_SLOTS_EXHAUSTED,
+    '100 个合法金额槽全部占用时必须显式失败'
+  );
+  const fullStats = fullSqlite.prepare('SELECT COUNT(*) AS c, MIN(amount_cents) AS min_amount FROM orders').get();
+  assert.equal(fullStats.c, 100, '金额槽耗尽不得额外插入订单');
+  assert.equal(fullStats.min_amount, 2400, '金额槽耗尽不得越过最大 $1.00 优惠边界');
+  fullSqlite.close();
+
   console.log('SUBSCRIPTION_ORDER_PAY_METHOD_CONTRACT_OK');
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : error);

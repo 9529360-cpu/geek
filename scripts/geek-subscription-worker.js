@@ -2,6 +2,8 @@ import coreWorker from './geek-subscription-worker-core.js';
 import {
   normalizeRequestedPayMethod,
   scopePendingOrderReuse,
+  scopeUsdtOrderAmountAllocation,
+  USDT_PAYMENT_SLOTS_EXHAUSTED,
 } from './subscription-order-pay-method.mjs';
 import {
   isLegacyRateLimitBypass,
@@ -106,8 +108,16 @@ export default {
     const payMethod = normalizeRequestedPayMethod(body?.pay_method, hasPayMethod);
     if (!payMethod) return invalidPayMethodResponse(request, scopedEnv, ctx);
 
-    const scopedDb = scopePendingOrderReuse(scopedEnv.geek_subscriptions, payMethod);
-    return coreWorker.fetch(request, withSubscriptionDatabase(scopedEnv, scopedDb), ctx);
+    let scopedDb = scopePendingOrderReuse(scopedEnv.geek_subscriptions, payMethod);
+    scopedDb = scopeUsdtOrderAmountAllocation(scopedDb, payMethod);
+    try {
+      return await coreWorker.fetch(request, withSubscriptionDatabase(scopedEnv, scopedDb), ctx);
+    } catch (error) {
+      if (error?.code === USDT_PAYMENT_SLOTS_EXHAUSTED) {
+        return json({ error: 'payment_slots_exhausted' }, 409);
+      }
+      throw error;
+    }
   },
 
   async scheduled(controller, env, ctx) {
