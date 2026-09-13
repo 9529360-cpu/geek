@@ -8,11 +8,12 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const readiness = require(path.join(root, 'ui', 'broadcast-chat-readiness.js'));
 
-async function runGuest(script, window) {
+async function runGuest(script, window, timing = {}) {
   return vm.runInNewContext(script, {
     window,
     setTimeout,
-    Date,
+    Date: timing.Date || Date,
+    performance: timing.performance,
     Promise,
     JSON,
     Object,
@@ -95,7 +96,36 @@ async function run() {
     assert.equal(JSON.parse(second)[0].id, 'retry@c.us');
   }
 
-  // 7) Installer changes only the shared WhatsApp list transport and is idempotent.
+  // 7) Wall-clock rollback must not stretch the guest readiness budget when the
+  // browser monotonic clock is available.
+  {
+    let readinessCalls = 0;
+    let wallClockReads = 0;
+    let monotonicTime = 0;
+    const rollbackDate = {
+      now() {
+        wallClockReads += 1;
+        return 10000 - (wallClockReads * 1000);
+      },
+    };
+    const monotonicPerformance = {
+      now() {
+        const current = monotonicTime;
+        monotonicTime += 2;
+        return current;
+      },
+    };
+    const result = await runGuest(
+      readiness.createWhatsAppGetChatsScript({ timeoutMs: 5, pollMs: 1 }),
+      { WPP: { conn: { isMainReady: async () => { readinessCalls += 1; return false; } }, chat: { list: async () => [] } } },
+      { Date: rollbackDate, performance: monotonicPerformance },
+    );
+    assert.match(result, /^ERR:WhatsApp 聊天列表仍在初始化，请关闭后重试/);
+    assert.equal(wallClockReads, 0, 'browser readiness elapsed time must not read wall clock when performance.now is available');
+    assert.ok(readinessCalls <= 2, `monotonic timeout must stay bounded, got ${readinessCalls} readiness polls`);
+  }
+
+  // 8) Installer changes only the shared WhatsApp list transport and is idempotent.
   {
     const whatsappTransport = { getChats: 'WA_ORIGINAL', sendDirect: () => 'SENT' };
     const calls = [];
@@ -127,16 +157,18 @@ async function run() {
   const workbenchSource = fs.readFileSync(path.join(root, 'ui', 'broadcast-workbench.js'), 'utf8');
   const e2eSource = fs.readFileSync(path.join(root, 'e2e', 'specs', 'broadcast-readiness.e2e.cjs'), 'utf8');
 
-  // 8) Workbench must not retake readiness ownership or intercept the broadcast entry.
+  // 9) Workbench must not retake readiness ownership or intercept the broadcast entry.
   assert.doesNotMatch(workbenchSource, /bc-menu-send|W\.chat\.list|isMainReady|loader\.onReady/);
 
-  // 9) Production readiness is bounded: no interval or recursive host timer.
+  // 10) Production readiness is bounded: no interval or recursive host timer.
   assert.doesNotMatch(helperSource, /setInterval\s*\(/);
   assert.match(helperSource, /timeoutMs/);
   assert.match(helperSource, /pollMs/);
+  assert.match(helperSource, /performance\.now\(\)/, 'browser elapsed budget must prefer the monotonic Performance clock');
+  assert.match(helperSource, /Date\.now\(\)/, 'non-browser/synthetic fallback must remain available');
   assert.match(helperSource, /ERR:WhatsApp 聊天列表仍在初始化，请关闭后重试/);
 
-  // 10) app.js remains the sole editor/list owner and keeps the canonical generation guards.
+  // 11) app.js remains the sole editor/list owner and keeps the canonical generation guards.
   assert.match(appSource, /let broadcastChatLoadSequence = 0;/);
   assert.match(appSource, /let broadcastChatsReady = false;/);
   assert.match(appSource, /const loadSequence = \+\+broadcastChatLoadSequence;/);
@@ -146,17 +178,17 @@ async function run() {
   assert.match(appSource, /broadcastChatLoadSequence \+= 1;/);
   assert.match(appSource, /bMetaEl\.textContent = '加载聊天列表…';/);
 
-  // 11) Readiness is preloaded by the bounded broadcast loader and self-installs after app ownership exists.
+  // 12) Readiness is preloaded by the bounded broadcast loader and self-installs after app ownership exists.
   assert.match(safetySource, /loadScript\('\.\/broadcast-chat-readiness\.js', 'GeekBroadcastChatReadiness'\)/);
   assert.match(helperSource, /DOMContentLoaded/);
   assert.match(helperSource, /GeekPlatformTransports/);
 
-  // 12) WA-JS readiness belongs only to the dedicated read transport, not app/workbench/send code.
+  // 13) WA-JS readiness belongs only to the dedicated read transport, not app/workbench/send code.
   assert.doesNotMatch(appSource, /conn\.isMainReady/);
   assert.doesNotMatch(workbenchSource, /conn\.isMainReady/);
   assert.match(helperSource, /conn\.isMainReady/);
 
-  // 13) The Electron regression is synthetic/read-only and never exercises broadcast sending.
+  // 14) The Electron regression is synthetic/read-only and never exercises broadcast sending.
   assert.doesNotMatch(e2eSource, /#broadcast-send[^\w-].*click|click\(.*#broadcast-send/s);
   assert.doesNotMatch(e2eSource, /sendText|sendDirect|broadcast-send-message/);
 
