@@ -69,6 +69,14 @@ function createSubscriptionStore({ userDataDir }) {
 
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
   let translationTokenCache = null;
+  let stateMutationQueue = Promise.resolve();
+
+  function enqueueStateMutation(operation) {
+    const queued = stateMutationQueue.then(operation, operation);
+    // A failed mutation must not poison the queue or retain state/token objects in the chain.
+    stateMutationQueue = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
 
   async function load() {
     if (cache) return cache;
@@ -96,24 +104,26 @@ function createSubscriptionStore({ userDataDir }) {
     return cache;
   }
 
-  async function save(patch) {
-    const current = await load();
-    // 先构造候选状态；只有磁盘原子提交成功后，候选才成为内存 authority。
-    const next = { ...current, ...patch };
-    const identity = normalizeUserIdentity(next);
-    next.user_id = identity.user_id;
-    next.account_no = identity.account_no;
-    next.account_ref = identity.account_ref;
-    const disk = { ...next };
-    if (disk.token) disk.token = encryptField(disk.token);
-    try {
-      await writeStateDisk(disk);
-    } catch (e) {
-      console.error('[subscription] 状态写入失败:', e.message);
-      throw e;
-    }
-    cache = next;
-    return cache;
+  function save(patch) {
+    return enqueueStateMutation(async () => {
+      const current = await load();
+      // 先构造候选状态；只有磁盘原子提交成功后，候选才成为内存 authority。
+      const next = { ...current, ...patch };
+      const identity = normalizeUserIdentity(next);
+      next.user_id = identity.user_id;
+      next.account_no = identity.account_no;
+      next.account_ref = identity.account_ref;
+      const disk = { ...next };
+      if (disk.token) disk.token = encryptField(disk.token);
+      try {
+        await writeStateDisk(disk);
+      } catch (e) {
+        console.error('[subscription] 状态写入失败:', e.message);
+        throw e;
+      }
+      cache = next;
+      return cache;
+    });
   }
 
   async function request(pathname, options = {}) {
@@ -296,12 +306,14 @@ function createSubscriptionStore({ userDataDir }) {
     }
   }
 
-  async function clear() {
-    // Logout/account-switch state is authoritative only after the tokenless state is durable.
-    // Persist an empty tombstone atomically instead of relying on best-effort file deletion.
-    await writeStateDisk({});
-    cache = {};
-    translationTokenCache = null;
+  function clear() {
+    return enqueueStateMutation(async () => {
+      // Logout/account-switch state is authoritative only after the tokenless state is durable.
+      // Persist an empty tombstone atomically instead of relying on best-effort file deletion.
+      await writeStateDisk({});
+      cache = {};
+      translationTokenCache = null;
+    });
   }
 
   async function logout() {
