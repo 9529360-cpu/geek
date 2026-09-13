@@ -43,15 +43,25 @@ function installFutureWindowStatusReplay() {
   });
 }
 
+function clearCheckTimer() {
+  if (!checkTimer) return;
+  clearTimeout(checkTimer);
+  checkTimer = null;
+}
+
 function scheduleUpdateCheck(delayMs) {
-  if (checkTimer) clearTimeout(checkTimer);
+  // Once a package is downloaded, preserve the pending-install state until install/process exit.
+  if (downloadedVersion || isInstallingUpdate) return false;
+  clearCheckTimer();
   checkTimer = setTimeout(runUpdateCheck, delayMs);
   // 定时检查不应单独阻止应用退出；Electron/Node 环境支持时解除事件循环引用。
   checkTimer.unref?.();
+  return true;
 }
 
 async function runUpdateCheck() {
-  if (checkInFlight || isInstallingUpdate) {
+  if (downloadedVersion || isInstallingUpdate) return;
+  if (checkInFlight) {
     scheduleUpdateCheck(RECHECK_INTERVAL_MS);
     return;
   }
@@ -63,7 +73,7 @@ async function runUpdateCheck() {
     console.error(`${LOG_PREFIX} checkForUpdatesAndNotify 失败:`, error?.message || error);
   } finally {
     checkInFlight = false;
-    scheduleUpdateCheck(RECHECK_INTERVAL_MS);
+    if (!downloadedVersion && !isInstallingUpdate) scheduleUpdateCheck(RECHECK_INTERVAL_MS);
   }
 }
 
@@ -113,8 +123,10 @@ function initAutoUpdater() {
 
   autoUpdater.on('update-downloaded', (info) => {
     console.log(`${LOG_PREFIX} 新版本 ${info.version} 已下载，等待用户确认重启安装`);
-    // 不强制 quitAndInstall：通知 renderer，由用户点击“重启安装”触发
+    // 不强制 quitAndInstall：通知 renderer，由用户点击“重启安装”触发。
+    // 下载完成后停止本进程内的周期重查，避免瞬态状态覆盖待安装能力。
     downloadedVersion = info.version;
+    clearCheckTimer();
     sendStatus({ phase: 'downloaded', version: info.version });
   });
 
@@ -123,7 +135,7 @@ function initAutoUpdater() {
     sendStatus({ phase: 'error', message: String(error?.message || error).slice(0, 200) });
   });
 
-  // 首次启动稍后检查；之后即使应用长期不重启，也会每 6 小时重新检查。
+  // 首次启动稍后检查；在尚无待安装包时，长期运行客户端每 6 小时重新检查。
   scheduleUpdateCheck(INITIAL_CHECK_DELAY_MS);
 }
 
@@ -135,16 +147,13 @@ function quitAndInstallForUpdate() {
   }
   try {
     isInstallingUpdate = true;
-    if (checkTimer) {
-      clearTimeout(checkTimer);
-      checkTimer = null;
-    }
+    clearCheckTimer();
     autoUpdater.quitAndInstall();
     return true;
   } catch (error) {
     console.error(`${LOG_PREFIX} 手动安装失败:`, error?.message || error);
     isInstallingUpdate = false;
-    scheduleUpdateCheck(RECHECK_INTERVAL_MS);
+    // 已下载包仍然有效；保留重试安装能力，不恢复周期更新检查。
     return false;
   }
 }
