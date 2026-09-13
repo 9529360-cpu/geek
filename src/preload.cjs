@@ -24,6 +24,7 @@ const SUBSCRIPTION_ERROR_CODES = Object.freeze([
   'password_length_invalid',
   'rate_limited',
   'invalid_plan',
+  'invalid_order_id',
   'SECURE_STORAGE_UNAVAILABLE',
   'SECURE_STORAGE_ENCRYPT_FAILED',
 ]);
@@ -274,6 +275,7 @@ contextBridge.exposeInMainWorld(
       login: (email, password) => invokeSubscription('subscription:login', email, password),
       register: (email, password) => invokeSubscription('subscription:register', email, password),
       createOrder: (plan) => invokeSubscription('subscription:create-order', plan),
+      getOrderStatus: (orderId) => invokeSubscription('subscription:get-order-status', orderId),
       getQuota: (force) => invokeSubscription('subscription:get-quota', force === true),
       logout: () => invokeSubscription('subscription:logout'),
       enterApp: () => invokeSubscription('subscription:enter-app'),
