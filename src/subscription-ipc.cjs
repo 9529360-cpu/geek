@@ -7,7 +7,6 @@ const SUBSCRIPTION_CHANNELS = Object.freeze([
   'subscription:register',
   'subscription:create-order',
   'subscription:get-quota',
-  'subscription:report-usage',
   'subscription:logout',
   'subscription:enter-app',
   'subscription:close-window',
@@ -51,7 +50,6 @@ function installSubscriptionIpc(options = {}) {
     register('subscription:register', (email, password) => getStore().register(String(email || ''), String(password || '')));
     register('subscription:create-order', plan => getStore().createOrder(String(plan || '')));
     register('subscription:get-quota', force => getStore().getQuota(force === true));
-    register('subscription:report-usage', chars => getStore().reportUsage(Number(chars) || 0));
     register('subscription:logout', () => getStore().logout());
     register('subscription:enter-app', () => enterApp());
     register('subscription:close-window', () => closeWindow());
