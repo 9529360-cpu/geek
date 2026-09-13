@@ -145,6 +145,10 @@ async function getUserByEmail(db, email) {
   return db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
 }
 
+function isEmailUniqueError(error) {
+  return /unique constraint failed:\s*users\.email/i.test(String(error?.message || error || ''));
+}
+
 async function handleRegister(request, db, env) {
   const body = await request.json().catch(() => ({}));
   const email = String(body.email || '').trim().toLowerCase();
@@ -155,10 +159,15 @@ async function handleRegister(request, db, env) {
 
   const next = await hashPassword(password, null, env.JWT_SECRET);
   if (!next) return json({ error: 'password_hash_failed' }, 500);
-  const { accountNo, result } = await insertWithAccountNo((candidate) => db.prepare(
-    'INSERT INTO users (email, password_hash, password_salt, quota_chars, account_no) VALUES (?, ?, ?, ?, ?)'
-  ).bind(email, `${HASH_PREFIX}${next.hash}`, next.salt, 20000, candidate).run());
-  return json({ ok: true, userId: result.meta.last_row_id, account_no: accountNo });
+  try {
+    const { accountNo, result } = await insertWithAccountNo((candidate) => db.prepare(
+      'INSERT INTO users (email, password_hash, password_salt, quota_chars, account_no) VALUES (?, ?, ?, ?, ?)'
+    ).bind(email, `${HASH_PREFIX}${next.hash}`, next.salt, 20000, candidate).run());
+    return json({ ok: true, userId: result.meta.last_row_id, account_no: accountNo });
+  } catch (error) {
+    if (isEmailUniqueError(error)) return json({ error: 'email_exists' }, 409);
+    throw error;
+  }
 }
 
 async function handleLogin(request, db, env) {
