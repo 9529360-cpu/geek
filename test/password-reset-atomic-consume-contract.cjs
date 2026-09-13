@@ -155,10 +155,11 @@ function userState(sqlite, userId) {
 }
 
 function resetState(sqlite, resetId) {
-  return sqlite.prepare(`
+  const row = sqlite.prepare(`
     SELECT status, used_at
     FROM password_reset_requests WHERE id = ?
   `).get(resetId);
+  return row ? { status: row.status, used_at: row.used_at ?? null } : null;
 }
 
 async function login(production, env, email, password, ip = '203.0.113.90') {
