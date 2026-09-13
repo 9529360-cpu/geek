@@ -15,6 +15,7 @@ const { createRateLimiter } = require('./crash-recovery.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
 const { installSubscriptionIpc } = require('./subscription-ipc.cjs');
+const { installDesktopIpc } = require('./desktop-ipc.cjs');
 const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
@@ -463,6 +464,7 @@ async function removeAccount(event, accountId) {
 let accountIpcBoundary = null;
 let configIpcBoundary = null;
 let translationRuntime = null;
+let desktopIpcBoundary = null;
 
 async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
@@ -605,27 +607,6 @@ function registerIpcHandlers() {
     await guest.insertText(value);
     return true;
   });
-  ipcMain.handle('app:get-version', async (event) => {
-    assertTrustedSender(event);
-    return app.getVersion();
-  });
-  ipcMain.handle('platforms:list', async (event) => {
-    assertTrustedSender(event);
-    return Object.entries(PLATFORM_CATALOG).map(([type, cfg]) => ({
-      type,
-      name: cfg.name,
-      short: cfg.short || type.slice(0, 2).toUpperCase(),
-      needsExtension: !!cfg.needsExtension,
-      isWebsite: type === 'website'
-    }));
-  });
-
-  ipcMain.handle('bridge:get-preload-path', async (event) => {
-    assertTrustedSender(event);
-    if (!runtimeAssetAllowed('bridge')) throw new Error('翻译桥完整性校验失败，已阻止加载');
-    const { pathToFileURL } = require('node:url');
-    return pathToFileURL(path.join(RESOURCES_DIR, 'bridge-preload.cjs')).href;
-  });
 
   configIpcBoundary = installConfigIpc({
     ipcMain,
@@ -647,54 +628,19 @@ function registerIpcHandlers() {
     },
   });
 
-  ipcMain.handle('window:relaunch', async (event) => {
-    assertTrustedSender(event);
-    app.relaunch();
-    app.exit(0);
-  });
-
-  ipcMain.handle('updater:install', async (event) => {
-    assertTrustedSender(event);
-    return quitAndInstallForUpdate();
-  });
-
-  ipcMain.handle('window:minimize', async (event) => {
-    assertTrustedSender(event);
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
-  });
-
-  ipcMain.handle('window:maximize', async (event) => {
-    assertTrustedSender(event);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMaximized()) mainWindow.unmaximize();
-      else mainWindow.maximize();
-    }
-  });
-
-  ipcMain.handle('window:close', async (event) => {
-    assertTrustedSender(event);
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
-  });
-
-  ipcMain.handle('notify:show', async (event, payload) => {
-    assertTrustedSender(event);
-    try {
-      if (!Notification.isSupported()) return;
-      const n = new Notification({
-        title: String(payload?.title || '新消息'),
-        body: String(payload?.body || ''),
-        silent: false,
-        timeoutType: 'default'
-      });
-      n.show();
-    } catch (e) {
-      console.error('[notify] 失败', e.message);
-    }
-  });
-
-  ipcMain.handle('theme:get-system', async (event) => {
-    assertTrustedSender(event);
-    return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  desktopIpcBoundary = installDesktopIpc({
+    ipcMain,
+    assertTrustedSender,
+    app,
+    getMainWindow: () => mainWindow,
+    platformCatalog: PLATFORM_CATALOG,
+    runtimeAssetAllowed,
+    resourcesDir: RESOURCES_DIR,
+    quitAndInstallForUpdate,
+    Notification,
+    nativeTheme,
+    dialog,
+    fs,
   });
 
   async function waSendFileViaCdp(send, { filePath, chatId, caption }) {
@@ -1069,18 +1015,6 @@ function registerIpcHandlers() {
     }
     return await internalCdp.run(partition, targetPlatform, ({ send }) => dropFileViaCdp({ send }, { filePath, mime, pos, platform: targetPlatform, action }), targetPlatform === 'line' ? guestId : null);
   }
-  ipcMain.handle('file:save', async (event, payload) => {
-    assertTrustedSender(event);
-    const { dialog } = require('electron');
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: '保存文件',
-      defaultPath: payload?.defaultName || '导出.csv',
-      filters: [{ name: 'CSV 文件', extensions: ['csv'] }]
-    });
-    if (result.canceled || !result.filePath) return null;
-    await fs.writeFile(result.filePath, payload?.content || '', 'utf-8');
-    return result.filePath;
-  });
 }
 
 function watchSystemTheme() {
@@ -1571,5 +1505,6 @@ app.on('before-quit', () => {
   translationRuntime = null;
   subscriptionIpcBoundary?.dispose();
   subscriptionIpcBoundary = null;
-  ipcMain.removeHandler('window:relaunch');
+  desktopIpcBoundary?.dispose();
+  desktopIpcBoundary = null;
 });
