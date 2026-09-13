@@ -148,46 +148,63 @@ async function rateLimited(db, bucket, limit, windowSeconds) {
 }
 
 async function reserveUsage(db, userId, requestId, chars) {
+  const owner = `reserved:${crypto.randomUUID()}`;
   try {
     const results = await db.batch([
-      db.prepare("INSERT INTO translation_usage (request_id, user_id, reserved_chars, status) VALUES (?, ?, ?, 'reserved')").bind(requestId, userId, chars),
-      db.prepare("UPDATE users SET quota_chars = quota_chars - ? WHERE id = ? AND status = 'active' AND quota_chars >= ?").bind(chars, userId, chars),
+      db.prepare(`INSERT INTO translation_usage (request_id, user_id, reserved_chars, status)
+        SELECT ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM users
+          WHERE id = ? AND status = 'active' AND quota_chars >= ?
+        )`).bind(requestId, userId, chars, owner, userId, chars),
+      db.prepare(`UPDATE users
+        SET quota_chars = quota_chars - ?
+        WHERE id = ? AND status = 'active'
+          AND EXISTS (
+            SELECT 1 FROM translation_usage
+            WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = ?
+          )`).bind(chars, userId, requestId, userId, chars, owner),
     ]);
-    if (!results[1]?.meta?.changes) {
-      await db.prepare('DELETE FROM translation_usage WHERE request_id = ?').bind(requestId).run();
-      return { ok: false, error: 'quota_exhausted' };
+    if (!results[0]?.meta?.changes) return { ok: false, error: 'quota_exhausted' };
+    if (!results[1]?.meta?.changes) throw new Error('translation_reservation_debit_failed');
+    return { ok: true, owner };
+  } catch (error) {
+    const row = await db.prepare(
+      'SELECT user_id, reserved_chars, status FROM translation_usage WHERE request_id = ?'
+    ).bind(requestId).first();
+    if (row && Number(row.user_id) === Number(userId) && Number(row.reserved_chars) === chars && String(row.status) === owner) {
+      return { ok: true, owner };
     }
-  } catch {
-    return { ok: false, error: 'duplicate_request' };
+    if (row) return { ok: false, error: 'duplicate_request' };
+    throw error;
   }
-  return { ok: true };
 }
 
-async function refundUsage(db, userId, requestId, chars) {
+async function refundUsage(db, userId, requestId, chars, owner) {
   await db.batch([
     db.prepare(`UPDATE users
       SET quota_chars = quota_chars + ?
       WHERE id = ?
         AND EXISTS (
           SELECT 1 FROM translation_usage
-          WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = 'reserved'
-        )`).bind(chars, userId, requestId, userId, chars),
-    db.prepare("DELETE FROM translation_usage WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = 'reserved'")
-      .bind(requestId, userId, chars),
+          WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = ?
+        )`).bind(chars, userId, requestId, userId, chars, owner),
+    db.prepare('DELETE FROM translation_usage WHERE request_id = ? AND user_id = ? AND reserved_chars = ? AND status = ?')
+      .bind(requestId, userId, chars, owner),
   ]);
 }
 
-async function finishUsage(db, userId, requestId, targetChars) {
+async function finishUsage(db, userId, requestId, targetChars, owner) {
   const results = await db.batch([
     db.prepare(`UPDATE users
       SET quota_chars = MAX(0, quota_chars - ?)
       WHERE id = ?
         AND EXISTS (
           SELECT 1 FROM translation_usage
-          WHERE request_id = ? AND user_id = ? AND status = 'reserved'
-        )`).bind(targetChars, userId, requestId, userId),
-    db.prepare("UPDATE translation_usage SET target_chars = ?, status = 'complete', completed_at = datetime('now') WHERE request_id = ? AND user_id = ? AND status = 'reserved'")
-      .bind(targetChars, requestId, userId),
+          WHERE request_id = ? AND user_id = ? AND status = ?
+        )`).bind(targetChars, userId, requestId, userId, owner),
+    db.prepare("UPDATE translation_usage SET target_chars = ?, status = 'complete', completed_at = datetime('now') WHERE request_id = ? AND user_id = ? AND status = ?")
+      .bind(targetChars, requestId, userId, owner),
   ]);
   if (!results[1]?.meta?.changes) throw new Error('translation_usage_not_reserved');
 }
@@ -336,6 +353,7 @@ export default {
         return json({ error: 'rate_limited' }, 429, request, env);
       }
       let reserved = 0;
+      let reservationOwner = '';
       try {
         const contentLength = Number(request.headers.get('Content-Length') || 0);
         if (contentLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
@@ -354,11 +372,12 @@ export default {
         reserved = Math.max(1, countChars(text));
         const reservation = await reserveUsage(db, auth.uid, requestId, reserved);
         if (!reservation.ok) return json({ error: reservation.error }, reservation.error === 'duplicate_request' ? 409 : 402, request, env);
+        reservationOwner = reservation.owner;
         const { text: result, engine } = await translate(text, target, env);
-        await finishUsage(db, auth.uid, requestId, countChars(result));
+        await finishUsage(db, auth.uid, requestId, countChars(result), reservationOwner);
         return json({ text: result, source, target, engine, route }, 200, request, env);
       } catch (error) {
-        if (reserved > 0) await refundUsage(db, auth.uid, requestId, reserved).catch(() => {});
+        if (reservationOwner) await refundUsage(db, auth.uid, requestId, reserved, reservationOwner).catch(() => {});
         return json({ error: 'translation_failed' }, 502, request, env);
       }
     }
