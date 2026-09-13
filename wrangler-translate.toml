@@ -1,5 +1,5 @@
 name = "geek-translate"
-main = "scripts/geek-translate-worker.js"
+main = "scripts/geek-translate-entry.js"
 compatibility_date = "2026-08-16"
 workers_dev = true
 
