@@ -201,27 +201,29 @@ async function handlePasswordResetComplete(request, db, env) {
   ).bind(tokenHash).first();
   if (!row) return json({ error: 'invalid_or_expired_token' }, 400);
 
-  const claim = await db.prepare(
-    "UPDATE password_reset_requests SET status = 'processing' WHERE id = ? AND status = 'issued'"
-  ).bind(row.id).run();
-  if (claim.meta.changes !== 1) return json({ error: 'invalid_or_expired_token' }, 400);
+  const next = await hashPassword(password, null, env.JWT_SECRET);
+  if (!next) throw new Error('password_hash_failed');
 
-  try {
-    const next = await hashPassword(password, null, env.JWT_SECRET);
-    if (!next) throw new Error('password_hash_failed');
-    await db.batch([
-      db.prepare('UPDATE users SET password_hash = ?, password_salt = ?, token_version = token_version + 1 WHERE id = ?')
-        .bind(`${HASH_PREFIX}${next.hash}`, next.salt, row.user_id),
-      db.prepare("UPDATE password_reset_requests SET status = 'used', used_at = datetime('now') WHERE id = ? AND status = 'processing'")
-        .bind(row.id),
-    ]);
-    return withCookie(json({ ok: true }), authCookie('geek_session', '', 0));
-  } catch (error) {
-    await db.prepare(
-      "UPDATE password_reset_requests SET status = 'issued' WHERE id = ? AND status = 'processing'"
-    ).bind(row.id).run().catch(() => {});
-    throw error;
+  const results = await db.batch([
+    db.prepare(
+      "UPDATE password_reset_requests SET status = 'processing' WHERE id = ? AND user_id = ? AND token_hash = ? AND status = 'issued' AND expires_at > datetime('now')"
+    ).bind(row.id, row.user_id, tokenHash),
+    db.prepare(`UPDATE users
+      SET password_hash = ?, password_salt = ?, token_version = token_version + 1
+      WHERE id = ? AND EXISTS (
+        SELECT 1 FROM password_reset_requests
+        WHERE id = ? AND user_id = ? AND token_hash = ? AND status = 'processing'
+      )`
+    ).bind(`${HASH_PREFIX}${next.hash}`, next.salt, row.user_id, row.id, row.user_id, tokenHash),
+    db.prepare(
+      "UPDATE password_reset_requests SET status = 'used', used_at = datetime('now') WHERE id = ? AND user_id = ? AND token_hash = ? AND status = 'processing'"
+    ).bind(row.id, row.user_id, tokenHash),
+  ]);
+
+  if (results.some((result) => Number(result?.meta?.changes || 0) !== 1)) {
+    return json({ error: 'invalid_or_expired_token' }, 400);
   }
+  return withCookie(json({ ok: true }), authCookie('geek_session', '', 0));
 }
 
 export default {
