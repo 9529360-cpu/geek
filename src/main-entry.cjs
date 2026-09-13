@@ -53,6 +53,8 @@ const earlyUserDataDir = runtimePaths.resolveUserDataDir({
 });
 try { app.setPath('userData', earlyUserDataDir); } catch {}
 
+require('./line-legacy-token-mutation.cjs');
+
 const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
 if (primaryInstance) {
   const accountsFilePath = runtimePaths.accountsFile(earlyUserDataDir);
