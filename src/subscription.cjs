@@ -58,61 +58,117 @@ function normalizeUserIdentity(value = {}) {
 
 function createSubscriptionStore({ userDataDir }) {
   const stateFile = () => path.join(userDataDir, 'subscription.json');
+  let diskWriteQueue = Promise.resolve();
 
-  async function writeStateDisk(disk) {
-    const target = stateFile();
-    const temporary = `${target}.tmp`;
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    await fs.rename(temporary, target);
+  function writeStateDisk(disk, options = {}) {
+    const expectedSessionGeneration = options.expectedSessionGeneration;
+    const queued = diskWriteQueue.then(async () => {
+      // Cold-load compatibility rewrites may be queued behind a logout write. Re-check
+      // lifecycle ownership at physical execution time so an old rewrite cannot follow the tombstone.
+      assertSessionGeneration(expectedSessionGeneration);
+      const target = stateFile();
+      const temporary = `${target}.tmp`;
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      await fs.rename(temporary, target);
+    });
+    // Physical temp-file writes also have to recover after an individual rename/write failure.
+    diskWriteQueue = queued.then(() => undefined, () => undefined);
+    return queued;
   }
 
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
+  let loadPromise = null;
   let translationTokenCache = null;
+  let stateMutationQueue = Promise.resolve();
+  let sessionGeneration = 0;
 
-  async function load() {
-    if (cache) return cache;
-    try {
-      const raw = await fs.readFile(stateFile(), 'utf-8');
-      cache = JSON.parse(raw || '{}');
-      // 兼容：解密加密的 token（enc: 前缀）
-      if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
-        cache.token = decryptField(cache.token);
-      }
-      // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
-      const identity = normalizeUserIdentity(cache);
-      cache.account_no = identity.account_no;
-      cache.account_ref = identity.account_ref;
-      // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
-      if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
-        try {
-          const disk = { ...cache, token: encryptField(cache.token) };
-          await writeStateDisk(disk);
-        } catch (e) { /* 迁移失败不阻塞 */ }
-      }
-    } catch {
-      cache = {};
-    }
-    return cache;
+  function sessionChangedError() {
+    const error = new Error('登录状态已变化，请重试');
+    error.code = 'SUBSCRIPTION_SESSION_CHANGED';
+    return error;
   }
 
-  async function save(patch) {
-    const current = await load();
-    // 内存 cache 保留明文（request 等需要明文 token），写盘时加密敏感字段
-    cache = { ...current, ...patch };
-    const identity = normalizeUserIdentity(cache);
-    cache.user_id = identity.user_id;
-    cache.account_no = identity.account_no;
-    cache.account_ref = identity.account_ref;
-    const disk = { ...cache };
-    if (disk.token) disk.token = encryptField(disk.token);
+  function loginRequiredError() {
+    const error = new Error('请先登录');
+    error.code = 'SUBSCRIPTION_LOGIN_REQUIRED';
+    return error;
+  }
+
+  function assertSessionGeneration(expected) {
+    if (expected != null && expected !== sessionGeneration) throw sessionChangedError();
+  }
+
+  function enqueueStateMutation(operation) {
+    const queued = stateMutationQueue.then(operation, operation);
+    // A failed mutation must not poison the queue or retain state/token objects in the chain.
+    stateMutationQueue = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  async function load() {
+    if (loadPromise) return loadPromise;
+    if (cache) return cache;
+    const generation = sessionGeneration;
+    loadPromise = (async () => {
+      try {
+        const raw = await fs.readFile(stateFile(), 'utf-8');
+        const loaded = JSON.parse(raw || '{}');
+        // 兼容：解密加密的 token（enc: 前缀）
+        if (loaded.token && typeof loaded.token === 'string' && loaded.token.startsWith('enc:')) {
+          loaded.token = decryptField(loaded.token);
+        }
+        // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
+        const identity = normalizeUserIdentity(loaded);
+        loaded.account_no = identity.account_no;
+        loaded.account_ref = identity.account_ref;
+        if (generation !== sessionGeneration) return cache || {};
+        // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
+        if (loaded.token && !String(loaded.token).startsWith('enc:') && secureCrypto) {
+          try {
+            const disk = { ...loaded, token: encryptField(loaded.token) };
+            await writeStateDisk(disk, { expectedSessionGeneration: generation });
+          } catch (e) {
+            if (e.code === 'SUBSCRIPTION_SESSION_CHANGED') return cache || {};
+            // 兼容迁移失败不阻塞当前已存在的登录态。
+          }
+        }
+        if (generation !== sessionGeneration) return cache || {};
+        cache = loaded;
+      } catch {
+        if (generation === sessionGeneration) cache = {};
+      }
+      return cache || {};
+    })();
     try {
-      await writeStateDisk(disk);
-    } catch (e) {
-      console.error('[subscription] 状态写入失败:', e.message);
-      throw e;
+      return await loadPromise;
+    } finally {
+      loadPromise = null;
     }
-    return cache;
+  }
+
+  function save(patch, options = {}) {
+    const expectedSessionGeneration = options.expectedSessionGeneration;
+    return enqueueStateMutation(async () => {
+      assertSessionGeneration(expectedSessionGeneration);
+      const current = await load();
+      // 先构造候选状态；只有磁盘原子提交成功后，候选才成为内存 authority。
+      const next = { ...current, ...patch };
+      const identity = normalizeUserIdentity(next);
+      next.user_id = identity.user_id;
+      next.account_no = identity.account_no;
+      next.account_ref = identity.account_ref;
+      const disk = { ...next };
+      if (disk.token) disk.token = encryptField(disk.token);
+      try {
+        await writeStateDisk(disk);
+      } catch (e) {
+        console.error('[subscription] 状态写入失败:', e.message);
+        throw e;
+      }
+      cache = next;
+      return cache;
+    });
   }
 
   async function request(pathname, options = {}) {
@@ -151,10 +207,19 @@ function createSubscriptionStore({ userDataDir }) {
     };
   }
 
+  function localQuota(state, missingRemaining) {
+    const identity = normalizeUserIdentity(state);
+    const accountIdentity = { account_no: identity.account_no, account_ref: identity.account_ref };
+    return state.quota_cache
+      ? { ...state.quota_cache, ...accountIdentity }
+      : { remaining_chars: missingRemaining, email: state.email || '', ...accountIdentity };
+  }
+
   // 刷新远程状态：token 有效→更新本地；401/失效→清除本地。
   // 老版本状态缺少服务端 account_no 时，从 /api/me 回填；绝不从 user_id 本地合成。
   async function refresh() {
     const state = await load();
+    const generation = sessionGeneration;
     if (!state.token) return getState();
     try {
       const data = await request('/api/status');
@@ -164,11 +229,17 @@ function createSubscriptionStore({ userDataDir }) {
         if (profile?.user?.id) Object.assign(patch, normalizeUserIdentity(profile.user));
         if (profile?.user?.email) patch.email = profile.user.email;
       }
-      await save(patch);
+      await save(patch, { expectedSessionGeneration: generation });
       return getState();
     } catch (e) {
+      if (e.code === 'SUBSCRIPTION_SESSION_CHANGED') return getState();
       if (e.status === 401 || e.code === 'account_disabled') {
-        await clear();
+        try {
+          await clear({ expectedSessionGeneration: generation });
+        } catch (clearError) {
+          if (clearError.code === 'SUBSCRIPTION_SESSION_CHANGED') return getState();
+          throw clearError;
+        }
         return { loggedIn: false, error: e.code === 'account_disabled' ? 'account_disabled' : 'unauthorized' };
       }
       // 网络失败：返回本地缓存状态（离线容忍），带网络错误标记
@@ -177,35 +248,45 @@ function createSubscriptionStore({ userDataDir }) {
     }
   }
 
-  async function login(email, password) {
+  async function login(email, password, options = {}) {
+    const generation = options.expectedSessionGeneration ?? sessionGeneration;
     // 先请求登录（避免登录失败时误清旧账号状态）
     const data = await request('/api/login', { method: 'POST', body: { email, password } });
-    // 登录成功：清空旧账号本地状态（token/quota_cache 等），防止换账号数据串号
-    await clear();
+    // 登录成功：清空旧账号本地状态（token/quota_cache 等），防止换账号数据串号。
+    // 条件 clear 保证晚到的登录响应不能越过一个更晚完成的 logout/account switch。
+    await clear({ expectedSessionGeneration: generation });
+    const loginGeneration = sessionGeneration;
     let identity = normalizeUserIdentity(data.user || {});
     await save({
       token: data.token,
       email: data.user.email,
       ...identity,
       checked_at: new Date().toISOString(),
-    });
+    }, { expectedSessionGeneration: loginGeneration });
     // 兼容切换期：若登录响应尚未携带 account_no，只允许从受认证的 /api/me 补齐。
     if (!identity.account_no) {
       const profile = await request('/api/me').catch(() => null);
       if (profile?.user?.id) {
         identity = normalizeUserIdentity(profile.user);
-        await save({ ...identity, email: profile.user.email || data.user.email || '' });
+        await save(
+          { ...identity, email: profile.user.email || data.user.email || '' },
+          { expectedSessionGeneration: loginGeneration }
+        );
       }
     }
     // 拉取字符余额
     const status = await request('/api/status').catch(() => ({}));
-    if (status.remaining_chars != null) await save({ remaining_chars: status.remaining_chars });
+    if (status.remaining_chars != null) {
+      await save({ remaining_chars: status.remaining_chars }, { expectedSessionGeneration: loginGeneration });
+    }
     return { ok: true, user: { ...data.user, account_no: identity.account_no, account_ref: identity.account_ref } };
   }
 
   async function register(email, password) {
+    const generation = sessionGeneration;
     await request('/api/register', { method: 'POST', body: { email, password } });
-    return login(email, password);
+    assertSessionGeneration(generation);
+    return login(email, password, { expectedSessionGeneration: generation });
   }
 
   async function createOrder(plan) {
@@ -217,12 +298,19 @@ function createSubscriptionStore({ userDataDir }) {
   }
 
   async function me() {
+    const state = await load();
+    const generation = sessionGeneration;
+    if (!state.token) throw loginRequiredError();
     const data = await request('/api/me');
     if (data?.user?.id) {
       const identity = normalizeUserIdentity(data.user);
-      await save({ ...identity, email: data.user.email || (await load()).email || '' });
+      await save(
+        { ...identity, email: data.user.email || state.email || '' },
+        { expectedSessionGeneration: generation }
+      );
       return { ...data, user: { ...data.user, account_no: identity.account_no, account_ref: identity.account_ref } };
     }
+    assertSessionGeneration(generation);
     return data;
   }
 
@@ -235,47 +323,68 @@ function createSubscriptionStore({ userDataDir }) {
       force = false;
     }
     const state = await load();
-    const identity = normalizeUserIdentity(state);
-    const accountIdentity = { account_no: identity.account_no, account_ref: identity.account_ref };
+    const generation = sessionGeneration;
     const now = Date.now();
     const fresh = state.quota_checked_at && (now - new Date(state.quota_checked_at).getTime()) < 30 * 1000;
-    if (!force && fresh && state.quota_cache) return { ...state.quota_cache, ...accountIdentity };
+    if (!force && fresh && state.quota_cache) return localQuota(state, null);
     if (opts.network === false) {
       // 只读本地：有缓存返回缓存（哪怕是旧的），无缓存视为未知（放行，服务端兜底）
-      return state.quota_cache
-        ? { ...state.quota_cache, ...accountIdentity }
-        : { remaining_chars: null, email: state.email || '', ...accountIdentity };
+      return localQuota(state, null);
     }
     try {
       const data = await request('/api/quota');
+      const identity = normalizeUserIdentity(state);
       const quota = {
         remaining_chars: data.remaining_chars,
         email: data.email || state.email || '',
-        ...accountIdentity,
+        account_no: identity.account_no,
+        account_ref: identity.account_ref,
       };
-      await save({ quota_cache: quota, quota_checked_at: new Date().toISOString() });
+      await save(
+        { quota_cache: quota, quota_checked_at: new Date().toISOString() },
+        { expectedSessionGeneration: generation }
+      );
       return quota;
     } catch (e) {
+      if (generation !== sessionGeneration || e.code === 'SUBSCRIPTION_SESSION_CHANGED') {
+        return localQuota(await load(), null);
+      }
       // 网络失败：回退本地缓存（离线容忍）；无缓存则视为有额度（不阻断已有用户）
-      if (state.quota_cache) return { ...state.quota_cache, ...accountIdentity };
-      return { remaining_chars: Number.MAX_SAFE_INTEGER, email: state.email || '', ...accountIdentity };
+      return localQuota(state, Number.MAX_SAFE_INTEGER);
     }
   }
 
   async function getTranslationToken(force = false) {
+    const state = await load();
+    const generation = sessionGeneration;
+    if (!state.token) throw loginRequiredError();
     const now = Math.floor(Date.now() / 1000);
-    if (!force && translationTokenCache?.token && translationTokenCache.expires_at > now + 30) {
+    if (
+      !force
+      && translationTokenCache?.generation === generation
+      && translationTokenCache?.token
+      && translationTokenCache.expires_at > now + 30
+    ) {
       return translationTokenCache.token;
     }
     const data = await request('/api/translation-token', { method: 'POST' });
     if (!data.token || !Number.isFinite(Number(data.expires_at))) throw new Error('翻译授权返回格式错误');
-    translationTokenCache = { token: String(data.token), expires_at: Number(data.expires_at) };
+    assertSessionGeneration(generation);
+    const current = await load();
+    assertSessionGeneration(generation);
+    if (!current.token) throw loginRequiredError();
+    translationTokenCache = {
+      token: String(data.token),
+      expires_at: Number(data.expires_at),
+      generation,
+    };
     return translationTokenCache.token;
   }
 
   // 字符扣减：翻译成功后上报原文+译文，服务端按 1汉字=2字符 规则换算扣减
   async function reportUsage(sourceText, targetText) {
     const state = await load();
+    const generation = sessionGeneration;
     if (!state.token) return { ok: true, remaining_chars: null };
     try {
       const data = await request('/api/usage', { method: 'POST', body: { source: String(sourceText || ''), target: String(targetText || '') } });
@@ -287,7 +396,10 @@ function createSubscriptionStore({ userDataDir }) {
           account_no: identity.account_no,
           account_ref: identity.account_ref,
         };
-        await save({ quota_cache: quota, quota_checked_at: new Date().toISOString() });
+        await save(
+          { quota_cache: quota, quota_checked_at: new Date().toISOString() },
+          { expectedSessionGeneration: generation }
+        );
       }
       return data;
     } catch (e) {
@@ -295,12 +407,17 @@ function createSubscriptionStore({ userDataDir }) {
     }
   }
 
-  async function clear() {
-    cache = {};
-    translationTokenCache = null;
-    try {
-      await fs.rm(stateFile(), { force: true });
-    } catch (e) { /* 忽略 */ }
+  function clear(options = {}) {
+    const expectedSessionGeneration = options.expectedSessionGeneration;
+    return enqueueStateMutation(async () => {
+      assertSessionGeneration(expectedSessionGeneration);
+      // Logout/account-switch state is authoritative only after the tokenless state is durable.
+      // Persist an empty tombstone atomically instead of relying on best-effort file deletion.
+      await writeStateDisk({});
+      cache = {};
+      translationTokenCache = null;
+      sessionGeneration += 1;
+    });
   }
 
   async function logout() {
