@@ -8,13 +8,16 @@ const root = path.join(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8').replace(/\r\n?/g, '\n');
 
 const main = read('src/main.cjs');
+const desktopIpc = read('src/desktop-ipc.cjs');
 const catalog = read('src/platform-catalog.cjs');
 const boundary = read('src/webview-navigation-boundary.cjs');
 const entry = read('src/main-entry.cjs');
 
 assert.match(main, /require\('\.\/platform-catalog\.cjs'\)/, 'main must consume platform catalog');
 assert.match(main, /resolveTypeConfig:\s*platformConfig/, 'Account State must validate against platform catalog');
-assert.match(main, /Object\.entries\(PLATFORM_CATALOG\)/, 'platform listing must come from platform catalog');
+assert.match(main, /platformCatalog:\s*PLATFORM_CATALOG/, 'main must inject the canonical platform catalog into Desktop IPC');
+assert.match(desktopIpc, /Object\.entries\(platformCatalog\)/, 'platform listing must consume the injected platform catalog');
+assert.doesNotMatch(desktopIpc, /PLATFORM_CATALOG\s*=|require\('\.\/platform-catalog\.cjs'\)/, 'Desktop IPC must not copy or import a second platform catalog authority');
 assert.match(main, /isAccountNavigationAllowed\(account, partition, parsedSource\.href\)/, 'pre-attach URL checks must share the navigation policy authority');
 assert.doesNotMatch(main, /\bconst\s+APP_TYPES\s*=/, 'main must not reintroduce a second platform metadata table');
 assert.doesNotMatch(main, /\bfunction\s+appTypeConfig\s*\(/, 'main must not reintroduce a second platform resolver');
