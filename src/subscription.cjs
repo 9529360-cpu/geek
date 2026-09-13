@@ -58,62 +58,87 @@ function normalizeUserIdentity(value = {}) {
 
 function createSubscriptionStore({ userDataDir }) {
   const stateFile = () => path.join(userDataDir, 'subscription.json');
+  let diskWriteQueue = Promise.resolve();
 
-  async function writeStateDisk(disk) {
-    const target = stateFile();
-    const temporary = `${target}.tmp`;
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    await fs.rename(temporary, target);
+  function writeStateDisk(disk) {
+    const queued = diskWriteQueue.then(async () => {
+      const target = stateFile();
+      const temporary = `${target}.tmp`;
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      await fs.rename(temporary, target);
+    });
+    // Physical temp-file writes also have to recover after an individual rename/write failure.
+    diskWriteQueue = queued.then(() => undefined, () => undefined);
+    return queued;
   }
 
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
+  let loadPromise = null;
   let translationTokenCache = null;
+  let stateMutationQueue = Promise.resolve();
 
-  async function load() {
-    if (cache) return cache;
-    try {
-      const raw = await fs.readFile(stateFile(), 'utf-8');
-      cache = JSON.parse(raw || '{}');
-      // 兼容：解密加密的 token（enc: 前缀）
-      if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
-        cache.token = decryptField(cache.token);
-      }
-      // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
-      const identity = normalizeUserIdentity(cache);
-      cache.account_no = identity.account_no;
-      cache.account_ref = identity.account_ref;
-      // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
-      if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
-        try {
-          const disk = { ...cache, token: encryptField(cache.token) };
-          await writeStateDisk(disk);
-        } catch (e) { /* 迁移失败不阻塞 */ }
-      }
-    } catch {
-      cache = {};
-    }
-    return cache;
+  function enqueueStateMutation(operation) {
+    const queued = stateMutationQueue.then(operation, operation);
+    // A failed mutation must not poison the queue or retain state/token objects in the chain.
+    stateMutationQueue = queued.then(() => undefined, () => undefined);
+    return queued;
   }
 
-  async function save(patch) {
-    const current = await load();
-    // 先构造候选状态；只有磁盘原子提交成功后，候选才成为内存 authority。
-    const next = { ...current, ...patch };
-    const identity = normalizeUserIdentity(next);
-    next.user_id = identity.user_id;
-    next.account_no = identity.account_no;
-    next.account_ref = identity.account_ref;
-    const disk = { ...next };
-    if (disk.token) disk.token = encryptField(disk.token);
+  async function load() {
+    if (loadPromise) return loadPromise;
+    if (cache) return cache;
+    loadPromise = (async () => {
+      try {
+        const raw = await fs.readFile(stateFile(), 'utf-8');
+        cache = JSON.parse(raw || '{}');
+        // 兼容：解密加密的 token（enc: 前缀）
+        if (cache.token && typeof cache.token === 'string' && cache.token.startsWith('enc:')) {
+          cache.token = decryptField(cache.token);
+        }
+        // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
+        const identity = normalizeUserIdentity(cache);
+        cache.account_no = identity.account_no;
+        cache.account_ref = identity.account_ref;
+        // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
+        if (cache.token && !String(cache.token).startsWith('enc:') && secureCrypto) {
+          try {
+            const disk = { ...cache, token: encryptField(cache.token) };
+            await writeStateDisk(disk);
+          } catch (e) { /* 迁移失败不阻塞 */ }
+        }
+      } catch {
+        cache = {};
+      }
+      return cache;
+    })();
     try {
-      await writeStateDisk(disk);
-    } catch (e) {
-      console.error('[subscription] 状态写入失败:', e.message);
-      throw e;
+      return await loadPromise;
+    } finally {
+      loadPromise = null;
     }
-    cache = next;
-    return cache;
+  }
+
+  function save(patch) {
+    return enqueueStateMutation(async () => {
+      const current = await load();
+      // 先构造候选状态；只有磁盘原子提交成功后，候选才成为内存 authority。
+      const next = { ...current, ...patch };
+      const identity = normalizeUserIdentity(next);
+      next.user_id = identity.user_id;
+      next.account_no = identity.account_no;
+      next.account_ref = identity.account_ref;
+      const disk = { ...next };
+      if (disk.token) disk.token = encryptField(disk.token);
+      try {
+        await writeStateDisk(disk);
+      } catch (e) {
+        console.error('[subscription] 状态写入失败:', e.message);
+        throw e;
+      }
+      cache = next;
+      return cache;
+    });
   }
 
   async function request(pathname, options = {}) {
@@ -296,12 +321,14 @@ function createSubscriptionStore({ userDataDir }) {
     }
   }
 
-  async function clear() {
-    // Logout/account-switch state is authoritative only after the tokenless state is durable.
-    // Persist an empty tombstone atomically instead of relying on best-effort file deletion.
-    await writeStateDisk({});
-    cache = {};
-    translationTokenCache = null;
+  function clear() {
+    return enqueueStateMutation(async () => {
+      // Logout/account-switch state is authoritative only after the tokenless state is durable.
+      // Persist an empty tombstone atomically instead of relying on best-effort file deletion.
+      await writeStateDisk({});
+      cache = {};
+      translationTokenCache = null;
+    });
   }
 
   async function logout() {
