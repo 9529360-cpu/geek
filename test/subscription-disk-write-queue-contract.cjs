@@ -36,15 +36,17 @@ function immediate() {
     });
 
     let reads = 0;
-    let bothReadsResolve;
-    let releaseReads;
-    const bothReads = new Promise((resolve) => { bothReadsResolve = resolve; });
-    const readRelease = new Promise((resolve) => { releaseReads = resolve; });
+    let firstReadStartedResolve;
+    let releaseRead;
+    const firstReadStarted = new Promise((resolve) => { firstReadStartedResolve = resolve; });
+    const readRelease = new Promise((resolve) => { releaseRead = resolve; });
     fsp.readFile = async (file, ...args) => {
-      if (path.resolve(file) === path.resolve(stateFile) && reads < 2) {
+      if (path.resolve(file) === path.resolve(stateFile)) {
         reads += 1;
-        if (reads === 2) bothReadsResolve();
-        await readRelease;
+        if (reads === 1) {
+          firstReadStartedResolve();
+          await readRelease;
+        }
       }
       return originalReadFile(file, ...args);
     };
@@ -52,15 +54,18 @@ function immediate() {
     let activeRenames = 0;
     let maxActiveRenames = 0;
     let renameCalls = 0;
+    let firstRenameStartedResolve;
+    const firstRenameStarted = new Promise((resolve) => { firstRenameStartedResolve = resolve; });
     fsp.rename = async (from, to) => {
       if (path.resolve(to) !== path.resolve(stateFile)) return originalRename(from, to);
       renameCalls += 1;
       activeRenames += 1;
       maxActiveRenames = Math.max(maxActiveRenames, activeRenames);
+      if (renameCalls === 1) firstRenameStartedResolve();
       try {
-        for (let i = 0; i < 40 && activeRenames === 1; i += 1) await immediate();
+        for (let i = 0; i < 80 && activeRenames === 1; i += 1) await immediate();
         if (activeRenames > 1) {
-          const error = new Error('simulated overlapping cold-load migration rename');
+          const error = new Error('simulated overlapping subscription disk rename');
           error.code = 'EBUSY';
           throw error;
         }
@@ -70,23 +75,33 @@ function immediate() {
       }
     };
 
+    // Two cold readers arrive while the first physical read is blocked. They must share one load Promise.
     const stateA = store.getState();
+    await firstReadStarted;
     const stateB = store.getState();
-    await bothReads;
-    releaseReads();
-    const [a, b] = await Promise.all([stateA, stateB]);
+    await immediate();
+    assert.equal(reads, 1, 'concurrent cold loads must single-flight one subscription.json read');
+    releaseRead();
 
-    assert.equal(a.loggedIn, true);
-    assert.equal(b.loggedIn, true);
+    // The cold-load compatibility rewrite begins; enqueue logout while its rename is still in flight.
+    // Both physical writes must share the disk queue even though logout does not call load().
+    await firstRenameStarted;
+    const logoutPromise = store.logout();
+    const [a, b] = await Promise.all([stateA, stateB]);
+    await logoutPromise;
+
+    assert.equal(a.loggedIn, true, 'read that began before logout may return the pre-logout committed state');
+    assert.equal(b.loggedIn, true, 'single-flight peer must observe the same cold-load snapshot');
     assert.equal(a.email, 'cold-load@example.invalid');
     assert.equal(b.email, 'cold-load@example.invalid');
-    assert.equal(renameCalls, 2, 'fixture must exercise both concurrent cold-load disk rewrites');
+    assert.equal(reads, 1, 'cold-load single-flight must remain one physical read');
+    assert.equal(renameCalls, 2, 'fixture must exercise cold-load rewrite followed by logout tombstone');
     assert.equal(maxActiveRenames, 1, 'all physical subscription writes must share one serialized disk queue');
 
     fsp.readFile = originalReadFile;
+    assert.deepEqual(await store.getState(), { loggedIn: false }, 'logout must become the final in-memory authority');
     const disk = JSON.parse(await originalReadFile(stateFile, 'utf8'));
-    assert.equal(disk.token, 'enc:cold-load-token', 'serialized compatibility rewrite must preserve encrypted token storage');
-    assert.equal(disk.remaining_chars, 88);
+    assert.deepEqual(disk, {}, 'logout tombstone must be the final durable write after the cold-load rewrite');
   } finally {
     fsp.readFile = originalReadFile;
     fsp.rename = originalRename;
