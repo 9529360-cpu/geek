@@ -21,6 +21,9 @@ assert.match(owner, /function assertTrustedSender\(event\)/, 'Subscription IPC o
 assert.match(owner, /if \(!isTrustedSender\(event\)\) throw new Error\('拒绝来自未授权页面的 IPC 请求'\)/, 'sender validation must reject untrusted pages');
 assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{[\s\S]*assertTrustedSender\(event\);[\s\S]*return handler\(\.\.\.args\)/, 'every registered subscription handler must pass through sender validation before work');
 assert.match(owner, /for \(const channel of SUBSCRIPTION_CHANNELS\) ipcMain\.removeHandler\(channel\)/, 'owner must own complete teardown');
+assert.match(owner, /subscription:get-order-status/, 'current-order status lookup must stay inside the trusted Subscription IPC owner');
+assert.match(owner, /getStore\(\)\.myOrders\(\)/, 'order status projection must reuse authenticated store order lookup');
+assert.doesNotMatch(owner, /return\s+order\s*;/, 'raw order rows must not cross the IPC boundary');
 
 const expectedChannels = [
   'subscription:get-state',
@@ -28,6 +31,7 @@ const expectedChannels = [
   'subscription:login',
   'subscription:register',
   'subscription:create-order',
+  'subscription:get-order-status',
   'subscription:get-quota',
   'subscription:logout',
   'subscription:enter-app',
