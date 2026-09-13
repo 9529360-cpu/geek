@@ -6,13 +6,16 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
-const workerSource = fs.readFileSync(path.join(root, 'scripts/geek-translate-worker.js'), 'utf8');
+// Source-contract parsing must be checkout-EOL agnostic: GitHub Windows runners may
+// materialize CRLF while Linux CI reads LF. Normalize before locating function boundaries.
+const read = relative => fs.readFileSync(path.join(root, relative), 'utf8').replace(/\r\n?/g, '\n');
+const workerSource = read('scripts/geek-translate-worker.js');
 const subscriptionSource = [
-  fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker.js'), 'utf8'),
-  fs.readFileSync(path.join(root, 'scripts/geek-subscription-worker-core.js'), 'utf8'),
+  read('scripts/geek-subscription-worker.js'),
+  read('scripts/geek-subscription-worker-core.js'),
 ].join('\n');
-const runtimeSource = fs.readFileSync(path.join(root, 'src/translation-runtime.cjs'), 'utf8');
-const schema = fs.readFileSync(path.join(root, 'scripts/geek-subscription-schema.sql'), 'utf8');
+const runtimeSource = read('src/translation-runtime.cjs');
+const schema = read('scripts/geek-subscription-schema.sql');
 
 function loadWorker() {
   const code = workerSource.replace(/^export default\s*/m, 'this.__export = ');
