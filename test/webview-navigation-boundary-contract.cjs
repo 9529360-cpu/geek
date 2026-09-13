@@ -154,8 +154,9 @@ assert.equal(policyFromAccountState(tgAccount.partition, '{bad json'), null);
   assert.equal(normal.popupHandler, null);
 }
 
-const mainEntry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
-const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
+const readSource = relative => fs.readFileSync(path.join(__dirname, '..', relative), 'utf8').replace(/\r\n?/g, '\n');
+const mainEntry = readSource('src/main-entry.cjs');
+const main = readSource('src/main.cjs');
 const installAt = mainEntry.indexOf('installAccountScopedWebviewNavigationBoundary({');
 const resolverAt = mainEntry.indexOf('policyFromAccountState(partition, accountState)');
 const mainAt = mainEntry.indexOf("require('./main.cjs')");
