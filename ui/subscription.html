@@ -202,6 +202,7 @@
         <button class="btn-primary no-drag" id="btn-enter">进入极客</button>
         <button class="btn-ghost no-drag" style="margin-top:10px" id="btn-open-plans">购买字符包</button>
       </div>
+      <div class="err" id="home-logout-err"></div>
       <div class="switch-row"><a id="home-logout">退出登录</a></div>
     </div>
 
@@ -212,17 +213,31 @@
 <script>
   const $ = (s) => document.querySelector(s);
   let currentPlan = 'basic';
+  let logoutPending = false;
 
   function show(id) {
     document.querySelectorAll('.view').forEach((v) => v.classList.remove('on'));
     document.getElementById(id).classList.add('on');
   }
   function err(el, msg) { document.getElementById(el).textContent = msg || ''; }
+  async function logoutFrom(errorId) {
+    if (logoutPending) return;
+    logoutPending = true;
+    err(errorId, '');
+    try {
+      await window.api.subscription.logout();
+    } catch {
+      err(errorId, '退出未完成，本机登录状态仍然保留，请重试。');
+      logoutPending = false;
+      return;
+    }
+    location.reload();
+  }
 
   $('#go-register').onclick = () => { err('reg-err', ''); show('view-register'); };
   $('#go-login').onclick = () => { err('login-err', ''); show('view-login'); };
-  $('#back-login').onclick = async () => { await window.api.subscription.logout(); location.reload(); };
-  $('#home-logout').onclick = async () => { await window.api.subscription.logout(); location.reload(); };
+  $('#back-login').onclick = () => logoutFrom('plans-err');
+  $('#home-logout').onclick = () => logoutFrom('home-logout-err');
 
   $('#btn-login').onclick = async () => {
     const email = $('#in-email').value.trim();
