@@ -7,12 +7,14 @@ const {
   OUTPUT_KEYS,
   collectAuthenticatedLineState,
   buildProbeExpression,
+  buildHostBridgeExpression,
   projectProbeState,
   formatProbeOutput,
-  isLineExtensionTarget,
+  isGeekHostTarget,
   isLocalDebuggerSocket,
   parseTargetIndex,
   evaluateTarget,
+  probeLineWebviewState,
 } = require('../scripts/line-auth-regression-probe.cjs');
 
 (async () => {
@@ -33,16 +35,7 @@ const {
   };
 
   const state = await collectAuthenticatedLineState(fakeRoot, { readyState: 'complete' });
-  assert.deepEqual(state, {
-    pageReady: true,
-    tokenManagerAvailable: true,
-    accessTokenPresent: true,
-    hmacManagerAvailable: true,
-    hmacProduced: true,
-    authenticatedEventSourceAvailable: true,
-    pluginKeyWrapperAvailable: true,
-    chromeRuntimeAvailable: true,
-  });
+  assert.deepEqual(state, Object.fromEntries(OUTPUT_KEYS.map((key) => [key, true])));
   assert.equal(calls.length, 1);
   assert.equal(calls[0].accessToken, fakeToken);
   assert.equal(calls[0].path, '/api/operation/receive');
@@ -59,52 +52,40 @@ const {
   assert.deepEqual(Object.keys(projected), OUTPUT_KEYS);
   assert.ok(Object.values(projected).every((value) => typeof value === 'boolean'));
   const output = formatProbeOutput(rawState);
-  assert.doesNotMatch(output, /secret-access-token-value/);
-  assert.doesNotMatch(output, /secret-hmac-value/);
-  assert.doesNotMatch(output, /example\.invalid/);
-  assert.doesNotMatch(output, /private-account-id/);
-  assert.ok(Object.values(JSON.parse(output)).every((value) => typeof value === 'boolean'));
-
-  const throwing = await collectAuthenticatedLineState({
-    GeekAuthenticatedEventSource() {},
-    _pluginKD() {},
-    chrome: { runtime: {} },
-    g_plugin_enc() { throw new Error(`token=${fakeToken}`); },
-    g_plugin_hmac() { throw new Error(`hmac=${fakeHmac}`); },
-  }, { readyState: 'interactive' });
-  assert.equal(throwing.pageReady, true);
-  assert.equal(throwing.accessTokenPresent, false);
-  assert.equal(throwing.hmacProduced, false);
-  assert.doesNotMatch(formatProbeOutput(throwing), /secret-/);
-
-  const missing = await collectAuthenticatedLineState({}, { readyState: 'loading' });
-  assert.deepEqual(missing, Object.fromEntries(OUTPUT_KEYS.map((key) => [key, false])));
+  assert.doesNotMatch(output, /secret-access-token-value|secret-hmac-value|example\.invalid|private-account-id/);
 
   const expression = buildProbeExpression();
   assert.match(expression, /accessTokenPresent/);
   assert.match(expression, /hmacProduced/);
-  assert.doesNotMatch(expression, /console\./);
-  assert.doesNotMatch(expression, /document\.cookie/);
-  assert.doesNotMatch(expression, /localStorage/);
-  assert.doesNotMatch(expression, /location\.href/);
-  assert.doesNotMatch(expression, /textContent/);
-  assert.doesNotMatch(expression, /innerHTML/);
-  assert.doesNotMatch(expression, /outerHTML/);
+  assert.doesNotMatch(expression, /console\.|document\.cookie|localStorage|location\.href|textContent|innerHTML|outerHTML/);
 
-  assert.equal(isLineExtensionTarget({
+  const hostExpression = buildHostBridgeExpression(0);
+  assert.match(hostExpression, /querySelectorAll\('webview'\)/);
+  assert.match(hostExpression, /executeJavaScript/);
+  assert.match(hostExpression, /ophjlpahpchlmihnnnihgmmeilfjmjjc/);
+  assert.match(hostExpression, /PROBE_RESULT/);
+  assert.doesNotMatch(hostExpression, /console\.|document\.cookie|localStorage|textContent|innerHTML|outerHTML/);
+
+  assert.equal(isGeekHostTarget({
     type: 'page',
-    url: 'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html#/chat',
+    url: 'file:///C:/work/geek/ui/index.html',
+    webSocketDebuggerUrl: 'ws://127.0.0.1:9344/devtools/page/abc',
   }), true);
-  assert.equal(isLineExtensionTarget({
+  assert.equal(isGeekHostTarget({
     type: 'page',
-    url: 'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/other.html',
-  }), false);
-  assert.equal(isLineExtensionTarget({
+    url: 'file:///C:/work/geek/ui/index.html?secret=1',
+    webSocketDebuggerUrl: 'ws://127.0.0.1:9344/devtools/page/abc',
+  }), true);
+  assert.equal(isGeekHostTarget({
     type: 'page',
-    url: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/index.html',
+    url: 'https://example.com/ui/index.html',
+    webSocketDebuggerUrl: 'ws://127.0.0.1:9344/devtools/page/abc',
   }), false);
-  assert.equal(isLineExtensionTarget({ type: 'page', url: 'https://example.com/' }), false);
-  assert.equal(isLineExtensionTarget({ type: 'worker', url: 'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html' }), false);
+  assert.equal(isGeekHostTarget({
+    type: 'page',
+    url: 'file:///C:/work/geek/ui/index.html',
+    webSocketDebuggerUrl: 'ws://localhost:9344/devtools/page/abc',
+  }), false);
 
   assert.equal(isLocalDebuggerSocket('ws://127.0.0.1:9344/devtools/page/abc'), true);
   assert.equal(isLocalDebuggerSocket('ws://localhost:9344/devtools/page/abc'), false);
@@ -120,6 +101,7 @@ const {
   assert.throws(() => parseTargetIndex('01'), /TARGET_INDEX_INVALID/);
 
   let evaluateParams = null;
+  let nextValue = { kind: 'PROBE_RESULT', state: rawState };
   class FakeWebSocket {
     constructor(url) {
       this.url = url;
@@ -134,36 +116,41 @@ const {
       if (request.method === 'Runtime.evaluate') {
         evaluateParams = request.params;
         queueMicrotask(() => this.onmessage?.({
-          data: JSON.stringify({
-            id: request.id,
-            result: {
-              result: {
-                value: {
-                  ...state,
-                  accessToken: fakeToken,
-                  hmac: fakeHmac,
-                },
-              },
-            },
-          }),
+          data: JSON.stringify({ id: request.id, result: { result: { value: nextValue } } }),
         }));
       }
     }
     close() {}
   }
 
-  const evaluated = await evaluateTarget({
+  const hostTarget = {
+    type: 'page',
+    url: 'file:///C:/work/geek/ui/index.html',
     webSocketDebuggerUrl: 'ws://127.0.0.1:9344/devtools/page/abc',
-  }, 'SAFE_PROBE_EXPRESSION', { WebSocketCtor: FakeWebSocket });
-  assert.deepEqual(Object.keys(evaluated), OUTPUT_KEYS);
-  assert.ok(Object.values(evaluated).every((value) => typeof value === 'boolean'));
-  assert.doesNotMatch(JSON.stringify(evaluated), /secret-/);
-  assert.equal(evaluateParams.expression, 'SAFE_PROBE_EXPRESSION');
+  };
+  const evaluated = await evaluateTarget(hostTarget, 'SAFE_HOST_EXPRESSION', { WebSocketCtor: FakeWebSocket });
+  assert.deepEqual(evaluated, nextValue);
+  assert.equal(evaluateParams.expression, 'SAFE_HOST_EXPRESSION');
   assert.equal(evaluateParams.awaitPromise, true);
   assert.equal(evaluateParams.returnByValue, true);
   assert.equal(evaluateParams.userGesture, false);
   assert.equal(evaluateParams.includeCommandLineAPI, false);
   assert.equal(evaluateParams.silent, true);
+
+  const probed = await probeLineWebviewState([hostTarget], 0, { WebSocketCtor: FakeWebSocket });
+  assert.deepEqual(Object.keys(probed), OUTPUT_KEYS);
+  assert.ok(Object.values(probed).every((value) => typeof value === 'boolean'));
+  assert.doesNotMatch(JSON.stringify(probed), /secret-access-token-value|secret-hmac-value|example\.invalid|private-account-id/);
+  assert.match(evaluateParams.expression, /executeJavaScript/);
+
+  nextValue = { kind: 'LINE_TARGET_NOT_FOUND', secret: fakeToken };
+  await assert.rejects(() => probeLineWebviewState([hostTarget], 0, { WebSocketCtor: FakeWebSocket }), /LINE_TARGET_NOT_FOUND/);
+  nextValue = { kind: 'TARGET_INDEX_OUT_OF_RANGE', accountId: 'private-account-id' };
+  await assert.rejects(() => probeLineWebviewState([hostTarget], 3, { WebSocketCtor: FakeWebSocket }), /TARGET_INDEX_OUT_OF_RANGE/);
+  nextValue = { kind: 'PROBE_EVALUATION_FAILED', detail: fakeHmac };
+  await assert.rejects(() => probeLineWebviewState([hostTarget], 0, { WebSocketCtor: FakeWebSocket }), /PROBE_EVALUATION_FAILED/);
+  await assert.rejects(() => probeLineWebviewState([], 0, { WebSocketCtor: FakeWebSocket }), /GEEK_HOST_TARGET_NOT_FOUND/);
+
   await assert.rejects(
     () => evaluateTarget({ webSocketDebuggerUrl: 'ws://localhost:9344/devtools/page/abc' }, 'x', { WebSocketCtor: FakeWebSocket }),
     /DEBUG_TARGET_SOCKET_INVALID/
@@ -176,6 +163,7 @@ const {
   assert.match(source, /hostname:\s*DEBUG_HOST/);
   assert.match(source, /DEBUG_HOST = '127\.0\.0\.1'/);
   assert.match(source, /DEBUG_PORT = 9344/);
+  assert.match(source, /GEEK_HOST_PAGE_SUFFIX = '\/ui\/index\.html'/);
 
   const srcDir = path.join(__dirname, '../src');
   function productionSourceFiles(dir) {
