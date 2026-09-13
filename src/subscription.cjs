@@ -296,11 +296,11 @@ function createSubscriptionStore({ userDataDir }) {
   }
 
   async function clear() {
+    // Logout/account-switch state is authoritative only after the tokenless state is durable.
+    // Persist an empty tombstone atomically instead of relying on best-effort file deletion.
+    await writeStateDisk({});
     cache = {};
     translationTokenCache = null;
-    try {
-      await fs.rm(stateFile(), { force: true });
-    } catch (e) { /* 忽略 */ }
   }
 
   async function logout() {
