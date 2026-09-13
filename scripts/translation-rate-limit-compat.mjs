@@ -66,6 +66,16 @@ function authoritativeSelectStatement(db, now) {
   };
 }
 
+function compatibilityWriteStatement(db, sql, bucketIndex) {
+  return {
+    bind(...values) {
+      const bucket = values[bucketIndex];
+      if (!ruleForBucket(bucket)) return db.prepare(sql).bind(...values);
+      return noopPreparedStatement();
+    },
+  };
+}
+
 export function scopeTranslationRateLimitAuthority(db, options = {}) {
   if (!db || typeof db.prepare !== 'function') throw new TypeError('D1 database is required');
   const now = typeof options.now === 'function' ? options.now : Date.now;
@@ -80,9 +90,8 @@ export function scopeTranslationRateLimitAuthority(db, options = {}) {
       return (sql) => {
         const normalized = normalizeSql(sql);
         if (normalized === NORMALIZED_SQL.select) return authoritativeSelectStatement(target, now);
-        if (normalized === NORMALIZED_SQL.reset || normalized === NORMALIZED_SQL.increment) {
-          return noopPreparedStatement();
-        }
+        if (normalized === NORMALIZED_SQL.reset) return compatibilityWriteStatement(target, sql, 0);
+        if (normalized === NORMALIZED_SQL.increment) return compatibilityWriteStatement(target, sql, 1);
         return target.prepare(sql);
       };
     },
