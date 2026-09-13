@@ -271,9 +271,13 @@
           if (handler) await handler(publicSnapshot(job));
           return markStopped(job.id, { current: job.current, ok: job.ok, fail: job.fail });
         }
-        transition(job.id, 'stopping', { stopRequested: true });
-        if (handler) await handler(publicSnapshot(requireJob(job.id)));
-        return publicSnapshot(requireJob(job.id));
+        if (handler) {
+          await handler(publicSnapshot(job));
+          const latest = requireJob(job.id);
+          if (TERMINAL.has(latest.state) || latest.state === 'stopping') return publicSnapshot(latest);
+          return transition(latest.id, 'stopping', { stopRequested: true });
+        }
+        return transition(job.id, 'stopping', { stopRequested: true });
       }
       throw new TypeError(`unsupported broadcast action: ${action}`);
     }
