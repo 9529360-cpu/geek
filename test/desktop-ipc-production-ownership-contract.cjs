@@ -41,8 +41,6 @@ for (const channel of expectedChannels) {
   assert.ok(owner.includes(`'${channel}'`), `Desktop IPC owner must declare ${channel}`);
 }
 
-assert.match(main, /ipcMain\.handle\('webview:register'/, 'FH-06 must intentionally leave webview:register in main');
-assert.match(main, /ipcMain\.handle\('webview:insert-text'/, 'FH-06 must intentionally leave webview:insert-text in main');
 assert.doesNotMatch(owner, /require\(['\"]\.\/platform-catalog\.cjs['\"]\)/, 'Desktop IPC owner must not copy or import Platform Catalog authority');
 assert.doesNotMatch(owner, /new\s+BrowserWindow|require\(['\"]electron['\"]\).*BrowserWindow/, 'Desktop IPC owner must not create BrowserWindow authority');
 assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{\s*assertTrustedSender\(event\);\s*return handler\(\.\.\.args\);/s, 'every Desktop handler must pass through the common sender guard before work');

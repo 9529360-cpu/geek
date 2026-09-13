@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const normalizeLineEndings = (value) => String(value).replace(/\r\n?/g, '\n');
 const main = normalizeLineEndings(fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8'));
+const webviewIpc = normalizeLineEndings(fs.readFileSync(path.join(__dirname, '../src/webview-ipc.cjs'), 'utf8'));
 const catalog = normalizeLineEndings(fs.readFileSync(path.join(__dirname, '../src/platform-catalog.cjs'), 'utf8'));
 const accountState = normalizeLineEndings(fs.readFileSync(path.join(__dirname, '../src/account-state.cjs'), 'utf8'));
 assert.equal(normalizeLineEndings('a\r\nb\rc\n'), 'a\nb\nc\n');
@@ -23,9 +24,14 @@ assert.match(
 );
 
 assert.match(
-  main,
-  /const isTelegram = \['telegram-z', 'telegram', 'telegram-pure', 'telegram-k'\]\.includes\(account\?\.type\);/,
-  'Telegram K 必须继续通过受保护的 WebView ownership/translation bridge 登记'
+  webviewIpc,
+  /const TELEGRAM_TYPES = new Set\(\['telegram-z', 'telegram', 'telegram-pure', 'telegram-k'\]\);/,
+  'Telegram K 必须继续由 WebView IPC owner 识别为受保护的 Telegram guest'
+);
+assert.match(
+  webviewIpc,
+  /register\('webview:register',[\s\S]*TELEGRAM_TYPES\.has\(account\.type\)[\s\S]*webviewOwnership\.register\(/,
+  'Telegram K 必须继续通过受保护的 WebView ownership bridge 登记'
 );
 
 console.log('TELEGRAM_K_ACCOUNT_TYPE_CONTRACT_OK');

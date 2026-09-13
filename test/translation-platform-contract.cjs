@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const normalizeLineEndings = (value) => String(value).replace(/\r\n?/g, '\n');
 const mainSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8'));
+const webviewIpcSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'webview-ipc.cjs'), 'utf8'));
 const catalogSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'platform-catalog.cjs'), 'utf8'));
 const navigationSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'src', 'webview-navigation-boundary.cjs'), 'utf8'));
 const coreSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'ui', 'translation-core.js'), 'utf8'));
@@ -43,9 +44,14 @@ assert.match(
 );
 
 assert.match(
-  mainSource,
-  /const isLine = account\?\.type === 'line' \|\| account\?\.type === 'line-business';/,
-  'LINE Business 必须通过 WebView 翻译桥安全登记'
+  webviewIpcSource,
+  /\(account\.type === 'line' \|\| account\.type === 'line-business'\) && LINE_URL\.test\(url\)/,
+  'LINE Business 必须通过 WebView IPC owner 的受保护 ownership bridge 安全登记'
+);
+assert.match(
+  webviewIpcSource,
+  /register\('webview:register',[\s\S]*webviewOwnership\.register\(/,
+  'LINE Business WebView 登记必须继续委托唯一 ownership registry authority'
 );
 
 assert.match(
