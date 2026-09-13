@@ -115,6 +115,7 @@
     const jobs = new Map();
     const executingByAccount = new Map();
     const controls = new Map();
+    const stopInvocations = new Map();
     const listeners = new Set();
     const clock = typeof options.now === 'function' ? options.now : now;
 
@@ -267,17 +268,30 @@
       }
       if (action === 'stop') {
         if (TERMINAL.has(job.state) || job.state === 'stopping') return publicSnapshot(job);
-        if (PENDING.has(job.state)) {
-          if (handler) await handler(publicSnapshot(job));
-          return markStopped(job.id, { current: job.current, ok: job.ok, fail: job.fail });
-        }
-        if (handler) {
-          await handler(publicSnapshot(job));
-          const latest = requireJob(job.id);
+        const existing = stopInvocations.get(job.id);
+        if (existing) return existing;
+        let request;
+        request = (async () => {
+          const current = requireJob(job.id);
+          if (TERMINAL.has(current.state) || current.state === 'stopping') return publicSnapshot(current);
+          const stopHandler = controls.get(current.id)?.stop;
+          if (PENDING.has(current.state)) {
+            if (stopHandler) await stopHandler(publicSnapshot(current));
+            const latest = requireJob(current.id);
+            if (TERMINAL.has(latest.state)) return publicSnapshot(latest);
+            if (!PENDING.has(latest.state)) return publicSnapshot(latest);
+            return markStopped(latest.id, { current: latest.current, ok: latest.ok, fail: latest.fail });
+          }
+          if (stopHandler) await stopHandler(publicSnapshot(current));
+          const latest = requireJob(current.id);
           if (TERMINAL.has(latest.state) || latest.state === 'stopping') return publicSnapshot(latest);
           return transition(latest.id, 'stopping', { stopRequested: true });
+        })();
+        stopInvocations.set(job.id, request);
+        try { return await request; }
+        finally {
+          if (stopInvocations.get(job.id) === request) stopInvocations.delete(job.id);
         }
-        return transition(job.id, 'stopping', { stopRequested: true });
       }
       throw new TypeError(`unsupported broadcast action: ${action}`);
     }
