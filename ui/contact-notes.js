@@ -102,7 +102,7 @@
       chat.textContent = details.length ? `${details.join(' · ')}  —  ${FAMILY_LABELS[identity.family]} · ${identity.chatId}` : `${FAMILY_LABELS[identity.family]} · ${identity.chatId}`;
     }
     function isCurrentContext(token, generation) {
-      return Boolean(token) && token === contextToken && generation === contextGeneration;
+      return token === contextToken && generation === contextGeneration;
     }
     async function refresh() {
       const context = await options.getContext();
