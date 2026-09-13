@@ -58,13 +58,19 @@ function normalizeUserIdentity(value = {}) {
 
 function createSubscriptionStore({ userDataDir }) {
   const stateFile = () => path.join(userDataDir, 'subscription.json');
+  let diskWriteQueue = Promise.resolve();
 
-  async function writeStateDisk(disk) {
-    const target = stateFile();
-    const temporary = `${target}.tmp`;
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    await fs.rename(temporary, target);
+  function writeStateDisk(disk) {
+    const queued = diskWriteQueue.then(async () => {
+      const target = stateFile();
+      const temporary = `${target}.tmp`;
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      await fs.rename(temporary, target);
+    });
+    // Physical temp-file writes also have to recover after an individual rename/write failure.
+    diskWriteQueue = queued.then(() => undefined, () => undefined);
+    return queued;
   }
 
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
