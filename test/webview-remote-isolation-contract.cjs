@@ -16,12 +16,13 @@ assert.match(
 );
 assert.match(
   main,
-  /webPreferences\.preload = path\.join\(__dirname, '\.\.', 'resources', 's3loYR\.js'\);\s*webPreferences\.contextIsolation = false;/,
-  'LINE compatibility preload remains explicitly scoped to contextIsolation=false'
+  /webPreferences\.preload = path\.join\(__dirname, '\.\.', 'resources', 's3loYR\.js'\);\s*webPreferences\.contextIsolation = true;/,
+  'LINE candidate must keep the compatibility preload while enabling contextIsolation'
 );
 assert.match(main, /: 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';/, 'WA/TG webpreferences must preserve context isolation');
-assert.match(main, /\? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'/, 'LINE webpreferences compatibility setting must remain scoped to LINE');
+assert.match(main, /\? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'/, 'LINE candidate webpreferences must enable context isolation without changing its other scoped preferences');
 assert.match(main, /webPreferences\.nodeIntegration = false;/, 'remote webviews must keep Node integration disabled');
+assert.match(main, /webPreferences\.nodeIntegrationInSubFrames = false;/, 'remote webviews must keep subframe Node integration disabled');
 assert.match(main, /webPreferences\.sandbox = true;/, 'remote webviews must keep renderer sandbox enabled');
 assert.match(main, /webPreferences\.webSecurity = true;/, 'remote webviews must keep webSecurity enabled');
 assert.match(preload, /event\.origin !== window\.location\.origin/, 'isolated bridge must validate same-origin window messages');
