@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const RECOVERY_VERSION = 5;
+  const RECOVERY_VERSION = 7;
   const COMPOSER_INTENT_TTL_MS = 2000;
   const TRANSLATION_FAILURE_MARK = '__geekTranslationLayerFailure';
 
@@ -299,11 +299,19 @@
       return intent;
     };
 
-    const buildFailureBoundary = function (delegate) {
+    const buildFailureBoundary = function (delegate, nativePassThrough = null) {
       const bounded = function (chat, ...args) {
         const chatId = String(chat?.id?._serialized || '');
         const text = args[0];
         const intent = takeComposerIntent(chatId, text);
+
+        // app.js may still own the translated path for this generation. Preserve
+        // that owner, but when translation does not apply, route around its legacy
+        // serialized queue straight to the native WhatsApp authority.
+        if (!intent && typeof nativePassThrough === 'function' && !translationApplies(chatId, text)) {
+          return nativePassThrough.call(this, chat, ...args);
+        }
+
         const snapshot = intent ? captureComposeSnapshot(chat, text) : null;
         const attempt = intent ? Object.freeze({ ...intent, snapshot, chat }) : null;
         if (attempt) {
@@ -341,7 +349,9 @@
       };
       try {
         Object.defineProperty(bounded, '__geekTranslationFailureBoundary', { value: true });
+        Object.defineProperty(bounded, '__geekTranslationFailureBoundaryVersion', { value: version });
         Object.defineProperty(bounded, '__geekTranslationFailureBoundaryDelegate', { value: delegate });
+        Object.defineProperty(bounded, '__geekTranslationNativePassThrough', { value: nativePassThrough });
       } catch {}
       return bounded;
     };
@@ -349,32 +359,36 @@
     const buildWrapper = function (original) {
       const wrapped = function (chat, ...args) {
         const receiver = this;
+        const chatId = chat?.id?._serialized;
+        const text = args[0];
+        const setting = chatId ? translationApplies(chatId, text) : null;
+
+        // Translation is an optional transform, not the owner of unrelated native
+        // WhatsApp sends. If the predicate does not apply, preserve the exact
+        // native return/error domain and do not even touch Geek's serialized queue.
+        if (!setting) return original.call(receiver, chat, ...args);
+
         const run = async () => {
-          const chatId = chat?.id?._serialized;
-          const text = args[0];
-          const setting = chatId ? translationApplies(chatId, text) : null;
-          if (setting) {
-            try {
-              ensureTranslationRequestMarker();
-              const translate = page.__geekTranslationRequest;
-              if (typeof translate !== 'function') throw new Error('翻译尚未就绪');
-              const result = await translate({
-                text,
-                source: setting.source || 'auto',
-                target: setting.target,
-                provider: setting.provider,
-                route: setting.route,
-                chatId,
-              });
-              if (!result?.text) throw new Error('翻译失败');
-              page.__geekRememberOutgoing?.(result.text, text);
-              args[0] = result.text;
-            } catch (error) {
-              const tagged = markTranslationFailure(error);
-              page.console?.error?.('[geek-translation-recovery]', tagged);
-              notify('翻译失败，原文未发送');
-              throw tagged;
-            }
+          try {
+            ensureTranslationRequestMarker();
+            const translate = page.__geekTranslationRequest;
+            if (typeof translate !== 'function') throw new Error('翻译尚未就绪');
+            const result = await translate({
+              text,
+              source: setting.source || 'auto',
+              target: setting.target,
+              provider: setting.provider,
+              route: setting.route,
+              chatId,
+            });
+            if (!result?.text) throw new Error('翻译失败');
+            page.__geekRememberOutgoing?.(result.text, text);
+            args[0] = result.text;
+          } catch (error) {
+            const tagged = markTranslationFailure(error);
+            page.console?.error?.('[geek-translation-recovery]', tagged);
+            notify('翻译失败，原文未发送');
+            throw tagged;
           }
           return original.call(receiver, chat, ...args);
         };
@@ -402,26 +416,37 @@
       if (typeof live !== 'function') return false;
 
       if (live.__geekTranslationFailureBoundary === true) {
-        page.__geekWhatsAppWrappedSend = live;
         const delegate = live.__geekTranslationFailureBoundaryDelegate;
         if (delegate?.__geekTranslationRecoveryWrapper === true && typeof delegate.__geekTranslationRecoveryOriginal === 'function') {
           mod.__geekOriginalSendText = delegate.__geekTranslationRecoveryOriginal;
         }
-        return true;
+        if (live.__geekTranslationFailureBoundaryVersion === version) {
+          page.__geekWhatsAppWrappedSend = live;
+          return true;
+        }
+        const storedNative = typeof live.__geekTranslationNativePassThrough === 'function'
+          ? live.__geekTranslationNativePassThrough
+          : (typeof mod.__geekOriginalSendText === 'function' ? mod.__geekOriginalSendText : null);
+        const rebound = buildFailureBoundary(delegate, storedNative);
+        page.__geekWhatsAppWrappedSend = rebound;
+        mod.sendTextMsgToChat = rebound;
+        return mod.sendTextMsgToChat === rebound;
       }
 
       if (live === page.__geekWhatsAppWrappedSend) {
-        const bounded = buildFailureBoundary(live);
+        const storedNative = typeof mod.__geekOriginalSendText === 'function' ? mod.__geekOriginalSendText : null;
+        const bounded = buildFailureBoundary(live, storedNative);
         page.__geekWhatsAppWrappedSend = bounded;
         mod.sendTextMsgToChat = bounded;
         return mod.sendTextMsgToChat === bounded;
       }
 
       if (live.__geekTranslationRecoveryWrapper === true) {
-        if (typeof live.__geekTranslationRecoveryOriginal === 'function') {
-          mod.__geekOriginalSendText = live.__geekTranslationRecoveryOriginal;
-        }
-        const bounded = buildFailureBoundary(live);
+        const storedNative = typeof live.__geekTranslationRecoveryOriginal === 'function'
+          ? live.__geekTranslationRecoveryOriginal
+          : (typeof mod.__geekOriginalSendText === 'function' ? mod.__geekOriginalSendText : null);
+        if (storedNative) mod.__geekOriginalSendText = storedNative;
+        const bounded = buildFailureBoundary(live, storedNative);
         page.__geekWhatsAppWrappedSend = bounded;
         mod.sendTextMsgToChat = bounded;
         return mod.sendTextMsgToChat === bounded;
@@ -433,7 +458,7 @@
       // would restore a stale pre-update function before wrapping it again.
       const original = live;
       const wrapped = buildWrapper(original);
-      const bounded = buildFailureBoundary(wrapped);
+      const bounded = buildFailureBoundary(wrapped, original);
       mod.__geekOriginalSendText = original;
       page.__geekWhatsAppWrappedSend = bounded;
       mod.sendTextMsgToChat = bounded;
