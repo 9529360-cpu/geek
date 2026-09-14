@@ -15,6 +15,10 @@ const replaceOne = (source, from, to, label) => {
   assert.equal(source.indexOf(from, first + from.length), -1, `${label}: source fragment must be unique`);
   return source.slice(0, first) + to + source.slice(first + from.length);
 };
+const replaceAllRequired = (source, from, to, label) => {
+  assert.ok(source.includes(from), `${label}: source fragment missing`);
+  return source.split(from).join(to);
+};
 const run = (command, args) => execFileSync(command, args, { cwd: root, stdio: 'inherit' });
 
 let main = read('src/main.cjs');
@@ -46,84 +50,206 @@ main = replaceOne(
 );
 write('src/main.cjs', main);
 
+const lidOld = `const pair = await W.contact.getPnLidEntry(id);\n                    if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);`;
+const lidNew = `const pair = await W.contact.getPnLidEntry(id);\n                    const phoneNumber = pair?.phoneNumber || pair?.pn;\n                    if (phoneNumber) id = String(phoneNumber._serialized || phoneNumber);`;
 let app = read('ui/app.js');
+app = replaceOne(app, lidOld, lidNew, 'ui/app.js LID phone-number mapping');
 app = replaceOne(
   app,
   '// window.WPP（wppconnect 官方）+ window.WAPLUS_WPP（HelloWorld fork——sendFileMessage 可用）',
   '// window.WPP（WA-JS 4.6 主路径）+ window.WAPLUS_WPP（HelloWorld fork，仅作兼容回退）',
   'WA-JS/WAPLUS authority comment'
 );
+app = replaceOne(
+  app,
+  '// 电子名片：使用 WPP 4.3 官方 API，避免旧内部 SendAction 返回 Promise 但消息不落地',
+  '// 电子名片：使用 WA-JS 4.6 官方 API，避免旧内部 SendAction 返回 Promise 但消息不落地',
+  'vCard WA-JS version comment'
+);
 write('ui/app.js', app);
+
+let runtime = read('ui/broadcast-runtime.js');
+runtime = replaceOne(
+  runtime,
+  `const pair = await W.contact.getPnLidEntry(id);\n                if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);`,
+  `const pair = await W.contact.getPnLidEntry(id);\n                const phoneNumber = pair?.phoneNumber || pair?.pn;\n                if (phoneNumber) id = String(phoneNumber._serialized || phoneNumber);`,
+  'broadcast runtime LID phone-number mapping'
+);
+write('ui/broadcast-runtime.js', runtime);
 
 let contract = read('test/wa-js-460-migration-contract.cjs');
 contract = replaceOne(
   contract,
   "assert.match(main, /waplus-wpp\\.js/, 'WAPLUS compatibility bundle must remain wired');",
-  "assert.match(main, /fallback\\?\\.chat\\?\\.sendTextMessage[\\s\\S]*fallback\\?\\.chat\\?\\.sendFileMessage[\\s\\S]*fallback\\?\\.contact\\?\\.getPnLidEntry[\\s\\S]*fallback\\?\\.group\\?\\.getParticipants/, 'WAPLUS fallback must retain text/media/LID/group compatibility');\nassert.match(main, /waplus-wpp\\.js/, 'WAPLUS compatibility bundle must remain wired');",
-  'WAPLUS executable compatibility contract'
+  "assert.match(main, /fallback\\?\\.chat\\?\\.sendTextMessage[\\s\\S]*fallback\\?\\.chat\\?\\.sendFileMessage[\\s\\S]*fallback\\?\\.contact\\?\\.getPnLidEntry[\\s\\S]*fallback\\?\\.group\\?\\.getParticipants/, 'WAPLUS fallback must retain text/media/LID/group compatibility');\nassert.match(app, /pair\\?\\.phoneNumber \\|\\| pair\\?\\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');\nassert.match(runtime, /pair\\?\\.phoneNumber \\|\\| pair\\?\\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');\nassert.match(main, /waplus-wpp\\.js/, 'WAPLUS compatibility bundle must remain wired');",
+  'WAPLUS and LID executable compatibility contracts'
 );
 write('test/wa-js-460-migration-contract.cjs', contract);
 
-let e2e = read('e2e/specs/whatsapp-live-bootstrap.e2e.cjs');
-e2e = replaceOne(
-  e2e,
-`        wppReady: window.WPP?.isReady === true,
-        waPlusPresent: !!window.WAPLUS_WPP,
-        waPlusChat: !!window.WAPLUS_WPP?.chat?.sendTextMessage,`,
-`        wppReady: window.WPP?.isReady === true,
-        wppVersion: String(window.WPP?.version || ''),
-        wppContractReady: window.WPP?.isReady === true
-          && typeof window.WPP?.loader?.moduleRequire === 'function'
-          && typeof window.WPP?.whatsapp?._moduleIdMap?.get === 'function'
-          && typeof window.WPP?.chat?.sendTextMessage === 'function'
-          && typeof window.WPP?.chat?.sendFileMessage === 'function'
-          && typeof window.WPP?.chat?.getActiveChat === 'function'
-          && typeof window.WPP?.contact?.getPnLidEntry === 'function'
-          && typeof window.WPP?.group?.getParticipants === 'function'
-          && !!window.WPP?.whatsapp?.ChatStore
-          && !!window.WPP?.whatsapp?.UserPrefs,
-        waPlusPresent: !!window.WAPLUS_WPP,
-        waPlusChat: !!window.WAPLUS_WPP?.chat?.sendTextMessage,
-        waPlusContractReady: typeof window.WAPLUS_WPP?.chat?.sendTextMessage === 'function'
-          && typeof window.WAPLUS_WPP?.chat?.sendFileMessage === 'function'
-          && typeof window.WAPLUS_WPP?.contact?.getPnLidEntry === 'function'
-          && typeof window.WAPLUS_WPP?.group?.getParticipants === 'function'
-          && !!window.WAPLUS_WPP?.whatsapp?.ChatStore
-          && !!window.WAPLUS_WPP?.whatsapp?.UserPrefs,`,
-  'Windows WA-JS runtime probe fields'
-);
-e2e = replaceOne(
-  e2e,
-`    assert.equal(summary.loginShell, true, \`current WhatsApp Web did not expose a user-visible QR/login shell: \${JSON.stringify(summary)}\`);
-    assert.equal(classification.ready, true, \`WhatsApp bootstrap oracle did not accept the terminal state: \${classification.reason}\`);
+const runtimeSpec = `'use strict';
 
-    // These are evidence, not the startup acceptance criterion. If they regress,
-    // the next repair should target the injection owner rather than the bootstrap.
-    console.log(\`WA_LIVE_INJECTION wppPresent=\${state.wppPresent} wppInjected=\${state.wppInjected} wppReady=\${state.wppReady} waPlusPresent=\${state.waPlusPresent} waPlusChat=\${state.waPlusChat} metaRequire=\${state.metaRequire}\`);`,
-`    assert.equal(summary.loginShell, true, \`current WhatsApp Web did not expose a user-visible QR/login shell: \${JSON.stringify(summary)}\`);
-    assert.equal(classification.ready, true, \`WhatsApp bootstrap oracle did not accept the terminal state: \${classification.reason}\`);
+const assert = require('node:assert/strict');
 
-    let injectionState = state;
-    try {
-      await browser.waitUntil(async () => {
-        injectionState = await probeGuest();
-        return injectionState.wppContractReady === true && injectionState.waPlusContractReady === true;
-      }, {
-        timeout: 35_000,
-        interval: 500,
-        timeoutMsg: 'WA-JS 4.6/WAPLUS runtime compatibility surface did not become ready',
-      });
-    } catch (error) {
-      throw new Error(\`WhatsApp runtime compatibility timeout: \${JSON.stringify(injectionState)}\`, { cause: error });
+const PARTITION = 'persist:webview-page-e2e-account-a';
+const GUEST_TIMEOUT_MS = 10_000;
+const RUNTIME_TIMEOUT_MS = 45_000;
+const RENDERER_PROBE_TIMEOUT_MS = 2_000;
+
+async function probeGuestRuntime() {
+  return browser.electron.execute(async (electron, partition, probeTimeoutMs) => {
+    const leaf = String(partition).split(':').pop();
+    const guests = electron.webContents.getAllWebContents().filter((contents) => {
+      try {
+        const storagePath = String(contents.session?.storagePath || '').replace(/[\\\\/]+$/, '');
+        return String(contents.session?.partition || '') === partition
+          && storagePath.split(/[\\\\/]/).pop() === leaf
+          && contents.getType?.() === 'webview'
+          && !contents.isDestroyed();
+      } catch {
+        return false;
+      }
+    });
+    if (guests.length !== 1) {
+      return { found: false, guestCount: Math.min(guests.length, 9) };
     }
-    state = injectionState;
-    assert.equal(state.wppVersion, '4.6.0', \`unexpected injected WA-JS version: \${state.wppVersion}\`);
-    assert.equal(state.wppContractReady, true, 'WA-JS 4.6 Geek runtime surface is incomplete');
-    assert.equal(state.waPlusContractReady, true, 'WAPLUS compatibility fallback surface is incomplete');
-    console.log(\`WA_LIVE_INJECTION version=\${state.wppVersion} wppPresent=\${state.wppPresent} wppInjected=\${state.wppInjected} wppReady=\${state.wppReady} wppContractReady=\${state.wppContractReady} waPlusPresent=\${state.waPlusPresent} waPlusChat=\${state.waPlusChat} waPlusContractReady=\${state.waPlusContractReady} metaRequire=\${state.metaRequire}\`);`,
-  'Windows WA-JS runtime acceptance gate'
+
+    const guest = guests[0];
+    let timeoutId;
+    const pageProbe = guest.executeJavaScript(\`(() => {
+      const W = window.WPP;
+      const fallback = window.WAPLUS_WPP;
+      return {
+        rendererProbeOk: true,
+        version: String(W?.version || ''),
+        wppInjected: W?.isInjected === true,
+        wppReady: W?.isReady === true,
+        loaderReady: typeof W?.loader?.moduleRequire === 'function'
+          && typeof W?.whatsapp?._moduleIdMap?.get === 'function',
+        chatReady: typeof W?.chat?.sendTextMessage === 'function'
+          && typeof W?.chat?.sendFileMessage === 'function'
+          && typeof W?.chat?.getActiveChat === 'function',
+        lidGroupReady: typeof W?.contact?.getPnLidEntry === 'function'
+          && typeof W?.group?.getParticipants === 'function',
+        storesReady: !!W?.whatsapp?.ChatStore && !!W?.whatsapp?.UserPrefs,
+        fallbackReady: typeof fallback?.chat?.sendTextMessage === 'function'
+          && typeof fallback?.chat?.sendFileMessage === 'function'
+          && typeof fallback?.contact?.getPnLidEntry === 'function'
+          && typeof fallback?.group?.getParticipants === 'function'
+          && !!fallback?.whatsapp?.ChatStore
+          && !!fallback?.whatsapp?.UserPrefs,
+      };
+    })()\`, true).catch(() => ({ rendererProbeFailed: true }));
+    const probeTimeout = new Promise((resolve) => {
+      timeoutId = setTimeout(() => resolve({ rendererProbeTimedOut: true }), probeTimeoutMs);
+    });
+    const page = await Promise.race([pageProbe, probeTimeout]);
+    clearTimeout(timeoutId);
+    return { found: true, ...page };
+  }, PARTITION, RENDERER_PROBE_TIMEOUT_MS);
+}
+
+function runtimeReady(state) {
+  return state?.found === true
+    && state?.rendererProbeOk === true
+    && state?.version === '4.6.0'
+    && state?.wppInjected === true
+    && state?.wppReady === true
+    && state?.loaderReady === true
+    && state?.chatReady === true
+    && state?.lidGroupReady === true
+    && state?.storesReady === true
+    && state?.fallbackReady === true;
+}
+
+describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
+  it('settles the exact WA-JS surface before exposing the WAPLUS fallback', async () => {
+    let state = null;
+    await browser.waitUntil(async () => {
+      state = await probeGuestRuntime();
+      return state.found === true;
+    }, {
+      timeout: GUEST_TIMEOUT_MS,
+      interval: 200,
+      timeoutMsg: 'fresh synthetic WhatsApp guest did not appear',
+    });
+
+    await browser.waitUntil(async () => {
+      state = await probeGuestRuntime();
+      return runtimeReady(state);
+    }, {
+      timeout: RUNTIME_TIMEOUT_MS,
+      interval: 500,
+      timeoutMsg: 'WA-JS 4.6/WAPLUS runtime compatibility surface did not become ready',
+    });
+
+    assert.equal(state.version, '4.6.0', 'injected WA-JS version must match the exact dependency pin');
+    assert.equal(state.wppReady, true, 'WA-JS must settle before dependent compatibility code is accepted');
+    assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by composer recovery is missing');
+    assert.equal(state.chatReady, true, 'WA-JS text/media/active-chat APIs are incomplete');
+    assert.equal(state.lidGroupReady, true, 'WA-JS LID/group APIs are incomplete');
+    assert.equal(state.storesReady, true, 'WA-JS ChatStore/UserPrefs compatibility surface is incomplete');
+    assert.equal(state.fallbackReady, true, 'WAPLUS compatibility fallback surface is incomplete');
+    console.log(\`WA_JS_RUNTIME version=\${state.version} injected=\${state.wppInjected} ready=\${state.wppReady} loader=\${state.loaderReady} chat=\${state.chatReady} lidGroup=\${state.lidGroupReady} stores=\${state.storesReady} fallback=\${state.fallbackReady}\`);
+  });
+});
+`;
+write('e2e/specs/whatsapp-wa-js-runtime.e2e.cjs', runtimeSpec);
+
+let e2eRunner = read('e2e/run.cjs');
+e2eRunner = replaceOne(
+  e2eRunner,
+  "  'whatsapp-bootstrap': path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'),",
+  "  'whatsapp-bootstrap': path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'),\n  'whatsapp-runtime': path.join(root, 'e2e', 'specs', 'whatsapp-wa-js-runtime.e2e.cjs'),",
+  'targeted WhatsApp runtime suite'
 );
-write('e2e/specs/whatsapp-live-bootstrap.e2e.cjs', e2e);
+write('e2e/run.cjs', e2eRunner);
+
+let workflow = read('.github/workflows/electron-e2e.yml');
+workflow = replaceOne(
+  workflow,
+`      - name: Run Windows WhatsApp cold-start gate
+        env:
+          FORCE_COLOR: '0'
+          GEEK_E2E_SUITE: whatsapp-bootstrap
+        run: npm run test:e2e
+`,
+`      - name: Run Windows WhatsApp cold-start gate
+        env:
+          FORCE_COLOR: '0'
+          GEEK_E2E_SUITE: whatsapp-bootstrap
+        run: npm run test:e2e
+
+      - name: Run Windows WA-JS 4.6 runtime gate
+        env:
+          FORCE_COLOR: '0'
+          GEEK_E2E_SUITE: whatsapp-runtime
+        run: npm run test:e2e
+`,
+  'Windows runtime gate step'
+);
+write('.github/workflows/electron-e2e.yml', workflow);
+
+let windowsContract = read('test/electron-e2e-windows-whatsapp-contract.cjs');
+windowsContract = replaceOne(
+  windowsContract,
+  "const whatsappSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'), 'utf8');",
+  "const whatsappSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'), 'utf8');\nconst whatsappRuntimeSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'whatsapp-wa-js-runtime.e2e.cjs'), 'utf8');",
+  'Windows contract runtime spec source'
+);
+windowsContract = replaceOne(
+  windowsContract,
+  "assert.match(windowsJob, /GEEK_E2E_SUITE:\\s*whatsapp-bootstrap/, 'Windows lane must select only the WhatsApp bootstrap gate');",
+  "assert.match(windowsJob, /GEEK_E2E_SUITE:\\s*whatsapp-bootstrap/, 'Windows lane must retain the independent WhatsApp bootstrap gate');\nassert.match(windowsJob, /GEEK_E2E_SUITE:\\s*whatsapp-runtime/, 'Windows lane must run the independent WA-JS runtime gate');",
+  'Windows workflow suite contracts'
+);
+windowsContract = replaceOne(
+  windowsContract,
+  "assert.match(runner, /'whatsapp-bootstrap':\\s*path\\.join\\(root, 'e2e', 'specs', 'whatsapp-live-bootstrap\\.e2e\\.cjs'\\)/, 'selector must resolve only the existing WhatsApp bootstrap spec');",
+  "assert.match(runner, /'whatsapp-bootstrap':\\s*path\\.join\\(root, 'e2e', 'specs', 'whatsapp-live-bootstrap\\.e2e\\.cjs'\\)/, 'selector must retain the WhatsApp bootstrap spec');\nassert.match(runner, /'whatsapp-runtime':\\s*path\\.join\\(root, 'e2e', 'specs', 'whatsapp-wa-js-runtime\\.e2e\\.cjs'\\)/, 'selector must expose the independent WA-JS runtime spec');",
+  'E2E runner runtime selector contract'
+);
+windowsContract += `\nassert.match(whatsappRuntimeSpec, /version === '4\\.6\\.0'/, 'WA-JS runtime gate must require the exact tested version');\nassert.match(whatsappRuntimeSpec, /loaderReady[\\s\\S]*chatReady[\\s\\S]*lidGroupReady[\\s\\S]*storesReady[\\s\\S]*fallbackReady/, 'WA-JS runtime gate must cover loader, send, LID/group, stores, and WAPLUS fallback');\nassert.doesNotMatch(whatsappRuntimeSpec, /document\\.cookie|localStorage|sessionStorage|Authorization|qrData|innerText|textContent/i, 'WA-JS runtime diagnostics must not read secrets or page bodies');\n`;
+write('test/electron-e2e-windows-whatsapp-contract.cjs', windowsContract);
 
 run('npm', ['ci', '--ignore-scripts']);
 run(process.execPath, ['scripts/dependency-audit-policy.cjs']);
