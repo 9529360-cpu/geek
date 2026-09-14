@@ -15,10 +15,6 @@ const replaceOne = (source, from, to, label) => {
   assert.equal(source.indexOf(from, first + from.length), -1, `${label}: source fragment must be unique`);
   return source.slice(0, first) + to + source.slice(first + from.length);
 };
-const replaceAllRequired = (source, from, to, label) => {
-  assert.ok(source.includes(from), `${label}: source fragment missing`);
-  return source.split(from).join(to);
-};
 const run = (command, args) => execFileSync(command, args, { cwd: root, stdio: 'inherit' });
 
 let main = read('src/main.cjs');
@@ -50,10 +46,13 @@ main = replaceOne(
 );
 write('src/main.cjs', main);
 
-const lidOld = `const pair = await W.contact.getPnLidEntry(id);\n                    if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);`;
-const lidNew = `const pair = await W.contact.getPnLidEntry(id);\n                    const phoneNumber = pair?.phoneNumber || pair?.pn;\n                    if (phoneNumber) id = String(phoneNumber._serialized || phoneNumber);`;
 let app = read('ui/app.js');
-app = replaceOne(app, lidOld, lidNew, 'ui/app.js LID phone-number mapping');
+app = replaceOne(
+  app,
+  `const pair = await W.contact.getPnLidEntry(id);\n                    if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);`,
+  `const pair = await W.contact.getPnLidEntry(id);\n                    const phoneNumber = pair?.phoneNumber || pair?.pn;\n                    if (phoneNumber) id = String(phoneNumber._serialized || phoneNumber);`,
+  'ui/app.js LID phone-number mapping'
+);
 app = replaceOne(
   app,
   '// window.WPP（wppconnect 官方）+ window.WAPLUS_WPP（HelloWorld fork——sendFileMessage 可用）',
@@ -109,9 +108,7 @@ async function probeGuestRuntime() {
         return false;
       }
     });
-    if (guests.length !== 1) {
-      return { found: false, guestCount: Math.min(guests.length, 9) };
-    }
+    if (guests.length !== 1) return { found: false, guestCount: Math.min(guests.length, 9) };
 
     const guest = guests[0];
     let timeoutId;
@@ -203,31 +200,6 @@ e2eRunner = replaceOne(
   'targeted WhatsApp runtime suite'
 );
 write('e2e/run.cjs', e2eRunner);
-
-let workflow = read('.github/workflows/electron-e2e.yml');
-workflow = replaceOne(
-  workflow,
-`      - name: Run Windows WhatsApp cold-start gate
-        env:
-          FORCE_COLOR: '0'
-          GEEK_E2E_SUITE: whatsapp-bootstrap
-        run: npm run test:e2e
-`,
-`      - name: Run Windows WhatsApp cold-start gate
-        env:
-          FORCE_COLOR: '0'
-          GEEK_E2E_SUITE: whatsapp-bootstrap
-        run: npm run test:e2e
-
-      - name: Run Windows WA-JS 4.6 runtime gate
-        env:
-          FORCE_COLOR: '0'
-          GEEK_E2E_SUITE: whatsapp-runtime
-        run: npm run test:e2e
-`,
-  'Windows runtime gate step'
-);
-write('.github/workflows/electron-e2e.yml', workflow);
 
 let windowsContract = read('test/electron-e2e-windows-whatsapp-contract.cjs');
 windowsContract = replaceOne(
