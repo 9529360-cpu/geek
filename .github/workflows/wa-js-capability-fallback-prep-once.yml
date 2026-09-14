@@ -58,7 +58,7 @@ jobs:
           node --check test/wa-js-460-migration-contract.cjs
           git diff --check
           changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u)"
-          expected="$(printf '%s\n' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
+          expected="$(printf '%s\n' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
           test "$changed" = "$expected"
 
       - name: Run focused and repository contracts
