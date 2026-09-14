@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const RECOVERY_VERSION = 2;
+  const RECOVERY_VERSION = 3;
   const COMPOSER_INTENT_TTL_MS = 2000;
   const TRANSLATION_FAILURE_MARK = '__geekTranslationLayerFailure';
 
@@ -41,6 +41,8 @@
 
     let composerIntent = null;
     let composerIntentSequence = 0;
+    let composerSendPending = false;
+    const composerAttempts = new Map();
 
     const notify = function (message) {
       try {
@@ -90,15 +92,25 @@
       const tagged = error && (typeof error === 'object' || typeof error === 'function')
         ? error
         : new Error(String(error || '翻译失败'));
+      if (tagged?.[TRANSLATION_FAILURE_MARK] === true) return tagged;
       try { Object.defineProperty(tagged, TRANSLATION_FAILURE_MARK, { value: true }); }
       catch { try { tagged[TRANSLATION_FAILURE_MARK] = true; } catch {} }
       return tagged;
     };
 
     const isTranslationFailure = function (error) {
-      return !!error?.[TRANSLATION_FAILURE_MARK]
-        || String(error?.message || error || '') === '翻译失败'
-        || String(error?.message || error || '') === '翻译尚未就绪';
+      return error?.[TRANSLATION_FAILURE_MARK] === true;
+    };
+
+    const findComposerAttempt = function (payload) {
+      const body = payload && typeof payload === 'object' ? payload : {};
+      const chatId = String(body.chatId || '');
+      const text = cleanText(body.text);
+      if (!chatId || !text) return null;
+      for (const attempt of composerAttempts.values()) {
+        if (attempt.chatId === chatId && cleanText(attempt.text) === text) return attempt;
+      }
+      return null;
     };
 
     const ensureTranslationRequestMarker = function () {
@@ -106,10 +118,20 @@
       if (typeof live !== 'function') return false;
       if (live.__geekTranslationFailureTagged === true) return true;
       const taggedRequest = function (...args) {
+        const attempt = findComposerAttempt(args[0]);
         let result;
         try { result = live.apply(this, args); }
         catch (error) { throw markTranslationFailure(error); }
-        return Promise.resolve(result).catch(error => { throw markTranslationFailure(error); });
+        return Promise.resolve(result)
+          .then(value => {
+            if (!attempt) return value;
+            if (!value?.text) throw markTranslationFailure(new Error('翻译失败'));
+            if (activeChatId() !== attempt.chatId) {
+              throw markTranslationFailure(new Error('聊天已切换，翻译发送已取消'));
+            }
+            return value;
+          })
+          .catch(error => { throw markTranslationFailure(error); });
       };
       try {
         Object.defineProperty(taggedRequest, '__geekTranslationFailureTagged', { value: true });
@@ -152,6 +174,12 @@
         composerIntent = null;
         return { applies: false, blocked: false };
       }
+      if (composerSendPending) {
+        event.preventDefault?.();
+        event.stopImmediatePropagation?.();
+        notify('翻译处理中，请稍候');
+        return { applies: true, blocked: true };
+      }
       ensureTranslationRequestMarker();
       if (typeof page.__geekTranslationRequest !== 'function') {
         composerIntent = null;
@@ -185,17 +213,39 @@
         const text = args[0];
         const intent = takeComposerIntent(chatId, text);
         const snapshot = intent ? captureComposeSnapshot(chat, text) : null;
+        const attempt = intent ? Object.freeze({ ...intent, snapshot, chat }) : null;
+        if (attempt) {
+          composerSendPending = true;
+          composerAttempts.set(attempt.sequence, attempt);
+        }
+        const cleanup = function () {
+          if (!attempt) return;
+          composerAttempts.delete(attempt.sequence);
+          composerSendPending = composerAttempts.size > 0;
+        };
         const handleFailure = error => {
-          if (!intent || !isTranslationFailure(error)) throw error;
+          if (!attempt || !isTranslationFailure(error)) throw error;
           const restored = restoreComposeSnapshot(chat, snapshot, text);
           notify(restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送');
           return undefined;
         };
         let result;
         try { result = delegate.call(this, chat, ...args); }
-        catch (error) { return handleFailure(error); }
-        if (!intent || !result || typeof result.then !== 'function') return result;
-        return Promise.resolve(result).catch(handleFailure);
+        catch (error) {
+          try { return handleFailure(error); }
+          finally { cleanup(); }
+        }
+        if (!attempt || !result || typeof result.then !== 'function') {
+          cleanup();
+          return result;
+        }
+        return Promise.resolve(result).then(
+          value => { cleanup(); return value; },
+          error => {
+            try { return handleFailure(error); }
+            finally { cleanup(); }
+          }
+        );
       };
       try {
         Object.defineProperty(bounded, '__geekTranslationFailureBoundary', { value: true });
@@ -362,14 +412,14 @@
       host.document.querySelectorAll?.('webview').forEach(observe);
     }
 
-    const start = () => {
+    function start() {
       scan();
       const Observer = host.MutationObserver;
       if (typeof Observer !== 'function') return;
       const observer = new Observer(scan);
       observer.observe(host.document.documentElement || host.document.body, { childList: true, subtree: true });
       host.__geekWhatsAppTranslationHookRecoveryObserver = observer;
-    };
+    }
 
     if (host.document.readyState === 'loading') host.document.addEventListener('DOMContentLoaded', start, { once: true });
     else start();
