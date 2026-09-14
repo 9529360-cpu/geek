@@ -16,27 +16,27 @@ The current client/package version is intentionally not hard-coded in this opera
 
 These names describe the repository's control-plane model. When diagnosing production, verify current Wrangler bindings/routes and Actions evidence instead of assuming a dated document proves deployment state.
 
-## Repository Actions Secrets
+## Repository Actions secrets
 
-Configured project control-plane credential names:
+Configured project control-plane credential names include:
 
 - `CLOUDFLARE_API_TOKEN`: project-scoped Worker deployment and R2 publication token.
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account identifier.
-- `CLOUDFLARE_INFRA_API_TOKEN`: project-scoped infrastructure token for read-only verification and explicitly reviewed D1/DNS/route operations.
+- `CLOUDFLARE_INFRA_API_TOKEN`: infrastructure token for read-only verification and explicitly reviewed D1/DNS/route operations.
 
-The infrastructure token must remain limited to the Geek Cloudflare account and the `bbnba.com` zone. It must not be expanded to billing, membership, API-token-management, unrelated accounts/zones or account-ownership permissions.
+The infrastructure token must remain limited to the Geek Cloudflare account and the `bbnba.com` zone. Do not expand it to billing, membership, API-token-management, unrelated accounts/zones or account-ownership permissions merely to unblock routine maintenance.
 
-Provider/application secrets may be mirrored into GitHub only when an intentional rotation or automated secret-management workflow is added. Existing Worker secrets are not read or printed by deployment workflows.
+Provider/application secrets may be mirrored into GitHub only when an intentional rotation or automated secret-management workflow is added. Existing Worker secrets are never read or printed by deployment workflows.
 
 ## Worker validation plane
 
 Cloudflare Worker validation and production deployment are separate ownership planes.
 
-`.github/workflows/cloudflare-worker-validation.yml` is the non-production validation plane. It runs for relevant pull requests and `master` pushes when Worker/deployment source, tests, Wrangler config, deploy workflows, observer/smoke tooling, this control-plane documentation, or the recovery contract changes. It uses only `contents: read`, does not enter a production GitHub environment, does not write Issues, and does not consume Cloudflare deployment credentials.
+`.github/workflows/cloudflare-worker-validation.yml` is the non-production validation plane. It runs for relevant pull requests and `master` pushes when Worker/deployment source, tests, Wrangler config, deployment workflows or observer/smoke tooling change. It uses only repository read access, does not enter a production GitHub environment and does not consume Cloudflare deployment credentials.
 
-The validation job installs dependencies with lifecycle scripts disabled, runs the repository test suite, syntax-checks Worker/deployment JavaScript, and bundles all four production Workers with the repository's current Wrangler deployment version using `wrangler deploy --dry-run --outdir ...`. Wrangler dry-run is the non-production bundle oracle: it proves that Wrangler can build the production config/entry graph without uploading a Worker.
+The validation job installs dependencies with lifecycle scripts disabled, runs repository tests, syntax-checks Worker/deployment JavaScript, and bundles the production Workers with Wrangler dry-run. A dry-run validates the deployable graph without uploading a Worker.
 
-Validation inputs are intentionally broader than production deployment inputs. In particular:
+Keep these distinctions explicit:
 
 ```text
 test change != production artifact change
@@ -44,124 +44,81 @@ deployment observer change != Worker artifact change
 deploy workflow change != automatic production deploy
 ```
 
-A change to tests, `scripts/cloudflare-deploy-report.cjs`, `scripts/account-live-smoke.mjs`, a deploy workflow, or other validation/control-plane tooling must be able to revalidate the system without automatically publishing a Worker. Pull-request code must never receive production Worker deployment credentials.
+Pull-request code must never receive production Worker deployment credentials.
 
 ## Automatic production deployment
 
-Production deployment workflows run only from a matching `master` production artifact/config change or an explicit `workflow_dispatch`. They do not deploy pull-request code and therefore do not expose production deployment credentials to PR code.
+Production deployment workflows run only from matching `master` production artifact/config changes or an explicit authorized `workflow_dispatch`. They do not deploy pull-request code.
 
-For automatic `master` deployment, each Worker's `push.paths` is owned by its deployable input closure: the matching Wrangler config plus the repository-local modules reachable from that config's production `main` entry. Tests, smoke runners, deployment reporters, documentation, CI helpers and the deploy workflow file itself are validation inputs, not automatic production deployment inputs.
+For automatic `master` deployment, each Worker's `push.paths` is owned by its deployable input closure: the matching Wrangler config plus repository-local modules reachable from that config's production entry. Tests, smoke runners, deployment reporters, documentation, CI helpers and deployment workflow files are validation/control-plane inputs and must not accidentally become production-deploy triggers.
 
-| Workflow | Independent production target | Public verification | Status channel |
+| Workflow | Production target | Public verification | Status channel |
 |---|---|---|---|
 | `deploy-website` | `geek-website` | `https://geek.bbnba.com/health` | #21 |
-| `deploy-translate` | `geek-translate` | static translation `/health` endpoint | #21 |
+| `deploy-translate` | `geek-translate` | translation `/health` endpoint | #21 |
 | `deploy-release-worker` | `geek-release` | public updater `latest.yml` | #21 |
 | `deploy-subscription` | `geek-subscription` | `https://admin.bbnba.com/health` plus account smoke | #21 and #23 |
 
-Each service keeps its own workflow, concurrency boundary and Wrangler deployment. A failure in one service does not prevent unrelated services from deploying.
+Each service keeps its own workflow, concurrency boundary and Wrangler deployment. A failure in one service must not silently block or publish an unrelated service.
 
-For every deployment, the same GitHub-hosted job performs the relevant sequence:
-
-1. install dependencies without lifecycle scripts;
-2. run the complete `npm test` suite;
-3. syntax-check the affected Worker and helper scripts;
-4. deploy with the matching Wrangler config;
-5. verify a fixed public HTTPS endpoint;
-6. publish a non-sensitive result to the Actions job summary and Issue #21.
-
-The subscription workflow additionally runs registration, login, authenticated API and test-account cleanup smoke, then publishes that result to Issue #23. Its overall deployment report in #21 includes only the smoke outcome, not account details.
-
-Translation, release and subscription share `scripts/cloudflare-deploy-report.cjs` for fixed endpoint selection, HTTPS verification, response-body discard and #21 publication. Website keeps its direct reporter. Status publication is part of the deployment result rather than a best-effort observer; a missing or failed report must not silently convert a failed deployment into success.
+For every deployment, the same GitHub-hosted job performs the relevant sequence: install dependencies without lifecycle scripts, run the required test suite, syntax-check affected Worker/helper code, deploy with the matching Wrangler config, verify a fixed public HTTPS endpoint, and publish a non-sensitive result to the job summary and Issue #21. Subscription additionally runs its account smoke and reports the outcome to Issue #23 without exposing account details.
 
 ## Production evidence
 
 Use this order when determining production state:
 
-1. the corresponding live GitHub Actions run and its job/step conclusions;
-2. the latest matching Issue #21 deployment comment;
-3. for account behavior, the latest Issue #23 smoke comment;
+1. matching live GitHub Actions run and exact job/step conclusions;
+2. latest matching Issue #21 deployment comment;
+3. for account behavior, latest Issue #23 smoke comment;
 4. current `master` workflow/source/Wrangler configuration;
-5. dated Issue #50/history and old runbooks only as context after live evidence is known.
+5. dated Issue #50/history and old runbooks only as context.
 
-`.agent/HANDOFF.md` is a recovery contract/durable invariant document, not a production-state checkpoint. It may tell a maintainer **how** to recover evidence, but it must not substitute for Actions/#21/#23/live source.
+`.agent/HANDOFF.md` is a recovery contract/durable invariant document, not a production-state checkpoint. It may tell a maintainer how to recover evidence, but it must not substitute for live Actions/#21/#23/source.
 
-Do not use a local maintenance container's DNS resolution as production evidence. Local environments may have transient network or resolver limits that say nothing about the GitHub-hosted deployment job.
-
-Deployment reports may contain only:
-
-- service/workflow name;
-- overall, Wrangler, public verification and account-smoke outcome where applicable;
-- HTTP status code;
-- fixed public endpoint;
-- workflow run link/identifier;
-- commit SHA and trigger/time metadata.
-
-They must not contain response bodies, DNS values, D1/R2/KV contents, API tokens, Authorization headers, cookies, JWTs, passwords, account data or user data.
+Do not use a local maintenance container's DNS result as production evidence. Deployment reports may contain only service/workflow name, pass/fail state, HTTP status, fixed public endpoint, workflow run link/identifier, commit SHA and trigger/time metadata. Never include response bodies, DNS values, D1/R2/KV contents, API tokens, Authorization headers, cookies, JWTs, passwords, account data or user data.
 
 ## Client release boundary
 
 `.github/workflows/release-client.yml` has two controlled entrypoints:
 
-- a path-filtered `master` push when `.github/release-client-version` changes, used for a normal new-version release;
-- an explicit `workflow_dispatch`, used only to retry the same authorized version after a failed release attempt.
+- a marker-changing `master` push when `.github/release-client-version` changes, used for a normal authorized new-version release;
+- explicit `workflow_dispatch`, used only to retry the same already-authorized version after a failed release attempt.
 
-Both paths validate that the marker exactly matches `package.json.version` and then execute the same Windows contract/build, artifact validation, previous-stable verification, immutable upload, rollback snapshot, `latest.yml`-last promotion and public verification sequence. Manual dispatch does not bypass any release safeguard.
+Both paths validate that the marker exactly matches `package.json.version` and execute the same Windows contract/build, artifact validation, previous-stable verification, immutable upload, rollback snapshot, `latest.yml`-last promotion and public verification sequence. Manual dispatch does not bypass release safeguards.
 
-A normal source, Worker or documentation merge must leave the marker unchanged and must not manually dispatch `release-client`. Formal new-version releases, deliberate same-version retries, certificate changes and changes to the public updater metadata require a separate release decision and the process documented in [`release-security.md`](release-security.md).
+A normal source, Worker, test or documentation merge must leave the marker unchanged and must not manually dispatch `release-client`. Formal new-version releases, deliberate same-version retries, certificate changes and public updater metadata changes require a separate release decision and the process in [`release-security.md`](release-security.md).
 
-The release Worker deployment and a client release are different operations:
-
-- `deploy-release-worker` deploys the updater-serving Worker code and verifies the existing public `latest.yml`.
-- `release-client` builds and publishes a Windows installer/blockmap, promotes `latest.yml` last, and can be explicitly rerun only for an authorized same-version recovery.
-
-Do not describe a release Worker code deployment as a new client release, and do not use the client release workflow as a general CI or deployment test.
-
-Windows Authenticode certificate/secret ownership is intentionally outside routine maintenance and is tracked separately in Issue #445. Enabling signing must not bypass the release authorization or artifact/public-propagation gates.
+`deploy-release-worker` and `release-client` are different operations: the former deploys updater-serving Worker code and verifies the existing updater; the latter builds and publishes a Windows client release. Never describe a release Worker deployment as a new client release.
 
 ## Repository merge-control boundary
 
-The repository's expected exact-head merge discipline should be enforced by GitHub rules rather than maintainer memory. Current owner/admin follow-up for `master` branch protection and required status checks is tracked in Issue #444.
+`master` merge discipline is repository-enforced, not a maintainer-memory convention. Issue #444 records the completed rollout of repository protection; it is historical evidence, not an open owner/admin follow-up.
 
-When that rule is configured, do not make a path-filtered workflow required unless it is guaranteed to emit a terminal check for every PR that needs it; otherwise a legitimate docs/source PR can be stuck forever waiting for a check that never starts. Always-emitted aggregate gates should be preferred for required-check policy.
+The exact live ruleset is dynamic and must be queried before relying on its current check names or policy. At the 2026-09-14 architecture audit, the active `Protect master` ruleset required pull requests, blocked branch deletion and non-fast-forward updates, used strict required-status-check policy, and required the always-emitted `test` and `electron-e2e` checks with no bypass actors. Future maintainers must re-read the live ruleset rather than treating this dated observation as permanent configuration.
 
-Routine maintainers must not weaken CI or request broader administration credentials merely to bypass the control plane.
+The durable invariant is:
+
+- direct unreviewed pushes are not the normal path;
+- force-push/non-fast-forward and branch deletion stay blocked unless an explicit future emergency policy changes that boundary;
+- required checks must be always-emitted gates, not path-filtered jobs that can remain permanently pending;
+- current workflow contracts must preserve the required `test` and aggregate `electron-e2e` gate semantics while those names remain required by the live ruleset;
+- routine maintainers must not weaken CI or request broader administration credentials merely to bypass merge control.
+
+`test/master-merge-gate-contract.cjs` protects the repository-side workflow shape. The live GitHub ruleset remains the authority for repository enforcement itself.
 
 ## Infrastructure access verification
 
-`.github/workflows/verify-cloudflare-infra.yml` runs only on `master` or explicit dispatch. It uses `CLOUDFLARE_INFRA_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to perform read-only checks against the Cloudflare API.
+`.github/workflows/verify-cloudflare-infra.yml` runs only on `master` or explicit dispatch. It uses `CLOUDFLARE_INFRA_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for read-only Cloudflare capability/status checks. It must not create, edit or delete Cloudflare resources merely to prove access.
 
-The smoke check verifies access to the `bbnba.com` zone plus D1, R2, KV, Workers scripts, Pages, DNS records, Workers Routes and zone settings. It intentionally does not create, edit or delete Cloudflare resources. The report records only resource/check names, result and HTTP status; it does not include credential values, DNS records or Cloudflare response bodies.
+The report records only resource/check names, result and HTTP status. It does not include credential values, DNS records or Cloudflare response bodies.
 
 ## Infrastructure-token target scope
 
-Account scope: only the account that owns the Geek Workers and D1.
+Account scope is only the account that owns Geek Workers and D1. Current architecture may require Workers Scripts, KV, R2, D1, Pages, Workers Builds/Observability and Account Settings read capabilities; zone scope is only `bbnba.com`, with DNS, Workers Routes, Zone read/settings, SSL/certificates and cache purge capabilities as needed by reviewed infrastructure workflows.
 
-Account permissions required for the current architecture:
+Permission names and product availability can change. Before an infrastructure mutation, verify the current Cloudflare/GitHub configuration and minimum permission actually required. This section is an architecture target, not permission to silently expand a token.
 
-- Workers Scripts: Edit
-- Workers KV Storage: Edit
-- Workers R2 Storage: Edit
-- D1: Edit
-- Cloudflare Pages: Edit
-- Workers Builds Configuration: Edit
-- Workers Observability: Edit
-- Account Settings: Read
-
-Zone scope: only `bbnba.com`.
-
-Zone permissions required for the current architecture:
-
-- DNS: Edit
-- Workers Routes: Edit
-- Zone: Read
-- Zone Settings: Edit
-- SSL and Certificates: Edit
-- Cache Purge: Purge/Edit when available in the dashboard permission selector
-
-Do not add Billing Edit, Memberships Edit, API Tokens Edit, Account Settings Edit, or permissions for unrelated accounts/zones.
-
-Permissions and product availability can change. Before making an infrastructure change, verify the current Cloudflare/GitHub configuration and the minimum privilege actually required; this list is an architecture target, not permission to silently expand a token.
+Never add Billing Edit, Memberships Edit, API Tokens Edit, broad account ownership permissions or unrelated account/zone access for routine project work.
 
 ## Safety rules
 
@@ -171,11 +128,11 @@ Permissions and product availability can change. Before making an infrastructure
 - Destructive D1 migrations must be explicit migration files and must not be re-run blindly.
 - DNS and zone changes must be represented as reviewed repository changes before automation applies them.
 - Cloudflare login ownership, 2FA recovery, billing and credential rotation remain owner-controlled outside routine maintenance.
-- Payment QR content must derive from the current server-provided address; do not hard-code a second destination in website or deployment tooling.
+- Payment destination content must derive from current server-provided state; do not hard-code a second destination in website/deployment tooling.
 - Release Worker routes remain updater-only and must not become a general static-file service.
 
 ## Agent recovery
 
-A future maintenance agent should read `AGENTS.md`, `.agent/HANDOFF.md` and `docs/README.md` for durable rules and document authority, then **query live GitHub** for current `master`, version/marker, open PR/Issues and current Actions before selecting work. Read this file and relevant Wrangler/workflow configuration for control-plane changes. Issue #50 remains the long-term dated checkpoint/history channel and is useful only after live state is established.
+A future maintenance agent should read `AGENTS.md`, `.agent/HANDOFF.md` and [`README.md`](README.md) for durable rules/document authority, then query live GitHub for current `master`, version/marker, open PR/Issues, current Actions and repository rules before selecting work. Read relevant Wrangler/workflow configuration for control-plane changes. Issue #50 remains the long-term dated checkpoint/history channel and is useful only after live state is established.
 
 Routine code, Worker deployment and CI can be managed through the repository. Infrastructure mutations must use the minimum scoped credential through a purpose-built, reviewed workflow rather than exposing its value.
