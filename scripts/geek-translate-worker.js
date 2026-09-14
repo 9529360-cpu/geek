@@ -72,7 +72,6 @@ function markProviderOk(id) {
 function providerUsable(provider) {
   const st = providerState.get(provider.id);
   if (!st || st.healthy) return true;
-  // 冷却期过后允许重试探测
   return Date.now() - (st.lastFailAt || 0) > COOLDOWN_MS;
 }
 
@@ -299,8 +298,6 @@ function validateTranslationOutput(source, output, target) {
   return result;
 }
 
-// 调单个免费模型；非 2xx / 超时 / 空响应 → 抛错（上层轮换）。
-// timeoutMs 来自当前请求的剩余预算，不再让每个 provider 独占完整 15s。
 async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS) {
   const boundedTimeout = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, Math.floor(Number(timeoutMs) || 0)));
   const controller = new AbortController();
@@ -324,9 +321,7 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
     }
     const data = await res.json();
     let result = ((data.choices || [])[0] || {}).message?.content?.trim();
-    if (!result && data.choices?.[0]?.message?.reasoning) {
-      result = String(data.choices[0].message.reasoning).trim();
-    }
+    if (!result && data.choices?.[0]?.message?.reasoning) result = String(data.choices[0].message.reasoning).trim();
     if (!result) throw new Error(`${provider.id}: empty response`);
     const thinkMatch = result.match(/^<think>[\s\S]*?<\/think>\s*/);
     if (thinkMatch) result = result.slice(thinkMatch[0].length).trim();
@@ -348,7 +343,6 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
   }
 }
 
-// 多免费模型轮换共享一个绝对 deadline。只有还有足够剩余预算时才启动下一个 provider。
 async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS) {
   const pool = PROVIDERS.filter(p => Boolean(env[p.keyEnv]));
   if (!pool.length) throw new Error('no free provider configured');
@@ -372,17 +366,13 @@ async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BU
   throw lastError || new Error('all free providers failed');
 }
 
-export { requestDeadlineAt, remainingBudgetMs, providerAttemptBudget };
-
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') return handleOptions(request, env);
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (request.method === 'GET' && path === '/health') {
-      return health(env, request);
-    }
+    if (request.method === 'GET' && path === '/health') return health(env, request);
 
     if (request.method === 'POST' && path === '/v1/translate') {
       const deadlineAt = requestDeadlineAt(request);
