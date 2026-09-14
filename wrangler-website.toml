@@ -1,6 +1,6 @@
 # 极客官网 Worker 配置
 name = "geek-website"
-main = "scripts/geek-website-entry.js"
+main = "scripts/geek-marketing-router.js"
 compatibility_date = "2026-08-16"
 
 # 绑定到子域名 geek.bbnba.com（Cloudflare 已接管 DNS）
