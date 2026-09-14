@@ -46,6 +46,13 @@ function classifyGatewayResponse(status, result = {}) {
     ? result.message.trim()
     : upstreamCode;
 
+  if (upstreamCode === 'deadline_exceeded') {
+    return createTranslationError(
+      'TRANSLATION_DEADLINE_EXCEEDED',
+      upstreamMessage || '翻译请求超时，请重试',
+      { category: 'deadline', retryable: true, endpointFailure: false, status: httpStatus, upstreamCode }
+    );
+  }
   if (httpStatus === 400 || httpStatus === 404 || httpStatus === 422) {
     return createTranslationError(
       upstreamCode || 'TRANSLATION_REQUEST_INVALID',
