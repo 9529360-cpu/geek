@@ -114,6 +114,67 @@ function authenticatedDiskState() {
     const durableAfterRecovery = JSON.parse(await fsp.readFile(stateFile, 'utf8'));
     assert.equal(durableAfterRecovery.token, `enc:${CIPHERTEXT}`, 'successful recovery must keep the token encrypted on disk');
     assert.notEqual(durableAfterRecovery.token, PLAINTEXT_TOKEN);
+
+    // A permanently unreadable old token must not trap the user. Login/register endpoints are
+    // unauthenticated recovery boundaries: they must not depend on decrypting or sending the old token.
+    const loginDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'geek-subscription-decrypt-login-'));
+    try {
+      const loginFile = path.join(loginDir, 'subscription.json');
+      await fsp.writeFile(loginFile, originalDisk, { encoding: 'utf8', mode: 0o600 });
+      const loginStore = createSubscriptionStore({ userDataDir: loginDir });
+      const newToken = 'replacement-session-token';
+      const newCiphertext = 'replacement-session-ciphertext';
+      let loginDecryptCalls = 0;
+      const requests = [];
+      loginStore._injectCrypto({
+        encrypt(value) {
+          assert.equal(String(value), newToken);
+          return newCiphertext;
+        },
+        decrypt() {
+          loginDecryptCalls += 1;
+          throw new Error('old token is permanently unreadable');
+        },
+      });
+      global.fetch = async (input, options = {}) => {
+        const url = String(input instanceof Request ? input.url : input);
+        requests.push({ url, authorization: options?.headers?.Authorization || '' });
+        if (url.endsWith('/api/login')) {
+          assert.equal(options?.headers?.Authorization, undefined, 'login recovery must never send or decrypt the old bearer token');
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              token: newToken,
+              user: { id: 18, email: 'new@example.invalid', account_no: ACCOUNT_NO },
+            }),
+          };
+        }
+        if (url.endsWith('/api/status')) {
+          assert.equal(options?.headers?.Authorization, `Bearer ${newToken}`, 'post-login status must use only the newly committed token');
+          return { ok: true, status: 200, json: async () => ({ remaining_chars: 77 }) };
+        }
+        throw new Error(`unexpected request: ${url}`);
+      };
+
+      const loginResult = await loginStore.login('new@example.invalid', '0123456789');
+      assert.equal(loginResult.ok, true, 'successful credentials must recover from an unreadable old local token');
+      assert.equal(loginDecryptCalls, 0, 'login recovery must not attempt to decrypt the obsolete token');
+      assert.equal(requests.length, 2, 'login recovery should perform login plus the normal status refresh only');
+      assert.ok(requests[0].url.endsWith('/api/login'));
+      assert.equal(requests[0].authorization, '');
+      assert.ok(requests[1].url.endsWith('/api/status'));
+      assert.equal(requests[1].authorization, `Bearer ${newToken}`);
+      const loginState = await loginStore.getState();
+      assert.equal(loginState.loggedIn, true);
+      assert.equal(loginState.email, 'new@example.invalid');
+      assert.equal(loginState.remaining_chars, 77);
+      const loginDisk = JSON.parse(await fsp.readFile(loginFile, 'utf8'));
+      assert.equal(loginDisk.token, `enc:${newCiphertext}`, 'recovery login must replace the unreadable ciphertext with the new encrypted token');
+      assert.notEqual(loginDisk.token, newToken);
+    } finally {
+      fs.rmSync(loginDir, { recursive: true, force: true });
+    }
   } finally {
     global.fetch = originalFetch;
     fs.rmSync(dir, { recursive: true, force: true });
