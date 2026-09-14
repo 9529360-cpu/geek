@@ -22,10 +22,21 @@ function defaultUserDataOverride({ appDataDir, profile, explicitOverride }) {
 
 function configureRuntimeEnvironment({ appDataDir, isPackaged, packagedProfile, env = process.env }) {
   const profile = resolveRuntimeProfile({ isPackaged, packagedProfile });
-  const explicitOverride = env.GEEK_USER_DATA_DIR;
+  const explicitOverride = String(env.GEEK_USER_DATA_DIR || '').trim();
+
+  // The formal packaged client has one fixed profile identity. GEEK_USER_DATA_DIR is
+  // an isolation seam for development/validation only; inheriting it in production
+  // would redirect accounts, Sessions, single-instance ownership and maintenance to
+  // an arbitrary profile before main composition can recover the intended path.
+  if (profile === 'production') {
+    delete env.GEEK_USER_DATA_DIR;
+    return Object.freeze({ profile, userDataOverride: '' });
+  }
+
   const isolatedDir = defaultUserDataOverride({ appDataDir, profile, explicitOverride });
-  if (!explicitOverride && isolatedDir) env.GEEK_USER_DATA_DIR = isolatedDir;
-  return Object.freeze({ profile, userDataOverride: explicitOverride || isolatedDir || '' });
+  if (isolatedDir) env.GEEK_USER_DATA_DIR = isolatedDir;
+  else delete env.GEEK_USER_DATA_DIR;
+  return Object.freeze({ profile, userDataOverride: isolatedDir || '' });
 }
 
 module.exports = {

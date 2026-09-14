@@ -6,6 +6,7 @@
 
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const { normalizeSubscriptionApiBase } = require('./subscription-api-url.cjs');
 
 const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
@@ -54,7 +55,7 @@ function decryptField(value) {
 }
 
 function apiBase() {
-  return (process.env.GEEK_SUBSCRIPTION_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
+  return normalizeSubscriptionApiBase(process.env.GEEK_SUBSCRIPTION_API_URL || DEFAULT_API_URL);
 }
 
 function normalizeUserIdentity(value = {}) {
@@ -101,6 +102,7 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
   let translationTokenInflight = null;
   let stateMutationQueue = Promise.resolve();
   let sessionGeneration = 0;
+  let translationAuthorizationController = new AbortController();
 
   function sessionChangedError() {
     const error = new Error('登录状态已变化，请重试');
@@ -123,6 +125,18 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
 
   function assertSessionGeneration(expected) {
     if (expected != null && expected !== sessionGeneration) throw sessionChangedError();
+  }
+
+  function assertTranslationAuthorizationCurrent(lease) {
+    if (
+      !lease
+      || !Number.isSafeInteger(lease.generation)
+      || lease.generation !== sessionGeneration
+      || lease.signal !== translationAuthorizationController.signal
+      || lease.signal.aborted
+    ) {
+      throw sessionChangedError();
+    }
   }
 
   function enqueueStateMutation(operation) {
@@ -440,6 +454,19 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     }
   }
 
+  async function getTranslationAuthorization(force = false) {
+    const generation = sessionGeneration;
+    const token = await getTranslationToken(force);
+    assertSessionGeneration(generation);
+    const lease = Object.freeze({
+      token: String(token),
+      generation,
+      signal: translationAuthorizationController.signal,
+    });
+    assertTranslationAuthorizationCurrent(lease);
+    return lease;
+  }
+
   // 字符扣减：翻译成功后上报原文+译文，服务端按 1汉字=2字符 规则换算扣减
   async function reportUsage(sourceText, targetText) {
     const state = await load();
@@ -473,10 +500,13 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       // Logout/account-switch state is authoritative only after the tokenless state is durable.
       // Persist an empty tombstone atomically instead of relying on best-effort file deletion.
       await writeStateDisk({});
+      const previousAuthorizationController = translationAuthorizationController;
       cache = {};
       translationTokenCache = null;
       translationTokenInflight = null;
       sessionGeneration += 1;
+      translationAuthorizationController = new AbortController();
+      previousAuthorizationController.abort(sessionChangedError());
     });
   }
 
@@ -495,6 +525,8 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     me,
     getQuota,
     getTranslationToken,
+    getTranslationAuthorization,
+    assertTranslationAuthorizationCurrent,
     reportUsage,
     logout,
     clear,

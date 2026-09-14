@@ -1,7 +1,7 @@
 'use strict';
 
-const path = require('node:path');
 const crypto = require('node:crypto');
+const { createTranslationCacheStore } = require('./translation-cache-store.cjs');
 
 const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
 const TRANSLATION_REMOTE_LIMIT = 20;
@@ -144,7 +144,7 @@ function clearPartitionRuntimeState(state, partition) {
   state.caches.delete(owner);
   state.cacheLoaded.delete(owner);
   state.cacheLoads.delete(owner);
-  state.cacheWrites.delete(owner);
+  if (state.cacheWrites && typeof state.cacheWrites.delete === 'function') state.cacheWrites.delete(owner);
   const prefix = `${owner}:`;
   for (const key of state.latestRequest.keys()) if (key.startsWith(prefix)) state.latestRequest.delete(key);
   for (const key of state.inflight.keys()) if (key.startsWith(prefix)) state.inflight.delete(key);
@@ -186,13 +186,20 @@ function createTranslationRuntime(options = {}) {
     cacheLoads: new Map(),
     deletedPartitions: new Set(),
     inflight: new Map(),
-    cacheWrites: new Map(),
     latestRequest: new Map(),
   };
+  const cacheStore = createTranslationCacheStore({
+    fs,
+    safeStorage,
+    getUserDataDir,
+    cacheVersion: TRANSLATION_CACHE_VERSION,
+    isPartitionDeleted: partition => state.deletedPartitions.has(String(partition || '')),
+  });
   let requestSequence = 0;
   let gatewayPool = null;
   const remoteQueue = [];
   const remoteControllersByPartition = new Map();
+  const authorizationAbortFanouts = new WeakMap();
   let remoteActive = 0;
   let installed = false;
 
@@ -254,10 +261,63 @@ function createTranslationRuntime(options = {}) {
     return error;
   }
 
-  function cacheFile(partition) {
-    const dirName = String(partition || '').replace(/^persist:/, '');
-    if (!/^[a-zA-Z0-9_-]+$/.test(dirName)) throw new Error('账号沙箱不合法');
-    return path.join(getUserDataDir(), 'Partitions', dirName, 'geek-translation-cache.jsonl');
+  async function getRemoteAuthorizationLease(store, deadlineAt) {
+    if (typeof store?.getTranslationAuthorization === 'function') {
+      if (typeof store.assertTranslationAuthorizationCurrent !== 'function') {
+        throw new TypeError('subscription authorization lease validator is required');
+      }
+      const lease = await awaitWithDeadline(store.getTranslationAuthorization(), deadlineAt);
+      store.assertTranslationAuthorizationCurrent(lease);
+      return lease;
+    }
+    const token = await awaitWithDeadline(store.getTranslationToken(), deadlineAt);
+    return Object.freeze({ token: String(token || ''), generation: null, signal: null, legacy: true });
+  }
+
+  function assertRemoteAuthorizationCurrent(store, lease) {
+    if (!lease || lease.legacy === true) return;
+    store.assertTranslationAuthorizationCurrent(lease);
+  }
+
+  function authorizationChangedError() {
+    return createTranslationError(
+      'SUBSCRIPTION_SESSION_CHANGED',
+      '登录状态已变化，请重试',
+      { category: 'auth', retryable: true }
+    );
+  }
+
+  function subscribeAuthorizationAbort(signal, subscriber) {
+    if (!signal || typeof signal.addEventListener !== 'function' || typeof subscriber !== 'function') return () => {};
+    if (signal.aborted) {
+      subscriber(signal.reason || authorizationChangedError());
+      return () => {};
+    }
+    let entry = authorizationAbortFanouts.get(signal);
+    if (!entry) {
+      const subscribers = new Set();
+      const onAbort = () => {
+        authorizationAbortFanouts.delete(signal);
+        const reason = signal.reason || authorizationChangedError();
+        const callbacks = [...subscribers];
+        subscribers.clear();
+        for (const callback of callbacks) {
+          try { callback(reason); } catch {}
+        }
+      };
+      entry = { subscribers, onAbort };
+      authorizationAbortFanouts.set(signal, entry);
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    entry.subscribers.add(subscriber);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      const current = authorizationAbortFanouts.get(signal);
+      if (!current) return;
+      current.subscribers.delete(subscriber);
+    };
   }
 
   function cacheKey(body, text, target) {
@@ -281,25 +341,7 @@ function createTranslationRuntime(options = {}) {
 
     const load = (async () => {
       if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-      if (safeStorage.isEncryptionAvailable()) {
-        try {
-          const lines = (await fs.readFile(cacheFile(partition), 'utf-8')).split(/\r?\n/);
-          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const item = JSON.parse(line);
-              if (item.version !== TRANSLATION_CACHE_VERSION || !item.key || !item.value) continue;
-              cache.set(item.key, {
-                text: safeStorage.decryptString(Buffer.from(item.value, 'base64')),
-                at: Number(item.at) || 0,
-              });
-            } catch {}
-          }
-        } catch (error) {
-          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-        }
-      }
+      try { await cacheStore.load(partition, cache); } catch {}
       if (state.deletedPartitions.has(partition) || state.caches.get(partition) !== cache) throw accountDeletedError();
       state.cacheLoaded.add(partition);
       return cache;
@@ -314,25 +356,10 @@ function createTranslationRuntime(options = {}) {
   }
 
   async function appendCache(partition, key, item) {
-    if (state.deletedPartitions.has(partition) || !safeStorage.isEncryptionAvailable()) return;
-    const file = cacheFile(partition);
-    const record = {
-      version: TRANSLATION_CACHE_VERSION,
-      key,
-      at: item.at,
-      value: safeStorage.encryptString(item.text).toString('base64'),
-    };
-    const previous = state.cacheWrites.get(partition) || Promise.resolve();
-    const write = previous.catch(() => {}).then(async () => {
-      if (state.deletedPartitions.has(partition)) return;
-      await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8');
-    });
-    state.cacheWrites.set(partition, write);
-    try {
-      await write;
-    } catch {} finally {
-      if (state.cacheWrites.get(partition) === write) state.cacheWrites.delete(partition);
-    }
+    if (state.deletedPartitions.has(partition)) return;
+    const cache = state.caches.get(partition);
+    if (!cache) return;
+    try { await cacheStore.append(partition, key, item, cache); } catch {}
   }
 
   function gatewayEndpoints() {
@@ -382,10 +409,19 @@ function createTranslationRuntime(options = {}) {
     return { ok: okCount > 0, models: okCount, endpointCount: Object.keys(result).length };
   }
 
-  function enqueueRemote(partition, deadlineAt, task) {
+  function detachQueuedAbort(item) {
+    if (typeof item.unsubscribeAbort === 'function') item.unsubscribeAbort();
+    item.unsubscribeAbort = null;
+  }
+
+  function enqueueRemote(partition, deadlineAt, task, signal = null) {
     return new Promise((resolve, reject) => {
       if (state.deletedPartitions.has(partition)) {
         reject(accountDeletedError());
+        return;
+      }
+      if (signal?.aborted) {
+        reject(signal.reason || authorizationChangedError());
         return;
       }
       const remaining = remainingMs(deadlineAt);
@@ -393,14 +429,21 @@ function createTranslationRuntime(options = {}) {
         reject(deadlineExceededError());
         return;
       }
-      const item = { partition, deadlineAt, task, resolve, reject, timer: null, settled: false };
-      item.timer = setTimeout(() => {
+      const item = { partition, deadlineAt, task, resolve, reject, signal, unsubscribeAbort: null, timer: null, settled: false };
+      const rejectQueued = (error) => {
         if (item.settled) return;
         const index = remoteQueue.indexOf(item);
         if (index >= 0) remoteQueue.splice(index, 1);
+        clearTimeout(item.timer);
+        detachQueuedAbort(item);
         item.settled = true;
-        reject(deadlineExceededError());
-      }, remaining);
+        reject(error);
+        drainRemoteQueue();
+      };
+      item.unsubscribeAbort = signal
+        ? subscribeAuthorizationAbort(signal, (reason) => rejectQueued(reason || authorizationChangedError()))
+        : null;
+      item.timer = setTimeout(() => rejectQueued(deadlineExceededError()), remaining);
       remoteQueue.push(item);
       drainRemoteQueue();
     });
@@ -411,7 +454,12 @@ function createTranslationRuntime(options = {}) {
       const item = remoteQueue.shift();
       if (item.settled) continue;
       clearTimeout(item.timer);
+      detachQueuedAbort(item);
       item.settled = true;
+      if (item.signal?.aborted) {
+        item.reject(item.signal.reason || authorizationChangedError());
+        continue;
+      }
       if (remainingMs(item.deadlineAt) <= 0) {
         item.reject(deadlineExceededError());
         continue;
@@ -419,6 +467,7 @@ function createTranslationRuntime(options = {}) {
       remoteActive += 1;
       Promise.resolve().then(() => {
         if (state.deletedPartitions.has(item.partition)) throw accountDeletedError();
+        if (item.signal?.aborted) throw item.signal.reason || authorizationChangedError();
         assertBeforeDeadline(item.deadlineAt);
         return item.task();
       }).then(item.resolve, item.reject).finally(() => {
@@ -448,6 +497,7 @@ function createTranslationRuntime(options = {}) {
       if (remoteQueue[index].partition !== owner) continue;
       const [item] = remoteQueue.splice(index, 1);
       clearTimeout(item.timer);
+      detachQueuedAbort(item);
       item.settled = true;
       item.reject(error);
     }
@@ -514,9 +564,10 @@ function createTranslationRuntime(options = {}) {
           }
         }
 
+        const subscriptionStore = getSubscriptionStore();
         if (body.skipQuota !== true) {
           const quota = await awaitWithDeadline(
-            getSubscriptionStore().getQuota({ network: false }).catch(() => ({ remaining_chars: null })),
+            subscriptionStore.getQuota({ network: false }).catch(() => ({ remaining_chars: null })),
             deadlineAt
           );
           if (quota.remaining_chars != null && quota.remaining_chars <= 0) {
@@ -528,27 +579,42 @@ function createTranslationRuntime(options = {}) {
           const parsed = new URL(endpoint);
           return !(parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1');
         });
-        const remoteAuthorization = needsRemoteAuthorization
-          ? await awaitWithDeadline(getSubscriptionStore().getTranslationToken(), deadlineAt)
-          : '';
+        const remoteAuthorizationLease = needsRemoteAuthorization
+          ? await getRemoteAuthorizationLease(subscriptionStore, deadlineAt)
+          : null;
         if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+        if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
         assertBeforeDeadline(deadlineAt);
 
-        return await enqueueRemote(partition, deadlineAt, async () => {
+        const remoteResult = await enqueueRemote(partition, deadlineAt, async () => {
           if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+          if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
           let lastError = null;
-          const attempts = Math.max(1, pool.endpoints.length);
+          const attempts = body.route === 'primary'
+            ? 1
+            : body.route === 'backup'
+              ? Math.max(1, pool.endpoints.length - 1)
+              : Math.max(1, pool.endpoints.length);
           for (let attempt = 0; attempt < attempts; attempt += 1) {
             if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+            if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
             const remaining = remainingMs(deadlineAt);
             if (remaining <= 0) throw deadlineExceededError(lastError);
 
-            const picked = pool.pick();
+            const picked = pool.pick(body.route);
             const endpoint = picked.endpoint;
+            let endpointOutcomeReported = false;
             const controller = new AbortController();
             trackRemoteController(partition, controller);
+            const unsubscribeAuthorizationAbort = remoteAuthorizationLease?.signal
+              ? subscribeAuthorizationAbort(
+                remoteAuthorizationLease.signal,
+                (reason) => controller.abort(reason || authorizationChangedError())
+              )
+              : null;
             const timer = setTimeout(() => controller.abort(deadlineExceededError(lastError)), remaining);
             try {
+              if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
               const parsedEndpoint = new URL(endpoint);
               const isLocalGateway = parsedEndpoint.protocol === 'http:' && parsedEndpoint.hostname === '127.0.0.1';
               const headers = {
@@ -557,7 +623,7 @@ function createTranslationRuntime(options = {}) {
                 'X-Request-ID': requestId,
                 'X-Geek-Deadline-Ms': String(Math.max(0, remaining)),
               };
-              if (!isLocalGateway) headers.Authorization = `Bearer ${remoteAuthorization}`;
+              if (!isLocalGateway) headers.Authorization = `Bearer ${remoteAuthorizationLease?.token || ''}`;
               const response = await fetchImpl(`${endpoint}/v1/translate`, {
                 method: 'POST',
                 headers,
@@ -566,22 +632,28 @@ function createTranslationRuntime(options = {}) {
                   source: body.source || 'auto',
                   target,
                   provider: body.provider,
-                  route: body.route || picked.route,
+                  route: picked.route,
                 }),
                 signal: controller.signal,
               });
+              if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
               const raw = await response.text();
+              if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
               let result;
               try { result = JSON.parse(raw); } catch { result = {}; }
               if (!response.ok) {
                 const rejection = classifyGatewayResponse(response.status, result);
-                if (rejection.endpointFailure) pool.reportFailure(endpoint);
+                if (rejection.endpointFailure) {
+                  pool.reportFailure(endpoint);
+                  endpointOutcomeReported = true;
+                }
                 lastError = rejection;
                 if (!rejection.retryable || !rejection.endpointFailure) throw rejection;
                 continue;
               }
               if (!result.text || typeof result.text !== 'string') {
                 pool.reportFailure(endpoint);
+                endpointOutcomeReported = true;
                 lastError = createTranslationError(
                   'TRANSLATION_GATEWAY_INVALID_RESPONSE',
                   '翻译网关返回格式错误',
@@ -599,8 +671,11 @@ function createTranslationRuntime(options = {}) {
                   { category: 'quality', retryable: false, endpointFailure: false, cause: error }
                 );
               }
+              if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
               pool.reportSuccess(endpoint);
+              endpointOutcomeReported = true;
               if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+              if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
               if (state.latestRequest.get(workKey) !== sequence) {
                 return {
                   text: translated,
@@ -613,6 +688,7 @@ function createTranslationRuntime(options = {}) {
                 };
               }
               const item = { text: translated, at: now() };
+              if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
               cache.set(key, item);
               void appendCache(partition, key, item).catch(() => {});
               return {
@@ -627,7 +703,7 @@ function createTranslationRuntime(options = {}) {
               if (state.deletedPartitions.has(partition)) throw accountDeletedError();
               if (controller.signal.aborted) {
                 const reason = controller.signal.reason;
-                if (reason?.code === 'TRANSLATION_ACCOUNT_DELETED') throw reason;
+                if (reason?.code === 'TRANSLATION_ACCOUNT_DELETED' || reason?.code === 'SUBSCRIPTION_SESSION_CHANGED') throw reason;
                 throw reason?.code === 'TRANSLATION_DEADLINE_EXCEEDED' ? reason : deadlineExceededError(error);
               }
               const normalizedBase = normalizeRuntimeError(error);
@@ -638,16 +714,23 @@ function createTranslationRuntime(options = {}) {
                   normalizedBase?.message || '翻译网关连接失败',
                   { category: 'gateway', retryable: true, endpointFailure: true, cause: normalizedBase }
                 );
-              if (normalized.endpointFailure) pool.reportFailure(endpoint);
+              if (normalized.endpointFailure) {
+                pool.reportFailure(endpoint);
+                endpointOutcomeReported = true;
+              }
               if (!normalized.retryable || !normalized.endpointFailure) throw normalized;
               lastError = normalized;
             } finally {
+              if (!endpointOutcomeReported) pool.reportInconclusive?.(endpoint);
               clearTimeout(timer);
+              if (typeof unsubscribeAuthorizationAbort === 'function') unsubscribeAuthorizationAbort();
               untrackRemoteController(partition, controller);
             }
           }
           throw lastError || createTranslationError('TRANSLATION_GATEWAY_UNAVAILABLE', '翻译网关不可用', { category: 'gateway', retryable: true, endpointFailure: true });
-        });
+        }, remoteAuthorizationLease?.signal || null);
+        if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
+        return remoteResult;
       } catch (error) {
         throw normalizeRuntimeError(error);
       }
@@ -674,6 +757,7 @@ function createTranslationRuntime(options = {}) {
 
   function deleteAccount(partition) {
     const owner = String(partition || '');
+    cacheStore.deletePartition(owner);
     clearPartitionRuntimeState(state, owner);
     cancelRemoteForPartition(owner);
   }

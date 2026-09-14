@@ -85,7 +85,25 @@ jobs:
             throw 'Refusing promotion without a verified previous stable release'
           }
 
+      - name: Verify immutable same-version recovery
+        if: env.ROLLBACK_AVAILABLE == 'false'
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          node scripts/release-same-version-check.cjs `
+            --root 'https://geek-release.9529360.workers.dev' `
+            --version $env:RELEASE_VERSION `
+            --manifest 'dist-release\release-manifest.json' `
+            --attempts 3 `
+            --delay-ms 5000 `
+            --timeout-ms 120000
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Refusing same-version recovery because published immutable assets do not match this candidate'
+          }
+          "RELEASE_ALREADY_PUBLISHED=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Same-version public assets are byte-identical; production writes will be skipped."
+
       - name: Upload installer and blockmap to R2
+        if: env.RELEASE_ALREADY_PUBLISHED != 'true'
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -98,6 +116,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R2 blockmap upload failed' }
 
       - name: Snapshot rollback metadata
+        if: env.RELEASE_ALREADY_PUBLISHED != 'true'
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -114,6 +133,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R2 versioned rollback snapshot failed' }
 
       - name: Publish latest metadata last
+        if: env.RELEASE_ALREADY_PUBLISHED != 'true'
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -129,6 +149,22 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           $root = 'https://geek-release.9529360.workers.dev'
+
+          if ($env:RELEASE_ALREADY_PUBLISHED -eq 'true') {
+            node scripts/release-same-version-check.cjs `
+              --root $root `
+              --version $env:RELEASE_VERSION `
+              --manifest 'dist-release\release-manifest.json' `
+              --attempts 3 `
+              --delay-ms 5000 `
+              --timeout-ms 120000
+            if ($LASTEXITCODE -ne 0) {
+              throw "Already-published Geek $env:RELEASE_VERSION failed immutable-asset verification"
+            }
+            "Verified already-published Geek $env:RELEASE_VERSION without rewriting installer, blockmap, or latest.yml." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            exit 0
+          }
+
           node scripts/release-public-check.cjs verify `
             --root $root `
             --version $env:RELEASE_VERSION `
