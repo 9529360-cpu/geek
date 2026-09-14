@@ -11,6 +11,7 @@
   let executor = null;
   let scheduler = null;
   let editorAccountId = '';
+  let historyAppender = null;
 
   function activeAccountId() {
     return document.querySelector('.nav-account.active[data-id]')?.dataset.id || '';
@@ -117,6 +118,49 @@
 
   function validateContent(message, files, vcards) {
     return !!String(message || '').trim() || !!files?.length || !!vcards?.length;
+  }
+
+  function createHistoryAppender(options = {}) {
+    const getAll = options.getAll;
+    const set = options.set;
+    const now = typeof options.now === 'function' ? options.now : () => Date.now();
+    if (typeof getAll !== 'function' || typeof set !== 'function') throw new TypeError('broadcast history appender requires getAll/set');
+    const tails = new Map();
+
+    function append(job) {
+      const accountId = String(job?.accountId || '');
+      if (!accountId) return Promise.reject(new TypeError('broadcast history requires accountId'));
+      const previous = tails.get(accountId) || Promise.resolve();
+      const run = previous.catch(() => {}).then(async () => {
+        const data = await getAll(accountId);
+        let history;
+        try { history = JSON.parse(data?.sendHistory || '[]'); } catch (_) { history = []; }
+        if (!Array.isArray(history)) history = [];
+        const fileCount = job.attachmentRefs?.length || job.files.length;
+        history.push({ t: now(), total: job.total, ok: job.ok, fail: job.fail, files: fileCount, msgLen: job.message.length, jobId: job.id });
+        if (history.length > 500) history.splice(0, history.length - 500);
+        await set(accountId, 'sendHistory', JSON.stringify(history));
+        return true;
+      });
+      let tracked;
+      tracked = run.finally(() => {
+        if (tails.get(accountId) === tracked) tails.delete(accountId);
+      });
+      tails.set(accountId, tracked);
+      return tracked;
+    }
+
+    return Object.freeze({ append, pendingAccounts: () => [...tails.keys()] });
+  }
+
+  function getHistoryAppender() {
+    if (!historyAppender) {
+      historyAppender = createHistoryAppender({
+        getAll: accountId => window.api.accountData.getAll(accountId),
+        set: (accountId, key, value) => window.api.accountData.set(accountId, key, value),
+      });
+    }
+    return historyAppender;
   }
 
   function shouldFailContextInitialization(job) {
@@ -385,14 +429,7 @@
 
   async function appendHistory(job) {
     try {
-      const data = await window.api.accountData.getAll(job.accountId);
-      let history;
-      try { history = JSON.parse(data?.sendHistory || '[]'); } catch (_) { history = []; }
-      if (!Array.isArray(history)) history = [];
-      const fileCount = job.attachmentRefs?.length || job.files.length;
-      history.push({ t: Date.now(), total: job.total, ok: job.ok, fail: job.fail, files: fileCount, msgLen: job.message.length, jobId: job.id });
-      if (history.length > 500) history.splice(0, history.length - 500);
-      await window.api.accountData.set(job.accountId, 'sendHistory', JSON.stringify(history));
+      await getHistoryAppender().append(job);
     } catch (_) {}
   }
 
@@ -622,7 +659,7 @@
     });
   }
 
-  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, shouldFailContextInitialization, liveGuestId, selectedTargets });
+  return Object.freeze({ install, activeAccountId, personalize, dedupeTargets, validateContent, createHistoryAppender, shouldFailContextInitialization, liveGuestId, selectedTargets });
 });
 
 if (typeof window !== 'undefined') {
