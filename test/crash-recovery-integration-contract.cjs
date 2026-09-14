@@ -15,9 +15,9 @@ assert.match(main, /render-process-gone/, '主窗口必须监听 render-process-
 assert.match(main, /app\.relaunch\(\)/, '主窗口崩溃后必须 relaunch');
 assert.match(main, /诊断|diagnostics\.log\([^)]*crash|main-window/, '主窗口崩溃必须记录诊断');
 
-// webview 崩溃 -> 限频 reload（renderer 侧）
+// webview 崩溃 -> 账号级限频 reload（renderer 侧）
 assert.match(app, /webviewCrashLimiter|crashLimiter|render-process-gone/, 'renderer 必须监听 webview 崩溃');
 assert.match(app, /wv\.reload\(\)/, 'webview 崩溃后必须 reload');
-assert.match(app, /limiter\.allow|allow\(\)/, 'webview 恢复必须限频');
+assert.match(app, /webviewCrashLimiter\.allow\(account\.id\)/, 'webview 恢复必须按账号 id 消耗独立预算');
 
 console.log('CRASH_RECOVERY_INTEGRATION_CONTRACT_OK');
