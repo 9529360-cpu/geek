@@ -49,6 +49,13 @@ const safeEnv = scrubCloudflareDeployCredentials({
   CLOUDFLARE_ACCOUNT_ID: 'secret-account',
   CLOUDFLARE_API_KEY: 'legacy',
   CLOUDFLARE_EMAIL: 'owner@example.com',
+  CLOUDFLARE_ACCESS_CLIENT_ID: 'access-id',
+  CLOUDFLARE_ACCESS_CLIENT_SECRET: 'access-secret',
+  WRANGLER_R2_SQL_AUTH_TOKEN: 'r2-token',
+  CF_ACCOUNT_ID: 'legacy-account',
+  CF_API_TOKEN: 'legacy-token',
+  CF_API_KEY: 'legacy-api-key',
+  CF_EMAIL: 'legacy@example.com',
 });
 assert.equal(safeEnv.KEEP, 'yes');
 assert.equal(safeEnv.WRANGLER_SEND_METRICS, 'false');
@@ -56,6 +63,13 @@ assert.equal(safeEnv.CLOUDFLARE_API_TOKEN, undefined);
 assert.equal(safeEnv.CLOUDFLARE_ACCOUNT_ID, undefined);
 assert.equal(safeEnv.CLOUDFLARE_API_KEY, undefined);
 assert.equal(safeEnv.CLOUDFLARE_EMAIL, undefined);
+assert.equal(safeEnv.CLOUDFLARE_ACCESS_CLIENT_ID, undefined);
+assert.equal(safeEnv.CLOUDFLARE_ACCESS_CLIENT_SECRET, undefined);
+assert.equal(safeEnv.WRANGLER_R2_SQL_AUTH_TOKEN, undefined);
+assert.equal(safeEnv.CF_ACCOUNT_ID, undefined);
+assert.equal(safeEnv.CF_API_TOKEN, undefined);
+assert.equal(safeEnv.CF_API_KEY, undefined);
+assert.equal(safeEnv.CF_EMAIL, undefined);
 
 class FakeChild extends EventEmitter {
   constructor(pid) {

@@ -11,6 +11,19 @@ const STOP_WAIT_MS = 1_500;
 
 const WORKER_ORDER = Object.freeze(['website', 'subscription', 'translation', 'release']);
 const GLOBAL_WORKER_INPUTS = Object.freeze(['package.json', 'package-lock.json']);
+const CLOUDFLARE_CREDENTIAL_ENV_KEYS = Object.freeze([
+  'CLOUDFLARE_API_TOKEN',
+  'CLOUDFLARE_ACCOUNT_ID',
+  'CLOUDFLARE_API_KEY',
+  'CLOUDFLARE_EMAIL',
+  'CLOUDFLARE_ACCESS_CLIENT_ID',
+  'CLOUDFLARE_ACCESS_CLIENT_SECRET',
+  'WRANGLER_R2_SQL_AUTH_TOKEN',
+  'CF_ACCOUNT_ID',
+  'CF_API_TOKEN',
+  'CF_API_KEY',
+  'CF_EMAIL',
+]);
 const WORKERS = Object.freeze({
   website: Object.freeze({
     config: 'wrangler-website.toml',
@@ -99,12 +112,7 @@ function buildWorkerBundleCommand(name, options = {}) {
 
 function scrubCloudflareDeployCredentials(env = process.env) {
   const safe = { ...env, WRANGLER_SEND_METRICS: 'false' };
-  for (const key of [
-    'CLOUDFLARE_API_TOKEN',
-    'CLOUDFLARE_ACCOUNT_ID',
-    'CLOUDFLARE_API_KEY',
-    'CLOUDFLARE_EMAIL',
-  ]) delete safe[key];
+  for (const key of CLOUDFLARE_CREDENTIAL_ENV_KEYS) delete safe[key];
   return safe;
 }
 
