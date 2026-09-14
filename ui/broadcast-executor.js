@@ -21,6 +21,10 @@
     const controls = new Map();
     const running = new Map();
 
+    function executionCheckpoint() {
+      return options.checkpoint || globalThis.GeekBroadcastExecutionCheckpointInstance || null;
+    }
+
     function control(jobId) {
       const id = String(jobId || '');
       if (!controls.has(id)) controls.set(id, { paused: false, stopRequested: false });
@@ -54,6 +58,32 @@
         manager.update(jobId, { nextSendAt: remaining ? current + remaining : null });
       }
       return true;
+    }
+
+    async function persistCheckpoint(method, job, index) {
+      const checkpoint = executionCheckpoint();
+      if (!checkpoint || typeof checkpoint[method] !== 'function') {
+        if (typeof window !== 'undefined') {
+          const error = new Error('broadcast execution checkpoint is not ready');
+          error.code = 'BROADCAST_CHECKPOINT_NOT_READY';
+          error.broadcastCheckpointPhase = method;
+          throw error;
+        }
+        return null;
+      }
+      try { return await checkpoint[method](job, index); }
+      catch (error) {
+        const wrapped = error instanceof Error ? error : new Error(String(error || 'broadcast checkpoint failed'));
+        wrapped.broadcastCheckpointPhase = method;
+        throw wrapped;
+      }
+    }
+
+    async function finalizeCheckpoint(job, preserve = false) {
+      const checkpoint = executionCheckpoint();
+      if (preserve || !checkpoint || typeof checkpoint.finalize !== 'function' || !job) return false;
+      try { return await checkpoint.finalize(job); }
+      catch (_) { return false; }
     }
 
     async function run(jobId, handlers = {}) {
@@ -90,8 +120,13 @@
             const target = job.targets[index];
             if (typeof handlers.beforeTarget === 'function') await handlers.beforeTarget(job, target, index);
 
+            // This durable write is the side-effect gate. If it fails, sending must
+            // fail closed so a restart never invents certainty about an unrecorded
+            // outbound mutation.
+            await persistCheckpoint('enterDispatch', manager.get(id), index);
+
             let outcome;
-            try { outcome = normalizeResult(await handlers.sendTarget(job, target, index)); }
+            try { outcome = normalizeResult(await handlers.sendTarget(manager.get(id), target, index)); }
             catch (error) { outcome = { ok: false, reason: String(error?.message || error || 'SEND_EXCEPTION') }; }
 
             current = index + 1;
@@ -101,6 +136,11 @@
               failures.push(Object.freeze({ targetId: String(target?.id || ''), name: String(target?.name || target?.id || ''), reason: outcome.reason, index, at: now() }));
             }
             manager.update(id, { current, ok, fail, failed: failures, nextSendAt: null });
+
+            // Only after the in-memory aggregate has advanced do we replace the
+            // dispatching marker with a settled checkpoint. A crash in between is
+            // deliberately recovered as an uncertain last send, never auto-replayed.
+            await persistCheckpoint('settle', manager.get(id), index);
             if (typeof handlers.afterTarget === 'function') await handlers.afterTarget(manager.get(id), target, index, outcome);
 
             if (index < job.targets.length - 1 && !state.stopRequested) {
@@ -117,6 +157,7 @@
           else manager.complete(id, finalPatch);
           const finalJob = manager.get(id);
           if (typeof handlers.finished === 'function') await handlers.finished(finalJob);
+          await finalizeCheckpoint(finalJob);
           return finalJob;
         } catch (error) {
           const job = manager.get(id);
@@ -124,6 +165,7 @@
             try { manager.markFailed(id, error); } catch (_) {}
           }
           if (typeof handlers.failed === 'function') await handlers.failed(manager.get(id), error);
+          await finalizeCheckpoint(manager.get(id), !!error?.broadcastCheckpointPhase);
           throw error;
         } finally {
           if (detachControls) detachControls();
