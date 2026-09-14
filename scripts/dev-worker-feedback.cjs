@@ -28,6 +28,12 @@ const WORKERS = Object.freeze({
   website: Object.freeze({
     config: 'wrangler-website.toml',
     inputs: Object.freeze([
+      'scripts/geek-marketing-router.js',
+      'scripts/geek-marketing-theme.mjs',
+      'scripts/geek-marketing-styles-core.mjs',
+      'scripts/geek-marketing-styles-components.mjs',
+      'scripts/geek-marketing-visuals.mjs',
+      'scripts/geek-marketing-pages.mjs',
       'scripts/geek-website-entry.js',
       'scripts/geek-website-worker.js',
       'scripts/website-payment-qr.mjs',
