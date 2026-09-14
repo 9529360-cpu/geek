@@ -119,10 +119,11 @@
 
           try {
             if (!(await beforeDue(task))) return;
+            if (tasksByAccount.get(task.accountId)?.get(task.id) !== task) return;
             await onDue(task);
           } finally {
             const tasks = tasksByAccount.get(task.accountId);
-            tasks?.delete(task.id);
+            if (tasks?.get(task.id) === task) tasks.delete(task.id);
             if (tasks && !tasks.size) tasksByAccount.delete(task.accountId);
           }
         }, delay);
