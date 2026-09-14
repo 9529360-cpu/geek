@@ -1064,12 +1064,9 @@ function configureWebviewSecurity(window) {
 
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        let wppReady = await wc.executeJavaScript(readinessProbe).catch(() => false);
-        if (!wppReady) {
-          const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
-          await wc.executeJavaScript(wppScript);
-          wppReady = await wc.executeJavaScript(readinessProbe).catch(() => false);
-        }
+        const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
+        await wc.executeJavaScript(wppScript);
+        const wppReady = await wc.executeJavaScript(readinessProbe).catch(() => false);
         if (!wppReady) {
           console.log(`[wpp] 第 ${attempt + 1} 次注入后 WA-JS 核心兼容面未就绪，3 秒后重试…`);
           await new Promise((r) => setTimeout(r, 3000));
@@ -1093,7 +1090,12 @@ function configureWebviewSecurity(window) {
             && typeof primary?.group?.getParticipants === 'function'
             && !!primary?.whatsapp?.ChatStore
             && !!primary?.whatsapp?.UserPrefs
-            && typeof fallback?.chat?.sendTextMessage === 'function';
+            && typeof fallback?.chat?.sendTextMessage === 'function'
+            && typeof fallback?.chat?.sendFileMessage === 'function'
+            && typeof fallback?.contact?.getPnLidEntry === 'function'
+            && typeof fallback?.group?.getParticipants === 'function'
+            && !!fallback?.whatsapp?.ChatStore
+            && !!fallback?.whatsapp?.UserPrefs;
         })()`).catch(() => false);
         if (compatReady) {
           wppInjected.add(part);

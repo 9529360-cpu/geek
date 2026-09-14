@@ -47,6 +47,9 @@ assert.match(main, /window\.WPP \|\| window\.WAPLUS_WPP/, 'main-process guest co
 assert.match(app, /window\.WPP \|\| window\.WAPLUS_WPP/, 'renderer WhatsApp integrations must prefer stable WA-JS');
 assert.match(runtime, /window\.WPP \|\| window\.WAPLUS_WPP/, 'broadcast runtime must prefer stable WA-JS');
 assert.match(recovery, /wpp\?\.loader[\s\S]*moduleRequire[\s\S]*_moduleIdMap/, 'ordinary composer recovery must continue consuming WA-JS loader metadata');
+assert.match(main, /fallback\?\.chat\?\.sendTextMessage[\s\S]*fallback\?\.chat\?\.sendFileMessage[\s\S]*fallback\?\.contact\?\.getPnLidEntry[\s\S]*fallback\?\.group\?\.getParticipants/, 'WAPLUS fallback must retain text/media/LID/group compatibility');
+assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
+assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(main, /waplus-wpp\.js/, 'WAPLUS compatibility bundle must remain wired');
 
 console.log('WA-JS 4.6 migration contract passed');

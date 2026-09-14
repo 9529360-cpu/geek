@@ -1456,7 +1456,7 @@
     },
     whatsapp: {
       // WPP 直发模式（对齐原版/HelloWorld：内部 API，不走 UI 模拟）
-      // window.WPP（wppconnect 官方）+ window.WAPLUS_WPP（HelloWorld fork——sendFileMessage 可用）
+      // window.WPP（WA-JS 4.6 主路径）+ window.WAPLUS_WPP（HelloWorld fork，仅作兼容回退）
       getChats: `(async () => {
         try {
           const W = window.WPP || window.WAPLUS_WPP;
@@ -1490,7 +1490,7 @@
           return r && r.id ? 'SENT' : 'FAIL';
         } catch (e) { return 'ERR:' + e.message; }
       })()`,
-      // 电子名片：使用 WPP 4.3 官方 API，避免旧内部 SendAction 返回 Promise 但消息不落地
+      // 电子名片：使用 WA-JS 4.6 官方 API，避免旧内部 SendAction 返回 Promise 但消息不落地
       sendVcards: (chatId, vcards) => `(async () => {
         try {
           const W = window.WPP || window.WAPLUS_WPP;
@@ -2221,7 +2221,8 @@
                 try {
                   if (id.endsWith('@lid') && W.contact.getPnLidEntry) {
                     const pair = await W.contact.getPnLidEntry(id);
-                    if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);
+                    const phoneNumber = pair?.phoneNumber || pair?.pn;
+                    if (phoneNumber) id = String(phoneNumber._serialized || phoneNumber);
                   }
                 } catch (e) {}
                 seen.add(id);

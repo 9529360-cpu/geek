@@ -194,7 +194,8 @@
             try {
               if (id.endsWith('@lid') && W.contact.getPnLidEntry) {
                 const pair = await W.contact.getPnLidEntry(id);
-                if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);
+                const phoneNumber = pair?.phoneNumber || pair?.pn;
+                if (phoneNumber) id = String(phoneNumber._serialized || phoneNumber);
               }
             } catch (_) {}
             seen.add(id);

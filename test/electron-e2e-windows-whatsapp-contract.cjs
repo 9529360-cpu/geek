@@ -10,6 +10,7 @@ const testWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'te
 const runner = fs.readFileSync(path.join(root, 'e2e', 'run.cjs'), 'utf8');
 const config = fs.readFileSync(path.join(root, 'e2e', 'wdio.conf.cjs'), 'utf8');
 const whatsappSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'), 'utf8');
+const whatsappRuntimeSpec = fs.readFileSync(path.join(root, 'e2e', 'specs', 'whatsapp-wa-js-runtime.e2e.cjs'), 'utf8');
 const whatsappOracle = fs.readFileSync(path.join(root, 'e2e', 'support', 'whatsapp-bootstrap-oracle.cjs'), 'utf8');
 const oracleContract = fs.readFileSync(path.join(root, 'test', 'whatsapp-bootstrap-oracle-contract.cjs'), 'utf8');
 
@@ -44,7 +45,8 @@ assert.match(windowsJob, exactCandidatePattern, 'Windows lane must checkout the 
 assert.match(windowsJob, /node-version:\s*'22'/, 'Windows lane must retain Node 22');
 assert.match(windowsJob, /npm ci --ignore-scripts/, 'Windows lane must install dependencies without lifecycle scripts');
 assert.match(windowsJob, /npm run electron:install/, 'Windows lane must prepare the real Electron runtime');
-assert.match(windowsJob, /GEEK_E2E_SUITE:\s*whatsapp-bootstrap/, 'Windows lane must select only the WhatsApp bootstrap gate');
+assert.match(windowsJob, /GEEK_E2E_SUITE:\s*whatsapp-bootstrap/, 'Windows lane must retain the independent WhatsApp bootstrap gate');
+assert.match(windowsJob, /GEEK_E2E_SUITE:\s*whatsapp-runtime/, 'Windows lane must run the independent WA-JS runtime gate');
 assert.match(windowsJob, /npm run test:e2e/, 'Windows lane must enter the canonical Electron E2E runner');
 assert.doesNotMatch(windowsJob, /xvfb|dbus|gnome-keyring|libsecret|apt-get|--no-sandbox/i, 'Windows lane must not inherit Linux display/keyring setup or disable sandboxing');
 
@@ -60,7 +62,8 @@ assert.match(gateJob, /WINDOWS_WHATSAPP_RESULT[^\n]*success|\$WINDOWS_WHATSAPP_R
 assert.match(testJob, exactCandidatePattern, 'npm test CI must also checkout the exact PR/commit candidate');
 
 assert.match(runner, /const requestedSuite = String\(process\.env\.GEEK_E2E_SUITE \|\| ''\)\.trim\(\)/, 'targeted selector must default to disabled');
-assert.match(runner, /'whatsapp-bootstrap':\s*path\.join\(root, 'e2e', 'specs', 'whatsapp-live-bootstrap\.e2e\.cjs'\)/, 'selector must resolve only the existing WhatsApp bootstrap spec');
+assert.match(runner, /'whatsapp-bootstrap':\s*path\.join\(root, 'e2e', 'specs', 'whatsapp-live-bootstrap\.e2e\.cjs'\)/, 'selector must retain the WhatsApp bootstrap spec');
+assert.match(runner, /'whatsapp-runtime':\s*path\.join\(root, 'e2e', 'specs', 'whatsapp-wa-js-runtime\.e2e\.cjs'\)/, 'selector must expose the independent WA-JS runtime spec');
 assert.match(runner, /args\.push\('--spec', specPath\)/, 'targeted selection must use WebdriverIO test-only spec selection');
 assert.match(runner, /delete baseEnv\.GEEK_E2E_SUITE/, 'selector must not be forwarded as product runtime configuration');
 assert.match(runner, /if \(requestedSuite\)[\s\S]*runWdio\('wdio\.conf\.cjs', undefined, selectedSpec\)/, 'targeted mode must run only the canonical WDIO config with the selected spec');
@@ -143,3 +146,7 @@ assert.doesNotMatch(combined, /%APPDATA%[\\/]geek|AppData[\\/]Roaming[\\/]geek/i
 assert.doesNotMatch(combined, /--no-sandbox/, 'Windows gate must never disable Electron sandboxing');
 
 console.log('ELECTRON_E2E_WINDOWS_WHATSAPP_CONTRACT_OK');
+
+assert.match(whatsappRuntimeSpec, /version === '4\.6\.0'/, 'WA-JS runtime gate must require the exact tested version');
+assert.match(whatsappRuntimeSpec, /loaderReady[\s\S]*chatReady[\s\S]*lidGroupReady[\s\S]*storesReady[\s\S]*fallbackReady/, 'WA-JS runtime gate must cover loader, send, LID/group, stores, and WAPLUS fallback');
+assert.doesNotMatch(whatsappRuntimeSpec, /document\.cookie|localStorage|sessionStorage|Authorization|qrData|innerText|textContent/i, 'WA-JS runtime diagnostics must not read secrets or page bodies');
