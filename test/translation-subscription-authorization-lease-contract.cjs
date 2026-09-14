@@ -233,8 +233,6 @@ function successResponse(text) {
       });
       runtime.install();
       const translateIpc = handlers.get('translation:translate');
-      const pending = unwrapTranslationIpcResponse(await Promise.resolve({ ok: true, result: null })).constructor; // keep lint/runtime surface simple
-      void pending;
       const request = (async () => unwrapTranslationIpcResponse(await translateIpc({ sender: { id: 1 } }, {
         accountId: 'account-a', text: 'late', target: 'en', refresh: true, skipQuota: true,
       })))();
