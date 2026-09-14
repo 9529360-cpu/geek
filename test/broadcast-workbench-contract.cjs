@@ -66,7 +66,7 @@ assert.match(workbench, /GeekBroadcastJobs/, 'command center must consume the ex
 assert.match(workbench, /scope === 'all' \? manager\.list\(\) : manager\.list\(accountId\)/, 'all-account overview must be a projection over the existing manager, not a second state store');
 assert.match(workbench, /manager\.invoke\(job\.id/, 'task controls must address explicit Job ids');
 assert.doesNotMatch(workbench, /全部停止|停止全部|stopAll/, 'command center must not introduce a dangerous cross-account stop-all control');
-assert.match(workbench, /role="progressbar"/, 'job progress must be exposed accessibly');
+assert.match(workbench, /setAttribute\(['"]role['"],\s*['"]progressbar['"]\)/, 'job progress must be exposed accessibly');
 assert.match(workbench, /aria-valuenow/, 'job progress must expose current progress to assistive technology');
 assert.match(workbench, /data-active-count/, 'the task trigger must expose the aggregate active-job count');
 assert.match(workbench, /accountData\.getAll\(accountId\)/, 'task center history must stay account-scoped');
