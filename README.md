@@ -95,6 +95,7 @@ npm run dev
 - `ui/` 的 JavaScript 先做语法检查，再通过现有 CDP 工具执行无缓存桌面 shell 刷新；如果 CDP 刷新不可用，自动退回有序重启 Electron。
 - `src/`、`resources/`、`package.json` 和 `package-lock.json` 触发有序 Electron 重启；可执行输入或 JSON 无效时保留最后一个可工作的桌面进程。
 - `scripts/`、`e2e/`、`test-support/` 的 JavaScript 变更立即做 `node --check`；单个 `test/*.cjs` contract 变化只运行该 contract。
+- Electron 真正异常退出时按 0.5 秒、1.5 秒、4.5 秒做有界恢复；稳定运行 30 秒后重置不稳定计数，连续早崩超过恢复上限后熔断并等待下一次有效桌面运行代码变更。人工正常退出不会被自动拉起。
 - `wrangler*.toml` 变化会被提示；Cloudflare Worker 的完整 Wrangler bundle dry-run 仍以 CI 为权威，避免本地开发循环静默替代生产验证。
 
 只需要一次性启动、不需要持续反馈时：
