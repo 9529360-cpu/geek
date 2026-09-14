@@ -119,6 +119,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     else status.textContent = message;
   }
 
+  function revealAndFocusScheduleTime() {
+    document.querySelector('.bc-workbench-step[data-step="settings"]')?.click?.();
+    document.getElementById('broadcast-schedule-time')?.focus?.({ preventScroll: true });
+  }
+
   document.addEventListener('click', event => {
     const send = event.target?.closest?.('#broadcast-send');
     if (!send) return;
@@ -130,7 +135,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       event.preventDefault();
       event.stopImmediatePropagation();
       showScheduleReadinessStatus('请选择未来的发送时间，避免定时任务被误当成立即发送。');
-      document.getElementById('broadcast-schedule-time')?.focus?.({ preventScroll: true });
+      revealAndFocusScheduleTime();
       return;
     }
 
