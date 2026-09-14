@@ -124,8 +124,8 @@ for (const file of ['ui/app.js', 'ui/broadcast-runtime.js']) {
 let converge = read('test/wpp-converge-contract.cjs');
 converge = replaceRequired(
   converge,
-  "assert.match(main, /WAPLUS_WPP \\\\|\\\\| window\\\\.WPP/, '页面 API 必须兼容 WAPLUS_WPP 与 WPP');",
-  "assert.match(main, /window\\\\.WPP \\\\|\\\\| window\\\\.WAPLUS_WPP/, '页面 API 必须以 WA-JS 为主并保留 WAPLUS_WPP 回退');",
+  "assert.match(main, /WAPLUS_WPP \\|\\| window\\.WPP/, '页面 API 必须兼容 WAPLUS_WPP 与 WPP');",
+  "assert.match(main, /window\\.WPP \\|\\| window\\.WAPLUS_WPP/, '页面 API 必须以 WA-JS 为主并保留 WAPLUS_WPP 回退');",
   'wpp converge contract precedence'
 );
 write('test/wpp-converge-contract.cjs', converge);
@@ -165,7 +165,7 @@ for (const api of [
   'sendTextMessage', 'sendFileMessage', 'getActiveChat', 'getPnLidEntry',
   'getParticipants', 'moduleRequire', '_moduleIdMap', 'UserPrefs', 'ChatStore'
 ]) {
-  assert.ok(declarations.includes(api), `WA-JS 4.6 declarations must retain Geek surface: ${api}`);
+  assert.ok(declarations.includes(api), 'WA-JS 4.6 declarations must retain Geek surface: ' + api);
 }
 
 const main = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
@@ -179,7 +179,7 @@ assert.match(main, /window\\.WPP \\|\\| window\\.WAPLUS_WPP/, 'main-process gues
 assert.match(app, /window\\.WPP \\|\\| window\\.WAPLUS_WPP/, 'renderer WhatsApp integrations must prefer stable WA-JS');
 assert.match(runtime, /window\\.WPP \\|\\| window\\.WAPLUS_WPP/, 'broadcast runtime must prefer stable WA-JS');
 assert.match(recovery, /wpp\\?\\.loader[\\s\\S]*moduleRequire[\\s\\S]*_moduleIdMap/, 'ordinary composer recovery must continue consuming WA-JS loader metadata');
-assert.match(main, /resources\\/waplus-wpp\\.js|resources', 'WAPLUS compatibility bundle must remain wired');
+assert.match(main, /waplus-wpp\\.js/, 'WAPLUS compatibility bundle must remain wired');
 
 console.log('WA-JS 4.6 migration contract passed');
 `;
