@@ -77,7 +77,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/wa-js-capability-fallback-prep-once.yml scripts/patch-wa-js-capability-fallback-once.cjs scripts/patch-wpp-converge-capability-oracle-once.cjs
+          git rm -f .github/workflows/wa-js-capability-fallback-prep-once.yml scripts/patch-wa-js-capability-fallback-once.cjs scripts/patch-wpp-converge-capability-oracle-once.cjs
           git add src/main.cjs src/wpp-capability-picker.cjs test/wa-js-460-migration-contract.cjs test/wpp-converge-contract.cjs ui/app.js ui/broadcast-runtime.js
           staged="$(git diff --cached --name-only | sort)"
           expected="$(printf '%s\n' '.github/workflows/wa-js-capability-fallback-prep-once.yml' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'scripts/patch-wpp-converge-capability-oracle-once.cjs' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'test/wpp-converge-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
