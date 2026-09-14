@@ -42,13 +42,28 @@ const app = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
 const runtime = fs.readFileSync(path.join(root, 'ui/broadcast-runtime.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'ui/whatsapp-translation-hook-recovery.js'), 'utf8');
 
-assert.match(main, /W\?\.isReady === true[\s\S]*loader\?\.moduleRequire[\s\S]*_moduleIdMap\?\.get/, 'injection must wait for WA-JS loader metadata readiness');
-assert.match(main, /sendTextMessage[\s\S]*sendFileMessage[\s\S]*getActiveChat[\s\S]*getPnLidEntry[\s\S]*getParticipants/, 'injection readiness gate must cover Geek send/LID/group surfaces');
+const injectionProbeStart = main.indexOf('const injectionReadinessProbe =');
+const capabilityProbeStart = main.indexOf('const capabilityProbe =', injectionProbeStart);
+assert.ok(injectionProbeStart >= 0 && capabilityProbeStart > injectionProbeStart, 'WA-JS injection and capability probes must have separate owners');
+const injectionProbeSource = main.slice(injectionProbeStart, capabilityProbeStart);
+assert.match(injectionProbeSource, /W\?\.isInjected === true[\s\S]*W\?\.isReady === true[\s\S]*loader\?\.moduleRequire[\s\S]*_moduleIdMap\?\.get/, 'injection ownership must wait only for official WA-JS settle + loader metadata');
+for (const capability of ['sendTextMessage', 'sendFileMessage', 'getActiveChat', 'getPnLidEntry', 'getParticipants', 'ChatStore', 'UserPrefs', 'WAPLUS_WPP']) {
+  assert.equal(injectionProbeSource.includes(capability), false, 'injection readiness must not depend on authenticated/fallback capability: ' + capability);
+}
+const capabilityProbeEnd = main.indexOf('let bundleExecuted = false;', capabilityProbeStart);
+assert.ok(capabilityProbeEnd > capabilityProbeStart, 'capability probe must finish before injection retry loop');
+const capabilityProbeSource = main.slice(capabilityProbeStart, capabilityProbeEnd);
+for (const capability of ['sendTextMessage', 'sendFileMessage', 'getActiveChat', 'getPnLidEntry', 'getParticipants', 'ChatStore', 'UserPrefs', 'WAPLUS_WPP']) {
+  assert.ok(capabilityProbeSource.includes(capability), 'capability diagnostics must retain Geek surface: ' + capability);
+}
+const officialBundleIndex = main.indexOf('../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js', injectionProbeStart);
+const injectionOwnerIndex = main.indexOf('wppInjected.add(part)', officialBundleIndex);
+const fallbackBundleIndex = main.indexOf('../resources/waplus-wpp.js', injectionOwnerIndex);
+assert.ok(officialBundleIndex >= 0 && injectionOwnerIndex > officialBundleIndex && fallbackBundleIndex > injectionOwnerIndex, 'official WA-JS injection ownership must commit before optional WAPLUS compatibility injection');
 assert.match(main, /window\.WPP \|\| window\.WAPLUS_WPP/, 'main-process guest code must prefer stable WA-JS and preserve WAPLUS fallback');
 assert.match(app, /window\.WPP \|\| window\.WAPLUS_WPP/, 'renderer WhatsApp integrations must prefer stable WA-JS');
 assert.match(runtime, /window\.WPP \|\| window\.WAPLUS_WPP/, 'broadcast runtime must prefer stable WA-JS');
 assert.match(recovery, /wpp\?\.loader[\s\S]*moduleRequire[\s\S]*_moduleIdMap/, 'ordinary composer recovery must continue consuming WA-JS loader metadata');
-assert.match(main, /fallback\?\.chat\?\.sendTextMessage[\s\S]*fallback\?\.chat\?\.sendFileMessage[\s\S]*fallback\?\.contact\?\.getPnLidEntry[\s\S]*fallback\?\.group\?\.getParticipants/, 'WAPLUS fallback must retain text/media/LID/group compatibility');
 assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(main, /waplus-wpp\.js/, 'WAPLUS compatibility bundle must remain wired');

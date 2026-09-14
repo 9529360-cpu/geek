@@ -148,5 +148,7 @@ assert.doesNotMatch(combined, /--no-sandbox/, 'Windows gate must never disable E
 console.log('ELECTRON_E2E_WINDOWS_WHATSAPP_CONTRACT_OK');
 
 assert.match(whatsappRuntimeSpec, /version === '4\.6\.0'/, 'WA-JS runtime gate must require the exact tested version');
-assert.match(whatsappRuntimeSpec, /loaderReady[\s\S]*chatReady[\s\S]*lidGroupReady[\s\S]*storesReady[\s\S]*fallbackReady/, 'WA-JS runtime gate must cover loader, send, LID/group, stores, and WAPLUS fallback');
+assert.match(whatsappRuntimeSpec, /function injectionReady\(state\)[\s\S]*state\?\.loaderReady === true;/, 'WA-JS runtime gate must terminate on official injection + loader readiness');
+assert.doesNotMatch(whatsappRuntimeSpec, /function injectionReady\(state\)[\s\S]{0,500}state\?\.(?:chatReady|lidGroupReady|storesReady|fallbackReady) === true/, 'synthetic injection gate must not require authenticated or WAPLUS capabilities');
+assert.match(whatsappRuntimeSpec, /chatReady[\s\S]*lidGroupReady[\s\S]*storesReady[\s\S]*fallbackReady/, 'WA-JS runtime probe must retain bounded capability diagnostics without making them startup gates');
 assert.doesNotMatch(whatsappRuntimeSpec, /document\.cookie|localStorage|sessionStorage|Authorization|qrData|innerText|textContent/i, 'WA-JS runtime diagnostics must not read secrets or page bodies');
