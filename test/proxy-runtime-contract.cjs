@@ -3,6 +3,55 @@
 const assert = require('node:assert/strict');
 const { compileProxyConfig, createProxyRuntime, effectiveProxyConfig } = require('../src/proxy-runtime.cjs');
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(turns = 8) {
+  for (let index = 0; index < turns; index++) await Promise.resolve();
+}
+
+function makeProxyConfig(host, port = '8080') {
+  return { openProxy: true, protocal: 'http', host, port, login: 'user', password: 'secret' };
+}
+
+function createControlledRuntime() {
+  const started = [];
+  const currentRoute = new Map();
+  const closeCalls = new Map();
+
+  function sessionFor(partition) {
+    return {
+      partition,
+      async setProxy(value) {
+        const gate = deferred();
+        started.push({ partition, value, gate });
+        await gate.promise;
+        currentRoute.set(partition, value);
+      },
+      async clearAuthCache() {},
+      async closeAllConnections() {
+        closeCalls.set(partition, (closeCalls.get(partition) || 0) + 1);
+      },
+    };
+  }
+
+  const runtime = createProxyRuntime({
+    app: { on() {} },
+    sessionModule: { fromPartition: sessionFor },
+    accountState: { findByPartition() { return null; } },
+    getGlobalConfig: () => ({ openProxy: false }),
+  });
+
+  return { runtime, started, currentRoute, closeCalls };
+}
+
 const secret = 'p@ss:word';
 for (const [protocal, expected] of [
   ['http', 'http://proxy.example:8080'],
@@ -151,6 +200,79 @@ assert.equal(effectiveProxyConfig(accountB, globalConfig), globalConfig);
 
   runtime.forgetPartition(accountA.partition);
   assert.equal(runtime.isReadyForAccount(accountA, globalConfig), false);
+
+  {
+    const controlled = createControlledRuntime();
+    const partition = 'persist:webview-page-race';
+    const oldConfig = makeProxyConfig('old.proxy');
+    const newConfig = makeProxyConfig('new.proxy');
+
+    const oldApply = controlled.runtime.applyPartition(partition, oldConfig);
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 1, 'the first same-partition proxy mutation should enter setProxy');
+
+    const newApply = controlled.runtime.applyPartition(partition, newConfig);
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 1, 'a later same-partition proxy mutation must wait for the earlier full transition');
+
+    controlled.started[0].gate.resolve();
+    assert.equal((await oldApply).ok, true);
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 2, 'the queued same-partition mutation must start after the earlier apply completes');
+    assert.equal(controlled.started[1].value.proxyRules, 'http://new.proxy:8080');
+    controlled.started[1].gate.resolve();
+    assert.equal((await newApply).ok, true);
+    assert.equal(controlled.currentRoute.get(partition).proxyRules, 'http://new.proxy:8080', 'the latest queued proxy must own the final Electron Session route');
+    assert.equal(controlled.runtime.stateFor(partition).host, 'new.proxy', 'the latest queued proxy must own readiness');
+  }
+
+  {
+    const controlled = createControlledRuntime();
+    const applyA = controlled.runtime.applyPartition('persist:webview-page-concurrent-A', makeProxyConfig('a.parallel'));
+    const applyB = controlled.runtime.applyPartition('persist:webview-page-concurrent-B', makeProxyConfig('b.parallel'));
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 2, 'different account partitions must not be globally serialized');
+    const startedPartitions = new Set(controlled.started.map(entry => entry.partition));
+    assert.equal(startedPartitions.has('persist:webview-page-concurrent-A'), true);
+    assert.equal(startedPartitions.has('persist:webview-page-concurrent-B'), true);
+    for (const entry of controlled.started) entry.gate.resolve();
+    assert.equal((await applyA).ok, true);
+    assert.equal((await applyB).ok, true);
+  }
+
+  {
+    const controlled = createControlledRuntime();
+    const partition = 'persist:webview-page-recover';
+    const failedApply = controlled.runtime.applyPartition(partition, makeProxyConfig('broken.proxy'));
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 1);
+    const recoveredApply = controlled.runtime.applyPartition(partition, makeProxyConfig('recovered.proxy'));
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 1, 'a queued recovery must still wait while the failing mutation is unresolved');
+    controlled.started[0].gate.reject(new Error('simulated async setProxy rejection'));
+    const failedResult = await failedApply;
+    assert.equal(failedResult.ok, false);
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 2, 'a failed mutation must not poison the per-partition queue');
+    controlled.started[1].gate.resolve();
+    const recoveredResult = await recoveredApply;
+    assert.equal(recoveredResult.ok, true);
+    assert.equal(controlled.runtime.stateFor(partition).host, 'recovered.proxy');
+  }
+
+  {
+    const controlled = createControlledRuntime();
+    const partition = 'persist:webview-page-forgotten';
+    const inFlight = controlled.runtime.applyPartition(partition, makeProxyConfig('stale.proxy'));
+    await flushMicrotasks();
+    assert.equal(controlled.started.length, 1);
+    controlled.runtime.forgetPartition(partition);
+    assert.equal(controlled.runtime.stateFor(partition), null, 'forget must clear readiness immediately');
+    controlled.started[0].gate.resolve();
+    const staleResult = await inFlight;
+    assert.equal(staleResult.stale, true, 'an in-flight apply invalidated by account deletion must be reported as stale');
+    assert.equal(controlled.runtime.stateFor(partition), null, 'stale completion must never resurrect proxy readiness after account deletion');
+  }
 
   console.log('PROXY_RUNTIME_CONTRACT_OK');
 })().catch((error) => {

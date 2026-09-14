@@ -16,6 +16,7 @@ function clearPartitionRuntimeState(state, partition) {
   state.deletedPartitions.add(owner);
   state.caches.delete(owner);
   state.cacheLoaded.delete(owner);
+  state.cacheLoads.delete(owner);
   state.cacheWrites.delete(owner);
   const prefix = `${owner}:`;
   for (const key of state.latestRequest.keys()) if (key.startsWith(prefix)) state.latestRequest.delete(key);
@@ -54,6 +55,7 @@ function createTranslationRuntime(options = {}) {
   const state = {
     caches: new Map(),
     cacheLoaded: new Set(),
+    cacheLoads: new Map(),
     deletedPartitions: new Set(),
     inflight: new Map(),
     cacheWrites: new Map(),
@@ -90,26 +92,45 @@ function createTranslationRuntime(options = {}) {
   }
 
   async function loadCache(partition) {
+    if (state.deletedPartitions.has(partition)) throw accountDeletedError();
     if (!state.caches.has(partition)) state.caches.set(partition, new Map());
     const cache = state.caches.get(partition);
     if (state.cacheLoaded.has(partition)) return cache;
-    state.cacheLoaded.add(partition);
-    if (!safeStorage.isEncryptionAvailable()) return cache;
-    try {
-      const lines = (await fs.readFile(cacheFile(partition), 'utf-8')).split(/\r?\n/);
-      for (const line of lines) {
-        if (!line.trim()) continue;
+    const existingLoad = state.cacheLoads.get(partition);
+    if (existingLoad) return existingLoad;
+
+    const load = (async () => {
+      if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+      if (safeStorage.isEncryptionAvailable()) {
         try {
-          const item = JSON.parse(line);
-          if (item.version !== TRANSLATION_CACHE_VERSION || !item.key || !item.value) continue;
-          cache.set(item.key, {
-            text: safeStorage.decryptString(Buffer.from(item.value, 'base64')),
-            at: Number(item.at) || 0,
-          });
-        } catch {}
+          const lines = (await fs.readFile(cacheFile(partition), 'utf-8')).split(/\r?\n/);
+          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const item = JSON.parse(line);
+              if (item.version !== TRANSLATION_CACHE_VERSION || !item.key || !item.value) continue;
+              cache.set(item.key, {
+                text: safeStorage.decryptString(Buffer.from(item.value, 'base64')),
+                at: Number(item.at) || 0,
+              });
+            } catch {}
+          }
+        } catch (error) {
+          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+        }
       }
-    } catch {}
-    return cache;
+      if (state.deletedPartitions.has(partition) || state.caches.get(partition) !== cache) throw accountDeletedError();
+      state.cacheLoaded.add(partition);
+      return cache;
+    })();
+
+    state.cacheLoads.set(partition, load);
+    try {
+      return await load;
+    } finally {
+      if (state.cacheLoads.get(partition) === load) state.cacheLoads.delete(partition);
+    }
   }
 
   async function appendCache(partition, key, item) {
@@ -124,7 +145,10 @@ function createTranslationRuntime(options = {}) {
     const previous = state.cacheWrites.get(partition) || Promise.resolve();
     const write = previous.catch(() => {}).then(async () => {
       if (state.deletedPartitions.has(partition)) return;
-      await fs.mkdir(path.dirname(file), { recursive: true });
+      // The Electron Session/account lifecycle owns the persistent partition directory.
+      // Translation cache persistence is best-effort and must never recreate that owner
+      // after account deletion. appendFile may create the cache file, but cannot create
+      // a missing parent partition directory.
       await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8');
     });
     state.cacheWrites.set(partition, write);
@@ -249,6 +273,7 @@ function createTranslationRuntime(options = {}) {
     const partition = account.partition;
     if (state.deletedPartitions.has(partition)) throw accountDeletedError();
     const cache = await loadCache(partition);
+    if (state.deletedPartitions.has(partition)) throw accountDeletedError();
     const key = cacheKey(body, text, target);
     const inflightKey = `${partition}:${key}`;
 
@@ -364,6 +389,7 @@ function createTranslationRuntime(options = {}) {
           const item = { text: translated, at: Date.now() };
           cache.set(key, item);
           await appendCache(partition, key, item);
+          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
           return {
             text: translated,
             source: result.source || body.source || 'auto',
