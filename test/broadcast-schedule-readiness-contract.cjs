@@ -47,11 +47,17 @@ assert.ok(gateIndex >= 0 && loaderIndex > gateIndex, 'future-schedule click gate
 assert.match(safety, /closest\?\.\('#broadcast-send'\)/, 'gate must own the real broadcast send button in capture phase');
 assert.match(safety, /broadcast-schedule-toggle/, 'gate must read the real schedule enable control');
 assert.match(safety, /broadcast-schedule-time/, 'gate must read the real schedule timestamp control');
+assert.match(safety, /if \(!enabled\) return;/, 'disabled scheduling must leave the normal immediate-send path untouched');
+assert.match(safety, /!Number\.isFinite\(scheduledAt\) \|\| scheduledAt <= Date\.now\(\)/, 'enabled scheduling must explicitly reject missing, invalid, or past timestamps');
+assert.match(safety, /请选择未来的发送时间，避免定时任务被误当成立即发送/, 'invalid scheduling must explain that it will not degrade into immediate sending');
+const revealIndex = safety.indexOf(".bc-workbench-step[data-step=\"settings\"]");
+const focusIndex = safety.indexOf("document.getElementById('broadcast-schedule-time')?.focus");
+assert.ok(revealIndex >= 0 && focusIndex > revealIndex, 'invalid scheduling must reveal the Settings step before focusing its time field');
 assert.match(safety, /stopImmediatePropagation\(\)/, 'blocked future schedules must not reach legacy or runtime send handlers');
 assert.match(safety, /GeekBroadcastSchedulePersistenceInstance/, 'gate must require the installed persistence instance before allowing a future schedule');
 assert.doesNotMatch(safety, /window\.alert|\balert\s*\(/, 'persistence-not-ready feedback must not open a system alert');
 assert.match(safety, /broadcast-workbench-status/, 'blocked future schedules should report through the existing Workbench status');
-assert.match(safety, /setAttribute\('aria-live', 'polite'\)/, 'gate feedback must be announced without stealing focus');
+assert.match(safety, /setAttribute\('aria-live', 'polite'\)/, 'gate feedback must be announced without a blocking dialog');
 const preventIndex = safety.indexOf('event.preventDefault();');
 const stopIndex = safety.indexOf('event.stopImmediatePropagation();');
 assert.ok(preventIndex >= 0 && stopIndex > preventIndex, 'send must be blocked before the inline feedback path');
