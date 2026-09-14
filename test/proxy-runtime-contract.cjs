@@ -5,8 +5,8 @@ const { compileProxyConfig, createProxyRuntime, effectiveProxyConfig } = require
 
 const secret = 'p@ss:word';
 for (const [protocal, expected] of [
-  ['http', 'http=proxy.example:8080;https=proxy.example:8080'],
-  ['https', 'https=proxy.example:8080'],
+  ['http', 'http://proxy.example:8080'],
+  ['https', 'https://proxy.example:8080'],
   ['socks4', 'socks4://proxy.example:8080'],
   ['socks5', 'socks5://proxy.example:8080'],
 ]) {
@@ -71,7 +71,7 @@ assert.equal(effectiveProxyConfig(accountB, globalConfig), globalConfig);
   assert.equal(runtime.isReadyForAccount(accountA, globalConfig), true);
   assert.deepEqual(calls.get(accountA.partition).setProxy[0], {
     mode: 'fixed_servers',
-    proxyRules: 'http=a.proxy:9001;https=a.proxy:9001',
+    proxyRules: 'http://a.proxy:9001',
     proxyBypassRules: '<local>',
   });
 
@@ -84,7 +84,7 @@ assert.equal(effectiveProxyConfig(accountB, globalConfig), globalConfig);
   result = await runtime.applyAccount(accountB, globalConfig);
   assert.equal(result.ok, true);
   assert.equal(runtime.isReadyForAccount(accountB, globalConfig), true);
-  assert.equal(calls.get(accountB.partition).setProxy[0].proxyRules, 'https=global.proxy:9443');
+  assert.equal(calls.get(accountB.partition).setProxy[0].proxyRules, 'https://global.proxy:9443');
 
   function authAttempt({ account, host, port, isProxy = true, firstAuthAttempt = true }) {
     let prevented = false;

@@ -76,11 +76,12 @@ function compileProxyConfig(config) {
   const username = String(config.login || config.huser || '').trim();
   const password = String(config.password || config.hpwd || '');
   const endpoint = `${host}:${port}`;
-  const proxyRules = protocol === 'http'
-    ? `http=${endpoint};https=${endpoint}`
-    : protocol === 'https'
-      ? `https=${endpoint}`
-      : `${protocol}://${endpoint}`;
+  // The UI protocol selector describes the proxy server protocol. Electron's
+  // optional `urlScheme=` prefix selects destination URL schemes, while the
+  // proxy URL scheme selects HTTP/HTTPS/SOCKS transport to the proxy itself.
+  // Use one explicit proxy URL so the selected server protocol applies to all
+  // supported destinations instead of accidentally treating `https` as a URL filter.
+  const proxyRules = `${protocol}://${endpoint}`;
   const authFingerprint = fingerprint([username, password]);
 
   return {
