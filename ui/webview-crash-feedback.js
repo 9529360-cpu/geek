@@ -16,14 +16,15 @@
     let sequence = 0;
 
     function emit(accountId) {
-      const snapshot = states.get(String(accountId || '')) || null;
+      const id = String(accountId || '');
+      const snapshot = states.get(id) || null;
       for (const listener of listeners) {
-        try { listener(accountId, snapshot); } catch (_) {}
+        try { listener(id, snapshot); } catch (_) {}
       }
     }
 
     function clearStateTimer(state) {
-      if (state?.timer) clearTimer(state.timer);
+      if (state?.timer != null) clearTimer(state.timer);
     }
 
     function block(accountId, generation) {
@@ -96,13 +97,17 @@
       return states.get(String(accountId || '')) || null;
     }
 
+    function ids() {
+      return [...states.keys()];
+    }
+
     function subscribe(listener) {
       if (typeof listener !== 'function') return () => {};
       listeners.add(listener);
       return () => listeners.delete(listener);
     }
 
-    return Object.freeze({ crashed, loading, ready, remove, get, subscribe });
+    return Object.freeze({ crashed, loading, ready, remove, get, ids, subscribe });
   }
 
   function normalizeAccounts(value) {
@@ -225,12 +230,16 @@
       const webview = [...document.querySelectorAll('webview')]
         .find(candidate => webviewPartition(candidate) === account.partition);
       if (!webview || typeof webview.reload !== 'function') return false;
+
+      // Manual recovery starts a fresh visible recovery generation, but it does not
+      // reset or bypass app.js's automatic 2-per-minute crash limiter.
       tracker.crashed(accountId);
       try {
         webview.reload();
         return true;
       } catch (_) {
-        tracker.remove(accountId);
+        // Keep the recovery deadline armed. If the reload never starts, the account
+        // returns to blocked state instead of falsely clearing the visible failure.
         return false;
       } finally {
         render();
@@ -270,9 +279,8 @@
     async function refreshAccountsAndRender() {
       const fresh = await listAccounts();
       const live = new Set(fresh.map(account => account.id));
-      document.querySelectorAll('.nav-account[data-id]').forEach(item => live.add(String(item.dataset.id || '')));
-      for (const account of accounts) {
-        if (!live.has(account.id)) tracker.remove(account.id);
+      for (const id of tracker.ids()) {
+        if (!live.has(id)) tracker.remove(id);
       }
       bindCurrentWebviews();
       render();
