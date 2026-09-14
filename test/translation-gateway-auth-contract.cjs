@@ -47,7 +47,9 @@ function loadWorker() {
   assert.match(schema, /request_id TEXT PRIMARY KEY/, '请求 ID 必须数据库唯一');
   assert.match(subscriptionSource, /aud:\s*'geek-translate'/, '订阅 Worker 必须签发限定 audience 的短期令牌');
   assert.match(subscriptionSource, /exp:\s*now \+ 5 \* 60/, '翻译令牌有效期必须为 5 分钟');
-  assert.match(runtimeSource, /headers\.Authorization = `Bearer \$\{remoteAuthorization\}`/, '远程翻译必须携带短期 Bearer token');
+  assert.match(runtimeSource, /getRemoteAuthorizationLease\(subscriptionStore, deadlineAt\)/, '远程翻译必须先取得当前订阅会话的授权 lease');
+  assert.match(runtimeSource, /headers\.Authorization = `Bearer \$\{remoteAuthorizationLease\?\.token \|\| ''\}`/, '远程翻译 Bearer token 必须来自当前授权 lease');
+  assert.match(runtimeSource, /assertRemoteAuthorizationCurrent\(subscriptionStore, remoteAuthorizationLease\)/, '远程翻译必须重验授权 lease 生命周期');
   assert.match(runtimeSource, /const needsRemoteAuthorization = pool\.endpoints\.some/, 'Translation Runtime 必须只在远程网关需要授权时取短期令牌');
   assert.match(runtimeSource, /parsed\.protocol === 'http:' && parsed\.hostname === '127\.0\.0\.1'/, '本地回环网关必须保持无远程凭据例外');
   assert.match(runtimeSource, /'X-Request-ID': requestId/, '每次翻译必须携带幂等请求 ID');

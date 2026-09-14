@@ -10,8 +10,13 @@ const { createSubscriptionStore } = require('../src/subscription.cjs');
 const runtimeSource = fs.readFileSync(path.join(__dirname, '../src/translation-runtime.cjs'), 'utf8');
 assert.match(
   runtimeSource,
-  /getSubscriptionStore\(\)\.getQuota\(\{\s*network:\s*false\s*\}\)/,
-  '翻译热路径必须继续明确请求 quota 本地只读模式'
+  /const subscriptionStore = getSubscriptionStore\(\);[\s\S]*subscriptionStore\.getQuota\(\{\s*network:\s*false\s*\}\)/,
+  '翻译热路径必须从同一 Subscription authority 明确请求 quota 本地只读模式'
+);
+assert.match(
+  runtimeSource,
+  /getRemoteAuthorizationLease\(subscriptionStore, deadlineAt\)/,
+  '远程授权 lease 必须复用与 quota preflight 相同的 Subscription authority'
 );
 
 (async () => {
