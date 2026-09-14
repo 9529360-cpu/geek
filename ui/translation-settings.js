@@ -120,6 +120,23 @@
       const group = el('translation-group'); if (group) group.disabled = !receiveAuto;
     }
 
+    function syncRouteAvailability(result = null) {
+      const select = el('translation-server');
+      const backup = select?.querySelector?.('option[value="backup"]');
+      if (!select || !backup) return;
+      const endpointCount = Number(result?.endpointCount);
+      const known = Number.isFinite(endpointCount) && endpointCount >= 0;
+      const configured = known && endpointCount > 1;
+      backup.disabled = !configured;
+      backup.textContent = known
+        ? (configured ? '备用线路' : '备用线路（未配置）')
+        : '备用线路（检测中）';
+      select.dataset.backupConfigured = configured ? '1' : '0';
+      if (known && !configured && select.value === 'backup') {
+        setStatus('translation-global-status', '当前未配置备用线路，请选择自动选择或主线路', 'error');
+      }
+    }
+
     function ensureAppearancePreview() {
       if (el('translation-appearance-preview')) return;
       const host = el('translation-font-size')?.closest('.translation-advanced-body');
@@ -357,10 +374,17 @@
         .then(() => deps.health())
         .then(result => {
           healthCheckedAt = Date.now();
+          syncRouteAvailability(result);
           const ok = result?.ok === true;
+          const endpointCount = Math.max(0, Number(result?.endpointCount) || 0);
+          const availableCount = Math.max(0, Number(result?.models) || 0);
           state.textContent = ok ? '服务正常' : '服务异常';
           state.dataset.state = ok ? 'ok' : 'error';
-          if (detail) detail.textContent = ok ? `翻译服务正常${result.models ? ` · ${result.models} 条线路可用` : ''}` : '翻译服务暂不可用，可稍后重试';
+          if (detail) {
+            detail.textContent = ok
+              ? `翻译服务正常${endpointCount ? ` · ${availableCount}/${endpointCount} 条线路可用` : ''}`
+              : '翻译服务暂不可用，可稍后重试';
+          }
         })
         .catch(() => {
           healthCheckedAt = Date.now();
@@ -448,6 +472,7 @@
       el('translation-reset-global')?.addEventListener('click', resetGlobalDefaults);
 
       refreshGlobal();
+      syncRouteAvailability();
       activateTab('global');
     }
 
