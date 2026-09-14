@@ -130,7 +130,7 @@
     }
     async function load() { config = await deps.getConfig() || {}; fillGlobal(); setStatus(''); }
     async function open() {
-      if (overlayVisible('settings-overlay')) { focusIntoSettings(); return; }
+      if (overlayVisible('settings-overlay')) { el('settings-close')?.focus(); return; }
       if (lockOverlayVisible()) return;
       const active = document.activeElement;
       returnFocus = active && typeof active.focus === 'function' ? active : null;
@@ -159,10 +159,10 @@
       if (trapTab(event)) return;
       const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key === ',';
       if (shortcut) {
-        if (lockOverlayVisible()) return;
+        if (overlayVisible('lock-overlay')) return;
         event.preventDefault();
         event.stopPropagation();
-        if (overlayVisible('settings-overlay')) return void focusIntoSettings();
+        if (overlayVisible('settings-overlay')) return void el('settings-close')?.focus();
         void open();
         return;
       }
