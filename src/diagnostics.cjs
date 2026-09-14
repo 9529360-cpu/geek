@@ -110,11 +110,24 @@ function createDiagnostics(options) {
     }
   }
 
+  function diagnosticGeneration(name) {
+    const match = /^diagnostics-(.+)-(\d+)\.jsonl$/.exec(String(name || ''));
+    if (!match) return null;
+    return { timestamp: match[1], index: Number(match[2]) };
+  }
+
   function cleanupOldFiles() {
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl')).sort();
+    const files = fs.readdirSync(dir)
+      .map(name => ({ name, generation: diagnosticGeneration(name) }))
+      .filter(item => item.generation)
+      .sort((left, right) => {
+        if (left.generation.timestamp < right.generation.timestamp) return -1;
+        if (left.generation.timestamp > right.generation.timestamp) return 1;
+        return left.generation.index - right.generation.index;
+      });
     while (files.length > maxFiles) {
       const oldest = files.shift();
-      fs.unlinkSync(path.join(dir, oldest));
+      fs.unlinkSync(path.join(dir, oldest.name));
     }
   }
 

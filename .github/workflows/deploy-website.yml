@@ -6,6 +6,7 @@ on:
     branches:
       - master
     paths:
+      - 'scripts/geek-website-entry.js'
       - 'scripts/geek-website-worker.js'
       - 'scripts/website-payment-qr.mjs'
       - 'wrangler-website.toml'
@@ -42,6 +43,7 @@ jobs:
 
       - name: Validate Worker syntax
         run: |
+          node --check scripts/geek-website-entry.js
           node --check scripts/geek-website-worker.js
           node --check scripts/website-payment-qr.mjs
 

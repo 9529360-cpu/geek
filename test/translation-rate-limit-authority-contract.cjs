@@ -73,7 +73,16 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
   assert.match(worker, /return json\(\{ error: 'rate_limited' \}, 429/, 'blocked translation requests must remain HTTP 429');
 
   assert.match(entry, /scopeTranslationRateLimitAuthority\(db\)/, 'production entry must scope D1 through the atomic translation rate-limit authority');
-  assert.match(entry, /return baseWorker\.fetch\(request, withTranslationDatabase\(env, scopedDb\), ctx\)/, 'entry must preserve the existing translation Worker behind the scoped D1 binding');
+  assert.match(
+    entry,
+    /const workerEnv = db && typeof db\.prepare === 'function'\s*\? withTranslationDatabase\(env, scopeTranslationRateLimitAuthority\(db\)\)\s*:\s*env;/,
+    'entry must derive the base Worker environment from the atomic translation rate-limit scope'
+  );
+  assert.match(
+    entry,
+    /const response = await baseWorker\.fetch\(request, workerEnv, ctx\);/,
+    'entry must preserve the existing translation Worker behind the scoped D1 binding before any response projection'
+  );
   assert.match(wrangler, /^main = "scripts\/geek-translate-entry\.js"$/m, 'Wrangler must deploy the atomic translation entry');
   for (const requiredPath of [
     "'scripts/geek-translate-entry.js'",

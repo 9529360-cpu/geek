@@ -6,6 +6,7 @@ const nodeFs = require('node:fs');
 const { app, BrowserWindow, session } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
+const { prepareUserDataPath } = require('./user-data-path.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
 const { installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
@@ -51,9 +52,17 @@ const earlyUserDataDir = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
   overrideDir: process.env.GEEK_USER_DATA_DIR,
 });
-try { app.setPath('userData', earlyUserDataDir); } catch {}
+let userDataPathReady = false;
+try {
+  prepareUserDataPath({ app, fs: nodeFs, userDataDir: earlyUserDataDir });
+  userDataPathReady = true;
+} catch (error) {
+  const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'USER_DATA_PATH_BIND_FAILED');
+  console.error('[user-data] startup blocked:', code.slice(0, 80));
+  app.exit(1);
+}
 
-const primaryInstance = installSingleInstanceGuard({ app, BrowserWindow });
+const primaryInstance = userDataPathReady && installSingleInstanceGuard({ app, BrowserWindow });
 if (primaryInstance) {
   const accountsFilePath = runtimePaths.accountsFile(earlyUserDataDir);
 
