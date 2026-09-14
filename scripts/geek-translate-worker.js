@@ -28,6 +28,31 @@ const enc = new TextEncoder();
 const providerState = new Map();
 const FAIL_THRESHOLD = 2;
 const COOLDOWN_MS = 30000;
+const PROVIDER_TIMEOUT_MS = 15000;
+const REQUEST_BUDGET_MS = 30000;
+const FINISH_RESERVE_MS = 500;
+
+function requestDeadlineAt(request, now = Date.now()) {
+  const raw = Number(request?.headers?.get?.('X-Geek-Deadline-Ms'));
+  const requested = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : REQUEST_BUDGET_MS;
+  return now + Math.min(REQUEST_BUDGET_MS, Math.max(1, requested));
+}
+
+function remainingBudgetMs(deadlineAt, now = Date.now()) {
+  return Math.max(0, Number(deadlineAt) - Number(now));
+}
+
+function providerAttemptBudget(deadlineAt, now = Date.now()) {
+  const available = remainingBudgetMs(deadlineAt, now) - FINISH_RESERVE_MS;
+  return available > 0 ? Math.min(PROVIDER_TIMEOUT_MS, available) : 0;
+}
+
+function deadlineExceededError(cause) {
+  const error = new Error('translation request deadline exceeded');
+  error.code = 'deadline_exceeded';
+  if (cause) error.cause = cause;
+  return error;
+}
 
 function markProviderFail(id, errorMessage) {
   const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0 };
@@ -47,7 +72,6 @@ function markProviderOk(id) {
 function providerUsable(provider) {
   const st = providerState.get(provider.id);
   if (!st || st.healthy) return true;
-  // 冷却期过后允许重试探测
   return Date.now() - (st.lastFailAt || 0) > COOLDOWN_MS;
 }
 
@@ -115,7 +139,7 @@ function handleOptions(request, env) {
     headers: {
       ...cors,
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID, X-Geek-Deadline-Ms',
     },
   });
 }
@@ -274,11 +298,10 @@ function validateTranslationOutput(source, output, target) {
   return result;
 }
 
-// 调单个免费模型；非 2xx / 超时 / 空响应 → 抛错（上层轮换）
-// 单模型 15s 超时：4 模型轮换最坏 ~60s，但健康监测跳过故障模型后实际很快；客户端总预算 30s
-async function callProvider(provider, env, text, target, timeoutMs = 15000) {
+async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS) {
+  const boundedTimeout = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, Math.floor(Number(timeoutMs) || 0)));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), boundedTimeout);
   try {
     const body = {
       model: provider.model,
@@ -294,44 +317,50 @@ async function callProvider(provider, env, text, target, timeoutMs = 15000) {
     });
     if (!res.ok) {
       const raw = await res.text().catch(() => '');
-      // 429/5xx = 限流或故障，交给上层切换；4xx 其他也切换（如 401 说明 key 失效）
       throw new Error(`${provider.id}: ${res.status} ${raw.slice(0, 100)}`);
     }
     const data = await res.json();
     let result = ((data.choices || [])[0] || {}).message?.content?.trim();
-    // reasoning 模型兜底：content 为空时尝试 reasoning 字段；剥除 <think> 思考块
-    if (!result && data.choices?.[0]?.message?.reasoning) {
-      result = String(data.choices[0].message.reasoning).trim();
-    }
+    if (!result && data.choices?.[0]?.message?.reasoning) result = String(data.choices[0].message.reasoning).trim();
     if (!result) throw new Error(`${provider.id}: empty response`);
-    // 剥除 <think>...</think> 思考过程（reasoning 模型污染）
     const thinkMatch = result.match(/^<think>[\s\S]*?<\/think>\s*/);
     if (thinkMatch) result = result.slice(thinkMatch[0].length).trim();
-    // 剥除开头的中英文"思考过程"自述（部分模型把推理写进 content）
     result = result.replace(/^(Here's a thinking process|Let me think|I'll translate|以下是思考过程|让我思考)[：:\s]*/i, '');
     if (!result) throw new Error(`${provider.id}: empty after strip`);
     try { result = validateTranslationOutput(text, result, target); }
     catch (error) { throw new Error(`${provider.id}: ${error.message}`); }
     return { text: result, engine: provider.id };
+  } catch (error) {
+    if (controller.signal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+      const timeout = new Error(`${provider.id}: timeout`);
+      timeout.code = 'provider_timeout';
+      timeout.timeoutMs = boundedTimeout;
+      throw timeout;
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
 }
 
-// 多免费模型轮换：跳过已知故障模型（健康监测），按 PROVIDERS 顺序尝试，全部失败抛最后错误
-async function translate(text, target, env) {
+async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS) {
   const pool = PROVIDERS.filter(p => Boolean(env[p.keyEnv]));
   if (!pool.length) throw new Error('no free provider configured');
   let lastError = null;
   for (const provider of pool) {
     if (!providerUsable(provider)) { lastError = lastError || new Error(`${provider.id}: 模型暂不可用（冷却中）`); continue; }
+    const attemptBudget = providerAttemptBudget(deadlineAt);
+    if (attemptBudget <= 0) throw deadlineExceededError(lastError);
     try {
-      const result = await callProvider(provider, env, text, target);
+      const result = await callProvider(provider, env, text, target, attemptBudget);
       markProviderOk(provider.id);
       return result;
     } catch (error) {
+      const deadlineLimitedTimeout = error?.code === 'provider_timeout' && attemptBudget < PROVIDER_TIMEOUT_MS;
+      if (deadlineLimitedTimeout) throw deadlineExceededError(error);
       markProviderFail(provider.id, error.message);
       lastError = error;
+      if (providerAttemptBudget(deadlineAt) <= 0) throw deadlineExceededError(error);
     }
   }
   throw lastError || new Error('all free providers failed');
@@ -343,17 +372,17 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (request.method === 'GET' && path === '/health') {
-      return health(env, request);
-    }
+    if (request.method === 'GET' && path === '/health') return health(env, request);
 
     if (request.method === 'POST' && path === '/v1/translate') {
+      const deadlineAt = requestDeadlineAt(request);
       const auth = await verifyTranslationJwt(bearer(request), env.JWT_SECRET);
       if (!auth) return json({ error: 'unauthorized' }, 401, request, env);
       const requestId = String(request.headers.get('X-Request-ID') || '');
       if (!/^[0-9a-f-]{36}$/i.test(requestId)) return json({ error: 'invalid_request_id' }, 400, request, env);
       const db = env.geek_subscriptions;
       if (!db) return json({ error: 'service_unavailable' }, 503, request, env);
+      if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
       if (await rateLimited(db, `translate:user:${auth.uid}`, 30, 60) || await rateLimited(db, `translate:ip:${clientIp(request)}`, 60, 60)) {
         return json({ error: 'rate_limited' }, 429, request, env);
       }
@@ -374,16 +403,17 @@ export default {
         if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
         if (!LANG_NAMES[target] || target === 'auto') return json({ error: 'invalid_target' }, 400, request, env);
         if (!PROVIDERS.some(p => Boolean(env[p.keyEnv]))) return json({ error: 'service_unavailable' }, 503, request, env);
+        if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
         reserved = Math.max(1, countChars(text));
         const reservation = await reserveUsage(db, auth.uid, requestId, reserved);
         if (!reservation.ok) return json({ error: reservation.error }, reservation.error === 'duplicate_request' ? 409 : 402, request, env);
         reservationOwner = reservation.owner;
-        const { text: result, engine } = await translate(text, target, env);
+        const { text: result, engine } = await translate(text, target, env, deadlineAt);
         await finishUsage(db, auth.uid, requestId, countChars(result), reservationOwner);
         return json({ text: result, source, target, engine, route }, 200, request, env);
       } catch (error) {
         if (reservationOwner) await refundUsage(db, auth.uid, requestId, reserved, reservationOwner).catch(() => {});
-        return json({ error: 'translation_failed' }, 502, request, env);
+        return json({ error: error?.code === 'deadline_exceeded' ? 'deadline_exceeded' : 'translation_failed' }, error?.code === 'deadline_exceeded' ? 504 : 502, request, env);
       }
     }
 
