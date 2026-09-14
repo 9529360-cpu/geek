@@ -99,4 +99,9 @@ const controlPlan = planDevChanges(['src/dev-loop-control.cjs']);
 assert.equal(controlPlan.runtimeAction, DEV_ACTION.RESTART_ELECTRON);
 assert.equal(controlPlan.requiresLoopRestart, true);
 
+const recoveryPlan = planDevChanges(['scripts/dev-loop-recovery.cjs']);
+assert.equal(recoveryPlan.runtimeAction, DEV_ACTION.IGNORE);
+assert.equal(recoveryPlan.requiresLoopRestart, true);
+assert.deepEqual(recoveryPlan.feedbackSyntaxFiles, ['scripts/dev-loop-recovery.cjs']);
+
 console.log('dev-loop policy contract passed');

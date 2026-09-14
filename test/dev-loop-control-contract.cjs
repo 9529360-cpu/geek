@@ -31,6 +31,7 @@ class FakeApp extends EventEmitter {
 
   quit() {
     this.quitCalls += 1;
+    this.emit('before-quit');
   }
 }
 
@@ -60,7 +61,10 @@ assert.equal(normalizeDevLoopToken('bad token with spaces'), '');
 
   processObject.emit('message', { type: DEV_LOOP_MESSAGES.SHUTDOWN, token });
   assert.equal(app.quitCalls, 1);
-  assert.deepEqual(processObject.sent.at(-1), { type: DEV_LOOP_MESSAGES.SHUTDOWN_ACK, token });
+  assert.deepEqual(processObject.sent.slice(-2), [
+    { type: DEV_LOOP_MESSAGES.SHUTDOWN_ACK, token },
+    { type: DEV_LOOP_MESSAGES.EXITING, token },
+  ]);
 
   processObject.emit('message', { type: DEV_LOOP_MESSAGES.SHUTDOWN, token });
   assert.equal(app.quitCalls, 1, 'duplicate shutdown must be idempotent');

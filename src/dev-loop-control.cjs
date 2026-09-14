@@ -4,6 +4,7 @@ const DEV_LOOP_CONTROL_FLAG = 'GEEK_DEV_LOOP_CONTROL';
 const DEV_LOOP_CONTROL_TOKEN = 'GEEK_DEV_LOOP_TOKEN';
 const DEV_LOOP_MESSAGES = Object.freeze({
   READY: 'geek:dev-loop:ready',
+  EXITING: 'geek:dev-loop:exiting',
   SHUTDOWN: 'geek:dev-loop:shutdown',
   SHUTDOWN_ACK: 'geek:dev-loop:shutdown-ack',
 });
@@ -65,15 +66,26 @@ function installDevLoopControl(options = {}) {
     }
   };
 
+  const onBeforeQuit = () => {
+    quitting = true;
+    send(DEV_LOOP_MESSAGES.EXITING);
+  };
+
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     processObject.removeListener('message', onMessage);
-    if (typeof app.removeListener === 'function') app.removeListener('will-quit', dispose);
+    if (typeof app.removeListener === 'function') {
+      app.removeListener('before-quit', onBeforeQuit);
+      app.removeListener('will-quit', dispose);
+    }
   };
 
   processObject.on('message', onMessage);
-  if (typeof app.once === 'function') app.once('will-quit', dispose);
+  if (typeof app.once === 'function') {
+    app.once('before-quit', onBeforeQuit);
+    app.once('will-quit', dispose);
+  }
   send(DEV_LOOP_MESSAGES.READY);
 
   return Object.freeze({ enabled: true, dispose });

@@ -16,6 +16,7 @@ const {
   terminateProcessTree,
   waitForChildExit,
 } = require('./dev-loop-process.cjs');
+const { createRecoveryTracker } = require('./dev-loop-recovery.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const DEBUG_PORT = 9344;
@@ -45,6 +46,9 @@ const ROOT_FEEDBACK_FILES = Object.freeze(new Set([
 
 let electronProcess = null;
 let electronControl = null;
+let plannedStopChild = null;
+let recoveryTimer = null;
+const recoveryTracker = createRecoveryTracker();
 let shuttingDown = false;
 let debounceTimer = null;
 let actionQueue = Promise.resolve();
@@ -92,6 +96,33 @@ function queueRootFileIfChanged(relativePath) {
   if (previous !== next) queueChange(relativePath);
 }
 
+function clearRecoveryTimer() {
+  if (!recoveryTimer) return;
+  clearTimeout(recoveryTimer);
+  recoveryTimer = null;
+}
+
+function resetRecoveryForRuntimeChange() {
+  clearRecoveryTimer();
+  recoveryTracker.noteRuntimeChange();
+}
+
+function scheduleUnexpectedRecovery(detail) {
+  const decision = recoveryTracker.noteUnexpectedExit();
+  if (!decision.shouldRestart) {
+    warn(`Electron crash-loop breaker opened after ${decision.unstableExits} unstable exits; watching continues until the next valid desktop-runtime change.`);
+    return;
+  }
+
+  warn(`Electron exited unexpectedly (${detail}); automatic recovery attempt ${decision.unstableExits} in ${decision.delayMs}ms.`);
+  clearRecoveryTimer();
+  recoveryTimer = setTimeout(() => {
+    recoveryTimer = null;
+    if (!shuttingDown && !childIsRunning(electronProcess)) startElectron();
+  }, decision.delayMs);
+  recoveryTimer.unref?.();
+}
+
 function startElectron() {
   if (shuttingDown || childIsRunning(electronProcess)) return;
 
@@ -111,7 +142,8 @@ function startElectron() {
     },
   );
   electronProcess = child;
-  electronControl = { child, token, ready: false };
+  electronControl = { child, token, ready: false, intentionalExit: false };
+  recoveryTracker.noteStart();
   log(`Electron started with isolated development profile and CDP ${DEBUG_PORT}.`);
 
   child.on('message', (message) => {
@@ -120,6 +152,8 @@ function startElectron() {
     if (message?.type === DEV_LOOP_MESSAGES.READY) {
       electronControl.ready = true;
       log('Electron dev control channel ready.');
+    } else if (message?.type === DEV_LOOP_MESSAGES.EXITING) {
+      electronControl.intentionalExit = true;
     }
   });
   child.once('error', (error) => {
@@ -128,11 +162,21 @@ function startElectron() {
     warn(`Electron failed to start: ${error.message}`);
   });
   child.once('exit', (code, signal) => {
+    const control = electronControl?.child === child ? electronControl : null;
+    const expectedExit = shuttingDown
+      || plannedStopChild === child
+      || control?.intentionalExit === true;
     if (electronProcess === child) electronProcess = null;
     if (electronControl?.child === child) electronControl = null;
+    if (plannedStopChild === child) plannedStopChild = null;
+
     if (!shuttingDown) {
       const detail = signal ? `signal ${signal}` : `code ${code}`;
-      warn(`Electron exited (${detail}); watching continues and the next runtime change will relaunch it.`);
+      if (expectedExit) {
+        log(`Electron exited intentionally (${detail}); watcher remains active.`);
+      } else {
+        scheduleUnexpectedRecovery(detail);
+      }
     }
   });
 }
@@ -146,6 +190,7 @@ async function stopElectron() {
   }
 
   const control = electronControl?.child === child ? electronControl : null;
+  plannedStopChild = child;
   const graceful = await requestGracefulQuit(child, control, CONTROL_ACK_MS);
   if (graceful) {
     log('Electron acknowledged graceful dev-loop shutdown.');
@@ -297,6 +342,7 @@ async function applyRuntimeAction(plan, runtimeSafe) {
 async function applyChanges(changes) {
   const plan = planDevChanges(changes);
   if (plan.changes.length === 0) return;
+  if (plan.runtimeAction !== DEV_ACTION.IGNORE) resetRecoveryForRuntimeChange();
   const runtimeSafe = await verifyRuntimeInputs(plan);
   await applyRuntimeAction(plan, runtimeSafe);
   await runFeedbackChecks(plan);
@@ -358,6 +404,7 @@ async function shutdown(exitCode = 0) {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = null;
   pendingChanges.clear();
+  clearRecoveryTimer();
   for (const watcher of watchers.splice(0)) watcher.close();
   const stopped = await stopElectron();
   process.exit(stopped ? exitCode : Math.max(1, exitCode));

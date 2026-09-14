@@ -121,6 +121,7 @@ function planDevChanges(relativePaths) {
       filePath === 'scripts/dev-loop.cjs'
       || filePath === 'scripts/dev-loop-policy.cjs'
       || filePath === 'scripts/dev-loop-process.cjs'
+      || filePath === 'scripts/dev-loop-recovery.cjs'
       || filePath === 'src/dev-loop-control.cjs'
     )),
   });
