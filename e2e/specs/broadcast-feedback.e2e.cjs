@@ -166,19 +166,13 @@ describe('Broadcast non-blocking feedback', () => {
     });
 
     await browser.execute(() => {
-      const custom = document.querySelector('input[name="bc-sendto"][value="custom"]');
-      if (custom) {
-        custom.checked = true;
-        custom.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      const chips = document.getElementById('bc-selected-chips');
-      chips?.replaceChildren();
-      for (let index = 0; index < 10; index += 1) {
-        const chip = document.createElement('span');
-        chip.className = 'bc-selected-chip';
-        chip.textContent = `Synthetic ${index + 1}`;
-        chips?.appendChild(chip);
-      }
+      const paste = document.querySelector('input[name="bc-sendto"][value="paste"]');
+      paste.checked = true;
+      paste.dispatchEvent(new Event('change', { bubbles: true }));
+      const numbers = document.getElementById('bc-paste-numbers');
+      numbers.value = Array.from({ length: 10 }, (_, index) => `+601111000${index}`).join('\n');
+      numbers.dispatchEvent(new Event('input', { bubbles: true }));
+
       const message = document.getElementById('broadcast-message');
       message.value = 'Launch check synthetic preview only';
       message.dispatchEvent(new Event('input', { bubbles: true }));
@@ -191,25 +185,35 @@ describe('Broadcast non-blocking feedback', () => {
       const toggle = document.getElementById('broadcast-schedule-toggle');
       toggle.checked = false;
       toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      window.GeekBroadcastLaunchCheckInstance?.refresh?.();
     });
 
     await (await waitVisible('.bc-workbench-step[data-step="review"]')).click();
-    await browser.waitUntil(async () => browser.execute(() =>
-      document.getElementById('broadcast-launch-check')?.dataset.state === 'ready'), {
-      timeout: STEP_TIMEOUT,
-      timeoutMsg: 'launch check did not reach ready state for the synthetic draft',
+    const ready = await browser.execute(() => {
+      const refreshed = window.GeekBroadcastLaunchCheckInstance?.refresh?.();
+      return {
+        state: refreshed?.plan?.state || document.getElementById('broadcast-launch-check')?.dataset.state || '',
+        blockers: refreshed?.plan?.blockers || [],
+        warnings: refreshed?.plan?.warnings || [],
+        snapshot: refreshed?.snapshot ? {
+          accountId: refreshed.snapshot.accountId,
+          audience: refreshed.snapshot.audience,
+          contentPresent: refreshed.snapshot.contentPresent,
+          scheduleEnabled: refreshed.snapshot.scheduleEnabled,
+          activeJob: refreshed.snapshot.activeJob,
+          pendingJobs: refreshed.snapshot.pendingJobs,
+        } : null,
+        badge: document.querySelector('#broadcast-launch-check .bc-launch-check-state')?.textContent || '',
+        audience: document.querySelector('[data-launch-metric="audience"]')?.textContent || '',
+        wait: document.querySelector('[data-launch-metric="wait"]')?.textContent || '',
+        queue: document.querySelector('[data-launch-metric="queue"]')?.textContent || '',
+        pasteTotal: document.getElementById('bc-paste-total')?.textContent || '',
+      };
     });
-
-    const ready = await browser.execute(() => ({
-      state: document.getElementById('broadcast-launch-check')?.dataset.state || '',
-      badge: document.querySelector('#broadcast-launch-check .bc-launch-check-state')?.textContent || '',
-      audience: document.querySelector('[data-launch-metric="audience"]')?.textContent || '',
-      wait: document.querySelector('[data-launch-metric="wait"]')?.textContent || '',
-      queue: document.querySelector('[data-launch-metric="queue"]')?.textContent || '',
-    }));
-    assert.equal(ready.state, 'ready');
+    assert.equal(ready.state, 'ready', `launch check snapshot: ${JSON.stringify(ready)}`);
     assert.equal(ready.badge, '可以发送');
-    assert.match(ready.audience, /10 个对象/);
+    assert.equal(ready.pasteTotal, '10');
+    assert.match(ready.audience, /10 个候选/);
     assert.match(ready.wait, /45 秒/);
     assert.match(ready.wait, /1 分 30 秒/);
     assert.match(ready.queue, /空闲/);
@@ -226,6 +230,7 @@ describe('Broadcast non-blocking feedback', () => {
       document.getElementById('broadcast-send').addEventListener('click', () => {
         window.__geekE2EInvalidScheduleReached = true;
       }, { once: true });
+      window.GeekBroadcastLaunchCheckInstance?.refresh?.();
     });
 
     await browser.waitUntil(async () => browser.execute(() =>
@@ -247,8 +252,11 @@ describe('Broadcast non-blocking feedback', () => {
     assert.equal(blocked.focused, 'broadcast-schedule-time');
 
     await browser.execute(() => {
-      const chips = document.getElementById('bc-selected-chips');
-      chips?.replaceChildren();
+      const numbers = document.getElementById('bc-paste-numbers');
+      if (numbers) {
+        numbers.value = '';
+        numbers.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       const toggle = document.getElementById('broadcast-schedule-toggle');
       if (toggle) toggle.checked = false;
       delete window.__geekE2EInvalidScheduleReached;
