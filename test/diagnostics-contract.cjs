@@ -88,7 +88,9 @@ diagnostics.log('uncaught-exception', {
 const files = fs.readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort();
 assert.ok(files.length >= 1 && files.length <= 3, '轮转文件最多保留3个');
 const output = files.map((name) => fs.readFileSync(path.join(dir, name), 'utf8')).join('\n');
-assert.match(output, /uncaught-exception|webview-load-failed/, '应记录诊断事件');
+assert.match(output, /webview-load-failed/, '原有WebView诊断事件必须继续保留');
+assert.match(output, /account-1/, '原有账号ID诊断元数据必须继续保留');
+assert.match(output, /uncaught-exception/, '自由异常文本必须经过真实日志写入路径验证');
 assert.doesNotMatch(output, /secret-|PRIVATE-|Bearer runtime-secret|runtime-query|user:pass|@example\.com|proxy-user|\+60123456789/, '日志不得包含字段级或自由文本中的凭据、PII、聊天正文');
 assert.doesNotMatch(output, /\?token=/, '日志不得包含URL query');
 
