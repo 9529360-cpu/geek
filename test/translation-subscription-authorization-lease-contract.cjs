@@ -89,15 +89,29 @@ function successResponse(text) {
     }
 
     // 2. Runtime queue admission must bind to the subscription lease, eject queued work on
-    //    invalidation, and abort active requests without poisoning gateway health.
+    //    invalidation, and abort active requests without poisoning gateway health. Many requests
+    //    in one generation must share one native AbortSignal listener through Runtime fan-out.
     {
       const handlers = new Map();
       let generation = 1;
+      let nativeSessionAbortListeners = 0;
       let generationController = new AbortController();
+      const wrapGenerationSignal = controller => ({
+        get aborted() { return controller.signal.aborted; },
+        get reason() { return controller.signal.reason; },
+        addEventListener(type, listener, options) {
+          if (type === 'abort') nativeSessionAbortListeners += 1;
+          return controller.signal.addEventListener(type, listener, options);
+        },
+        removeEventListener(type, listener, options) {
+          return controller.signal.removeEventListener(type, listener, options);
+        },
+      });
+      let generationSignal = wrapGenerationSignal(generationController);
       const leaseForCurrentGeneration = () => Object.freeze({
         token: `token-${generation}`,
         generation,
-        signal: generationController.signal,
+        signal: generationSignal,
       });
       const subscription = {
         getQuota: async () => ({ remaining_chars: null }),
@@ -110,6 +124,7 @@ function successResponse(text) {
           const old = generationController;
           generation += 1;
           generationController = new AbortController();
+          generationSignal = wrapGenerationSignal(generationController);
           old.abort(sessionChangedError());
         },
       };
@@ -165,6 +180,7 @@ function successResponse(text) {
         skipQuota: true,
       }));
       await waitFor(() => fetches === 20, '20 active lease-bound translations');
+      assert.equal(nativeSessionAbortListeners, 1, 'one subscription generation must have one native abort listener regardless of request fan-out');
       subscription.invalidate();
       const results = await Promise.allSettled(requests);
 
