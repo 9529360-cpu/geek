@@ -35,7 +35,6 @@ for (let index = 1; index <= 14; index += 1) {
 
 for (const category of ['accepted', 'bridge-capacity', 'auth', 'quota', 'deadline', 'gateway', 'quality', 'cancelled']) {
   assert.ok(script.includes(`'${category}'`), `evidence recorder must expose admission category ${category}`);
-  assert.ok(docs.includes(`\`${category}\``), `matrix must define category ${category}`);
 }
 
 // The recorder is intentionally categorical. It must not accept free-form fields
@@ -49,29 +48,29 @@ for (const forbiddenParam of [
   assert.equal(paramBlock.includes(forbiddenParam), false, `privacy boundary must not accept ${forbiddenParam}`);
 }
 
-assert.match(script, /automatedMessageSend\s*=\s*\$false/);
-assert.match(script, /releaseGate\s*=\s*\$false/);
-assert.match(script, /messageContentIncluded\s*=\s*\$false/);
-assert.match(script, /translatedContentIncluded\s*=\s*\$false/);
-assert.match(script, /conversationIdentifierIncluded\s*=\s*\$false/);
-assert.match(script, /phoneNumberIncluded\s*=\s*\$false/);
-assert.match(script, /accountIdentifierIncluded\s*=\s*\$false/);
-assert.match(script, /cookieDataIncluded\s*=\s*\$false/);
-assert.match(script, /authTokenIncluded\s*=\s*\$false/);
-assert.match(script, /bridgeTokenIncluded\s*=\s*\$false/);
-assert.match(script, /providerSecretIncluded\s*=\s*\$false/);
-assert.match(script, /rawProfilePathIncluded\s*=\s*\$false/);
-
-assert.match(docs, /Broadcast pass != composer pass/);
-assert.match(docs, /Electron E2E pass != authenticated WhatsApp pass/);
-assert.match(docs, /gateway health pass != current-user auth\/quota ready/);
-assert.match(docs, /记录器不会自动发送消息，也不会读取聊天正文/);
-assert.match(docs, /不得注册 self-hosted GitHub Actions runner/);
-assert.match(docs, /LID `not-applicable` != LID pass/);
+// Machine-check only the evidence schema and privacy boundary. Human-facing prose
+// is intentionally free to evolve without turning documentation wording into CI.
+for (const field of [
+  'automatedMessageSend', 'releaseGate', 'messageContentIncluded', 'translatedContentIncluded',
+  'conversationIdentifierIncluded', 'phoneNumberIncluded', 'accountIdentifierIncluded',
+  'cookieDataIncluded', 'authTokenIncluded', 'bridgeTokenIncluded', 'providerSecretIncluded',
+  'rawProfilePathIncluded',
+]) {
+  assert.match(script, new RegExp(`${field}\\s*=\\s*\\$false`), `${field} must stay false`);
+}
+assert.match(script, /capturedUtc\s*=\s*\(Get-Date\)\.ToUniversalTime\(\)\.ToString\('o'\)/);
+assert.match(script, /schema\s*=\s*1/);
+assert.match(script, /issue\s*=\s*526/);
+assert.match(script, /ConvertTo-Json -Depth 8/);
+assert.match(script, /Set-Content -LiteralPath \$outputPath -Encoding UTF8/);
+assert.equal(script.includes('Invoke-WebRequest'), false, 'recorder must not upload evidence');
+assert.equal(script.includes('Invoke-RestMethod'), false, 'recorder must not call remote APIs');
+assert.equal(script.includes('SendKeys'), false, 'recorder must not automate message sends');
+assert.equal(script.includes('executeJavaScript'), false, 'recorder must not inspect remote chat DOM');
 
 // Historical Issue #95 evidence remains a separate compatibility artifact. This
-// contract intentionally checks its stable phase/version guards still exist rather
-// than merging current translation evidence semantics into it.
+// contract checks its stable phase/version guards instead of merging current
+// translation evidence semantics into the historical upgrade recorder.
 assert.match(historical, /ValidateSet\('probe', 'pre-update', 'post-update'\)/);
 assert.match(historical, /Pre-update evidence requires installed Geek 1\.2\.8/);
 assert.match(historical, /Post-update evidence requires installed Geek 1\.2\.9/);
