@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor a00d356f31f5affe3dc0e41e1c8040d786644034 HEAD
           changed="$(git diff --name-only a00d356f31f5affe3dc0e41e1c8040d786644034..HEAD | sort)"
-          expected="$(printf '%s\n' '.github/workflows/wa-js-capability-fallback-prep-once.yml' 'scripts/patch-wa-js-capability-fallback-once.cjs' | sort)"
+          expected="$(printf '%s\n' '.github/workflows/wa-js-capability-fallback-prep-once.yml' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'scripts/patch-wpp-converge-capability-oracle-once.cjs' | sort)"
           test "$changed" = "$expected"
           test "$(node -p "require('./package.json').dependencies['@wppconnect/wa-js']")" = "4.6.0"
 
@@ -45,20 +45,23 @@ jobs:
           fs.writeFileSync(file, source);
           NODE
           node --check scripts/patch-wa-js-capability-fallback-once.cjs
+          node --check scripts/patch-wpp-converge-capability-oracle-once.cjs
 
       - name: Apply capability fallback patch
         shell: bash
         run: |
           set -euo pipefail
           node scripts/patch-wa-js-capability-fallback-once.cjs
+          node scripts/patch-wpp-converge-capability-oracle-once.cjs
           node --check src/wpp-capability-picker.cjs
           node --check src/main.cjs
           node --check ui/app.js
           node --check ui/broadcast-runtime.js
           node --check test/wa-js-460-migration-contract.cjs
+          node --check test/wpp-converge-contract.cjs
           git diff --check
           changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u)"
-          expected="$(printf '%s\n' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
+          expected="$(printf '%s\n' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'test/wpp-converge-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
           test "$changed" = "$expected"
 
       - name: Run focused and repository contracts
@@ -74,10 +77,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/wa-js-capability-fallback-prep-once.yml scripts/patch-wa-js-capability-fallback-once.cjs
-          git add src/main.cjs src/wpp-capability-picker.cjs test/wa-js-460-migration-contract.cjs ui/app.js ui/broadcast-runtime.js
+          git rm .github/workflows/wa-js-capability-fallback-prep-once.yml scripts/patch-wa-js-capability-fallback-once.cjs scripts/patch-wpp-converge-capability-oracle-once.cjs
+          git add src/main.cjs src/wpp-capability-picker.cjs test/wa-js-460-migration-contract.cjs test/wpp-converge-contract.cjs ui/app.js ui/broadcast-runtime.js
           staged="$(git diff --cached --name-only | sort)"
-          expected="$(printf '%s\n' '.github/workflows/wa-js-capability-fallback-prep-once.yml' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
+          expected="$(printf '%s\n' '.github/workflows/wa-js-capability-fallback-prep-once.yml' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'scripts/patch-wpp-converge-capability-oracle-once.cjs' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'test/wpp-converge-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
           test "$staged" = "$expected"
           git config user.name 'Geek Validation Agent'
           git config user.email 'actions@users.noreply.github.com'
