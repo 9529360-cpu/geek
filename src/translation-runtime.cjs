@@ -2,10 +2,18 @@
 
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {
+  PRIORITY_INTERACTIVE,
+  PRIORITY_BACKGROUND,
+  createTranslationScheduler,
+} = require('./translation-scheduler.cjs');
 
 const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
 const TRANSLATION_REMOTE_LIMIT = 20;
 const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;
+const TRANSLATION_INTERACTIVE_RESERVE = 4;
+const TRANSLATION_PER_PARTITION_ACTIVE = 4;
+const TRANSLATION_PER_PARTITION_QUEUED = 8;
 const TRANSLATION_CHANNELS = Object.freeze([
   'translation:translate',
   'translation:health',
@@ -37,6 +45,12 @@ function normalizeTranslationDeadline(value, now = Date.now(), maxDurationMs = T
   const requested = Number(value);
   if (!Number.isFinite(requested)) return cap;
   return Math.min(requested, cap);
+}
+
+function translationPriority(body = {}) {
+  return body.intent === 'background' || body.intent === 'message-display' || body.intent === 'history'
+    ? PRIORITY_BACKGROUND
+    : PRIORITY_INTERACTIVE;
 }
 
 function classifyGatewayResponse(status, result = {}) {
@@ -156,9 +170,16 @@ function createTranslationRuntime(options = {}) {
   };
   let requestSequence = 0;
   let gatewayPool = null;
-  const remoteQueue = [];
   const remoteControllersByPartition = new Map();
-  let remoteActive = 0;
+  const remoteScheduler = createTranslationScheduler({
+    concurrency: TRANSLATION_REMOTE_LIMIT,
+    interactiveReserve: TRANSLATION_INTERACTIVE_RESERVE,
+    backgroundPerPartitionActive: TRANSLATION_PER_PARTITION_ACTIVE,
+    interactivePerPartitionActive: TRANSLATION_PER_PARTITION_ACTIVE,
+    backgroundPerPartitionQueued: TRANSLATION_PER_PARTITION_QUEUED,
+    interactivePerPartitionQueued: TRANSLATION_PER_PARTITION_QUEUED,
+    now,
+  });
   let installed = false;
 
   function accountDeletedError() {
@@ -347,50 +368,18 @@ function createTranslationRuntime(options = {}) {
     return { ok: okCount > 0, models: okCount, endpointCount: Object.keys(result).length };
   }
 
-  function enqueueRemote(partition, deadlineAt, task) {
-    return new Promise((resolve, reject) => {
-      if (state.deletedPartitions.has(partition)) {
-        reject(accountDeletedError());
-        return;
-      }
-      const remaining = remainingMs(deadlineAt);
-      if (remaining <= 0) {
-        reject(deadlineExceededError());
-        return;
-      }
-      const item = { partition, deadlineAt, task, resolve, reject, timer: null, settled: false };
-      item.timer = setTimeout(() => {
-        if (item.settled) return;
-        const index = remoteQueue.indexOf(item);
-        if (index >= 0) remoteQueue.splice(index, 1);
-        item.settled = true;
-        reject(deadlineExceededError());
-      }, remaining);
-      remoteQueue.push(item);
-      drainRemoteQueue();
+  function enqueueRemote(partition, priority, deadlineAt, task) {
+    if (state.deletedPartitions.has(partition)) return Promise.reject(accountDeletedError());
+    return remoteScheduler.enqueue({
+      partition,
+      priority,
+      deadlineAt,
+      task: () => {
+        if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+        assertBeforeDeadline(deadlineAt);
+        return task();
+      },
     });
-  }
-
-  function drainRemoteQueue() {
-    while (remoteActive < TRANSLATION_REMOTE_LIMIT && remoteQueue.length) {
-      const item = remoteQueue.shift();
-      if (item.settled) continue;
-      clearTimeout(item.timer);
-      item.settled = true;
-      if (remainingMs(item.deadlineAt) <= 0) {
-        item.reject(deadlineExceededError());
-        continue;
-      }
-      remoteActive += 1;
-      Promise.resolve().then(() => {
-        if (state.deletedPartitions.has(item.partition)) throw accountDeletedError();
-        assertBeforeDeadline(item.deadlineAt);
-        return item.task();
-      }).then(item.resolve, item.reject).finally(() => {
-        remoteActive -= 1;
-        drainRemoteQueue();
-      });
-    }
   }
 
   function trackRemoteController(partition, controller) {
@@ -409,13 +398,7 @@ function createTranslationRuntime(options = {}) {
     const owner = String(partition || '');
     if (!owner) return;
     const error = accountDeletedError();
-    for (let index = remoteQueue.length - 1; index >= 0; index -= 1) {
-      if (remoteQueue[index].partition !== owner) continue;
-      const [item] = remoteQueue.splice(index, 1);
-      clearTimeout(item.timer);
-      item.settled = true;
-      item.reject(error);
-    }
+    remoteScheduler.cancelPartition(owner, error);
     const controllers = remoteControllersByPartition.get(owner);
     if (!controllers) return;
     for (const controller of [...controllers]) controller.abort(error);
@@ -440,7 +423,9 @@ function createTranslationRuntime(options = {}) {
     if (state.deletedPartitions.has(partition)) throw accountDeletedError();
 
     const key = cacheKey(body, text, target);
-    const inflightKey = `${partition}:${key}`;
+    const priority = translationPriority(body);
+    const cacheGenerationKey = `${partition}:${key}`;
+    const inflightKey = `${cacheGenerationKey}:${priority}`;
     const shouldCoalesce = body.refresh !== true && body.coalesce !== false;
     if (shouldCoalesce && state.inflight.has(inflightKey)) return state.inflight.get(inflightKey);
 
@@ -449,7 +434,7 @@ function createTranslationRuntime(options = {}) {
       ? body.requestId
       : randomUUID();
     const deadlineAt = normalizeTranslationDeadline(body.deadlineAt, now(), TRANSLATION_REQUEST_TIMEOUT_MS);
-    state.latestRequest.set(inflightKey, sequence);
+    state.latestRequest.set(cacheGenerationKey, sequence);
 
     const request = (async () => {
       try {
@@ -493,7 +478,7 @@ function createTranslationRuntime(options = {}) {
         if (state.deletedPartitions.has(partition)) throw accountDeletedError();
         assertBeforeDeadline(deadlineAt);
 
-        return await enqueueRemote(partition, deadlineAt, async () => {
+        return await enqueueRemote(partition, priority, deadlineAt, async () => {
           if (state.deletedPartitions.has(partition)) throw accountDeletedError();
           let lastError = null;
           const attempts = Math.max(1, pool.endpoints.length);
@@ -561,7 +546,7 @@ function createTranslationRuntime(options = {}) {
               }
               pool.reportSuccess(endpoint);
               if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-              if (state.latestRequest.get(inflightKey) !== sequence) {
+              if (state.latestRequest.get(cacheGenerationKey) !== sequence) {
                 return {
                   text: translated,
                   source: result.source || body.source || 'auto',
@@ -650,10 +635,14 @@ module.exports = {
   TRANSLATION_CACHE_VERSION,
   TRANSLATION_REMOTE_LIMIT,
   TRANSLATION_REQUEST_TIMEOUT_MS,
+  TRANSLATION_INTERACTIVE_RESERVE,
+  TRANSLATION_PER_PARTITION_ACTIVE,
+  TRANSLATION_PER_PARTITION_QUEUED,
   TRANSLATION_CHANNELS,
   createTranslationError,
   deadlineExceededError,
   normalizeTranslationDeadline,
+  translationPriority,
   classifyGatewayResponse,
   clearPartitionRuntimeState,
   createTranslationRuntime,
