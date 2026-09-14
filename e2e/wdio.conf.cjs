@@ -27,6 +27,7 @@ function chromeDriverShutdownUrl(options) {
 exports.config = {
   runner: 'local',
   specs: ['./specs/shell-smoke.e2e.cjs'].concat(
+    './specs/account-context-keyboard.e2e.cjs',
     './specs/whatsapp-live-bootstrap.e2e.cjs',
     './specs/session-permission-runtime.e2e.cjs',
     './specs/webview-navigation-runtime.e2e.cjs',

@@ -1,23 +1,30 @@
 (() => {
   'use strict';
 
-  // This script is the existing lightweight shell bootstrap slot. Keep the
-  // accessibility owner separate from app.js so shell semantics never become
-  // another source of account/WebView state.
+  // This script is the existing lightweight shell bootstrap slot. Keep shell UX
+  // owners separate from app.js so accessibility never becomes another source of
+  // account/WebView business state.
   const canBootstrapShell = typeof document.querySelector === 'function' && typeof document.createElement === 'function' && document.head?.appendChild;
-  if (canBootstrapShell && !document.querySelector('link[data-geek-shell-accessibility]')) {
+  function ensureStyle(href, marker) {
+    if (!canBootstrapShell || document.querySelector(`link[${marker}]`)) return;
     const style = document.createElement('link');
     style.rel = 'stylesheet';
-    style.href = './shell-accessibility.css';
-    style.dataset.geekShellAccessibility = 'true';
+    style.href = href;
+    style.setAttribute(marker, 'true');
     document.head.appendChild(style);
   }
-  if (canBootstrapShell && !document.querySelector('script[data-geek-shell-accessibility]')) {
+  function ensureScript(src, marker) {
+    if (!canBootstrapShell || document.querySelector(`script[${marker}]`)) return;
     const script = document.createElement('script');
-    script.src = './shell-accessibility.js';
-    script.dataset.geekShellAccessibility = 'true';
+    script.src = src;
+    script.setAttribute(marker, 'true');
     document.head.appendChild(script);
   }
+
+  ensureStyle('./shell-accessibility.css', 'data-geek-shell-accessibility');
+  ensureScript('./shell-accessibility.js', 'data-geek-shell-accessibility');
+  ensureStyle('./account-context-accessibility.css', 'data-geek-account-context-accessibility');
+  ensureScript('./account-context-accessibility.js', 'data-geek-account-context-accessibility');
 
   const label = document.getElementById('nav-version');
   if (!label) return;
