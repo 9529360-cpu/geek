@@ -537,13 +537,17 @@ function createTranslationRuntime(options = {}) {
         return await enqueueRemote(partition, deadlineAt, async () => {
           if (state.deletedPartitions.has(partition)) throw accountDeletedError();
           let lastError = null;
-          const attempts = Math.max(1, pool.endpoints.length);
+          const attempts = body.route === 'primary'
+            ? 1
+            : body.route === 'backup'
+              ? Math.max(1, pool.endpoints.length - 1)
+              : Math.max(1, pool.endpoints.length);
           for (let attempt = 0; attempt < attempts; attempt += 1) {
             if (state.deletedPartitions.has(partition)) throw accountDeletedError();
             const remaining = remainingMs(deadlineAt);
             if (remaining <= 0) throw deadlineExceededError(lastError);
 
-            const picked = pool.pick();
+            const picked = pool.pick(body.route);
             const endpoint = picked.endpoint;
             const controller = new AbortController();
             trackRemoteController(partition, controller);
@@ -566,7 +570,7 @@ function createTranslationRuntime(options = {}) {
                   source: body.source || 'auto',
                   target,
                   provider: body.provider,
-                  route: body.route || picked.route,
+                  route: picked.route,
                 }),
                 signal: controller.signal,
               });
