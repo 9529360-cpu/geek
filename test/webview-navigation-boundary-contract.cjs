@@ -30,6 +30,15 @@ function account(id, type, extra = {}) {
   return { id, type, partition: `persist:webview-page-${id}`, ...extra };
 }
 
+function allowedPopup(partition) {
+  return {
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      webPreferences: { partition },
+    },
+  };
+}
+
 function guardGuest(owner, partition = owner.partition) {
   const app = new EventEmitter();
   installAccountScopedWebviewNavigationBoundary({
@@ -96,7 +105,28 @@ assert.equal(policyFromAccountState(tgAccount.partition, '{bad json'), null);
   guest.emit('will-redirect', same, 'https://web.telegram.org/k/');
   assert.equal(same.prevented, false);
   assert.deepEqual(guest.popupHandler({ url: 'https://web.whatsapp.com/' }), { action: 'deny' });
-  assert.deepEqual(guest.popupHandler({ url: 'https://web.telegram.org/k/' }), { action: 'allow' });
+  assert.deepEqual(guest.popupHandler({ url: 'https://web.telegram.org/k/' }), allowedPopup(tgAccount.partition));
+}
+
+{
+  const app = new EventEmitter();
+  installAccountScopedWebviewNavigationBoundary({
+    app,
+    resolvePolicyForPartition: value => policyForAccount(tgAccount, value),
+  });
+  const opener = new FakeContents(tgAccount.partition);
+  app.emit('web-contents-created', {}, opener);
+  const decision = opener.popupHandler({ url: 'https://web.telegram.org/k/' });
+  assert.deepEqual(decision, allowedPopup(tgAccount.partition));
+
+  const child = new FakeContents(decision.overrideBrowserWindowOptions.webPreferences.partition);
+  app.emit('web-contents-created', {}, child);
+  const cross = eventProbe();
+  child.emit('will-navigate', cross, 'https://web.whatsapp.com/');
+  assert.equal(cross.prevented, true, 'allowed popup must stay under the opener account navigation policy');
+  const same = eventProbe();
+  child.emit('will-navigate', same, 'https://web.telegram.org/a');
+  assert.equal(same.prevented, false);
 }
 
 {
@@ -108,7 +138,7 @@ assert.equal(policyFromAccountState(tgAccount.partition, '{bad json'), null);
   guest.emit('will-navigate', same, 'https://chat.a.example.com/');
   assert.equal(same.prevented, false);
   assert.deepEqual(guest.popupHandler({ url: 'https://b.example.com/' }), { action: 'deny' });
-  assert.deepEqual(guest.popupHandler({ url: 'https://chat.a.example.com/' }), { action: 'allow' });
+  assert.deepEqual(guest.popupHandler({ url: 'https://chat.a.example.com/' }), allowedPopup(websiteAccount.partition));
 }
 
 {
