@@ -1,6 +1,63 @@
-export const MARKETING_STYLES_CORE = `
-:root{--bg:#08090a;--panel:#0e1011;--surface:#151719;--raised:#1b1e20;--text:#f7f8f8;--text2:#c6cbd0;--muted:#8b9198;--faint:#62686f;--line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.15);--green:#25d366;--green2:#4ce180;--greenSoft:rgba(37,211,102,.11);--cyan:#54d9ff;--amber:#f1c66e;--font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+export const SITE_THEME_TOKENS = `
+:root{
+  --bg:#08090a;
+  --panel:#0e1011;
+  --surface:#151719;
+  --raised:#1b1e20;
+  --text:#f7f8f8;
+  --text2:#c6cbd0;
+  --muted:#8b9198;
+  --faint:#62686f;
+  --line:rgba(255,255,255,.09);
+  --line2:rgba(255,255,255,.15);
+  --green:#25d366;
+  --green2:#4ce180;
+  --greenSoft:rgba(37,211,102,.11);
+  --cyan:#54d9ff;
+  --amber:#f1c66e;
+  --font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
 
+  /* Compatibility aliases for account/auth pages owned by the legacy business Worker. */
+  --bg-soft:var(--panel);
+  --card:rgba(255,255,255,.035);
+  --card-border:var(--line);
+  --text-dim:var(--muted);
+  --text-faint:var(--faint);
+  --accent:var(--green);
+  --accent2:var(--green2);
+  --grad:linear-gradient(135deg,var(--green) 0%,var(--green2) 100%);
+  --radius:16px;
+}
+`;
+
+export const LEGACY_ACCOUNT_THEME_STYLE = `<style data-geek-site-theme="shared-core">
+${SITE_THEME_TOKENS}
+html,body{background:var(--bg)}
+body{color:var(--text);font-family:var(--font)}
+::selection{background:rgba(37,211,102,.28)}
+:focus-visible{outline-color:var(--green2)}
+.bg-glow::before{background:radial-gradient(ellipse at center,rgba(37,211,102,.11) 0%,rgba(84,217,255,.045) 38%,transparent 70%)}
+.logo-mark{background:linear-gradient(180deg,#23252a,#101114);border-color:rgba(255,255,255,.14);box-shadow:0 8px 30px rgba(0,0,0,.28)}
+.btn-primary{background:var(--green);color:#061109;box-shadow:0 8px 28px rgba(37,211,102,.14)}
+.btn-primary:hover{background:var(--green2);box-shadow:0 10px 34px rgba(37,211,102,.2)}
+.btn-ghost:hover{border-color:rgba(37,211,102,.32);background:rgba(255,255,255,.065)}
+.section-head .kicker{color:var(--green2);text-shadow:none}
+.feature::before{background:linear-gradient(90deg,transparent,rgba(37,211,102,.42),transparent)}
+.feature:hover{border-color:rgba(37,211,102,.30)}
+.feature .icon,.step::before,.download .big-icon{color:var(--green2);background:rgba(37,211,102,.09);border-color:rgba(37,211,102,.20)}
+.feature .icon svg,.download .big-icon svg{stroke:var(--green2)}
+.plan.hot{border-color:rgba(37,211,102,.45);box-shadow:0 0 60px rgba(37,211,102,.08),inset 0 1px 0 rgba(255,255,255,.06);background:linear-gradient(180deg,rgba(37,211,102,.055),rgba(255,255,255,.02))}
+.plan .badge{background:var(--green);color:#061109}
+.download::before{background:radial-gradient(ellipse at 50% 0%,rgba(37,211,102,.11),transparent 60%)}
+input:focus,textarea:focus,select:focus{border-color:rgba(37,211,102,.62);box-shadow:0 0 0 3px rgba(37,211,102,.10);outline:none}
+.dashboard-nav a:hover,.dashboard-nav a:first-child{background:var(--greenSoft)}
+.dashboard-nav .nav-icon{color:var(--green2);background:var(--greenSoft)}
+.copy-btn{color:var(--green2);background:rgba(37,211,102,.08);border-color:rgba(37,211,102,.28)}
+.resource-card.primary{background:linear-gradient(135deg,rgba(37,211,102,.10),rgba(84,217,255,.04));border-color:rgba(37,211,102,.30)}
+.payment-workspace{background:rgba(37,211,102,.045);border-color:rgba(37,211,102,.22)}
+</style>`;
+
+export const MARKETING_STYLES_CORE = `${SITE_THEME_TOKENS}
 *{box-sizing:border-box}
 html{background:var(--bg);scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;overflow-x:hidden}
