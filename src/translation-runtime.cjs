@@ -10,6 +10,8 @@ const TRANSLATION_CHANNELS = Object.freeze([
   'translation:translate',
   'translation:health',
 ]);
+const TRANSLATION_VALID_PROVIDERS = new Set(['auto', 'local']);
+const TRANSLATION_VALID_ROUTES = new Set(['default', 'primary', 'backup']);
 
 function createTranslationError(code, message, options = {}) {
   const error = new Error(String(message || '翻译请求失败'));
@@ -37,6 +39,15 @@ function normalizeTranslationDeadline(value, now = Date.now(), maxDurationMs = T
   const requested = Number(value);
   if (!Number.isFinite(requested)) return cap;
   return Math.min(requested, cap);
+}
+
+function normalizeTranslationProviderRoute(provider, route) {
+  const providerValue = String(provider || '').toLowerCase();
+  const routeValue = String(route || '').toLowerCase();
+  return Object.freeze({
+    provider: TRANSLATION_VALID_PROVIDERS.has(providerValue) ? providerValue : 'auto',
+    route: TRANSLATION_VALID_ROUTES.has(routeValue) ? routeValue : 'default',
+  });
 }
 
 function classifyGatewayResponse(status, result = {}) {
@@ -424,7 +435,9 @@ function createTranslationRuntime(options = {}) {
 
   async function translate(event, payload) {
     assertTrustedSender(event);
-    const body = payload && typeof payload === 'object' ? payload : {};
+    const rawBody = payload && typeof payload === 'object' ? payload : {};
+    const canonicalRoute = normalizeTranslationProviderRoute(rawBody.provider, rawBody.route);
+    const body = { ...rawBody, ...canonicalRoute };
     const pool = getGatewayPool();
     const text = String(body.text || '');
     const target = String(body.target || '').toLowerCase();
@@ -524,7 +537,7 @@ function createTranslationRuntime(options = {}) {
                   text,
                   source: body.source || 'auto',
                   target,
-                  provider: body.provider || 'auto',
+                  provider: body.provider,
                   route: body.route || picked.route,
                 }),
                 signal: controller.signal,
@@ -654,6 +667,7 @@ module.exports = {
   createTranslationError,
   deadlineExceededError,
   normalizeTranslationDeadline,
+  normalizeTranslationProviderRoute,
   classifyGatewayResponse,
   clearPartitionRuntimeState,
   createTranslationRuntime,
