@@ -49,9 +49,28 @@ function createManager() {
 
   assert.match(source, /#ctx-menu \.ctx-item\[data-act="delete"\]/);
   assert.match(source, /event\.stopImmediatePropagation\(\)/);
-  assert.ok(source.indexOf("await manager.invoke(job.id, 'stop')") < source.indexOf('window.api.accounts.remove(accountId)'));
-  assert.ok(source.indexOf('window.api.accounts.remove(accountId)') < source.indexOf('window.location.reload()'));
-  assert.match(source, /catch\(error => \{[\s\S]*alert/);
+  assert.doesNotMatch(source, /\bconfirm\s*\(|window\.confirm|\balert\s*\(|window\.alert/, 'account deletion must not use blocking system prompts');
+
+  assert.match(source, /role="alertdialog"/, 'destructive confirmation must expose alertdialog semantics');
+  assert.match(source, /aria-modal="true"/, 'destructive confirmation must be modal');
+  assert.match(source, /aria-labelledby="account-remove-confirm-title"/, 'dialog must expose a visible accessible name');
+  assert.match(source, /aria-describedby="account-remove-confirm-description"/, 'dialog must expose its destructive consequence');
+  assert.match(source, /id="account-remove-confirm-status"[\s\S]*role="status"[\s\S]*aria-live="polite"/, 'async removal feedback must stay inline and non-blocking');
+  assert.match(source, /overlay\.querySelector\('#account-remove-cancel'\)\?\.focus/, 'least destructive action must receive initial focus');
+  assert.match(source, /event\.key === 'Escape'/, 'Escape must cancel before deletion starts');
+  assert.match(source, /event\.key !== 'Tab'/, 'dialog must explicitly own Tab focus movement');
+  assert.match(source, /event\.shiftKey/, 'dialog must support reverse focus cycling');
+  assert.match(source, /restoreAccountFocus/, 'closing the dialog must return focus to the account controls');
+  assert.match(source, /prefers-reduced-motion:reduce/, 'destructive dialog must respect reduced-motion preference');
+
+  const stopAt = source.indexOf("await manager.invoke(job.id, 'stop')");
+  const removeAt = source.indexOf('await win.api.accounts.remove(accountId)');
+  const reloadAt = source.indexOf('win.location.reload()');
+  assert.ok(stopAt >= 0 && removeAt > stopAt, 'all live Broadcast jobs must stop before authoritative account deletion');
+  assert.ok(reloadAt > removeAt, 'renderer reload must happen only after backend deletion succeeds');
+  assert.match(source, /catch \(error\) \{[\s\S]*setDialogStatus\(overlay,[\s\S]*'error'\)/, 'deletion failure must stay visible in the dialog');
+  assert.match(source, /正在安全停止群发任务并删除账号/, 'pending state must explain the safety sequence');
+
   assert.match(safetyLoader, /broadcast-account-removal\.js/);
   assert.match(main, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.cleanupAccount\(accountId\)/, 'main composition must connect account deletion to scheduled attachment cleanup');
   assert.match(main, /accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly enter the account-data lifecycle');
