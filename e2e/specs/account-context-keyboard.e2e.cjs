@@ -39,7 +39,7 @@ async function focusAccount(accountId) {
 }
 
 describe('account context keyboard accessibility', () => {
-  it('opens account actions from Shift+F10 and restores focus after account settings', async () => {
+  it('opens account actions from Shift+F10 and makes account settings a contained modal', async () => {
     await focusAccount(ACCOUNT_A);
     await keyOnFocused('F10', { shiftKey: true });
     await waitVisible('#ctx-menu:not(.hidden)');
@@ -64,21 +64,78 @@ describe('account context keyboard accessibility', () => {
     await waitHidden('#ctx-menu');
     await waitVisible('#account-settings-overlay:not(.hidden)');
 
-    const dialog = await browser.execute(() => ({
-      target: document.getElementById('account-settings-target')?.textContent || '',
-      focusedId: document.activeElement?.id || '',
-    }));
+    const dialog = await browser.execute(() => {
+      const overlay = document.getElementById('account-settings-overlay');
+      const surface = overlay?.querySelector('[role="dialog"]');
+      return {
+        target: document.getElementById('account-settings-target')?.textContent || '',
+        focusedId: document.activeElement?.id || '',
+        modal: surface?.getAttribute('aria-modal') || '',
+        labelledBy: surface?.getAttribute('aria-labelledby') || '',
+        describedBy: surface?.getAttribute('aria-describedby') || '',
+        title: document.getElementById(surface?.getAttribute('aria-labelledby') || '')?.textContent || '',
+        appInert: document.querySelector('.app')?.inert === true,
+        lockInert: document.getElementById('lock-overlay')?.inert === true,
+        statusRole: document.getElementById('account-settings-status')?.getAttribute('role') || '',
+        statusLive: document.getElementById('account-settings-status')?.getAttribute('aria-live') || '',
+        names: ['account-settings-name', 'account-settings-fontSize', 'account-settings-fontColor']
+          .map(id => document.getElementById(id)?.getAttribute('aria-label') || ''),
+      };
+    });
     assert.match(dialog.target, /E2E Alpha/);
     assert.equal(dialog.focusedId, 'account-settings-name');
-    await (await waitVisible('#account-settings-close')).click();
+    assert.equal(dialog.modal, 'true');
+    assert.match(dialog.labelledBy, /account-settings-dialog-title/);
+    assert.equal(dialog.describedBy, 'account-settings-target');
+    assert.equal(dialog.title, '账号设置');
+    assert.equal(dialog.appInert, true, 'background shell must be inert while instance settings are visible');
+    assert.equal(dialog.lockInert, false, 'security lock overlay must remain able to supersede instance settings');
+    assert.equal(dialog.statusRole, 'status');
+    assert.equal(dialog.statusLive, 'polite');
+    assert.deepEqual(dialog.names, ['显示名', '字体大小', '字体颜色']);
+
+    const dynamicInert = await browser.executeAsync((done) => {
+      const node = document.createElement('button');
+      node.id = 'e2e-account-settings-background-probe';
+      node.textContent = 'background probe';
+      document.body.appendChild(node);
+      queueMicrotask(() => done(node.inert === true));
+    });
+    assert.equal(dynamicInert, true, 'body surfaces mounted while the dialog is open must inherit inertness');
+
+    await browser.execute(() => document.getElementById('account-settings-save')?.focus());
+    await keyOnFocused('Tab');
+    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'account-settings-close', 'Tab from the final control must wrap to the dialog start');
+    await keyOnFocused('Tab', { shiftKey: true });
+    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'account-settings-save', 'Shift+Tab from the dialog start must wrap to the final control');
+
+    await browser.execute((id) => {
+      document.querySelector(`.nav-account[data-id="${id}"] .nav-account-main`)?.focus();
+    }, ACCOUNT_B);
+    const contained = await browser.execute(() => {
+      const dialogSurface = document.querySelector('#account-settings-overlay [role="dialog"]');
+      return dialogSurface?.contains(document.activeElement) === true;
+    });
+    assert.equal(contained, true, 'programmatic focus attempts must not escape the visible account settings dialog');
+
+    await keyOnFocused('Escape');
     await waitHidden('#account-settings-overlay');
 
     const restored = await browser.execute((id) => {
       const active = document.activeElement;
-      return active?.classList?.contains('nav-account-main') === true
-        && active.closest('.nav-account')?.dataset.id === id;
+      const dynamic = document.getElementById('e2e-account-settings-background-probe');
+      const result = {
+        accountFocus: active?.classList?.contains('nav-account-main') === true
+          && active.closest('.nav-account')?.dataset.id === id,
+        appInert: document.querySelector('.app')?.inert === true,
+        dynamicInert: dynamic?.inert === true,
+      };
+      dynamic?.remove();
+      return result;
     }, ACCOUNT_A);
-    assert.equal(restored, true);
+    assert.equal(restored.accountFocus, true, 'Escape must close through the existing dialog owner and restore the invoking account focus');
+    assert.equal(restored.appInert, false, 'closing account settings must restore background interactivity');
+    assert.equal(restored.dynamicInert, false, 'dynamically mounted background surfaces must have their prior inert state restored');
   });
 
   it('supports the ContextMenu key, End, and Escape', async () => {

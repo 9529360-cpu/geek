@@ -39,6 +39,42 @@
 }
 .side-nav.collapsed .shell-account-menu-button { display: none; }
 
+#account-settings-overlay .add-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(86vh, 620px);
+}
+#account-settings-overlay :is(input, button, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#account-settings-overlay input[type='color'] {
+  min-height: 34px;
+}
+
+@media (max-width: 520px) {
+  #account-settings-overlay {
+    padding: 12px;
+  }
+  #account-settings-overlay .add-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 24px);
+  }
+  #account-settings-overlay .add-form .row-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #account-settings-overlay .add-form .row-item input,
+  #account-settings-overlay .add-form .row-item select,
+  #account-settings-overlay .add-form .row-item textarea {
+    width: 100%;
+  }
+  #account-settings-overlay .settings-footer {
+    flex-wrap: wrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shell-account-menu-button {
     transition-duration: 0.01ms !important;
