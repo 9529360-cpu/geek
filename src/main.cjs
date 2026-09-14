@@ -356,6 +356,11 @@ async function removeAccount(event, accountId) {
   } catch (e) { /* 销毁失败不影响 */ }
 
   const accountSession = session.fromPartition(removedAccount.partition, { cache: true });
+  const partitionDir = path.join(
+    app.getPath('userData'),
+    'Partitions',
+    removedAccount.partition.replace(/^persist:/, '')
+  );
   try {
     await accountSession.clearStorageData();
     await accountSession.clearCache();
@@ -363,12 +368,10 @@ async function removeAccount(event, accountId) {
     await accountSession.clearHostResolverCache();
     await accountSession.flushStorageData();
     try {
-      const dirName = removedAccount.partition.replace(/^persist:/, '');
-      const partDir = path.join(app.getPath('userData'), 'Partitions', dirName);
       let removed = false;
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
-          await fs.rm(partDir, { recursive: true, force: true });
+          await fs.rm(partitionDir, { recursive: true, force: true });
           removed = true;
           break;
         } catch (rmError) {
@@ -377,14 +380,15 @@ async function removeAccount(event, accountId) {
         }
       }
       if (!removed) {
-        pendingPartitionDeletions.add(partDir);
-        console.error(`分区目录删除失败（延迟到退出时清理）: ${partDir}`);
+        pendingPartitionDeletions.add(partitionDir);
+        console.error(`分区目录删除失败（延迟到退出时清理）: ${partitionDir}`);
       }
     } catch (dirError) {
-      pendingPartitionDeletions.add(path.join(app.getPath('userData'), 'Partitions', removedAccount.partition.replace(/^persist:/, '')));
+      pendingPartitionDeletions.add(partitionDir);
       console.error(`删除账号分区目录失败 (${removedAccount.partition}):`, dirError.message);
     }
   } catch (error) {
+    pendingPartitionDeletions.add(partitionDir);
     console.error(`清理账号 ${accountId} 的会话数据失败:`, error);
     throw new Error('账号已删除，但登录数据清理失败');
   } finally {
@@ -1284,7 +1288,6 @@ async function startWaLocalServer() {
 async function cleanupOrphanPartitions() {
   try {
     const snapshot = accountState.getSnapshot();
-    if (!snapshot.accounts.length) return;
     const partitionRoot = path.join(USER_DATA_DIR, 'Partitions');
     let entries;
     try { entries = await fs.readdir(partitionRoot); } catch { return; }
