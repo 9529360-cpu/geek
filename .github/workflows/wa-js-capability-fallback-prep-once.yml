@@ -1,0 +1,85 @@
+name: wa-js-capability-fallback-prep-once
+
+on:
+  push:
+    branches:
+      - fix/522-wa-js-4-6-migration
+    paths:
+      - '.github/workflows/wa-js-capability-fallback-prep-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/522-wa-js-4-6-migration
+          fetch-depth: 0
+
+      - name: Verify collision-free preparation head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor a00d356f31f5affe3dc0e41e1c8040d786644034 HEAD
+          changed="$(git diff --name-only a00d356f31f5affe3dc0e41e1c8040d786644034..HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/wa-js-capability-fallback-prep-once.yml' 'scripts/patch-wa-js-capability-fallback-once.cjs' | sort)"
+          test "$changed" = "$expected"
+          test "$(node -p "require('./package.json').dependencies['@wppconnect/wa-js']")" = "4.6.0"
+
+      - name: Normalize bounded patch helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const file = 'scripts/patch-wa-js-capability-fallback-once.cjs';
+          let source = fs.readFileSync(file, 'utf8');
+          const strict = `  const nextTarget = source.indexOf(before, targetIndex + before.length);\n  if (nextTarget >= 0 && nextTarget - markerIndex <= maxDistance) {\n    throw new Error(\`${'${label}'}: target is ambiguous inside bounded marker window\`);\n  }\n`;
+          if (!source.includes(strict)) throw new Error('temporary ambiguity guard anchor missing');
+          source = source.replace(strict, '');
+          fs.writeFileSync(file, source);
+          NODE
+          node --check scripts/patch-wa-js-capability-fallback-once.cjs
+
+      - name: Apply capability fallback patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/patch-wa-js-capability-fallback-once.cjs
+          node --check src/wpp-capability-picker.cjs
+          node --check src/main.cjs
+          node --check ui/app.js
+          node --check ui/broadcast-runtime.js
+          node --check test/wa-js-460-migration-contract.cjs
+          git diff --check
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u)"
+          expected="$(printf '%s\n' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Run focused and repository contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          node test/wa-js-460-migration-contract.cjs
+          node test/wpp-converge-contract.cjs
+          npm test
+
+      - name: Commit only capability fallback changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/wa-js-capability-fallback-prep-once.yml scripts/patch-wa-js-capability-fallback-once.cjs
+          git add src/main.cjs src/wpp-capability-picker.cjs test/wa-js-460-migration-contract.cjs ui/app.js ui/broadcast-runtime.js
+          staged="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' '.github/workflows/wa-js-capability-fallback-prep-once.yml' 'scripts/patch-wa-js-capability-fallback-once.cjs' 'src/main.cjs' 'src/wpp-capability-picker.cjs' 'test/wa-js-460-migration-contract.cjs' 'ui/app.js' 'ui/broadcast-runtime.js' | sort)"
+          test "$staged" = "$expected"
+          git config user.name 'Geek Validation Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'fix: select WhatsApp runtime by required capability'
+          git push origin HEAD:fix/522-wa-js-4-6-migration
