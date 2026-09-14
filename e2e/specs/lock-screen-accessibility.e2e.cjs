@@ -64,11 +64,12 @@ describe('lock screen modal accessibility', () => {
     await keyOnFocused('Tab', { shiftKey: true });
     assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-unlock');
     await keyOnFocused('Escape');
-    assert.equal(await browser.execute(() => ({
+    const escaped = await browser.execute(() => ({
       visible: !document.getElementById('lock-overlay')?.classList.contains('hidden'),
       focusedId: document.activeElement?.id || '',
-    })).visible, true, 'Escape must not dismiss the lock screen');
-    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-password');
+    }));
+    assert.equal(escaped.visible, true, 'Escape must not dismiss the lock screen');
+    assert.equal(escaped.focusedId, 'lock-password');
 
     const wrongPassword = await browser.execute(async () => {
       const cfg = await window.api.config.get();
