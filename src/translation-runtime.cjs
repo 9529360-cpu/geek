@@ -614,8 +614,7 @@ function createTranslationRuntime(options = {}) {
               }
               const item = { text: translated, at: now() };
               cache.set(key, item);
-              await appendCache(partition, key, item);
-              if (state.deletedPartitions.has(partition)) throw accountDeletedError();
+              void appendCache(partition, key, item).catch(() => {});
               return {
                 text: translated,
                 source: result.source || body.source || 'auto',
