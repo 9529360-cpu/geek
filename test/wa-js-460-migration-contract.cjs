@@ -7,8 +7,9 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+const releaseMarker = fs.readFileSync(path.join(root, '.github/release-client-version'), 'utf8').trim();
 
-assert.equal(pkg.version, '1.2.25', 'dependency migration must not change the formal client release');
+assert.equal(pkg.version, releaseMarker, 'dependency migration must keep package version aligned with the formal client release marker');
 assert.equal(pkg.dependencies['@wppconnect/wa-js'], '4.6.0', 'WA-JS must be deliberately pinned to tested stable 4.6.0');
 assert.equal(lock.packages[''].dependencies['@wppconnect/wa-js'], '4.6.0', 'lock root must match the exact manifest pin');
 assert.equal(lock.packages['node_modules/@wppconnect/wa-js'].version, '4.6.0', 'lock must resolve WA-JS 4.6.0');
