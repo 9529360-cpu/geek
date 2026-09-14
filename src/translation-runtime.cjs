@@ -549,6 +549,7 @@ function createTranslationRuntime(options = {}) {
 
             const picked = pool.pick(body.route);
             const endpoint = picked.endpoint;
+            let endpointOutcomeReported = false;
             const controller = new AbortController();
             trackRemoteController(partition, controller);
             const timer = setTimeout(() => controller.abort(deadlineExceededError(lastError)), remaining);
@@ -579,13 +580,17 @@ function createTranslationRuntime(options = {}) {
               try { result = JSON.parse(raw); } catch { result = {}; }
               if (!response.ok) {
                 const rejection = classifyGatewayResponse(response.status, result);
-                if (rejection.endpointFailure) pool.reportFailure(endpoint);
+                if (rejection.endpointFailure) {
+                  pool.reportFailure(endpoint);
+                  endpointOutcomeReported = true;
+                }
                 lastError = rejection;
                 if (!rejection.retryable || !rejection.endpointFailure) throw rejection;
                 continue;
               }
               if (!result.text || typeof result.text !== 'string') {
                 pool.reportFailure(endpoint);
+                endpointOutcomeReported = true;
                 lastError = createTranslationError(
                   'TRANSLATION_GATEWAY_INVALID_RESPONSE',
                   '翻译网关返回格式错误',
@@ -604,6 +609,7 @@ function createTranslationRuntime(options = {}) {
                 );
               }
               pool.reportSuccess(endpoint);
+              endpointOutcomeReported = true;
               if (state.deletedPartitions.has(partition)) throw accountDeletedError();
               if (state.latestRequest.get(workKey) !== sequence) {
                 return {
@@ -642,10 +648,14 @@ function createTranslationRuntime(options = {}) {
                   normalizedBase?.message || '翻译网关连接失败',
                   { category: 'gateway', retryable: true, endpointFailure: true, cause: normalizedBase }
                 );
-              if (normalized.endpointFailure) pool.reportFailure(endpoint);
+              if (normalized.endpointFailure) {
+                pool.reportFailure(endpoint);
+                endpointOutcomeReported = true;
+              }
               if (!normalized.retryable || !normalized.endpointFailure) throw normalized;
               lastError = normalized;
             } finally {
+              if (!endpointOutcomeReported) pool.reportInconclusive?.(endpoint);
               clearTimeout(timer);
               untrackRemoteController(partition, controller);
             }

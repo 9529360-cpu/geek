@@ -55,6 +55,18 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     }
   }
 
+  // A half-open request can end for reasons that say nothing about shared endpoint
+  // health (auth/quota/rate-limit/input/quality/cancellation/deadline). The lease
+  // still needs a terminal state: release it, keep the endpoint unhealthy, and
+  // restart a conservative cooldown before another caller may probe it.
+  function reportInconclusive(endpoint) {
+    const item = list.find((x) => x.endpoint === endpoint);
+    if (!item || !item.probeInFlight) return false;
+    item.lastFailureAt = now();
+    item.probeInFlight = false;
+    return true;
+  }
+
   function reportHealth(endpoint, healthy) {
     if (healthy) reportSuccess(endpoint); else reportFailure(endpoint);
   }
@@ -140,6 +152,7 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     healthOf,
     reportFailure,
     reportSuccess,
+    reportInconclusive,
     reportHealth,
     routeAvailability,
     pick,
