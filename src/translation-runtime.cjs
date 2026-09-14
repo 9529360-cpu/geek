@@ -62,8 +62,15 @@ function createTranslationRuntime(options = {}) {
   let requestSequence = 0;
   let gatewayPool = null;
   const remoteQueue = [];
+  const remoteControllersByPartition = new Map();
   let remoteActive = 0;
   let installed = false;
+
+  function accountDeletedError() {
+    const error = new Error('翻译账号已删除');
+    error.code = 'TRANSLATION_ACCOUNT_DELETED';
+    return error;
+  }
 
   function cacheFile(partition) {
     const dirName = String(partition || '').replace(/^persist:/, '');
@@ -175,9 +182,13 @@ function createTranslationRuntime(options = {}) {
     return { ok: okCount > 0, models: okCount, endpointCount: Object.keys(result).length };
   }
 
-  function enqueueRemote(task) {
+  function enqueueRemote(partition, task) {
     return new Promise((resolve, reject) => {
-      remoteQueue.push({ task, resolve, reject });
+      if (state.deletedPartitions.has(partition)) {
+        reject(accountDeletedError());
+        return;
+      }
+      remoteQueue.push({ partition, task, resolve, reject });
       drainRemoteQueue();
     });
   }
@@ -186,11 +197,41 @@ function createTranslationRuntime(options = {}) {
     while (remoteActive < TRANSLATION_REMOTE_LIMIT && remoteQueue.length) {
       const item = remoteQueue.shift();
       remoteActive += 1;
-      Promise.resolve().then(item.task).then(item.resolve, item.reject).finally(() => {
+      Promise.resolve().then(() => {
+        if (state.deletedPartitions.has(item.partition)) throw accountDeletedError();
+        return item.task();
+      }).then(item.resolve, item.reject).finally(() => {
         remoteActive -= 1;
         drainRemoteQueue();
       });
     }
+  }
+
+  function trackRemoteController(partition, controller) {
+    if (!remoteControllersByPartition.has(partition)) remoteControllersByPartition.set(partition, new Set());
+    remoteControllersByPartition.get(partition).add(controller);
+  }
+
+  function untrackRemoteController(partition, controller) {
+    const controllers = remoteControllersByPartition.get(partition);
+    if (!controllers) return;
+    controllers.delete(controller);
+    if (!controllers.size) remoteControllersByPartition.delete(partition);
+  }
+
+  function cancelRemoteForPartition(partition) {
+    const owner = String(partition || '');
+    if (!owner) return;
+    const error = accountDeletedError();
+    for (let index = remoteQueue.length - 1; index >= 0; index -= 1) {
+      if (remoteQueue[index].partition !== owner) continue;
+      const [item] = remoteQueue.splice(index, 1);
+      item.reject(error);
+    }
+    const controllers = remoteControllersByPartition.get(owner);
+    if (!controllers) return;
+    for (const controller of [...controllers]) controller.abort(error);
+    remoteControllersByPartition.delete(owner);
   }
 
   async function translate(event, payload) {
@@ -206,6 +247,7 @@ function createTranslationRuntime(options = {}) {
     const account = accountState.findById(accountId);
     if (!account?.partition) throw new Error('翻译账号沙箱不存在');
     const partition = account.partition;
+    if (state.deletedPartitions.has(partition)) throw accountDeletedError();
     const cache = await loadCache(partition);
     const key = cacheKey(body, text, target);
     const inflightKey = `${partition}:${key}`;
@@ -241,14 +283,20 @@ function createTranslationRuntime(options = {}) {
       return !(parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1');
     });
     const remoteAuthorization = needsRemoteAuthorization ? await getSubscriptionStore().getTranslationToken() : '';
+    if (state.deletedPartitions.has(partition)) throw accountDeletedError();
     const requestId = randomUUID();
     state.latestRequest.set(inflightKey, sequence);
 
-    const request = enqueueRemote(async () => {
+    const request = enqueueRemote(partition, async () => {
+      if (state.deletedPartitions.has(partition)) throw accountDeletedError();
       let lastError = null;
       const attempts = Math.max(1, pool.endpoints.length);
       const deadline = Date.now() + 30000;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
+        if (state.deletedPartitions.has(partition)) {
+          lastError = accountDeletedError();
+          break;
+        }
         const remaining = deadline - Date.now();
         if (remaining <= 0) {
           lastError = lastError || new Error('翻译网关请求超时');
@@ -257,6 +305,7 @@ function createTranslationRuntime(options = {}) {
         const picked = pool.pick();
         const endpoint = picked.endpoint;
         const controller = new AbortController();
+        trackRemoteController(partition, controller);
         const timer = setTimeout(() => controller.abort(), remaining);
         try {
           const parsedEndpoint = new URL(endpoint);
@@ -301,7 +350,7 @@ function createTranslationRuntime(options = {}) {
             continue;
           }
           pool.reportSuccess(endpoint);
-          if (state.deletedPartitions.has(partition)) throw new Error('翻译账号已删除');
+          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
           if (state.latestRequest.get(inflightKey) !== sequence) {
             return {
               text: translated,
@@ -323,6 +372,10 @@ function createTranslationRuntime(options = {}) {
             route: picked.route,
           };
         } catch (error) {
+          if (state.deletedPartitions.has(partition)) {
+            lastError = accountDeletedError();
+            break;
+          }
           pool.reportFailure(endpoint);
           if (error?.name === 'AbortError') lastError = new Error('翻译网关请求超时');
           else if (error?.message === '翻译账号已删除') {
@@ -331,6 +384,7 @@ function createTranslationRuntime(options = {}) {
           } else lastError = error;
         } finally {
           clearTimeout(timer);
+          untrackRemoteController(partition, controller);
         }
       }
       throw lastError || new Error('翻译网关不可用');
@@ -345,7 +399,9 @@ function createTranslationRuntime(options = {}) {
   }
 
   function deleteAccount(partition) {
-    clearPartitionRuntimeState(state, partition);
+    const owner = String(partition || '');
+    clearPartitionRuntimeState(state, owner);
+    cancelRemoteForPartition(owner);
   }
 
   function install() {
