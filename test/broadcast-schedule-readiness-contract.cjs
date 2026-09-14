@@ -47,6 +47,10 @@ assert.ok(gateIndex >= 0 && loaderIndex > gateIndex, 'future-schedule click gate
 assert.match(safety, /closest\?\.\('#broadcast-send'\)/, 'gate must own the real broadcast send button in capture phase');
 assert.match(safety, /broadcast-schedule-toggle/, 'gate must read the real schedule enable control');
 assert.match(safety, /broadcast-schedule-time/, 'gate must read the real schedule timestamp control');
+assert.match(safety, /if \(!enabled\) return;/, 'disabled scheduling must leave the normal immediate-send path untouched');
+assert.match(safety, /!Number\.isFinite\(scheduledAt\) \|\| scheduledAt <= Date\.now\(\)/, 'enabled scheduling must explicitly reject missing, invalid, or past timestamps');
+assert.match(safety, /请选择未来的发送时间，避免定时任务被误当成立即发送/, 'invalid scheduling must explain that it will not degrade into immediate sending');
+assert.match(safety, /broadcast-schedule-time[^\n]+focus/, 'invalid scheduling should return focus to the schedule field');
 assert.match(safety, /stopImmediatePropagation\(\)/, 'blocked future schedules must not reach legacy or runtime send handlers');
 assert.match(safety, /GeekBroadcastSchedulePersistenceInstance/, 'gate must require the installed persistence instance before allowing a future schedule');
 assert.doesNotMatch(safety, /window\.alert|\balert\s*\(/, 'persistence-not-ready feedback must not open a system alert');
