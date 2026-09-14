@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 
 const STEP_TIMEOUT = 3000;
+const E2E_LOCK_PASSWORD = 'geek-e2e-lock-screen';
 
 async function waitVisible(selector, timeout = STEP_TIMEOUT) {
   const element = await $(selector);
@@ -36,6 +37,12 @@ describe('lock screen modal accessibility', () => {
       timeout: STEP_TIMEOUT,
       timeoutMsg: 'lock screen accessibility owner was not bootstrapped',
     });
+
+    const originalPassword = await browser.execute(async password => {
+      const before = await window.api.config.get();
+      await window.api.config.set({ lockPassword: password });
+      return String(before?.lockPassword || '');
+    }, E2E_LOCK_PASSWORD);
 
     const lockButton = await waitVisible('#btn-lock');
     await lockButton.click();
@@ -71,12 +78,8 @@ describe('lock screen modal accessibility', () => {
     assert.equal(escaped.visible, true, 'Escape must not dismiss the lock screen');
     assert.equal(escaped.focusedId, 'lock-password');
 
-    const wrongPassword = await browser.execute(async () => {
-      const cfg = await window.api.config.get();
-      return String(cfg?.lockPassword || '') + '__e2e_wrong__';
-    });
     const password = await waitVisible('#lock-password');
-    await password.setValue(wrongPassword);
+    await password.setValue(E2E_LOCK_PASSWORD + '__wrong__');
     await (await waitVisible('#lock-unlock')).click();
     await waitVisible('#lock-error:not(.hidden)');
 
@@ -95,11 +98,7 @@ describe('lock screen modal accessibility', () => {
     assert.equal(errorState.inert, true);
     assert.equal(errorState.focusedId, 'lock-password');
 
-    const correctPassword = await browser.execute(async () => {
-      const cfg = await window.api.config.get();
-      return String(cfg?.lockPassword || '');
-    });
-    await password.setValue(correctPassword);
+    await password.setValue(E2E_LOCK_PASSWORD);
     await (await waitVisible('#lock-unlock')).click();
     await waitHidden('#lock-overlay');
     await browser.waitUntil(async () => browser.execute(() =>
@@ -107,5 +106,9 @@ describe('lock screen modal accessibility', () => {
       timeout: STEP_TIMEOUT,
       timeoutMsg: 'unlock did not restore app interactivity and focus',
     });
+
+    await browser.execute(async value => {
+      await window.api.config.set({ lockPassword: value });
+    }, originalPassword);
   });
 });
