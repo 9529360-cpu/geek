@@ -40,14 +40,16 @@ function proxyRulesFor(config) {
   const endpoint = proxyEndpoint(config);
   if (!endpoint) return null;
   const host = formatProxyHost(endpoint.host);
-  const base = `${host}:${endpoint.port}`;
-  if (endpoint.protocol === 'http') return `http=${base};https=${base}`;
-  if (endpoint.protocol === 'https') return `https=${base}`;
-  return `${endpoint.protocol}://${base}`;
+  return `${endpoint.protocol}://${host}:${endpoint.port}`;
 }
 
 function sessionProxyConfig(config) {
   const rules = proxyRulesFor(config);
+  if (config?.openProxy === true && !rules) {
+    const error = new Error('enabled proxy requires a valid host and port');
+    error.code = 'PROXY_CONFIG_INVALID';
+    throw error;
+  }
   if (!rules) return Object.freeze({ mode: 'direct' });
   return Object.freeze({
     mode: 'fixed_servers',
@@ -78,7 +80,9 @@ function proxyFingerprint(config) {
   const endpoint = proxyEndpoint(config);
   const parts = endpoint
     ? [endpoint.protocol, endpoint.host, String(endpoint.port), proxyUsername(config), proxyPassword(config)]
-    : ['direct'];
+    : config?.openProxy === true
+      ? ['invalid', String(config.host || ''), String(config.port || ''), proxyUsername(config), proxyPassword(config)]
+      : ['direct'];
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 
@@ -123,9 +127,9 @@ function createProxyRuntime(options = {}) {
     const previousFingerprint = appliedFingerprintByPartition.get(key);
     if (previousFingerprint === nextFingerprint && readinessByPartition.get(key) === true) return true;
 
-    const ses = sessionModule.fromPartition(key, { cache: true });
-    if (!ses || typeof ses.setProxy !== 'function') throw new TypeError('proxy session is unavailable');
     try {
+      const ses = sessionModule.fromPartition(key, { cache: true });
+      if (!ses || typeof ses.setProxy !== 'function') throw new TypeError('proxy session is unavailable');
       await ses.setProxy(sessionProxyConfig(config));
       const shouldClose = applyOptions.closeConnections !== false && previousFingerprint !== undefined;
       if (shouldClose && typeof ses.closeAllConnections === 'function') await ses.closeAllConnections();
@@ -134,7 +138,7 @@ function createProxyRuntime(options = {}) {
       return true;
     } catch (error) {
       readinessByPartition.set(key, false);
-      report(error, { phase: 'apply', partition: key, proxyEnabled: !!proxyEndpoint(config) });
+      report(error, { phase: 'apply', partition: key, proxyEnabled: config?.openProxy === true });
       return false;
     }
   }
