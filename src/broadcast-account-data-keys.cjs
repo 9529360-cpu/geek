@@ -8,6 +8,7 @@ const BROADCAST_ACCOUNT_DATA_KEYS = Object.freeze([
   'broadcastLegacyScheduleBackup',
   'broadcastLegacyScheduleNeedsReview',
   'broadcastScheduleMigrationV2',
+  'broadcastExecutionCheckpoints',
 ]);
 
 module.exports = { BROADCAST_ACCOUNT_DATA_KEYS };

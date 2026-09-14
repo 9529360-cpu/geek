@@ -10,12 +10,14 @@ const root = path.join(__dirname, '..');
 const main = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
 const persistence = fs.readFileSync(path.join(root, 'ui/broadcast-schedule-persistence.js'), 'utf8');
 const migration = fs.readFileSync(path.join(root, 'ui/broadcast-legacy-schedule-migration.js'), 'utf8');
+const executionCheckpoint = fs.readFileSync(path.join(root, 'ui/broadcast-execution-checkpoint.js'), 'utf8');
 
 const expected = [
   'broadcastJobSchedules',
   'broadcastLegacyScheduleBackup',
   'broadcastLegacyScheduleNeedsReview',
   'broadcastScheduleMigrationV2',
+  'broadcastExecutionCheckpoints',
 ];
 assert.deepEqual([...BROADCAST_ACCOUNT_DATA_KEYS], expected);
 assert.equal(new Set([...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS]).size, ACCOUNT_DATA_KEYS.length + expected.length, 'broadcast keys must extend rather than collide with the stable account-data allowlist');
@@ -24,6 +26,7 @@ assert.match(persistence, /const STORAGE_KEY = 'broadcastJobSchedules'/);
 assert.match(migration, /const BACKUP_KEY = 'broadcastLegacyScheduleBackup'/);
 assert.match(migration, /const REVIEW_KEY = 'broadcastLegacyScheduleNeedsReview'/);
 assert.match(migration, /const MARKER_KEY = 'broadcastScheduleMigrationV2'/);
+assert.match(executionCheckpoint, /const STORAGE_KEY = 'broadcastExecutionCheckpoints'/);
 for (const key of expected) assert.ok(BROADCAST_ACCOUNT_DATA_KEYS.includes(key), `${key} must be writable through the real encrypted account-data store`);
 
 console.log('BROADCAST_ACCOUNT_DATA_KEYS_CONTRACT_OK');
