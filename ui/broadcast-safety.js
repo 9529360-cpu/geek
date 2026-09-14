@@ -119,13 +119,25 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     else status.textContent = message;
   }
 
+  function revealAndFocusScheduleTime() {
+    document.querySelector('.bc-workbench-step[data-step="settings"]')?.click?.();
+    document.getElementById('broadcast-schedule-time')?.focus?.({ preventScroll: true });
+  }
+
   document.addEventListener('click', event => {
     const send = event.target?.closest?.('#broadcast-send');
     if (!send) return;
     const enabled = document.getElementById('broadcast-schedule-toggle')?.checked === true;
+    if (!enabled) return;
     const raw = document.getElementById('broadcast-schedule-time')?.value || '';
     const scheduledAt = raw ? new Date(raw).getTime() : NaN;
-    if (!enabled || !Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) return;
+    if (!Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      showScheduleReadinessStatus('请选择未来的发送时间，避免定时任务被误当成立即发送。');
+      revealAndFocusScheduleTime();
+      return;
+    }
 
     const registry = window.GeekBroadcastScheduleRegistry;
     const persistenceReady = typeof registry?.schedulePersistenceReady === 'function'
@@ -166,11 +178,13 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
                     loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
                     loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
                       loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
-                        loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
-                          loadScript('./broadcast-recipient-tags.js', 'GeekBroadcastRecipientTags', () => {
-                            loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
-                              loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
-                              loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                        loadScript('./broadcast-launch-check.js', 'GeekBroadcastLaunchCheck', () => {
+                          loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
+                            loadScript('./broadcast-recipient-tags.js', 'GeekBroadcastRecipientTags', () => {
+                              loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
+                                loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
+                                loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                              });
                             });
                           });
                         });

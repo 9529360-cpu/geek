@@ -153,4 +153,115 @@ describe('Broadcast non-blocking feedback', () => {
     await (await waitVisible('#broadcast-close')).click();
     await waitHidden('#broadcast-overlay');
   });
+
+  it('renders a deterministic launch check and blocks an invalid scheduled send before runtime', async () => {
+    await activateAccount(ACCOUNT_A);
+    await openBroadcast();
+
+    await browser.waitUntil(async () => browser.execute(() =>
+      typeof window.GeekBroadcastLaunchCheck?.assessLaunchPlan === 'function'
+      && !!document.getElementById('broadcast-launch-check')), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'broadcast launch check did not install',
+    });
+
+    await browser.execute(() => {
+      const paste = document.querySelector('input[name="bc-sendto"][value="paste"]');
+      paste.checked = true;
+      paste.dispatchEvent(new Event('change', { bubbles: true }));
+      const numbers = document.getElementById('bc-paste-numbers');
+      numbers.value = Array.from({ length: 10 }, (_, index) => `+601111000${index}`).join('\n');
+      numbers.dispatchEvent(new Event('input', { bubbles: true }));
+
+      const message = document.getElementById('broadcast-message');
+      message.value = 'Launch check synthetic preview only';
+      message.dispatchEvent(new Event('input', { bubbles: true }));
+      const min = document.getElementById('broadcast-interval-min');
+      const max = document.getElementById('broadcast-interval-max');
+      min.value = '5';
+      max.value = '10';
+      min.dispatchEvent(new Event('input', { bubbles: true }));
+      max.dispatchEvent(new Event('input', { bubbles: true }));
+      const toggle = document.getElementById('broadcast-schedule-toggle');
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      window.GeekBroadcastLaunchCheckInstance?.refresh?.();
+    });
+
+    await (await waitVisible('.bc-workbench-step[data-step="review"]')).click();
+    const ready = await browser.execute(() => {
+      const refreshed = window.GeekBroadcastLaunchCheckInstance?.refresh?.();
+      return {
+        state: refreshed?.plan?.state || document.getElementById('broadcast-launch-check')?.dataset.state || '',
+        blockers: refreshed?.plan?.blockers || [],
+        warnings: refreshed?.plan?.warnings || [],
+        snapshot: refreshed?.snapshot ? {
+          accountId: refreshed.snapshot.accountId,
+          audience: refreshed.snapshot.audience,
+          contentPresent: refreshed.snapshot.contentPresent,
+          scheduleEnabled: refreshed.snapshot.scheduleEnabled,
+          activeJob: refreshed.snapshot.activeJob,
+          pendingJobs: refreshed.snapshot.pendingJobs,
+        } : null,
+        badge: document.querySelector('#broadcast-launch-check .bc-launch-check-state')?.textContent || '',
+        audience: document.querySelector('[data-launch-metric="audience"]')?.textContent || '',
+        wait: document.querySelector('[data-launch-metric="wait"]')?.textContent || '',
+        queue: document.querySelector('[data-launch-metric="queue"]')?.textContent || '',
+        pasteTotal: document.getElementById('bc-paste-total')?.textContent || '',
+      };
+    });
+    assert.equal(ready.state, 'ready', `launch check snapshot: ${JSON.stringify(ready)}`);
+    assert.equal(ready.badge, '可以发送');
+    assert.equal(ready.pasteTotal, '10');
+    assert.match(ready.audience, /10 个候选/);
+    assert.match(ready.wait, /45 秒/);
+    assert.match(ready.wait, /1 分 30 秒/);
+    assert.match(ready.queue, /空闲/);
+
+    await browser.execute(() => {
+      const toggle = document.getElementById('broadcast-schedule-toggle');
+      const time = document.getElementById('broadcast-schedule-time');
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      const past = new Date(Date.now() - 10 * 60 * 1000);
+      time.value = new Date(past.getTime() - past.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+      time.dispatchEvent(new Event('change', { bubbles: true }));
+      window.__geekE2EInvalidScheduleReached = false;
+      document.getElementById('broadcast-send').addEventListener('click', () => {
+        window.__geekE2EInvalidScheduleReached = true;
+      }, { once: true });
+      window.GeekBroadcastLaunchCheckInstance?.refresh?.();
+    });
+
+    await browser.waitUntil(async () => browser.execute(() =>
+      document.getElementById('broadcast-launch-check')?.dataset.state === 'block'), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'invalid scheduled time was not surfaced as a launch blocker',
+    });
+    const launchText = await browser.execute(() => document.getElementById('broadcast-launch-check')?.textContent || '');
+    assert.match(launchText, /不会自动改成立即发送/);
+
+    await (await waitVisible('#broadcast-send')).click();
+    const blocked = await browser.execute(() => ({
+      reached: window.__geekE2EInvalidScheduleReached,
+      status: document.getElementById('broadcast-workbench-status')?.textContent || '',
+      focused: document.activeElement?.id || '',
+    }));
+    assert.equal(blocked.reached, false, 'invalid scheduled time must not reach any downstream send handler');
+    assert.match(blocked.status, /避免定时任务被误当成立即发送/);
+    assert.equal(blocked.focused, 'broadcast-schedule-time');
+
+    await browser.execute(() => {
+      const numbers = document.getElementById('bc-paste-numbers');
+      if (numbers) {
+        numbers.value = '';
+        numbers.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      const toggle = document.getElementById('broadcast-schedule-toggle');
+      if (toggle) toggle.checked = false;
+      delete window.__geekE2EInvalidScheduleReached;
+    });
+    await (await waitVisible('#broadcast-close')).click();
+    await waitHidden('#broadcast-overlay');
+  });
 });
