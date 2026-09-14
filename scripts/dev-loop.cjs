@@ -17,6 +17,7 @@ const {
   waitForChildExit,
 } = require('./dev-loop-process.cjs');
 const { createRecoveryTracker } = require('./dev-loop-recovery.cjs');
+const { createWorkerBundleFeedback } = require('./dev-worker-feedback.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const DEBUG_PORT = 9344;
@@ -63,6 +64,12 @@ function log(message) {
 function warn(message) {
   process.stderr.write(`[dev] ${message}\n`);
 }
+
+const workerBundleFeedback = createWorkerBundleFeedback({
+  root: ROOT,
+  log,
+  warn,
+});
 
 function relativeFromRoot(filePath) {
   return path.relative(ROOT, filePath).split(path.sep).join('/');
@@ -295,9 +302,7 @@ async function runFeedbackChecks(plan) {
   for (const testFile of plan.testFiles) {
     await runChangedContract(testFile);
   }
-  if (plan.workerConfigFiles.length > 0) {
-    log(`Worker config changed (${plan.workerConfigFiles.join(', ')}); Wrangler bundle dry-runs remain authoritative in CI.`);
-  }
+  workerBundleFeedback.schedule(plan.changes);
   if (plan.requiresLoopRestart) {
     warn('The dev-loop implementation or control protocol changed; restart npm run dev once to activate the new supervisor code.');
   }
@@ -406,6 +411,7 @@ async function shutdown(exitCode = 0) {
   pendingChanges.clear();
   clearRecoveryTimer();
   for (const watcher of watchers.splice(0)) watcher.close();
+  await workerBundleFeedback.stop();
   const stopped = await stopElectron();
   process.exit(stopped ? exitCode : Math.max(1, exitCode));
 }
@@ -431,7 +437,7 @@ function main() {
   }
 
   installSignalHandlers();
-  log('Watching desktop runtime plus scripts/tests for affected, fast feedback.');
+  log('Watching desktop runtime plus scripts/tests/Workers for affected, fast feedback.');
   startElectron();
 }
 
