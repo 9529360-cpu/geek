@@ -1,6 +1,6 @@
 'use strict';
 
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const UNSAFE_API_URL_CODE = 'SUBSCRIPTION_API_URL_UNSAFE';
 
 function unsafeApiUrlError() {
@@ -18,7 +18,12 @@ function normalizeSubscriptionApiBase(value) {
     throw unsafeApiUrlError();
   }
 
-  if (url.username || url.password || url.search || url.hash) throw unsafeApiUrlError();
+  // WHATWG URL normalizes an empty trailing `?`/`#` to empty search/hash
+  // properties, so reject the raw delimiters too. An API base is authority +
+  // optional path only; credentials/request parameters belong to each request.
+  if (raw.includes('?') || raw.includes('#') || url.username || url.password || url.search || url.hash) {
+    throw unsafeApiUrlError();
+  }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw unsafeApiUrlError();
 
   const hostname = String(url.hostname || '').toLowerCase();
