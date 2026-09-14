@@ -23,5 +23,17 @@ for (const name of ['accounts.example.json', 'config.example.json']) {
 const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
 assert.match(ignore, /^data\/accounts\.json$/m, '必须忽略 data/accounts.json');
 assert.match(ignore, /^data\/config\.json$/m, '必须忽略 data/config.json');
+assert.match(ignore, /^\.env\*$/m, '必须忽略本地 .env 文件');
+assert.match(ignore, /^\.dev\.vars\*$/m, '必须忽略本地 .dev.vars 文件');
+assert.match(ignore, /^!\.env\.example$/m, '必须允许提交脱敏 .env.example 模板');
+assert.match(ignore, /^!\.dev\.vars\.example$/m, '必须允许提交脱敏 .dev.vars.example 模板');
+assert.ok(
+  ignore.indexOf('!.env.example') > ignore.indexOf('.env*'),
+  '.env.example 例外必须位于 .env* 规则之后',
+);
+assert.ok(
+  ignore.indexOf('!.dev.vars.example') > ignore.indexOf('.dev.vars*'),
+  '.dev.vars.example 例外必须位于 .dev.vars* 规则之后',
+);
 
 console.log('REPO_RUNTIME_DATA_CONTRACT_OK');
