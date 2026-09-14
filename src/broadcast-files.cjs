@@ -88,6 +88,7 @@ function createBroadcastFileRegistry(options = {}) {
   const randomBytes = options.randomBytes || crypto.randomBytes;
   const limits = Object.freeze({ ...DEFAULT_LIMITS, ...(options.limits || {}) });
   const entries = new Map();
+  let registrationCommitTail = Promise.resolve();
 
   function pruneExpired(currentTime = now()) {
     for (const [token, entry] of entries) {
@@ -101,6 +102,23 @@ function createBroadcastFileRegistry(options = {}) {
       if (/^[a-f0-9]{48}$/.test(token) && !entries.has(token)) return token;
     }
     throw createPolicyError('BROADCAST_FILE_TOKEN_GENERATION_FAILED');
+  }
+
+  function commitSelection(staged, owner) {
+    const commit = registrationCommitTail.then(() => {
+      pruneExpired();
+      if (entries.size + staged.length > limits.maxRegistryEntries) {
+        throw createPolicyError('BROADCAST_FILE_REGISTRY_LIMIT');
+      }
+      const expiresAt = now() + limits.tokenTtlMs;
+      return staged.map((item) => {
+        const token = nextToken();
+        entries.set(token, { ...item, owner, expiresAt });
+        return Object.freeze({ token, name: item.name, size: item.size, mime: item.mime });
+      });
+    });
+    registrationCommitTail = commit.then(() => undefined, () => undefined);
+    return commit;
   }
 
   async function registerSelection(filePaths, ownerId) {
@@ -142,12 +160,7 @@ function createBroadcastFileRegistry(options = {}) {
       });
     }
 
-    const expiresAt = now() + limits.tokenTtlMs;
-    return staged.map((item) => {
-      const token = nextToken();
-      entries.set(token, { ...item, owner, expiresAt });
-      return Object.freeze({ token, name: item.name, size: item.size, mime: item.mime });
-    });
+    return commitSelection(staged, owner);
   }
 
   async function resolve(tokenValue, ownerId) {
