@@ -98,6 +98,7 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
   let loadPromise = null;
   let translationTokenCache = null;
+  let translationTokenInflight = null;
   let stateMutationQueue = Promise.resolve();
   let sessionGeneration = 0;
 
@@ -412,18 +413,31 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     ) {
       return translationTokenCache.token;
     }
-    const data = await request('/api/translation-token', { method: 'POST' });
-    if (!data.token || !Number.isFinite(Number(data.expires_at))) throw new Error('翻译授权返回格式错误');
-    assertSessionGeneration(generation);
-    const current = await load();
-    assertSessionGeneration(generation);
-    if (!current.token) throw loginRequiredError();
-    translationTokenCache = {
-      token: String(data.token),
-      expires_at: Number(data.expires_at),
-      generation,
-    };
-    return translationTokenCache.token;
+    if (translationTokenInflight?.generation === generation) {
+      return translationTokenInflight.promise;
+    }
+
+    const promise = (async () => {
+      const data = await request('/api/translation-token', { method: 'POST' });
+      if (!data.token || !Number.isFinite(Number(data.expires_at))) throw new Error('翻译授权返回格式错误');
+      assertSessionGeneration(generation);
+      const current = await load();
+      assertSessionGeneration(generation);
+      if (!current.token) throw loginRequiredError();
+      translationTokenCache = {
+        token: String(data.token),
+        expires_at: Number(data.expires_at),
+        generation,
+      };
+      return translationTokenCache.token;
+    })();
+
+    translationTokenInflight = { generation, promise };
+    try {
+      return await promise;
+    } finally {
+      if (translationTokenInflight?.promise === promise) translationTokenInflight = null;
+    }
   }
 
   // 字符扣减：翻译成功后上报原文+译文，服务端按 1汉字=2字符 规则换算扣减
@@ -461,6 +475,7 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       await writeStateDisk({});
       cache = {};
       translationTokenCache = null;
+      translationTokenInflight = null;
       sessionGeneration += 1;
     });
   }
