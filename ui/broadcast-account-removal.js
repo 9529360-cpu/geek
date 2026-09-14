@@ -71,7 +71,9 @@
 
   function restoreAccountFocus(accountId, doc = document) {
     const row = accountRow(accountId, doc);
-    const target = row?.querySelector('.shell-account-menu-button') || row?.querySelector('.nav-account-main');
+    const more = row?.querySelector('.shell-account-menu-button');
+    const main = row?.querySelector('.nav-account-main');
+    const target = more && more.offsetParent !== null ? more : main;
     target?.focus?.({ preventScroll: true });
     return !!target;
   }
@@ -104,11 +106,11 @@
     overlay.id = 'account-remove-confirm-overlay';
     overlay.className = 'account-remove-confirm-overlay hidden';
     overlay.innerHTML = `
-      <section class="account-remove-confirm" role="alertdialog" aria-modal="true" aria-labelledby="account-remove-confirm-title" aria-describedby="account-remove-confirm-description">
+      <section class="account-remove-confirm" role="alertdialog" aria-modal="true" aria-labelledby="account-remove-confirm-title" aria-describedby="account-remove-confirm-description account-remove-confirm-warning">
         <div class="account-remove-confirm__icon" aria-hidden="true">!</div>
         <h2 id="account-remove-confirm-title">删除账号？</h2>
         <p id="account-remove-confirm-description">将清除 <strong id="account-remove-confirm-name">当前账号</strong> 的本机登录数据和账号配置。</p>
-        <div class="account-remove-confirm__warning">如果该账号有正在执行或等待中的群发任务，极客会先安全停止这些任务，再执行删除。此操作完成后不可撤销。</div>
+        <div id="account-remove-confirm-warning" class="account-remove-confirm__warning">如果该账号有正在执行或等待中的群发任务，极客会先安全停止这些任务，再执行删除。此操作完成后不可撤销。</div>
         <div id="account-remove-confirm-status" class="account-remove-confirm__status" role="status" aria-live="polite" aria-atomic="true"></div>
         <div class="account-remove-confirm__actions">
           <button type="button" id="account-remove-cancel">取消</button>
@@ -176,6 +178,7 @@
     if (removalInFlight || !dialogAccountId) return false;
     const overlay = ensureDialog(doc);
     const accountId = dialogAccountId;
+    let reloadRequested = false;
     removalInFlight = true;
     setDialogPending(overlay, true);
     setDialogStatus(overlay, '正在安全停止群发任务并删除账号…');
@@ -187,6 +190,7 @@
       // app.js owns account/webview closure state. Reload only after backend deletion
       // succeeds so the UI is rebuilt from truth; on any failure it stays untouched.
       win.location.reload();
+      reloadRequested = true;
       return true;
     } catch (error) {
       setDialogPending(overlay, false);
@@ -194,7 +198,7 @@
       overlay.querySelector('#account-remove-cancel')?.focus({ preventScroll: true });
       return false;
     } finally {
-      removalInFlight = false;
+      if (!reloadRequested) removalInFlight = false;
     }
   }
 
