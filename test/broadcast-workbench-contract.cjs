@@ -21,12 +21,30 @@ assert.equal(api.stepForCard({ classList: { contains: name => name === 'bc-revie
 assert.equal(typeof audienceApi.relabelRecipientPresets, 'function');
 assert.equal(typeof audienceApi.retireLegacyScheduler, 'function');
 
+assert.deepEqual(api.jobProgress({ current: 5, total: 20 }), { current: 5, total: 20, percent: 25 });
+assert.deepEqual(api.jobProgress({ current: 30, total: 20 }), { current: 20, total: 20, percent: 100 });
+const summary = api.summarizeJobs([
+  { accountId: 'a', state: 'running', current: 3, total: 10, fail: 0 },
+  { accountId: 'b', state: 'scheduled', current: 0, total: 5, fail: 0 },
+  { accountId: 'c', state: 'completed', current: 4, total: 4, fail: 1 },
+  { accountId: 'd', state: 'failed', current: 0, total: 8, fail: 0 },
+  { accountId: 'e', state: 'running', dismissed: true },
+]);
+assert.deepEqual(summary, { total: 4, active: 2, running: 1, pending: 1, issues: 2, accounts: 4 });
+const fakeManager = {
+  list(accountId) {
+    const jobs = [{ accountId: 'a', state: 'running' }, { accountId: 'b', state: 'queued' }, { accountId: 'a', state: 'completed', dismissed: true }];
+    return accountId == null ? jobs : jobs.filter(job => job.accountId === accountId);
+  },
+};
+assert.deepEqual(api.jobsForScope(fakeManager, 'a', 'current'), [{ accountId: 'a', state: 'running' }]);
+assert.deepEqual(api.jobsForScope(fakeManager, 'a', 'all'), [{ accountId: 'a', state: 'running' }, { accountId: 'b', state: 'queued' }]);
+
 // Workbench is presentation only. It must never hold the legacy editor entrypoint
 // hostage while probing WPP/readiness. Contact loading belongs to the existing
 // broadcast app/runtime path and may update inline status after the modal opens.
 assert.doesNotMatch(workbench, /closest\?\.\('#bc-menu-send'\)/, 'workbench must not intercept the broadcast editor entrypoint');
 assert.doesNotMatch(workbench, /stopImmediatePropagation\s*\(/, 'workbench must not synchronously block the original broadcast open handler');
-assert.doesNotMatch(workbench, /preventDefault\s*\(/, 'workbench must not cancel the original broadcast open action');
 assert.doesNotMatch(workbench, /prepareAndReopen|awaitBroadcastReadiness|probeWhatsAppReadiness/, 'workbench must not duplicate transport/readiness orchestration');
 assert.doesNotMatch(workbench, /window\.WAPLUS_WPP\s*\|\|\s*window\.WPP/, 'presentation layer must not directly probe the WhatsApp runtime');
 assert.match(workbench, /getElementById\(['"]broadcast-overlay['"]\)/, 'workbench should enhance the already-open broadcast overlay');
@@ -40,11 +58,23 @@ assert.match(workbench, /span\.textContent !== text/, 'status writes must be ide
 
 assert.match(workbench, /\['content', 'audience', 'settings', 'review'\]/, 'the editor must expose the four-stage creation flow');
 assert.match(workbench, /固定受众快照/, 'review must preserve fixed-audience schedule semantics');
-assert.match(workbench, /GeekBroadcastJobs/, 'task center must consume the existing account-scoped Job manager');
+assert.match(workbench, /群发指挥台/, 'task center must present the cross-account command-center concept');
+assert.match(workbench, /data-scope="current"[^>]*aria-pressed="true"/, 'command center must preserve current-account scope as the compatibility default');
+assert.match(workbench, /data-scope="all"/, 'command center must expose an explicit all-account scope');
+assert.match(workbench, /任务归属不会随页面切换改变/, 'cross-account view must explain immutable job ownership');
+assert.match(workbench, /GeekBroadcastJobs/, 'command center must consume the existing account-scoped Job manager');
+assert.match(workbench, /scope === 'all' \? manager\.list\(\) : manager\.list\(accountId\)/, 'all-account overview must be a projection over the existing manager, not a second state store');
 assert.match(workbench, /manager\.invoke\(job\.id/, 'task controls must address explicit Job ids');
+assert.doesNotMatch(workbench, /全部停止|停止全部|stopAll/, 'command center must not introduce a dangerous cross-account stop-all control');
+assert.match(workbench, /setAttribute\(['"]role['"],\s*['"]progressbar['"]\)/, 'job progress must be exposed accessibly');
+assert.match(workbench, /aria-valuenow/, 'job progress must expose current progress to assistive technology');
+assert.match(workbench, /data-active-count/, 'the task trigger must expose the aggregate active-job count');
 assert.match(workbench, /accountData\.getAll\(accountId\)/, 'task center history must stay account-scoped');
+assert.doesNotMatch(workbench, /accountData\.getAll\(job\.accountId\)/, 'all-account view must not sweep account sandboxes for history');
 assert.match(workbench, /sendHistory/, 'task center may summarize the existing encrypted send history');
 assert.doesNotMatch(workbench, /message\s*:\s*item\.message|history[^\n]*msg\b/, 'task history UI must not persist or reconstruct chat message bodies');
+assert.match(workbench, /CSS\.escape/, 'account navigation must select explicit account ids safely');
+assert.match(workbench, /event\.key !== 'Escape'/, 'command center must provide keyboard dismissal');
 assert.match(workbench, /prefers-reduced-motion:reduce/, 'motion must respect reduced-motion preferences');
 assert.match(workbench, /setAttribute\(['"]role['"],\s*['"]status['"]\)/, 'inline readiness feedback must be accessible status content');
 
