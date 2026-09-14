@@ -183,8 +183,11 @@
       if (!webview || observed.has(webview)) return;
       observed.add(webview);
       webview.addEventListener?.('dom-ready', () => { void inject(webview); });
-      // Covers bootstrap after a WebView is already ready; injection is idempotent.
-      if (webview.getURL?.()) queueMicrotask(() => { void inject(webview); });
+      // A newly inserted <webview> can throw from getURL()/other guest methods
+      // until it is attached and dom-ready. Queue a safe best-effort injection
+      // instead; inject() already catches executeJavaScript rejection and the
+      // dom-ready listener remains the authoritative retry.
+      queueMicrotask(() => { void inject(webview); });
     }
 
     function scan() {
