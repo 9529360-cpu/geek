@@ -168,22 +168,24 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   loadScript('./broadcast-job-manager.js', 'GeekBroadcastJobManager', () => {
     loadScript('./broadcast-file-lifecycle.js', 'GeekBroadcastFileLifecycle', () => {
       loadScript('./broadcast-schedule-registry.js', 'GeekBroadcastScheduleRegistry', () => {
-        loadScript('./broadcast-executor.js', 'GeekBroadcastExecutor', () => {
-          loadScript('./broadcast-delivery.js', 'GeekBroadcastDelivery', () => {
-            loadScript('./broadcast-send-controller.js', 'GeekBroadcastSendController', () => {
-              loadScript('./broadcast-runtime.js', 'GeekBroadcastRuntime', () => {
-                loadScript('./broadcast-legacy-schedule-migration.js', 'GeekBroadcastLegacyScheduleMigration', () => {
-                  loadScript('./broadcast-schedule-persistence.js', 'GeekBroadcastSchedulePersistence', () => {
-                    loadScript('./broadcast-account-removal.js', 'GeekBroadcastAccountRemoval');
-                    loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
-                    loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
-                      loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
-                        loadScript('./broadcast-launch-check.js', 'GeekBroadcastLaunchCheck', () => {
-                          loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
-                            loadScript('./broadcast-recipient-tags.js', 'GeekBroadcastRecipientTags', () => {
-                              loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
-                                loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
-                                loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+        loadScript('./broadcast-execution-checkpoint.js', 'GeekBroadcastExecutionCheckpoint', () => {
+          loadScript('./broadcast-executor.js', 'GeekBroadcastExecutor', () => {
+            loadScript('./broadcast-delivery.js', 'GeekBroadcastDelivery', () => {
+              loadScript('./broadcast-send-controller.js', 'GeekBroadcastSendController', () => {
+                loadScript('./broadcast-runtime.js', 'GeekBroadcastRuntime', () => {
+                  loadScript('./broadcast-legacy-schedule-migration.js', 'GeekBroadcastLegacyScheduleMigration', () => {
+                    loadScript('./broadcast-schedule-persistence.js', 'GeekBroadcastSchedulePersistence', () => {
+                      loadScript('./broadcast-account-removal.js', 'GeekBroadcastAccountRemoval');
+                      loadScript('./broadcast-account-indicator.js', 'GeekBroadcastAccountIndicator');
+                      loadScript('./broadcast-job-controller.js', 'GeekBroadcastJobController', () => {
+                        loadScript('./broadcast-workbench.js', 'GeekBroadcastWorkbench', () => {
+                          loadScript('./broadcast-launch-check.js', 'GeekBroadcastLaunchCheck', () => {
+                            loadScript('./broadcast-audience-ux.js', 'GeekBroadcastAudienceUx', () => {
+                              loadScript('./broadcast-recipient-tags.js', 'GeekBroadcastRecipientTags', () => {
+                                loadScript('./broadcast-product-closure.js', 'GeekBroadcastProductClosure', () => {
+                                  loadScript('./advanced-tools-workbench.js', 'GeekAdvancedToolsWorkbench');
+                                  loadScript('./broadcast-job-guard.js', 'GeekBroadcastJobGuard');
+                                });
                               });
                             });
                           });

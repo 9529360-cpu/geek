@@ -88,7 +88,7 @@ function classifyGatewayResponse(status, result = {}) {
       { category: 'deadline', retryable: true, endpointFailure: false, status: httpStatus, upstreamCode }
     );
   }
-  if (httpStatus === 400 || httpStatus === 404 || httpStatus === 422) {
+  if (httpStatus === 400 || httpStatus === 404 || httpStatus === 413 || httpStatus === 422) {
     return createTranslationError(
       upstreamCode || 'TRANSLATION_REQUEST_INVALID',
       upstreamMessage || `翻译请求无效 (${httpStatus})`,
