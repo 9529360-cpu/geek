@@ -1,0 +1,73 @@
+name: temporary WebView crash budget patch
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'ui/app.js'
+      - 'test/crash-recovery-integration-contract.cjs'
+      - 'test/webview-crash-recovery-budget-contract.cjs'
+      - 'scripts/temporary-patch-webview-crash-budget.cjs'
+      - '.github/workflows/temporary-patch-webview-crash-budget.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.head_ref == 'fix/426-account-scoped-webview-crash-budget' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact patch branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/426-account-scoped-webview-crash-budget
+          fetch-depth: 0
+
+      - name: Apply exact account-scoped crash budget patch
+        env:
+          EXPECTED_APP_BLOB: 4a7995d7e8305e8477c602ae121500b7423a469d
+        run: node scripts/temporary-patch-webview-crash-budget.cjs
+
+      - name: Verify product patch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test "$(git diff --name-only)" = "ui/app.js"
+          grep -Fq 'const timestampsByAccount = new Map();' ui/app.js
+          grep -Fq 'webviewCrashLimiter.allow(account.id)' ui/app.js
+          ! grep -Fq 'if (webviewCrashLimiter.allow()) {' ui/app.js
+          git diff -- ui/app.js
+
+      - name: Validate renderer and focused contracts
+        run: |
+          node --check ui/app.js
+          node test/webview-crash-recovery-budget-contract.cjs
+          node test/crash-recovery-integration-contract.cjs
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run complete contract suite
+        run: npm test
+
+      - name: Commit verified product patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add ui/app.js
+          git diff --cached --check
+          test "$(git diff --cached --name-only)" = "ui/app.js"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: isolate WebView crash recovery budgets per account"
+          git push origin HEAD:fix/426-account-scoped-webview-crash-budget
