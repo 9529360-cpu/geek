@@ -1,3 +1,4 @@
+# One-shot: prove the hardened dependency graph is fully audit-clean before persisting it.
 name: dependency-security-refresh-once
 
 on:
