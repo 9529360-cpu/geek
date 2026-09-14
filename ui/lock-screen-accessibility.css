@@ -1,0 +1,19 @@
+#lock-overlay[role='dialog'] #lock-password:focus-visible,
+#lock-overlay[role='dialog'] #lock-unlock:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+#lock-overlay[role='dialog'] .lock-error[role='alert'] {
+  min-height: 1.2em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #lock-overlay[role='dialog'],
+  #lock-overlay[role='dialog'] .lock-box,
+  #lock-overlay[role='dialog'] #lock-password,
+  #lock-overlay[role='dialog'] #lock-unlock {
+    animation: none !important;
+    transition: none !important;
+  }
+}
