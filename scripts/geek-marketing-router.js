@@ -1,6 +1,6 @@
 import websiteEntry from './geek-website-entry.js';
 import { MARKETING_ROUTES, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
-import { MARKETING_STYLES_CORE } from './geek-marketing-styles-core.mjs';
+import { LEGACY_ACCOUNT_THEME_STYLE, MARKETING_STYLES_CORE } from './geek-marketing-styles-core.mjs';
 import { MARKETING_STYLES_COMPONENTS } from './geek-marketing-styles-components.mjs';
 import { PAGE_BODY } from './geek-marketing-pages.mjs';
 import { cta, footer, nav, stageProduct, stageSecurity } from './geek-marketing-visuals.mjs';
@@ -16,36 +16,6 @@ const HOME_META = Object.freeze({
   headline: '一个桌面，\n接住每个海外客户。',
   lede: '把 WhatsApp、Telegram 和 LINE 的多个账号放进同一个工作台。账号独立运行，消息随手翻译，群发任务按账号在后台执行——切换客户，不必切换工作方式。',
 });
-
-const LEGACY_THEME_STYLE = `<style data-geek-site-theme="unified-20260914">
-:root{
-  --bg:#08090a!important;
-  --bg-soft:#0e1011!important;
-  --card:rgba(255,255,255,.035)!important;
-  --card-border:rgba(255,255,255,.10)!important;
-  --text:#f7f8f8!important;
-  --text-dim:#a7adb4!important;
-  --text-faint:#62686f!important;
-  --accent:#25d366!important;
-  --accent2:#4ce180!important;
-  --grad:linear-gradient(135deg,#25d366 0%,#4ce180 100%)!important;
-}
-html,body{background:#08090a!important}
-body{color:#f7f8f8!important}
-::selection{background:rgba(37,211,102,.28)!important}
-:focus-visible{outline-color:#4ce180!important}
-.bg-glow::before{background:radial-gradient(ellipse at center,rgba(37,211,102,.11) 0%,rgba(84,217,255,.045) 38%,transparent 70%)!important}
-.logo-mark{background:linear-gradient(180deg,#23252a,#101114)!important;border-color:rgba(255,255,255,.14)!important;box-shadow:0 8px 30px rgba(0,0,0,.28)!important}
-.btn-primary{background:#25d366!important;color:#061109!important;box-shadow:0 8px 28px rgba(37,211,102,.14)!important}
-.btn-primary:hover{background:#4ce180!important;box-shadow:0 10px 34px rgba(37,211,102,.2)!important}
-.btn-ghost:hover{border-color:rgba(37,211,102,.32)!important;background:rgba(255,255,255,.065)!important}
-input:focus,textarea:focus,select:focus{border-color:rgba(37,211,102,.62)!important;box-shadow:0 0 0 3px rgba(37,211,102,.10)!important;outline:none!important}
-.plan.hot{border-color:rgba(37,211,102,.45)!important;box-shadow:0 0 60px rgba(37,211,102,.08),inset 0 1px 0 rgba(255,255,255,.06)!important;background:linear-gradient(180deg,rgba(37,211,102,.055),rgba(255,255,255,.02))!important}
-.plan .badge{background:#25d366!important;color:#061109!important}
-.feature .icon,.step::before,.download .big-icon{background:rgba(37,211,102,.09)!important;border-color:rgba(37,211,102,.20)!important}
-.feature .icon svg,.download .big-icon svg{stroke:#4ce180!important}
-.section-head .kicker{color:#4ce180!important;text-shadow:none!important}
-</style>`;
 
 function homeHero() {
   return `<section class="hero">
@@ -217,7 +187,7 @@ async function delegatedResponse(request, env, ctx) {
     return new Response(source, { status: response.status, statusText: response.statusText, headers: new Headers(response.headers) });
   }
   const headers = new Headers(response.headers);
-  return new Response(source.replace('</head>', `${LEGACY_THEME_STYLE}\n</head>`), {
+  return new Response(source.replace('</head>', `${LEGACY_ACCOUNT_THEME_STYLE}\n</head>`), {
     status: response.status,
     statusText: response.statusText,
     headers,
