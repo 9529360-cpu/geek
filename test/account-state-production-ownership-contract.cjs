@@ -44,14 +44,14 @@ function functionBody(name, nextMarker) {
 const removeBody = functionBody('removeAccount', '\n\nlet accountIpcBoundary');
 const removeCommit = removeBody.indexOf('await accountState.remove(accountId)');
 assert.ok(removeCommit >= 0, 'account removal must cross the durable state owner');
-for (const effect of ['translationRuntime?.deleteAccount', 'webContents.getAllWebContents', 'clearStorageData()', 'notifyAccountsChanged(result.snapshot)']) {
+for (const effect of ['translationRuntime?.deleteAccount', 'proxyRuntime.forgetPartition', 'webContents.getAllWebContents', 'clearStorageData()', 'notifyAccountsChanged(result.snapshot)']) {
   assert.ok(removeBody.indexOf(effect) > removeCommit, `${effect} must remain a post-commit removal effect`);
 }
 
 const updateBody = functionBody('updateAccount', '\n\nasync function moveAccount');
 const updateCommit = updateBody.indexOf('await accountState.update(accountId, patchData)');
 assert.ok(updateCommit >= 0, 'account update must cross the durable state owner');
-assert.ok(updateBody.indexOf('await applyProxyForPartition') > updateCommit, 'proxy application must remain post-commit');
+assert.ok(updateBody.indexOf('await proxyRuntime.applyAccount') > updateCommit, 'proxy application must remain post-commit');
 assert.ok(updateBody.indexOf('notifyAccountsChanged(result.snapshot)') > updateCommit, 'account change notification must remain post-commit');
 
 assert.match(main, /resolveAccountPartition:\s*accountId => accountState\.resolvePartition\(accountId\)/,

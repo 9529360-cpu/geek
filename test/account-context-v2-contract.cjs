@@ -8,6 +8,7 @@ const settings = read('ui/settings-controller.js');
 const subscription = read('ui/subscription.html');
 const main = read('src/main.cjs');
 const accountState = read('src/account-state.cjs');
+const proxyRuntime = read('src/proxy-runtime.cjs');
 
 // V2 intentionally rejects PR #275's duplicate personal-center/settings ownership model.
 // Subscription state has one owner. The existing subscription home remains canonical; application Settings may expose a read-only mirror.
@@ -46,10 +47,16 @@ assert.match(app, /showProxyDialog\(account\)/);
 // settings-controller no longer owns account instance persistence.
 assert.doesNotMatch(settings, /updateAccount|acc-select|accountPatch|loadAccount\(/);
 
-// Preserve the two real proxy fixes found in v1 audit while account/global config mutation authority lives in explicit owners.
+// Preserve the two real proxy fixes found in v1 audit while keeping one proxy-resolution owner.
 assert.match(accountState, /raw\.protocal === 'http'/);
 const updateBody = main.match(/async function updateAccount\([\s\S]*?\n\}/)?.[0] || '';
-assert.match(updateBody, /const globalConfig = configStore\.getSnapshot\(\)/);
-assert.match(updateBody, /account\.openProxy \? account : \(globalConfig\.openProxy \? globalConfig : null\)/);
+assert.match(updateBody, /await proxyRuntime\.applyAccount\(account, configStore\.getSnapshot\(\)\)/,
+  'account updates must delegate effective proxy application to the runtime owner');
+assert.match(proxyRuntime, /function effectiveProxyConfig\(account, globalConfig\)/,
+  'proxy precedence must have one explicit owner');
+assert.match(proxyRuntime, /if \(account\?\.openProxy === true\) return account;/,
+  'account-specific proxy must override global proxy');
+assert.match(proxyRuntime, /if \(globalConfig\?\.openProxy === true\) return globalConfig;/,
+  'global proxy must apply only when the account has no enabled override');
 
 console.log('ACCOUNT_CONTEXT_V2_CONTRACT_OK');

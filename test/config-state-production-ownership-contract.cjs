@@ -47,7 +47,7 @@ assert.match(ipcOwner, /ipcMain\.removeHandler\(CONFIG_SET_CHANNEL\)/);
 
 const configInstall = main.match(/configIpcBoundary = installConfigIpc\(\{([\s\S]*?)\n  \}\);/)?.[1] || '';
 const committedAt = configInstall.indexOf('onCommitted: async');
-for (const effect of ['applyLoginItemSettings(config)', 'applyProxyForPartition(', 'notifyAccountsChanged(snapshot)']) {
+for (const effect of ['applyLoginItemSettings(config)', 'proxyRuntime.applyAccounts(', 'notifyAccountsChanged(snapshot)']) {
   assert.ok(configInstall.indexOf(effect) > committedAt, `${effect} must stay in the post-commit callback`);
 }
 
