@@ -11,6 +11,7 @@ const stylesPath = path.join(root, 'scripts', 'geek-marketing-styles-core.mjs');
 const routerSource = fs.readFileSync(routerPath, 'utf8');
 const stylesSource = fs.readFileSync(stylesPath, 'utf8');
 const routes = ['/', '/product', '/translation', '/broadcast', '/security', '/windows'];
+const productRoutes = ['/product', '/translation', '/broadcast', '/security', '/windows'];
 const expected = {
   '/': ['海外会话工作台', '账号就是工作现场', '不同账号可以同时工作'],
   '/product': ['账号就是工作现场', '多平台多账号'],
@@ -109,6 +110,8 @@ assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not
       assert.ok(legacyIndex < 0 || sharedIndex > legacyIndex, `${route} shared theme must be the final cascade authority`);
       assert.match(html, /--green:#25d366;/, `${route} must receive the canonical Geek green token`);
       assert.match(html, /--accent:var\(--green\);/, `${route} account aliases must resolve through the canonical token`);
+      assert.doesNotMatch(html, /href="\/#(?:features|guide|pricing|download|faq)"/, `${route} must not expose retired homepage anchors`);
+      for (const href of productRoutes) assert.ok(html.includes(`href="${href}"`), `${route} missing current product navigation ${href}`);
     }
 
     const reset = await production.default.fetch(new Request('https://geek.bbnba.com/reset-password?token=contract-sentinel'), {}, {});
