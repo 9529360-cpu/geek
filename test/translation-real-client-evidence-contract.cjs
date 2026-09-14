@@ -27,7 +27,10 @@ const requiredCases = [
 ];
 for (const value of requiredCases) {
   assert.ok(script.includes(`'${value}'`), `evidence recorder must allow case ${value}`);
-  assert.ok(docs.includes(value), `real-client matrix must document case ${value}`);
+}
+for (let index = 1; index <= 14; index += 1) {
+  const id = `RC-${String(index).padStart(2, '0')}`;
+  assert.ok(docs.includes(`### ${id}`), `real-client matrix must document ${id}`);
 }
 
 for (const category of ['accepted', 'bridge-capacity', 'auth', 'quota', 'deadline', 'gateway', 'quality', 'cancelled']) {
