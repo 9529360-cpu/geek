@@ -6,6 +6,12 @@ on:
     branches:
       - master
     paths:
+      - 'scripts/geek-marketing-router.js'
+      - 'scripts/geek-marketing-theme.mjs'
+      - 'scripts/geek-marketing-styles-core.mjs'
+      - 'scripts/geek-marketing-styles-components.mjs'
+      - 'scripts/geek-marketing-visuals.mjs'
+      - 'scripts/geek-marketing-pages.mjs'
       - 'scripts/geek-website-entry.js'
       - 'scripts/geek-website-worker.js'
       - 'scripts/website-payment-qr.mjs'
@@ -43,6 +49,12 @@ jobs:
 
       - name: Validate Worker syntax
         run: |
+          node --check scripts/geek-marketing-router.js
+          node --check scripts/geek-marketing-theme.mjs
+          node --check scripts/geek-marketing-styles-core.mjs
+          node --check scripts/geek-marketing-styles-components.mjs
+          node --check scripts/geek-marketing-visuals.mjs
+          node --check scripts/geek-marketing-pages.mjs
           node --check scripts/geek-website-entry.js
           node --check scripts/geek-website-worker.js
           node --check scripts/website-payment-qr.mjs
