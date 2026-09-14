@@ -26,6 +26,9 @@ assert.deepEqual(
 function createHarness() {
   const handlers = new Map();
   const forwarded = [];
+  const pickedRoutes = [];
+  const primary = 'https://primary.example.test';
+  const backup = 'https://backup.example.test';
   const runtime = createTranslationRuntime({
     ipcMain: {
       handle(channel, handler) { handlers.set(channel, handler); },
@@ -47,9 +50,14 @@ function createHarness() {
       },
     },
     createGatewayPool: () => ({
-      endpoints: ['https://primary.example.test'],
-      healthCheckAll: async () => ({ 'https://primary.example.test': true }),
-      pick: () => ({ endpoint: 'https://primary.example.test', route: 'primary' }),
+      endpoints: [primary, backup],
+      healthCheckAll: async () => ({ [primary]: true, [backup]: true }),
+      pick: (route = 'default') => {
+        pickedRoutes.push(route);
+        return route === 'backup'
+          ? { endpoint: backup, route: 'backup' }
+          : { endpoint: primary, route: 'primary' };
+      },
       reportFailure() {},
       reportSuccess() {},
     }),
@@ -82,6 +90,7 @@ function createHarness() {
     runtime,
     translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
     forwarded,
+    pickedRoutes,
   };
 }
 
@@ -102,7 +111,8 @@ function createHarness() {
   const legacyResult = await h.translate({}, legacyPayload);
   assert.equal(legacyResult.text, 'translated:您好，最近怎么样？');
   assert.equal(h.forwarded[0].provider, 'auto', 'legacy WhatsApp provider must be contained before the Worker');
-  assert.equal(h.forwarded[0].route, 'default', 'legacy WhatsApp route must be contained before the Worker');
+  assert.equal(h.pickedRoutes[0], 'default', 'legacy WhatsApp route must canonicalize to automatic endpoint admission');
+  assert.equal(h.forwarded[0].route, 'primary', 'Worker must receive the route actually selected by automatic endpoint admission');
   assert.equal(h.forwarded[0].text, legacyPayload.text);
   assert.equal(h.forwarded[0].target, legacyPayload.target);
 
@@ -118,6 +128,7 @@ function createHarness() {
     refresh: true,
   };
   await h.translate({}, validPayload);
+  assert.equal(h.pickedRoutes[1], 'backup', 'supported explicit backup must reach endpoint admission unchanged');
   assert.equal(h.forwarded[1].provider, 'local');
   assert.equal(h.forwarded[1].route, 'backup');
 
