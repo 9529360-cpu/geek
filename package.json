@@ -29,5 +29,12 @@
   },
   "allowScripts": {
     "electron@43.4.0": true
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2",
+    "@puppeteer/browsers": "3.2.2",
+    "mocha": {
+      "serialize-javascript": "7.1.1"
+    }
   }
 }
