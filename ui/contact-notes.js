@@ -90,6 +90,7 @@
     const status = document.getElementById('contact-notes-status');
     let identity = null;
     let contextToken = '';
+    let contextGeneration = 0;
 
     function setStatus(message, state) { status.textContent = message || ''; status.dataset.state = state || 'idle'; }
     function updateCount() { count.textContent = `${fields.notes.value.length} / ${MAX_NOTE_LENGTH}`; }
@@ -100,31 +101,51 @@
       const details = [profile.name, FOLLOW_STATUS_LABELS[profile.followStatus]].filter(Boolean);
       chat.textContent = details.length ? `${details.join(' · ')}  —  ${FAMILY_LABELS[identity.family]} · ${identity.chatId}` : `${FAMILY_LABELS[identity.family]} · ${identity.chatId}`;
     }
+    function isCurrentContext(token, generation) {
+      return token === contextToken && generation === contextGeneration;
+    }
     async function refresh() {
       const context = await options.getContext();
       identity = context && normalizeIdentity(context.family, context.chatId);
       const nextToken = context && identity ? `${context.accountId}\u001f${identity.key}` : '';
       if (!identity) {
+        if (contextToken) contextGeneration += 1;
         contextToken = ''; chat.textContent = '请先打开一个聊天'; chat.dataset.state = 'idle';
         renderForm(EMPTY_PROFILE); setEnabled(false); remove.disabled = true; return;
       }
       const profile = profileFor(options.getStorage(), identity);
-      if (nextToken !== contextToken) { contextToken = nextToken; renderForm(profile); setStatus('', 'idle'); }
+      if (nextToken !== contextToken) {
+        contextToken = nextToken;
+        contextGeneration += 1;
+        renderForm(profile);
+        setStatus('', 'idle');
+      }
       updateSummary(profile); chat.dataset.state = 'ready'; setEnabled(true); remove.disabled = !hasProfile(profile);
     }
     async function saveProfile() {
+      const ownerIdentity = identity;
+      const ownerToken = contextToken;
+      const ownerGeneration = contextGeneration;
       try {
-        const store = updateStore(options.getStorage(), identity, readForm());
+        const store = updateStore(options.getStorage(), ownerIdentity, readForm());
         const raw = JSON.stringify(store);
         const ok = Object.keys(store.items).length ? await options.setStorage(raw) : await options.removeStorage();
         if (ok === false) throw new Error('账号数据保存失败');
-        const profile = profileFor(raw, identity); renderForm(profile); updateSummary(profile); remove.disabled = !hasProfile(profile); setStatus('客户资料已保存', 'success');
+        if (!isCurrentContext(ownerToken, ownerGeneration)) return true;
+        const profile = profileFor(raw, ownerIdentity);
+        renderForm(profile); updateSummary(profile); remove.disabled = !hasProfile(profile); setStatus('客户资料已保存', 'success');
         return true;
-      } catch (error) { setStatus(error.message || '保存失败', 'error'); return false; }
+      } catch (error) {
+        if (isCurrentContext(ownerToken, ownerGeneration)) setStatus(error.message || '保存失败', 'error');
+        return false;
+      }
     }
     async function deleteProfile() {
       if (!identity) return;
-      renderForm(EMPTY_PROFILE); if (await saveProfile()) setStatus('客户资料已删除', 'success');
+      const ownerToken = contextToken;
+      const ownerGeneration = contextGeneration;
+      renderForm(EMPTY_PROFILE);
+      if (await saveProfile() && isCurrentContext(ownerToken, ownerGeneration)) setStatus('客户资料已删除', 'success');
     }
     function hide() { popover.classList.add('hidden'); button.setAttribute('aria-expanded', 'false'); }
     function bind() {

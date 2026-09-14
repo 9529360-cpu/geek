@@ -52,6 +52,51 @@ const { createRegistry, MAX_TIMER_DELAY_MS } = require('../ui/broadcast-schedule
   assert.equal(cancelRegistry.has('B', 'cancelled'), false);
   assert.equal(cancelRegistry.timerCount('B'), 0, 'cancel must clear the currently armed chunk');
 
+  // An already-started timer cannot be physically cancelled. If a replacement
+  // generation with the same logical key is scheduled while the old callback is
+  // suspended in the async durability gate, the stale completion must not send or
+  // delete the replacement task.
+  now = 10000;
+  const raceTimers = new Map();
+  let raceHandle = 1;
+  let releaseOld;
+  const oldGate = new Promise(resolve => { releaseOld = resolve; });
+  let beforeDueCalls = 0;
+  const raceRegistry = createRegistry({
+    now: () => now,
+    setTimeout(fn) { const id = raceHandle++; raceTimers.set(id, fn); return id; },
+    clearTimeout(id) { raceTimers.delete(id); },
+    beforeDue() { beforeDueCalls += 1; return beforeDueCalls === 1 ? oldGate : true; },
+  });
+  let oldDue = 0;
+  let newDue = 0;
+  raceRegistry.schedule({ id: 'same', accountId: 'R', scheduledAt: now, generation: 'old' }, async () => { oldDue += 1; });
+  const [oldHandle, oldCallback] = raceTimers.entries().next().value || [];
+  assert.ok(oldHandle, 'old generation must arm a timer');
+  raceTimers.delete(oldHandle);
+  const oldRun = oldCallback();
+  await Promise.resolve();
+
+  const replacement = raceRegistry.schedule({ id: 'same', accountId: 'R', scheduledAt: now + 1000, generation: 'new' }, async () => { newDue += 1; });
+  assert.equal(raceRegistry.has('R', 'same'), true);
+  assert.equal(raceRegistry.timerCount('R'), 1, 'replacement generation must remain armed while old callback is suspended');
+
+  releaseOld(true);
+  await oldRun;
+  assert.equal(oldDue, 0, 'stale generation must not call onDue after a replacement owns the logical task key');
+  assert.equal(raceRegistry.has('R', 'same'), true, 'stale finally must not delete the replacement task');
+  assert.equal(raceRegistry.list('R')[0], replacement, 'registry must still point at the replacement generation');
+  assert.equal(raceRegistry.timerCount('R'), 1, 'replacement timer must remain registered');
+
+  now += 1000;
+  const [newHandle, newCallback] = raceTimers.entries().next().value || [];
+  assert.ok(newHandle, 'replacement timer must still be fireable');
+  raceTimers.delete(newHandle);
+  await newCallback();
+  assert.equal(newDue, 1, 'replacement generation must run exactly once when due');
+  assert.equal(raceRegistry.has('R', 'same'), false, 'current generation must remove itself after completion');
+  assert.equal(raceRegistry.timerCount('R'), 0);
+
   console.log('BROADCAST_SCHEDULE_REGISTRY_CONTRACT_OK');
 })().catch(error => {
   console.error(error && error.stack ? error.stack : error);

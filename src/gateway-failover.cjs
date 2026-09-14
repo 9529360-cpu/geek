@@ -8,6 +8,7 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     healthy: true,
     lastFailureAt: 0
   }));
+  let unhealthyProbeCursor = 0;
 
   function healthOf(endpoint) {
     const item = list.find((x) => x.endpoint === endpoint);
@@ -31,9 +32,17 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
   function pick() {
     if (!list.length) throw new Error('翻译网关端点池为空');
     const healthy = list.filter((x) => x.healthy);
-    // 健康端点中：第一个为 primary，其余 backup（按声明顺序）
-    const ordered = healthy.length ? healthy : list;
-    const item = ordered[0];
+    let item;
+    if (healthy.length) {
+      // 健康端点中：第一个为 primary，其余 backup（按声明顺序）。
+      item = healthy[0];
+      unhealthyProbeCursor = 0;
+    } else {
+      // 全部 unhealthy 时仍从 primary 开始，但后续恢复探测按声明顺序轮转，
+      // 避免一次多端点重试把所有 attempt 都重复打到同一个故障 primary。
+      item = list[unhealthyProbeCursor % list.length];
+      unhealthyProbeCursor = (unhealthyProbeCursor + 1) % list.length;
+    }
     const isPrimary = item === list[0];
     return { endpoint: item.endpoint, route: isPrimary ? 'primary' : 'backup' };
   }
