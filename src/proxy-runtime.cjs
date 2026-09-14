@@ -64,12 +64,14 @@ function compileProxyConfig(config) {
       port: 0,
       username: '',
       password: '',
+      authFingerprint: null,
       fingerprint: fingerprint(['direct']),
     };
   }
 
   const protocol = normalizeProtocol(config.protocal);
   const host = normalizeHost(config.host);
+  const canonical = canonicalHost(host);
   const port = normalizePort(config.port);
   const username = String(config.login || config.huser || '').trim();
   const password = String(config.password || config.hpwd || '');
@@ -79,17 +81,19 @@ function compileProxyConfig(config) {
     : protocol === 'https'
       ? `https=${endpoint}`
       : `${protocol}://${endpoint}`;
+  const authFingerprint = fingerprint([username, password]);
 
   return {
     enabled: true,
     mode: 'fixed_servers',
     proxyRules,
     host,
-    canonicalHost: canonicalHost(host),
+    canonicalHost: canonical,
     port,
     username,
     password,
-    fingerprint: fingerprint([protocol, canonicalHost(host), port, username, password]),
+    authFingerprint,
+    fingerprint: fingerprint([protocol, canonical, port, authFingerprint]),
   };
 }
 
@@ -129,7 +133,22 @@ function createProxyRuntime(options = {}) {
     return state ? { ...state } : null;
   }
 
-  function markFailed(partition, error, descriptor = null, phase = 'apply') {
+  function lastAppliedProxy(previous, descriptor) {
+    if (descriptor?.enabled === true) {
+      return {
+        lastProxyHost: descriptor.canonicalHost,
+        lastProxyPort: descriptor.port,
+        lastProxyAuthFingerprint: descriptor.authFingerprint,
+      };
+    }
+    return {
+      lastProxyHost: previous?.lastProxyHost || '',
+      lastProxyPort: previous?.lastProxyPort || 0,
+      lastProxyAuthFingerprint: previous?.lastProxyAuthFingerprint || null,
+    };
+  }
+
+  function markFailed(partition, error, descriptor = null, phase = 'apply', previous = readiness.get(partition) || null) {
     const code = report(error, partition, phase);
     readiness.set(partition, {
       ready: false,
@@ -138,6 +157,9 @@ function createProxyRuntime(options = {}) {
       host: descriptor?.canonicalHost || '',
       port: descriptor?.port || 0,
       errorCode: code,
+      lastProxyHost: previous?.lastProxyHost || '',
+      lastProxyPort: previous?.lastProxyPort || 0,
+      lastProxyAuthFingerprint: previous?.lastProxyAuthFingerprint || null,
     });
     return { ok: false, changed: false, deduped: false, code };
   }
@@ -147,14 +169,14 @@ function createProxyRuntime(options = {}) {
       return markFailed(String(partition || ''), createError('proxy partition is required', PROXY_CONFIG_INVALID));
     }
 
+    const previous = readiness.get(partition) || null;
     let descriptor;
     try {
       descriptor = compileProxyConfig(config);
     } catch (error) {
-      return markFailed(partition, error);
+      return markFailed(partition, error, null, 'apply', previous);
     }
 
-    const previous = readiness.get(partition) || null;
     if (previous?.ready === true && previous.fingerprint === descriptor.fingerprint) {
       return { ok: true, changed: false, deduped: true, enabled: descriptor.enabled };
     }
@@ -169,6 +191,7 @@ function createProxyRuntime(options = {}) {
         host: '',
         port: 0,
         errorCode: null,
+        ...lastAppliedProxy(null, descriptor),
       });
       return { ok: true, changed: false, deduped: false, enabled: false };
     }
@@ -186,12 +209,21 @@ function createProxyRuntime(options = {}) {
       } else {
         await ses.setProxy({ mode: 'direct' });
       }
+
+      const staleAuthForSameProxy = descriptor.enabled
+        && previous?.lastProxyHost === descriptor.canonicalHost
+        && previous?.lastProxyPort === descriptor.port
+        && previous?.lastProxyAuthFingerprint
+        && previous.lastProxyAuthFingerprint !== descriptor.authFingerprint;
+      if (staleAuthForSameProxy && typeof ses.clearAuthCache === 'function') {
+        await ses.clearAuthCache();
+      }
       if (previous && previous.fingerprint !== descriptor.fingerprint && typeof ses.closeAllConnections === 'function') {
         await ses.closeAllConnections();
       }
     } catch (cause) {
       const error = createError('failed to apply account proxy', PROXY_APPLY_FAILED, cause);
-      return markFailed(partition, error, descriptor, 'apply');
+      return markFailed(partition, error, descriptor, 'apply', previous);
     }
 
     readiness.set(partition, {
@@ -201,6 +233,7 @@ function createProxyRuntime(options = {}) {
       host: descriptor.canonicalHost,
       port: descriptor.port,
       errorCode: null,
+      ...lastAppliedProxy(previous, descriptor),
     });
     return { ok: true, changed: true, deduped: false, enabled: descriptor.enabled };
   }
