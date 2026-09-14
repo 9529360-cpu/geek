@@ -6,24 +6,49 @@
   'use strict';
 
   function normalizeOutcome(value) {
-    if (value === true || value === 'SENT' || value === 'CLICKED') return { ok: true, reason: '', value };
-    if (value && typeof value === 'object' && value.ok === true) return { ok: true, reason: '', value };
-    if (value && typeof value === 'object') return { ok: false, reason: String(value.reason || value.error || 'SEND_FAILED'), value };
-    return { ok: false, reason: String(value || 'SEND_FAILED'), value };
+    if (value === true || value === 'SENT' || value === 'CLICKED') {
+      return { ok: true, reason: '', value, retryable: false };
+    }
+    if (value && typeof value === 'object' && value.ok === true) {
+      return { ok: true, reason: '', value, retryable: false };
+    }
+    if (value && typeof value === 'object') {
+      return {
+        ok: false,
+        reason: String(value.reason || value.error || 'SEND_FAILED'),
+        value,
+        // Mutating sends are not idempotent. A retry is safe only when the
+        // transport explicitly proves that the first attempt did not submit a
+        // side effect. Generic errors/timeouts/strings remain at-most-once.
+        retryable: value.retryable === true,
+      };
+    }
+    return { ok: false, reason: String(value || 'SEND_FAILED'), value, retryable: false };
   }
 
   async function retryUnconfirmed(operation, attempts = 2) {
-    let last = { ok: false, reason: 'SEND_FAILED', value: null };
+    let last = { ok: false, reason: 'SEND_FAILED', value: null, retryable: false };
     const limit = Math.max(1, Number(attempts) || 1);
+    let used = 0;
     for (let attempt = 1; attempt <= limit; attempt++) {
+      used = attempt;
       try {
         last = normalizeOutcome(await operation(attempt));
       } catch (error) {
-        last = { ok: false, reason: String(error?.message || error || 'SEND_EXCEPTION'), value: null };
+        // A thrown transport/CDP/network error can happen after the remote side
+        // accepted the send. Without an idempotency key the result is
+        // indeterminate, so never replay it automatically.
+        last = {
+          ok: false,
+          reason: String(error?.message || error || 'SEND_EXCEPTION'),
+          value: null,
+          retryable: false,
+        };
       }
       if (last.ok) return { ...last, attempts: attempt };
+      if (last.retryable !== true) break;
     }
-    return { ...last, attempts: limit };
+    return { ...last, attempts: used };
   }
 
   async function sendDirectBundle(options = {}) {
