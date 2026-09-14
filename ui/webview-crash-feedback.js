@@ -32,12 +32,7 @@
       const current = states.get(id);
       if (!current || current.generation !== generation) return false;
       clearStateTimer(current);
-      states.set(id, Object.freeze({
-        phase: 'blocked',
-        stage: current.stage,
-        generation,
-        timer: null,
-      }));
+      states.set(id, Object.freeze({ phase: 'blocked', stage: current.stage, generation, timer: null }));
       emit(id);
       return true;
     }
@@ -49,8 +44,7 @@
     function crashed(accountId) {
       const id = String(accountId || '').trim();
       if (!id) return null;
-      const previous = states.get(id);
-      clearStateTimer(previous);
+      clearStateTimer(states.get(id));
       const generation = ++sequence;
       const next = Object.freeze({
         phase: 'recovering',
@@ -89,10 +83,6 @@
       return true;
     }
 
-    function remove(accountId) {
-      return ready(accountId);
-    }
-
     function get(accountId) {
       return states.get(String(accountId || '')) || null;
     }
@@ -107,7 +97,7 @@
       return () => listeners.delete(listener);
     }
 
-    return Object.freeze({ crashed, loading, ready, remove, get, ids, subscribe });
+    return Object.freeze({ crashed, loading, ready, remove: ready, get, ids, subscribe });
   }
 
   function normalizeAccounts(value) {
@@ -133,6 +123,8 @@
 
     const tracker = options.tracker || createTracker(options);
     const boundWebviews = new WeakSet();
+    const ownerByWebview = new WeakMap();
+    const lifecycleByWebview = new WeakMap();
     let accounts = [];
     let accountsRefresh = null;
 
@@ -151,7 +143,25 @@
       return accountsRefresh;
     };
 
-    const resolveAccount = async webview => findAccountForWebview(await listAccounts(), webview);
+    async function resolveAccountId(webview) {
+      const cached = ownerByWebview.get(webview);
+      if (cached) return cached;
+      const account = findAccountForWebview(await listAccounts(), webview);
+      if (!account) return '';
+      ownerByWebview.set(webview, account.id);
+      return account.id;
+    }
+
+    function withAccount(webview, callback) {
+      const cached = ownerByWebview.get(webview);
+      if (cached) {
+        callback(cached);
+        return;
+      }
+      void resolveAccountId(webview).then(accountId => {
+        if (accountId) callback(accountId);
+      });
+    }
 
     function ensureStyle() {
       if (document.getElementById('webview-crash-feedback-style')) return;
@@ -178,9 +188,7 @@
       banner.setAttribute('role', 'status');
       banner.setAttribute('aria-live', 'polite');
       banner.innerHTML = '<div class="wv-crash-feedback-copy"><strong>当前账号页面需要重新加载</strong><small>其他账号不受影响。重新加载只会恢复当前账号页面。</small></div><button type="button">重新加载</button>';
-      banner.querySelector('button')?.addEventListener('click', () => {
-        void reloadActiveBlockedAccount();
-      });
+      banner.querySelector('button')?.addEventListener('click', () => { void reloadActiveBlockedAccount(); });
       document.body.appendChild(banner);
       return banner;
     }
@@ -231,15 +239,13 @@
         .find(candidate => webviewPartition(candidate) === account.partition);
       if (!webview || typeof webview.reload !== 'function') return false;
 
-      // Manual recovery starts a fresh visible recovery generation, but it does not
-      // reset or bypass app.js's automatic 2-per-minute crash limiter.
+      // Manual recovery starts visible recovery, but never touches app.js's automatic
+      // two-per-minute crash budget. A failed/no-op reload naturally returns to blocked.
       tracker.crashed(accountId);
       try {
         webview.reload();
         return true;
       } catch (_) {
-        // Keep the recovery deadline armed. If the reload never starts, the account
-        // returns to blocked state instead of falsely clearing the visible failure.
         return false;
       } finally {
         render();
@@ -249,24 +255,36 @@
     function bindWebview(webview) {
       if (!webview || boundWebviews.has(webview) || typeof webview.addEventListener !== 'function') return;
       boundWebviews.add(webview);
-      webview.addEventListener('render-process-gone', () => {
-        void resolveAccount(webview).then(account => {
-          if (!account) return;
-          tracker.crashed(account.id);
-          render();
-        });
-      });
+      const lifecycle = { loading: false, startedThisTurn: false };
+      lifecycleByWebview.set(webview, lifecycle);
+      void resolveAccountId(webview);
+
       webview.addEventListener('did-start-loading', () => {
-        void resolveAccount(webview).then(account => {
-          if (!account) return;
-          tracker.loading(account.id);
+        lifecycle.loading = true;
+        lifecycle.startedThisTurn = true;
+        // app.js may call reload() synchronously from its earlier render-process-gone
+        // listener. Keep this marker through the current event stack so our later crash
+        // listener can observe that recovery already started, then clear it immediately.
+        queueMicrotask(() => { lifecycle.startedThisTurn = false; });
+        withAccount(webview, accountId => {
+          tracker.loading(accountId);
           render();
         });
       });
+
       webview.addEventListener('dom-ready', () => {
-        void resolveAccount(webview).then(account => {
-          if (!account) return;
-          tracker.ready(account.id);
+        lifecycle.loading = false;
+        withAccount(webview, accountId => {
+          tracker.ready(accountId);
+          render();
+        });
+      });
+
+      webview.addEventListener('render-process-gone', () => {
+        const recoveryStartedInThisTurn = lifecycle.startedThisTurn;
+        withAccount(webview, accountId => {
+          tracker.crashed(accountId);
+          if (recoveryStartedInThisTurn) tracker.loading(accountId);
           render();
         });
       });
@@ -292,10 +310,8 @@
 
     const webviewContainer = document.getElementById('webview-container');
     if (webviewContainer && typeof MutationObserver === 'function') {
-      new MutationObserver(() => {
-        bindCurrentWebviews();
-        void listAccounts();
-      }).observe(webviewContainer, { childList: true, subtree: true });
+      new MutationObserver(() => { void refreshAccountsAndRender(); })
+        .observe(webviewContainer, { childList: true, subtree: true });
     }
     const accountContainer = document.getElementById('nav-accounts');
     if (accountContainer && typeof MutationObserver === 'function') {
