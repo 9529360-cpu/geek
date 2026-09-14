@@ -3,14 +3,26 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const { classifyGatewayResponse } = require('../src/translation-runtime.cjs');
 
 const workerPath = path.join(__dirname, '../scripts/geek-translate-worker.js');
-const workerSource = fs.readFileSync(workerPath, 'utf8');
+const workerSource = fs.readFileSync(workerPath, 'utf8').replace(/\r\n?/g, '\n');
 
-(async () => {
-  const workerModule = await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
-  const { requestDeadlineAt, remainingBudgetMs, providerAttemptBudget } = workerModule;
+function loadDeadlineHelpers() {
+  const executable = workerSource.replace(/^export default\s*/m, 'this.__worker = ')
+    + '\nthis.__deadlineHelpers = { requestDeadlineAt, remainingBudgetMs, providerAttemptBudget };';
+  const sandbox = {
+    Response, Request, Headers, URL, TextEncoder, TextDecoder, crypto,
+    btoa, atob, console, setTimeout, clearTimeout,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(executable, sandbox, { filename: 'geek-translate-worker.js' });
+  return sandbox.__deadlineHelpers;
+}
+
+(() => {
+  const { requestDeadlineAt, remainingBudgetMs, providerAttemptBudget } = loadDeadlineHelpers();
 
   assert.equal(typeof requestDeadlineAt, 'function');
   assert.equal(typeof remainingBudgetMs, 'function');
@@ -43,7 +55,4 @@ const workerSource = fs.readFileSync(workerPath, 'utf8');
   assert.equal(classified.endpointFailure, false, 'caller budget exhaustion must not poison gateway health');
 
   console.log('TRANSLATION_WORKER_DEADLINE_CONTRACT_OK');
-})().catch(error => {
-  console.error(error?.stack || error);
-  process.exit(1);
-});
+})();
