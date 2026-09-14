@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 
-const apiBase = (process.env.GEEK_SUBSCRIPTION_API_URL || 'https://geek-subscription.9529360.workers.dev').replace(/\/+$/, '');
+const require = createRequire(import.meta.url);
+const { normalizeSubscriptionApiBase } = require('../src/subscription-api-url.cjs');
+const apiBase = normalizeSubscriptionApiBase(process.env.GEEK_SUBSCRIPTION_API_URL || 'https://geek-subscription.9529360.workers.dev');
 const infraToken = process.env.CLOUDFLARE_INFRA_API_TOKEN;
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const accountNoPattern = /^GK-[0-9a-f]{32}$/;
