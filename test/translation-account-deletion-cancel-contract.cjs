@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { createTranslationRuntime } = require('../src/translation-runtime.cjs');
+const { createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
 
 function successResponse(text) {
   return {
@@ -90,8 +90,9 @@ async function waitFor(predicate, label) {
   });
 
   runtime.install();
-  const translate = handlers.get('translation:translate');
-  assert.equal(typeof translate, 'function');
+  const translateIpc = handlers.get('translation:translate');
+  assert.equal(typeof translateIpc, 'function');
+  const translate = async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload));
   const event = { sender: { id: 1 } };
 
   const aRequests = Array.from({ length: 21 }, (_, index) => translate(event, {
@@ -122,6 +123,7 @@ async function waitFor(predicate, label) {
   assert.equal(gatewayFailures, 0, 'account deletion must not mark the gateway unhealthy');
   for (const result of aResults) {
     assert.equal(result.status, 'rejected');
+    assert.equal(result.reason?.code, 'TRANSLATION_ACCOUNT_DELETED');
     assert.match(String(result.reason?.message || result.reason), /翻译账号已删除/);
   }
   assert.equal(bFetches, 1, 'B must start after A cancellation releases remote capacity');
@@ -129,7 +131,7 @@ async function waitFor(predicate, label) {
 
   await assert.rejects(
     () => translate(event, { accountId: 'account-a', text: 'A-after-delete', target: 'en', refresh: true, skipQuota: true }),
-    /翻译账号已删除/,
+    error => error?.code === 'TRANSLATION_ACCOUNT_DELETED',
     'new A work must fail before reaching the remote queue after deletion',
   );
   assert.equal(aFetches, 20, 'deleted A must not start new remote fetches');

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const {
   TRANSLATION_CACHE_VERSION,
+  unwrapTranslationIpcResponse,
   createTranslationRuntime,
 } = require('../src/translation-runtime.cjs');
 
@@ -93,9 +94,10 @@ function createHarness({ accounts, readFile }) {
     randomUUID: (() => { let id = 0; return () => `request-${++id}`; })(),
   });
   runtime.install();
+  const translateIpc = handlers.get('translation:translate');
   return {
     runtime,
-    translate: handlers.get('translation:translate'),
+    translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
     fetchCount: () => fetchCount,
     event: { sender: { id: 1 } },
   };

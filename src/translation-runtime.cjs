@@ -25,6 +25,30 @@ function createTranslationError(code, message, options = {}) {
   return error;
 }
 
+function serializeTranslationIpcError(error) {
+  const source = error && typeof error === 'object' ? error : {};
+  const payload = {
+    code: String(source.code || 'TRANSLATION_FAILED').slice(0, 100),
+    message: String(source.message || error || '翻译请求失败').slice(0, 300),
+    category: String(source.category || 'gateway').slice(0, 64),
+    retryable: source.retryable === true,
+  };
+  if (Number.isInteger(source.status)) payload.status = source.status;
+  return Object.freeze(payload);
+}
+
+function unwrapTranslationIpcResponse(response) {
+  if (!response || typeof response !== 'object' || typeof response.ok !== 'boolean') return response;
+  if (response.ok) return response.result;
+  const detail = response.error && typeof response.error === 'object' ? response.error : {};
+  const error = new Error(String(detail.message || '翻译请求失败'));
+  error.code = String(detail.code || 'TRANSLATION_FAILED');
+  error.category = String(detail.category || 'gateway');
+  error.retryable = detail.retryable === true;
+  if (Number.isInteger(detail.status)) error.status = detail.status;
+  throw error;
+}
+
 function deadlineExceededError(cause) {
   return createTranslationError(
     'TRANSLATION_DEADLINE_EXCEEDED',
@@ -453,16 +477,20 @@ function createTranslationRuntime(options = {}) {
     if (state.deletedPartitions.has(partition)) throw accountDeletedError();
 
     const key = cacheKey(body, text, target);
-    const inflightKey = `${partition}:${key}`;
+    const workKey = `${partition}:${key}`;
+    const callerRequestId = typeof body.requestId === 'string' && /^[A-Za-z0-9._:-]{8,128}$/.test(body.requestId)
+      ? body.requestId
+      : '';
+    const deadlineAt = normalizeTranslationDeadline(body.deadlineAt, now(), TRANSLATION_REQUEST_TIMEOUT_MS);
+    const inflightKey = callerRequestId ? `${workKey}:request:${callerRequestId}` : workKey;
     const shouldCoalesce = body.refresh !== true && body.coalesce !== false;
-    if (shouldCoalesce && state.inflight.has(inflightKey)) return state.inflight.get(inflightKey);
+    if (shouldCoalesce && state.inflight.has(inflightKey)) {
+      return awaitWithDeadline(state.inflight.get(inflightKey), deadlineAt);
+    }
 
     const sequence = ++requestSequence;
-    const requestId = typeof body.requestId === 'string' && /^[A-Za-z0-9._:-]{8,128}$/.test(body.requestId)
-      ? body.requestId
-      : randomUUID();
-    const deadlineAt = normalizeTranslationDeadline(body.deadlineAt, now(), TRANSLATION_REQUEST_TIMEOUT_MS);
-    state.latestRequest.set(inflightKey, sequence);
+    const requestId = callerRequestId || randomUUID();
+    state.latestRequest.set(workKey, sequence);
 
     const request = (async () => {
       try {
@@ -565,16 +593,15 @@ function createTranslationRuntime(options = {}) {
               try {
                 translated = assertSafeTranslationOutput({ source: text, output: result.text, target });
               } catch (error) {
-                lastError = createTranslationError(
+                throw createTranslationError(
                   error?.code || 'TRANSLATION_QUALITY_REJECTED',
                   error?.message || '翻译结果未通过安全校验',
-                  { category: 'quality', retryable: true, endpointFailure: false, cause: error }
+                  { category: 'quality', retryable: false, endpointFailure: false, cause: error }
                 );
-                continue;
               }
               pool.reportSuccess(endpoint);
               if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-              if (state.latestRequest.get(inflightKey) !== sequence) {
+              if (state.latestRequest.get(workKey) !== sequence) {
                 return {
                   text: translated,
                   source: result.source || body.source || 'auto',
@@ -635,6 +662,17 @@ function createTranslationRuntime(options = {}) {
     }
   }
 
+  async function translateIpc(event, payload) {
+    // Security failures stay outside the application envelope so an untrusted
+    // renderer never receives a structured translation service response.
+    assertTrustedSender(event);
+    try {
+      return { ok: true, result: await translate(event, payload) };
+    } catch (error) {
+      return { ok: false, error: serializeTranslationIpcError(normalizeRuntimeError(error)) };
+    }
+  }
+
   function deleteAccount(partition) {
     const owner = String(partition || '');
     clearPartitionRuntimeState(state, owner);
@@ -643,7 +681,7 @@ function createTranslationRuntime(options = {}) {
 
   function install() {
     if (installed) throw new Error('translation runtime already installed');
-    ipcMain.handle('translation:translate', translate);
+    ipcMain.handle('translation:translate', translateIpc);
     ipcMain.handle('translation:health', health);
     installed = true;
     return api;
@@ -665,6 +703,8 @@ module.exports = {
   TRANSLATION_REQUEST_TIMEOUT_MS,
   TRANSLATION_CHANNELS,
   createTranslationError,
+  serializeTranslationIpcError,
+  unwrapTranslationIpcResponse,
   deadlineExceededError,
   normalizeTranslationDeadline,
   normalizeTranslationProviderRoute,

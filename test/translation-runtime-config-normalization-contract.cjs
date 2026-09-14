@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const {
   normalizeTranslationProviderRoute,
+  unwrapTranslationIpcResponse,
   createTranslationRuntime,
 } = require('../src/translation-runtime.cjs');
 
@@ -76,9 +77,10 @@ function createHarness() {
     })(),
   });
   runtime.install();
+  const translateIpc = handlers.get('translation:translate');
   return {
     runtime,
-    translate: handlers.get('translation:translate'),
+    translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
     forwarded,
   };
 }
