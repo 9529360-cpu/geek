@@ -3,14 +3,119 @@ import { MARKETING_ROUTES, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme
 import { MARKETING_STYLES_CORE } from './geek-marketing-styles-core.mjs';
 import { MARKETING_STYLES_COMPONENTS } from './geek-marketing-styles-components.mjs';
 import { PAGE_BODY } from './geek-marketing-pages.mjs';
-import { cta, footer, nav } from './geek-marketing-visuals.mjs';
+import { cta, footer, nav, stageProduct, stageSecurity } from './geek-marketing-visuals.mjs';
 
 const STYLES = MARKETING_STYLES_CORE + MARKETING_STYLES_COMPONENTS;
 const SITEMAP_ROUTES = ['/', ...MARKETING_ROUTES];
+const LEGACY_THEME_ROUTES = new Set(['/login', '/forgot-password', '/reset-password', '/account']);
+
+const HOME_META = Object.freeze({
+  title: '极客 Geek · 多平台多账号出海沟通工作台',
+  description: '极客 Geek 把 WhatsApp、Telegram、LINE 多账号放进同一个 Windows 工作台，提供账号隔离、消息翻译与账号级群发任务。',
+  eyebrow: '海外会话工作台',
+  headline: '一个桌面，\n接住每个海外客户。',
+  lede: '把 WhatsApp、Telegram 和 LINE 的多个账号放进同一个工作台。账号独立运行，消息随手翻译，群发任务按账号在后台执行——切换客户，不必切换工作方式。',
+});
+
+const LEGACY_THEME_STYLE = `<style data-geek-site-theme="unified-20260914">
+:root{
+  --bg:#08090a!important;
+  --bg-soft:#0e1011!important;
+  --card:rgba(255,255,255,.035)!important;
+  --card-border:rgba(255,255,255,.10)!important;
+  --text:#f7f8f8!important;
+  --text-dim:#a7adb4!important;
+  --text-faint:#62686f!important;
+  --accent:#25d366!important;
+  --accent2:#4ce180!important;
+  --grad:linear-gradient(135deg,#25d366 0%,#4ce180 100%)!important;
+}
+html,body{background:#08090a!important}
+body{color:#f7f8f8!important}
+::selection{background:rgba(37,211,102,.28)!important}
+:focus-visible{outline-color:#4ce180!important}
+.bg-glow::before{background:radial-gradient(ellipse at center,rgba(37,211,102,.11) 0%,rgba(84,217,255,.045) 38%,transparent 70%)!important}
+.logo-mark{background:linear-gradient(180deg,#23252a,#101114)!important;border-color:rgba(255,255,255,.14)!important;box-shadow:0 8px 30px rgba(0,0,0,.28)!important}
+.btn-primary{background:#25d366!important;color:#061109!important;box-shadow:0 8px 28px rgba(37,211,102,.14)!important}
+.btn-primary:hover{background:#4ce180!important;box-shadow:0 10px 34px rgba(37,211,102,.2)!important}
+.btn-ghost:hover{border-color:rgba(37,211,102,.32)!important;background:rgba(255,255,255,.065)!important}
+input:focus,textarea:focus,select:focus{border-color:rgba(37,211,102,.62)!important;box-shadow:0 0 0 3px rgba(37,211,102,.10)!important;outline:none!important}
+.plan.hot{border-color:rgba(37,211,102,.45)!important;box-shadow:0 0 60px rgba(37,211,102,.08),inset 0 1px 0 rgba(255,255,255,.06)!important;background:linear-gradient(180deg,rgba(37,211,102,.055),rgba(255,255,255,.02))!important}
+.plan .badge{background:#25d366!important;color:#061109!important}
+.feature .icon,.step::before,.download .big-icon{background:rgba(37,211,102,.09)!important;border-color:rgba(37,211,102,.20)!important}
+.feature .icon svg,.download .big-icon svg{stroke:#4ce180!important}
+.section-head .kicker{color:#4ce180!important;text-shadow:none!important}
+</style>`;
+
+function homeHero() {
+  return `<section class="hero">
+<div class="shell hero-grid">
+<div>
+<div class="eyebrow">${HOME_META.eyebrow}</div>
+<h1>${HOME_META.headline}</h1>
+<p class="lede">${HOME_META.lede}</p>
+<div class="hero-actions">
+<a class="btn primary" href="/download">下载 Windows 客户端 <span>↘</span></a>
+<a class="btn secondary" href="/product">查看产品能力</a>
+</div>
+<p class="hero-note">WhatsApp / Telegram / LINE · 多账号独立会话 · 翻译与群发同一工作台</p>
+</div>${stageProduct()}</div>
+</section>`;
+}
+
+function homePage() {
+  return `${homeHero()}<div class="metric-strip">
+<div class="shell metrics">
+<div class="metric"><b>多平台多账号</b><span>一个桌面承载多个独立会话现场</span></div>
+<div class="metric"><b>账号级隔离</b><span>会话、工具状态与任务都有固定归属</span></div>
+<div class="metric"><b>会话内翻译</b><span>原文、译文和回复留在同一客户上下文</span></div>
+<div class="metric"><b>后台群发任务</b><span>切换账号不改变任务 owner 与目标快照</span></div>
+</div>
+</div>
+<section class="section">
+<div class="shell">
+<div class="section-head">
+<div>
+<div class="kicker">The account is the workspace</div>
+<h2>账号就是工作现场，<br>不是一排容易串线的标签。</h2>
+</div>
+<p class="section-intro">极客把多账号、跨语言沟通和批量触达放进同一条连续工作流。每个账号保有自己的会话环境和任务归属，你切换的是正在查看的现场，不是后台任务的所有权。</p>
+</div>
+<div class="cards">
+<a class="card" href="/product"><div class="card-top"><span>01 · Workspace</span><span class="icon">◫</span></div><h3>多账号独立会话</h3><p>WhatsApp、Telegram、LINE 账号各自保有持久会话环境，长期工作不靠重复登录和窗口堆叠。</p></a>
+<a class="card" href="/translation"><div class="card-top"><span>02 · Language</span><span class="icon">文</span></div><h3>翻译就在聊天现场</h3><p>阅读、组织回复和发送目标语言都留在当前客户上下文里，不再复制粘贴到另一套工具。</p></a>
+<a class="card" href="/broadcast"><div class="card-top"><span>03 · Job</span><span class="icon">↗</span></div><h3>群发按账号后台执行</h3><p>不同账号可以同时工作；同一账号一次只执行一个群发任务，后续任务按归属排队。</p></a>
+</div>
+</div>
+</section>
+<section class="section border">
+<div class="shell split">
+<div class="copy">
+<div class="kicker">Isolation by default</div>
+<h2>多账号真正可用的前提，<br>是边界从底层就存在。</h2>
+<p>会话 Session、账号数据、WebView 能力、群发附件和服务端翻译密钥各自有明确 owner。界面焦点变化不能把另一个账号的状态“顺手”带过来。</p>
+<ul class="list">
+<li>账号身份、partition 与 Session 保持固定归属</li>
+<li>翻译供应商密钥不进入聊天页面或客户端 WebView</li>
+<li>群发任务创建后固定账号、目标、消息与附件能力</li>
+<li>边界不明确时 fail closed，而不是猜当前账号</li>
+</ul>
+</div>${stageSecurity()}</div>
+</section>`;
+}
+
+function metaFor(path) {
+  return path === '/' ? HOME_META : PAGE_META[path];
+}
+
+function bodyFor(path) {
+  return path === '/' ? homePage() : PAGE_BODY[path]();
+}
 
 function render(path) {
-  const meta = PAGE_META[path];
+  const meta = metaFor(path);
   const canonical = `${SITE_ORIGIN}${path}`;
+  const pageName = path === '/' ? 'home' : path.slice(1);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -35,7 +140,7 @@ function render(path) {
 </head>
 <body>
 <a class="skip" href="#main">跳到主要内容</a>
-<div class="page">${nav(path)}<main id="main" data-marketing-page="${path.slice(1)}">${PAGE_BODY[path]()}${cta(path)}</main>${footer()}</div>
+<div class="page">${nav(path)}<main id="main" data-marketing-page="${pageName}">${bodyFor(path)}${cta(path)}</main>${footer()}</div>
 </body>
 </html>`;
 }
@@ -70,7 +175,7 @@ function sitemapBody() {
 }
 
 export function marketingResponse(path, method = 'GET') {
-  if (!MARKETING_ROUTES.has(path)) return null;
+  if (path !== '/' && !MARKETING_ROUTES.has(path)) return null;
   return new Response(method === 'HEAD' ? null : render(path), { status: 200, headers: marketingHeaders() });
 }
 
@@ -90,20 +195,29 @@ export function discoveryResponse(path, method = 'GET') {
   return null;
 }
 
-export function enhanceHomepageHtml(html) {
-  return String(html || '')
-    .replaceAll('href="#product"', 'href="/product"')
-    .replaceAll('href="#translation"', 'href="/translation"')
-    .replaceAll('href="#broadcast"', 'href="/broadcast"')
-    .replaceAll('href="#security"', 'href="/security"');
+function canonicalHomeRedirect(method) {
+  return new Response(method === 'HEAD' ? null : '', {
+    status: 308,
+    headers: {
+      Location: '/',
+      'Cache-Control': 'public, max-age=300',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }
 
-async function homepageResponse(request, env, ctx) {
+async function delegatedResponse(request, env, ctx) {
   const response = await websiteEntry.fetch(request, env, ctx);
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || !LEGACY_THEME_ROUTES.has(url.pathname)) return response;
   const contentType = response.headers.get('Content-Type') || '';
   if (!response.ok || !/^text\/html\b/i.test(contentType)) return response;
+  const source = await response.text();
+  if (!source.includes('</head>')) {
+    return new Response(source, { status: response.status, statusText: response.statusText, headers: new Headers(response.headers) });
+  }
   const headers = new Headers(response.headers);
-  return new Response(enhanceHomepageHtml(await response.text()), {
+  return new Response(source.replace('</head>', `${LEGACY_THEME_STYLE}\n</head>`), {
     status: response.status,
     statusText: response.statusText,
     headers,
@@ -114,12 +228,12 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'GET' || request.method === 'HEAD') {
-      if (url.pathname === '/' && request.method === 'GET') return homepageResponse(request, env, ctx);
+      if (url.pathname === '/index.html') return canonicalHomeRedirect(request.method);
       const discovery = discoveryResponse(url.pathname, request.method);
       if (discovery) return discovery;
       const response = marketingResponse(url.pathname, request.method);
       if (response) return response;
     }
-    return websiteEntry.fetch(request, env, ctx);
+    return delegatedResponse(request, env, ctx);
   },
 };
