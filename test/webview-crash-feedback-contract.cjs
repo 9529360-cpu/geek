@@ -34,9 +34,6 @@ function fakeTimers() {
       timer.callback();
       return true;
     },
-    size() {
-      return timers.size;
-    },
   };
 }
 
@@ -130,9 +127,17 @@ assert.match(source, /account\.partition === partition/);
 assert.match(source, /addEventListener\('render-process-gone'/);
 assert.match(source, /addEventListener\('did-start-loading'/);
 assert.match(source, /addEventListener\('dom-ready'/);
-assert.match(source, /tracker\.crashed\(account\.id\)/);
-assert.match(source, /tracker\.loading\(account\.id\)/);
-assert.match(source, /tracker\.ready\(account\.id\)/);
+assert.match(source, /tracker\.crashed\(accountId\)/);
+assert.match(source, /tracker\.loading\(accountId\)/);
+assert.match(source, /tracker\.ready\(accountId\)/);
+
+// app.js may synchronously call reload() from an earlier render-process-gone listener.
+// The feedback owner must remember a nested did-start-loading signal through the current
+// event stack and upgrade the just-created crash generation to the long loading deadline.
+assert.match(source, /startedThisTurn = true/);
+assert.match(source, /queueMicrotask\(\(\) => \{ lifecycle\.startedThisTurn = false; \}\)/);
+assert.match(source, /const recoveryStartedInThisTurn = lifecycle\.startedThisTurn/);
+assert.match(source, /tracker\.crashed\(accountId\);\s*if \(recoveryStartedInThisTurn\) tracker\.loading\(accountId\)/);
 
 // Blocked recovery is visible, scoped to the active account, and manually reloads only
 // the WebView whose current partition belongs to that account.
@@ -145,6 +150,11 @@ assert.match(source, /freshAccounts\.find\(item => item\.id === accountId\)/);
 assert.match(source, /webviewPartition\(candidate\) === account\.partition/);
 assert.match(source, /webview\.reload\(\)/);
 assert.doesNotMatch(source, /webviewCrashLimiter|\.allow\(/, 'feedback owner must not copy or reset the automatic crash budget');
+
+// Account/sidebar and WebView removal both refresh the authoritative account projection,
+// so deleted accounts cannot retain visible crash state.
+assert.match(source, /new MutationObserver\(\(\) => \{ void refreshAccountsAndRender\(\); \}\)[\s\S]*webviewContainer/);
+assert.match(source, /for \(const id of tracker\.ids\(\)\)[\s\S]*tracker\.remove\(id\)/);
 
 // Keep the focused owner in the lightweight shell bootstrap rather than growing app.js.
 assert.match(bootstrap, /ensureScript\('\.\/webview-crash-feedback\.js', 'data-geek-webview-crash-feedback'\)/);
