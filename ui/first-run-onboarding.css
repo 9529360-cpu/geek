@@ -1,0 +1,115 @@
+.empty-state[data-onboarding-ready='true'] {
+  padding: 28px;
+}
+
+.empty-onboarding-card {
+  display: flex;
+  width: min(440px, 100%);
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 30px;
+  border: 1px solid var(--border-standard);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .14);
+  text-align: center;
+}
+
+.empty-onboarding-icon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-standard));
+  border-radius: 15px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.empty-onboarding-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 680;
+  letter-spacing: -.01em;
+}
+
+.empty-onboarding-copy {
+  max-width: 360px;
+  margin: 9px 0 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.empty-onboarding-platforms {
+  margin: 9px 0 0;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  letter-spacing: .01em;
+}
+
+.empty-onboarding-action {
+  min-width: 126px;
+  height: 36px;
+  margin-top: 18px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform .16s ease, filter .16s ease, box-shadow .16s ease;
+}
+
+.empty-onboarding-action:hover {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.empty-onboarding-action:focus-visible,
+#add-overlay .add-dialog[role='dialog'] :is(button, input, select, textarea, [role='radio']):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+#add-platforms[role='radiogroup'] .add-platform-card[role='radio'] {
+  cursor: pointer;
+}
+
+#add-platforms[role='radiogroup'] .add-platform-card[role='radio'][aria-checked='true'] {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border-standard));
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+#add-status[role='status'] {
+  min-height: 18px;
+}
+
+#add-status[role='status'][data-state='error'] {
+  color: var(--danger, #ff8f8f);
+}
+
+@media (max-width: 640px) {
+  .empty-state[data-onboarding-ready='true'] {
+    padding: 18px;
+  }
+
+  .empty-onboarding-card {
+    padding: 24px 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-onboarding-action {
+    transition: none !important;
+  }
+}
