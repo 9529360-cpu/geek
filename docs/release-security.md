@@ -22,7 +22,7 @@
 - 手动 dispatch 不得绕过完整 contract、产物校验、上一稳定版本验证、`latest.yml` 最后发布或失败回滚；
 - 部署 `geek-release` Worker 不等于发布或重试客户端版本；
 - 仅修改 README、运维文档、网站、翻译、账号或订阅源码时，不得顺手修改发布标记或手动启动正式发布；
-- 正式发布、版本回退、证书/Secrets 变更需要独立决策和记录。
+- 正式发布、版本回退、Secrets 变更需要独立决策和记录。
 
 ## 本地构建命令
 
@@ -79,18 +79,23 @@ npm run pack
 
 Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe` 和 `.blockmap`。不得借客户端发布把它扩大为通用静态文件服务。
 
-## Authenticode
+## Windows 发布者提示 / Authenticode 决策
 
-当前未配置正式 Windows Authenticode 证书时，安装包会显示“未知发布者”。这是当前运营约束，不应通过关闭安全检查、伪造签名或把证书写入仓库来绕过。
+仓库 owner 已于 2026-09-14 明确决定：**继续使用当前免费、unsigned 的 Windows 发布方式，不配置生产 Authenticode 证书。** 因此安装包可能继续显示 Windows 的“未知发布者”提示，这是当前接受的运营约束，不属于发布失败。
 
-以后配置 `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` 后，构建脚本会自动签名并验证 EXE 的 Authenticode 状态。证书、私钥和密码只能存在于受保护的 CI secret 或受控环境变量中，不得写入：
+该决定不降低其他发布安全边界：完整 contract、Electron/打包验证、release manifest、SHA-256 公网完整性校验、immutable installer/blockmap 上传、rollback snapshot、`latest.yml`-last promotion 和失败回滚仍然必须保留。
 
-- 仓库源码或文档；
-- commit message、Issue、PR 评论或 Actions summary；
-- 构建产物旁的明文文件；
-- shell 历史、聊天记录或诊断日志。
+日常维护不得：
 
-证书采购、Secrets 配置、轮换和吊销属于单独的高影响运营决策。
+- 为了消除“未知发布者”提示自行采购或接入付费代码签名服务；
+- 新增、上传或要求签名证书、私钥、PFX、签名密码；
+- 把证书材料写入仓库、Issue、PR、Actions summary、聊天或诊断日志；
+- 把 Authenticode 变成当前正式发布的 required gate；
+- 因为没有签名而关闭现有完整性、回滚或公开传播校验。
+
+当前 `scripts/release-build.cjs` 中对签名环境变量的兼容检测属于既有 dormant capability；在 owner 没有重新明确改变发布策略前，不应配置对应生产 signing secrets，也不应围绕该 dormant path 扩展发布流程。
+
+如未来 owner 明确改变这一决策，应重新建立独立 focused Issue，重新评估证书/Provider、Secret ownership、publisher identity、renewal/revocation 以及候选产物验证；不得把旧 #445 当成仍然自动授权的待办。
 
 ## 发布前检查
 
