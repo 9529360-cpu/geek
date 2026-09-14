@@ -54,13 +54,14 @@ function createManager() {
   assert.match(source, /role="alertdialog"/, 'destructive confirmation must expose alertdialog semantics');
   assert.match(source, /aria-modal="true"/, 'destructive confirmation must be modal');
   assert.match(source, /aria-labelledby="account-remove-confirm-title"/, 'dialog must expose a visible accessible name');
-  assert.match(source, /aria-describedby="account-remove-confirm-description"/, 'dialog must expose its destructive consequence');
+  assert.match(source, /aria-describedby="account-remove-confirm-description account-remove-confirm-warning"/, 'dialog must expose both the deletion consequence and irreversible warning');
   assert.match(source, /id="account-remove-confirm-status"[\s\S]*role="status"[\s\S]*aria-live="polite"/, 'async removal feedback must stay inline and non-blocking');
   assert.match(source, /overlay\.querySelector\('#account-remove-cancel'\)\?\.focus/, 'least destructive action must receive initial focus');
   assert.match(source, /event\.key === 'Escape'/, 'Escape must cancel before deletion starts');
   assert.match(source, /event\.key !== 'Tab'/, 'dialog must explicitly own Tab focus movement');
   assert.match(source, /event\.shiftKey/, 'dialog must support reverse focus cycling');
   assert.match(source, /restoreAccountFocus/, 'closing the dialog must return focus to the account controls');
+  assert.match(source, /more && more\.offsetParent !== null \? more : main/, 'collapsed sidebar must restore focus to the visible account control');
   assert.match(source, /prefers-reduced-motion:reduce/, 'destructive dialog must respect reduced-motion preference');
 
   const stopAt = source.indexOf("await manager.invoke(job.id, 'stop')");
@@ -68,6 +69,7 @@ function createManager() {
   const reloadAt = source.indexOf('win.location.reload()');
   assert.ok(stopAt >= 0 && removeAt > stopAt, 'all live Broadcast jobs must stop before authoritative account deletion');
   assert.ok(reloadAt > removeAt, 'renderer reload must happen only after backend deletion succeeds');
+  assert.match(source, /reloadRequested = true[\s\S]*finally \{[\s\S]*if \(!reloadRequested\) removalInFlight = false/, 'successful backend deletion must stay locked until reload takes ownership');
   assert.match(source, /catch \(error\) \{[\s\S]*setDialogStatus\(overlay,[\s\S]*'error'\)/, 'deletion failure must stay visible in the dialog');
   assert.match(source, /正在安全停止群发任务并删除账号/, 'pending state must explain the safety sequence');
 
