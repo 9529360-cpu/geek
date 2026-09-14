@@ -192,6 +192,11 @@ function projectLegacyAccountHtml(source) {
     .replaceAll('<a href="/#download">Windows 下载</a>', '<a href="/windows">Windows 客户端</a>')
     .replaceAll('<a href="/#guide">使用教程</a>', '<a href="/windows">安装与上手</a>')
     .replaceAll('<a href="/#faq">常见问题</a>', '<a href="/security">安全边界</a>')
+    .replaceAll('href="/#features"', 'href="/product"')
+    .replaceAll('href="/#guide"', 'href="/windows"')
+    .replaceAll('href="/#pricing"', 'href="/broadcast"')
+    .replaceAll('href="/#download"', 'href="/windows"')
+    .replaceAll('href="/#faq"', 'href="/security"')
     .replace('</head>', `${LEGACY_ACCOUNT_THEME_STYLE}\n</head>`);
 }
 
