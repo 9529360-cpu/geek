@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-      EXPECTED_MASTER_SHA: 8194ca451b4acedad845606a53decaf4710ecb3b
+      EXPECTED_MASTER_SHA: cf766399253fa93b63bf3e937ce30f3b124fe7a1
       EXPECTED_VERSION: 1.2.25
     steps:
       - name: Verify exact master and version
