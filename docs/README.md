@@ -32,7 +32,7 @@
 
 - [`../README.md`](../README.md)：产品入口、开发/验证入口和高层安全边界；动态版本不在 README 硬编码。
 - [`github-control-plane.md`](github-control-plane.md)：GitHub Actions、Cloudflare validation/deploy、生产证据与 control-plane 边界。
-- [`release-security.md`](release-security.md)：Windows 客户端构建、签名、版本标记、正式发布与回滚边界。
+- [`release-security.md`](release-security.md)：Windows 客户端构建、免费 unsigned 发布策略、版本标记、正式发布与回滚边界。
 - [`windows-real-client-runner.md`](windows-real-client-runner.md)：真实 Windows 客户端人工证据边界；不把 GitHub-hosted CI 冒充持久真实 profile。
 - [`account-password-reset-operations.md`](account-password-reset-operations.md)：账户、忘记密码、Resend、D1 与生产验证 runbook。
 - [`account-number-rollout.md`](account-number-rollout.md)：`account_no` 两阶段 D1 迁移/repair runbook。执行前必须先确认生产已应用到哪一步，不能因为文件存在就重跑 migration。
@@ -41,10 +41,7 @@
 - [`账号沙箱数据边界.md`](账号沙箱数据边界.md)：账号级 Electron 数据持久化、allowlist、加密、compaction 和删除生命周期。
 - [`群发最终实现约束-20260824.md`](群发最终实现约束-20260824.md)：账号级 Broadcast Job、queued/scheduled、固定 owner、durable attachment 的长期产品约束；当前实现仍以 runtime/contracts 为最终权威。
 
-当前仍需 owner/admin 决策的仓库治理项使用 focused Issue 跟踪，而不是继续写进一个会过期的大路线图：
-
-- [#444](https://github.com/9529360-cpu/geek/issues/444)：`master` branch protection / required checks enforcement；
-- [#445](https://github.com/9529360-cpu/geek/issues/445)：Windows Authenticode signing。
+仓库治理状态本身是动态事实，必须读取 live repository rulesets / Issues，而不是在这里维护“当前待办列表”。历史上 #444 已用于跟踪 `master` protection/required checks，#445 已用于评估 Windows Authenticode；两者的最终状态与决策应直接从 GitHub Issue 和 live ruleset 恢复。当前发布策略以 `release-security.md` 和 owner 最新明确决策为准。
 
 ## 历史回归契约与实施记录
 
