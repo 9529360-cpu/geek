@@ -15,10 +15,12 @@ assert.match(workflow, /secrets\.CLOUDFLARE_INFRA_API_TOKEN/, 'account cleanup m
 assert.match(workflow, /issues:\s*write/, 'workflow may publish only non-sensitive smoke status to the operations issue');
 assert.match(workflow, /gh issue comment 23/, 'account smoke must publish its safe status to issue 23');
 
-assert.match(smoke, /createRequire\(import\.meta\.url\)/, 'live smoke must load the shared CommonJS URL policy through the supported ESM bridge');
+assert.match(smoke, /createRequire\(import\.meta\.url\)/, 'live smoke must load shared CommonJS subscription owners through the supported ESM bridge');
 assert.match(smoke, /require\('\.\.\/src\/subscription-api-url\.cjs'\)/, 'live smoke must reuse the subscription API URL policy owner');
-assert.match(smoke, /normalizeSubscriptionApiBase\(process\.env\.GEEK_SUBSCRIPTION_API_URL/, 'live smoke must normalize the effective subscription API base before requests');
+assert.match(smoke, /require\('\.\.\/src\/subscription\.cjs'\)/, 'live smoke must reuse the subscription client default endpoint');
+assert.match(smoke, /normalizeSubscriptionApiBase\(process\.env\.GEEK_SUBSCRIPTION_API_URL \|\| DEFAULT_API_URL\)/, 'live smoke must normalize the effective subscription API base before requests');
 assert.doesNotMatch(smoke, /GEEK_SUBSCRIPTION_API_URL[^\n]+\.replace\(/, 'live smoke must not maintain an independent URL-normalization rule');
+assert.doesNotMatch(smoke, /https:\/\/geek-subscription\.9529360\.workers\.dev/, 'live smoke must not duplicate the production subscription endpoint literal');
 assert.match(smoke, /\/api\/register/, 'live smoke must exercise production registration');
 assert.match(smoke, /\/api\/login/, 'live smoke must exercise production login');
 assert.match(smoke, /\/api\/status/, 'live smoke must exercise authenticated status');
