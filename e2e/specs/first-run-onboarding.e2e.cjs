@@ -79,6 +79,10 @@ describe('first-run onboarding', () => {
     await browser.execute(() => document.getElementById('empty-add-account')?.focus());
     await action.click();
     await waitVisible('#add-overlay:not(.hidden)');
+    await browser.execute(() => {
+      const empty = document.getElementById('empty-state');
+      if (empty) empty.style.zIndex = '';
+    });
     await browser.waitUntil(async () => browser.execute(() => document.activeElement?.classList?.contains('add-platform-card') === true), {
       timeout: STEP_TIMEOUT,
       timeoutMsg: 'add-account dialog did not start on a platform choice',
