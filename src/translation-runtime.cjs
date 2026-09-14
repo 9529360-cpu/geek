@@ -1,7 +1,7 @@
 'use strict';
 
-const path = require('node:path');
 const crypto = require('node:crypto');
+const { createTranslationCacheStore } = require('./translation-cache-store.cjs');
 
 const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
 const TRANSLATION_REMOTE_LIMIT = 20;
@@ -144,7 +144,7 @@ function clearPartitionRuntimeState(state, partition) {
   state.caches.delete(owner);
   state.cacheLoaded.delete(owner);
   state.cacheLoads.delete(owner);
-  state.cacheWrites.delete(owner);
+  if (state.cacheWrites && typeof state.cacheWrites.delete === 'function') state.cacheWrites.delete(owner);
   const prefix = `${owner}:`;
   for (const key of state.latestRequest.keys()) if (key.startsWith(prefix)) state.latestRequest.delete(key);
   for (const key of state.inflight.keys()) if (key.startsWith(prefix)) state.inflight.delete(key);
@@ -186,9 +186,15 @@ function createTranslationRuntime(options = {}) {
     cacheLoads: new Map(),
     deletedPartitions: new Set(),
     inflight: new Map(),
-    cacheWrites: new Map(),
     latestRequest: new Map(),
   };
+  const cacheStore = createTranslationCacheStore({
+    fs,
+    safeStorage,
+    getUserDataDir,
+    cacheVersion: TRANSLATION_CACHE_VERSION,
+    isPartitionDeleted: partition => state.deletedPartitions.has(String(partition || '')),
+  });
   let requestSequence = 0;
   let gatewayPool = null;
   const remoteQueue = [];
@@ -314,12 +320,6 @@ function createTranslationRuntime(options = {}) {
     };
   }
 
-  function cacheFile(partition) {
-    const dirName = String(partition || '').replace(/^persist:/, '');
-    if (!/^[a-zA-Z0-9_-]+$/.test(dirName)) throw new Error('账号沙箱不合法');
-    return path.join(getUserDataDir(), 'Partitions', dirName, 'geek-translation-cache.jsonl');
-  }
-
   function cacheKey(body, text, target) {
     return crypto.createHash('sha256').update(JSON.stringify({
       version: TRANSLATION_CACHE_VERSION,
@@ -341,25 +341,7 @@ function createTranslationRuntime(options = {}) {
 
     const load = (async () => {
       if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-      if (safeStorage.isEncryptionAvailable()) {
-        try {
-          const lines = (await fs.readFile(cacheFile(partition), 'utf-8')).split(/\r?\n/);
-          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const item = JSON.parse(line);
-              if (item.version !== TRANSLATION_CACHE_VERSION || !item.key || !item.value) continue;
-              cache.set(item.key, {
-                text: safeStorage.decryptString(Buffer.from(item.value, 'base64')),
-                at: Number(item.at) || 0,
-              });
-            } catch {}
-          }
-        } catch (error) {
-          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
-        }
-      }
+      try { await cacheStore.load(partition, cache); } catch {}
       if (state.deletedPartitions.has(partition) || state.caches.get(partition) !== cache) throw accountDeletedError();
       state.cacheLoaded.add(partition);
       return cache;
@@ -374,25 +356,10 @@ function createTranslationRuntime(options = {}) {
   }
 
   async function appendCache(partition, key, item) {
-    if (state.deletedPartitions.has(partition) || !safeStorage.isEncryptionAvailable()) return;
-    const file = cacheFile(partition);
-    const record = {
-      version: TRANSLATION_CACHE_VERSION,
-      key,
-      at: item.at,
-      value: safeStorage.encryptString(item.text).toString('base64'),
-    };
-    const previous = state.cacheWrites.get(partition) || Promise.resolve();
-    const write = previous.catch(() => {}).then(async () => {
-      if (state.deletedPartitions.has(partition)) return;
-      await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8');
-    });
-    state.cacheWrites.set(partition, write);
-    try {
-      await write;
-    } catch {} finally {
-      if (state.cacheWrites.get(partition) === write) state.cacheWrites.delete(partition);
-    }
+    if (state.deletedPartitions.has(partition)) return;
+    const cache = state.caches.get(partition);
+    if (!cache) return;
+    try { await cacheStore.append(partition, key, item, cache); } catch {}
   }
 
   function gatewayEndpoints() {
@@ -790,6 +757,7 @@ function createTranslationRuntime(options = {}) {
 
   function deleteAccount(partition) {
     const owner = String(partition || '');
+    cacheStore.deletePartition(owner);
     clearPartitionRuntimeState(state, owner);
     cancelRemoteForPartition(owner);
   }
