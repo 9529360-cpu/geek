@@ -63,8 +63,8 @@ const { createSubscriptionStore } = require('../src/subscription.cjs');
   assert.doesNotMatch(ui, /客服确认收款后自动到账/, 'do not conflate receipt confirmation with automatic character crediting');
   assert.match(ui, /收款确认后字符余额自动更新/, 'plan copy must preserve automatic balance wording');
   assert.match(ui, /客服确认收款后，系统自动增加字符余额/, 'manual order copy must distinguish confirmation from automatic crediting');
-  assert.match(ui, /字符余额已更新！剩余/, 'success state must describe the updated balance');
-  assert.match(ui, /订单状态尚未更新，请稍后再试；如长时间未更新，请联系客服/, 'pending state must remain accurate');
+  assert.match(ui, /订单已确认到账！剩余/, 'success state must describe the exact paid order and updated balance');
+  assert.match(ui, /订单尚未确认到账，请稍后再试；如长时间未更新，请联系客服/, 'pending state must remain accurate');
   assert.match(subscription, /request\('\/api\/orders', \{ method: 'POST', body: \{ plan \} \}\)/,
     'account-number work must not alter the desktop manual-order request contract');
   assert.doesNotMatch(ui, /pay_method\s*:\s*['"]usdt['"]/, 'desktop USDT payment must not be enabled by this change');

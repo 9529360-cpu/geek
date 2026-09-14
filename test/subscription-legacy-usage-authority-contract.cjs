@@ -17,10 +17,14 @@ const wrangler = read('wrangler-subscription.toml');
 // Translation quota has one live charging authority: the authenticated gateway.
 assert.match(gateway, /async function reserveUsage\(/, 'gateway must reserve source-character quota');
 assert.match(gateway, /async function finishUsage\(/, 'gateway must finalize target-character quota');
+const reserveStart = gateway.indexOf('async function reserveUsage(');
+const reserveEnd = gateway.indexOf('\n}\n\nasync function refundUsage', reserveStart);
+assert.ok(reserveStart >= 0 && reserveEnd > reserveStart, 'gateway reservation function must be inspectable');
+const reserveBody = gateway.slice(reserveStart, reserveEnd);
 assert.match(
-  gateway,
-  /UPDATE users SET quota_chars = quota_chars - \? WHERE id = \? AND status = 'active' AND quota_chars >= \?/,
-  'gateway reservation must remain an atomic balance-checked decrement'
+  reserveBody,
+  /db\.batch\(\[[\s\S]*INSERT INTO translation_usage[\s\S]*WHERE id = \? AND status = 'active' AND quota_chars >= \?[\s\S]*SET quota_chars = quota_chars - \?[\s\S]*WHERE request_id = \? AND user_id = \? AND reserved_chars = \? AND status = \?/,
+  'gateway reservation must atomically gate the debit on sufficient quota and the exact owned reservation'
 );
 assert.match(gateway, /INSERT INTO translation_usage/, 'gateway must keep request-level usage ownership');
 

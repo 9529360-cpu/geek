@@ -23,6 +23,13 @@ function createHarness({ trusted = true } = {}) {
     login: async (...args) => { calls.push(['login', ...args]); return { ok: true }; },
     register: async (...args) => { calls.push(['register', ...args]); return { ok: true }; },
     createOrder: async (...args) => { calls.push(['createOrder', ...args]); return { ok: true }; },
+    myOrders: async () => {
+      calls.push(['myOrders']);
+      return { orders: [
+        { id: 7, status: 'paid', amount: 25, tx_id: 'must-not-cross-ipc' },
+        { id: 8, status: 'unexpected_future_state', amount: 48 },
+      ] };
+    },
     getQuota: async (...args) => { calls.push(['getQuota', ...args]); return { remaining_chars: 1 }; },
     logout: async () => { calls.push(['logout']); return { ok: true }; },
   };
@@ -43,6 +50,7 @@ function createHarness({ trusted = true } = {}) {
     'subscription:login',
     'subscription:register',
     'subscription:create-order',
+    'subscription:get-order-status',
     'subscription:get-quota',
     'subscription:logout',
     'subscription:enter-app',
@@ -69,10 +77,21 @@ function createHarness({ trusted = true } = {}) {
     await handlers.get('subscription:login')({}, 123, null);
     await handlers.get('subscription:register')({}, 'a@example.test', 456);
     await handlers.get('subscription:create-order')({}, null);
+    const paid = await handlers.get('subscription:get-order-status')({}, 7);
+    const unknown = await handlers.get('subscription:get-order-status')({}, 8);
+    const missing = await handlers.get('subscription:get-order-status')({}, 999);
     await handlers.get('subscription:get-quota')({}, 1);
     await handlers.get('subscription:logout')({});
     await handlers.get('subscription:enter-app')({});
     await handlers.get('subscription:close-window')({});
+
+    assert.deepEqual(paid, { id: 7, status: 'paid' }, 'order status IPC must expose only minimal current-order state');
+    assert.deepEqual(unknown, { id: 8, status: 'unknown' }, 'unexpected server order states must fail closed');
+    assert.deepEqual(missing, { id: 999, status: 'missing' }, 'missing order must not be inferred from account state');
+    assert.equal(Object.hasOwn(paid, 'amount'), false, 'payment metadata must not cross the renderer boundary');
+    assert.equal(Object.hasOwn(paid, 'tx_id'), false, 'transaction metadata must not cross the renderer boundary');
+    await assert.rejects(handlers.get('subscription:get-order-status')({}, 0), /invalid_order_id/);
+    await assert.rejects(handlers.get('subscription:get-order-status')({}, Number.MAX_SAFE_INTEGER + 1), /invalid_order_id/);
 
     assert.deepEqual(calls, [
       ['getState'],
@@ -80,6 +99,9 @@ function createHarness({ trusted = true } = {}) {
       ['login', '123', ''],
       ['register', 'a@example.test', '456'],
       ['createOrder', ''],
+      ['myOrders'],
+      ['myOrders'],
+      ['myOrders'],
       ['getQuota', false],
       ['logout'],
       ['enterApp'],

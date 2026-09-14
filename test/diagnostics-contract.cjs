@@ -64,4 +64,17 @@ assert.match(output, /account-1/, '应记录账号ID元数据');
 assert.doesNotMatch(output, /secret-|PRIVATE-|Bearer|@example\.com|proxy-user/, '日志不得包含凭据、PII或聊天正文');
 assert.doesNotMatch(output, /\?token=/, '日志不得包含URL query');
 
+const rotationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-diagnostics-rotation-'));
+const rotating = createDiagnostics({ dir: rotationDir, maxBytes: 1, maxFiles: 3, now: () => '2026-08-16T10:00:00.000Z' });
+for (let i = 0; i < 15; i += 1) rotating.log('rotation-order', { sequence: i });
+const rotationFiles = fs.readdirSync(rotationDir).filter(name => name.endsWith('.jsonl'));
+const generations = rotationFiles
+  .map(name => Number(name.match(/-(\d+)\.jsonl$/)?.[1]))
+  .sort((a, b) => a - b);
+assert.deepEqual(generations, [12, 13, 14], 'rotation cleanup must preserve the newest numeric generations');
+const retainedSequences = rotationFiles
+  .flatMap(name => fs.readFileSync(path.join(rotationDir, name), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line).metadata.sequence))
+  .sort((a, b) => a - b);
+assert.deepEqual(retainedSequences, [12, 13, 14], 'retained diagnostics must be the newest events, not lexicographically largest filenames');
+
 console.log('DIAGNOSTICS_CONTRACT_OK');

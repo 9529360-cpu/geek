@@ -1,11 +1,14 @@
 'use strict';
 
+const ORDER_STATUSES = new Set(['pending', 'processing', 'paid', 'cancelled', 'expired']);
+
 const SUBSCRIPTION_CHANNELS = Object.freeze([
   'subscription:get-state',
   'subscription:refresh',
   'subscription:login',
   'subscription:register',
   'subscription:create-order',
+  'subscription:get-order-status',
   'subscription:get-quota',
   'subscription:logout',
   'subscription:enter-app',
@@ -40,6 +43,17 @@ function installSubscriptionIpc(options = {}) {
     });
   }
 
+  async function getOrderStatus(orderId) {
+    const id = Number(orderId);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error('invalid_order_id');
+    const data = await getStore().myOrders();
+    const orders = Array.isArray(data?.orders) ? data.orders : [];
+    const order = orders.find((candidate) => Number(candidate?.id) === id);
+    if (!order) return { id, status: 'missing' };
+    const status = String(order.status || '').toLowerCase();
+    return { id, status: ORDER_STATUSES.has(status) ? status : 'unknown' };
+  }
+
   function install() {
     if (installed) return;
     installed = true;
@@ -49,6 +63,7 @@ function installSubscriptionIpc(options = {}) {
     register('subscription:login', (email, password) => getStore().login(String(email || ''), String(password || '')));
     register('subscription:register', (email, password) => getStore().register(String(email || ''), String(password || '')));
     register('subscription:create-order', plan => getStore().createOrder(String(plan || '')));
+    register('subscription:get-order-status', orderId => getOrderStatus(orderId));
     register('subscription:get-quota', force => getStore().getQuota(force === true));
     register('subscription:logout', () => getStore().logout());
     register('subscription:enter-app', () => enterApp());

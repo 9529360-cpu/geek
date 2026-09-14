@@ -213,6 +213,7 @@
 <script>
   const $ = (s) => document.querySelector(s);
   let currentPlan = 'basic';
+  let currentOrderId = null;
   let logoutPending = false;
 
   function show(id) {
@@ -294,10 +295,13 @@
     err('plans-err', '');
     try {
       const data = await window.api.subscription.createOrder(currentPlan);
+      const orderId = Number(data?.order?.id);
+      if (!Number.isSafeInteger(orderId) || orderId <= 0) throw new Error('invalid_order_id');
+      currentOrderId = orderId;
       const names = { basic: '基础包 · 100万字符', standard: '标准包 · 150万字符', pro: '大包 · 450万字符' };
       $('#order-plan-name').textContent = names[data.order.plan] || data.order.plan;
       $('#order-amount').textContent = data.order.amount;
-      $('#order-id').textContent = '#' + data.order.id;
+      $('#order-id').textContent = '#' + orderId;
       show('view-order');
     } catch (e) {
       err('plans-err', e.message === 'invalid_plan' ? '套餐状态异常，请重新选择' : '下单失败，请稍后重试');
@@ -310,15 +314,34 @@
     err('order-err', ''); err('order-ok', '');
     try {
       btn.textContent = '刷新中…';
-      const state = await window.api.subscription.refresh();
-      if (state.valid && state.remaining_chars > 0) {
-        err('order-ok', '✅ 字符余额已更新！剩余 ' + state.remaining_chars.toLocaleString() + ' 字符');
+      if (!Number.isSafeInteger(currentOrderId) || currentOrderId <= 0) {
+        err('order-err', '当前订单信息已失效，请重新生成订单');
+        return;
+      }
+      const order = await window.api.subscription.getOrderStatus(currentOrderId);
+      if (order?.id !== currentOrderId) {
+        err('order-err', '暂时无法确认当前订单状态，请稍后再试');
+        return;
+      }
+      if (order.status === 'paid') {
+        const state = await window.api.subscription.refresh();
+        const remaining = state?.remaining_chars;
+        if (state?.networkError || !Number.isSafeInteger(remaining) || remaining < 0) {
+          err('order-ok', '✅ 订单已确认到账');
+          err('order-err', '字符余额暂时无法刷新，请稍后重新打开查看');
+          return;
+        }
+        err('order-ok', '✅ 订单已确认到账！剩余 ' + remaining.toLocaleString() + ' 字符');
         setTimeout(() => { location.reload(); }, 1200);
+      } else if (order.status === 'cancelled' || order.status === 'expired') {
+        err('order-err', '当前订单已失效，请重新生成订单');
+      } else if (order.status === 'pending' || order.status === 'processing') {
+        err('order-err', '订单尚未确认到账，请稍后再试；如长时间未更新，请联系客服');
       } else {
-        err('order-err', '订单状态尚未更新，请稍后再试；如长时间未更新，请联系客服');
+        err('order-err', '暂时无法确认当前订单状态，请稍后再试');
       }
     } catch (e) {
-      err('order-err', '网络错误，请稍后再试');
+      err('order-err', '网络错误，暂时无法确认订单状态，请稍后再试');
     } finally { btn.disabled = false; btn.textContent = '我已完成付款，刷新状态'; }
   };
 
