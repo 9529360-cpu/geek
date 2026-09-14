@@ -27,6 +27,7 @@ function chromeDriverShutdownUrl(options) {
 exports.config = {
   runner: 'local',
   specs: ['./specs/shell-smoke.e2e.cjs'].concat(
+    './specs/first-run-onboarding.e2e.cjs',
     './specs/lock-screen-accessibility.e2e.cjs',
     './specs/proxy-dialog-validation.e2e.cjs',
     './specs/account-context-keyboard.e2e.cjs',
