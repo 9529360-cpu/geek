@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const os = require('node:os');
 const path = require('node:path');
 const fsp = require('node:fs/promises');
-const { createTranslationRuntime } = require('../src/translation-runtime.cjs');
+const { createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
 
 function deferred() {
   let settled = false;
@@ -111,8 +111,9 @@ async function pathExists(target) {
 
   try {
     runtime.install();
-    const translate = handlers.get('translation:translate');
-    assert.equal(typeof translate, 'function');
+    const translateIpc = handlers.get('translation:translate');
+    assert.equal(typeof translateIpc, 'function');
+    const translate = async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload));
     const event = { sender: { id: 1 } };
 
     const pendingA = translate(event, {

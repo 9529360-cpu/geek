@@ -49,6 +49,24 @@ async function invokeSubscription(channel, ...args) {
   }
 }
 
+function unwrapTranslationIpcResponse(response) {
+  // Compatibility for a mixed old-main/new-preload process during restart or
+  // development: old main returned the translation result directly.
+  if (!response || typeof response !== 'object' || typeof response.ok !== 'boolean') return response;
+  if (response.ok) return response.result;
+  const detail = response.error && typeof response.error === 'object' ? response.error : {};
+  const error = new Error(String(detail.message || '翻译请求失败'));
+  error.code = String(detail.code || 'TRANSLATION_FAILED');
+  error.category = String(detail.category || 'gateway');
+  error.retryable = detail.retryable === true;
+  if (Number.isInteger(detail.status)) error.status = detail.status;
+  throw error;
+}
+
+async function invokeTranslation(payload) {
+  return unwrapTranslationIpcResponse(await ipcRenderer.invoke('translation:translate', payload));
+}
+
 // ui/app.js historically calls the selected-file capability `filePath`.
 // Keep that renderer-only shape for compatibility, but the value is now an opaque token.
 function mapSelectedFile(file) {
@@ -211,7 +229,7 @@ contextBridge.exposeInMainWorld(
       },
     }),
     translation: Object.freeze({
-      translate: (payload) => ipcRenderer.invoke('translation:translate', payload),
+      translate: (payload) => invokeTranslation(payload),
       health: () => ipcRenderer.invoke('translation:health'),
     }),
     webviewInput: Object.freeze({
