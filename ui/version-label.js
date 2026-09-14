@@ -32,6 +32,7 @@
   ensureScript('./proxy-dialog-accessibility.js', 'data-geek-proxy-dialog-accessibility');
   ensureStyle('./first-run-onboarding.css', 'data-geek-first-run-onboarding');
   ensureScript('./first-run-onboarding.js', 'data-geek-first-run-onboarding');
+  ensureScript('./webview-crash-feedback.js', 'data-geek-webview-crash-feedback');
 
   const label = document.getElementById('nav-version');
   if (!label) return;
