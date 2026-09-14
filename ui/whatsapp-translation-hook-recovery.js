@@ -8,8 +8,9 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const RECOVERY_VERSION = 5;
+  const RECOVERY_VERSION = 6;
   const COMPOSER_INTENT_TTL_MS = 2000;
+  const BACKGROUND_TRANSLATION_PENDING_LIMIT = 4;
   const TRANSLATION_FAILURE_MARK = '__geekTranslationLayerFailure';
 
   function isWhatsAppType(type) {
@@ -42,6 +43,7 @@
     let composerIntent = null;
     let composerIntentSequence = 0;
     let composerSendPending = false;
+    let backgroundTranslationPending = 0;
     const composerAttempts = new Map();
 
     let legacyRequire = null;
@@ -208,12 +210,27 @@
     const ensureTranslationRequestMarker = function () {
       const live = page.__geekTranslationRequest;
       if (typeof live !== 'function') return false;
-      if (live.__geekTranslationFailureTagged === true) return true;
+      if (live.__geekTranslationIntentAware === true) return true;
       const taggedRequest = function (...args) {
-        const attempt = findComposerAttempt(args[0]);
+        const payload = args[0] && typeof args[0] === 'object' ? args[0] : {};
+        const attempt = findComposerAttempt(payload);
+        const intent = attempt ? 'interactive-send' : (payload.intent || 'background');
+        const background = intent !== 'interactive-send';
+        if (background && backgroundTranslationPending >= BACKGROUND_TRANSLATION_PENDING_LIMIT) {
+          const busy = new Error('后台翻译队列繁忙');
+          busy.code = 'TRANSLATION_BUSY';
+          busy.category = 'busy';
+          busy.retryable = true;
+          throw busy;
+        }
+        args[0] = { ...payload, intent };
+        if (background) backgroundTranslationPending += 1;
         let result;
         try { result = live.apply(this, args); }
-        catch (error) { throw markTranslationFailure(error); }
+        catch (error) {
+          if (background) backgroundTranslationPending = Math.max(0, backgroundTranslationPending - 1);
+          throw markTranslationFailure(error);
+        }
         return Promise.resolve(result)
           .then(value => {
             if (!attempt) return value;
@@ -223,10 +240,14 @@
             }
             return value;
           })
-          .catch(error => { throw markTranslationFailure(error); });
+          .catch(error => { throw markTranslationFailure(error); })
+          .finally(() => {
+            if (background) backgroundTranslationPending = Math.max(0, backgroundTranslationPending - 1);
+          });
       };
       try {
         Object.defineProperty(taggedRequest, '__geekTranslationFailureTagged', { value: true });
+        Object.defineProperty(taggedRequest, '__geekTranslationIntentAware', { value: true });
         Object.defineProperty(taggedRequest, '__geekTranslationFailureOriginal', { value: live });
       } catch {}
       page.__geekTranslationRequest = taggedRequest;
@@ -365,6 +386,7 @@
                 provider: setting.provider,
                 route: setting.route,
                 chatId,
+                intent: 'interactive-send',
               });
               if (!result?.text) throw new Error('翻译失败');
               page.__geekRememberOutgoing?.(result.text, text);
@@ -524,6 +546,7 @@
   return Object.freeze({
     RECOVERY_VERSION,
     COMPOSER_INTENT_TTL_MS,
+    BACKGROUND_TRANSLATION_PENDING_LIMIT,
     TRANSLATION_FAILURE_MARK,
     isWhatsAppType,
     accountForPartition,
