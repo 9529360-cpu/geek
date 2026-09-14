@@ -65,28 +65,22 @@ function fakeSessionModule() {
     password: 'global-secret',
   };
 
-  // Electron ProxyConfig accepts scheme/host/port rules. Credentials must never be
-  // embedded as URL userinfo in proxyRules.
-  assert.equal(
-    proxyRuntime.proxyRulesFor(accountA),
-    'http=proxy-a.test:8080;https=proxy-a.test:8080',
-  );
-  assert.equal(
-    proxyRuntime.proxyRulesFor(globalConfig),
-    'socks5://proxy-global.test:1080',
-  );
-  assert.equal(
-    proxyRuntime.proxyRulesFor({ ...accountA, protocal: 'https' }),
-    'https=proxy-a.test:8080',
-  );
-  assert.equal(
-    proxyRuntime.proxyRulesFor({ ...accountA, host: '[2001:db8::1]' }),
-    'http=[2001:db8::1]:8080;https=[2001:db8::1]:8080',
-  );
+  // The UI field is the proxy server protocol. Electron ProxyConfig accepts a proxy
+  // URI applying to the Session; credentials must never be embedded as URL userinfo.
+  assert.equal(proxyRuntime.proxyRulesFor(accountA), 'http://proxy-a.test:8080');
+  assert.equal(proxyRuntime.proxyRulesFor(globalConfig), 'socks5://proxy-global.test:1080');
+  assert.equal(proxyRuntime.proxyRulesFor({ ...accountA, protocal: 'https' }), 'https://proxy-a.test:8080');
+  assert.equal(proxyRuntime.proxyRulesFor({ ...accountA, protocal: 'socks4' }), 'socks4://proxy-a.test:8080');
+  assert.equal(proxyRuntime.proxyRulesFor({ ...accountA, host: '[2001:db8::1]' }), 'http://[2001:db8::1]:8080');
   for (const rules of [proxyRuntime.proxyRulesFor(accountA), proxyRuntime.proxyRulesFor(globalConfig)]) {
     assert.doesNotMatch(rules, /alice|alpha-secret|global-user|global-secret|@/);
   }
   assert.deepEqual(proxyRuntime.sessionProxyConfig(null), { mode: 'direct' });
+  assert.throws(
+    () => proxyRuntime.sessionProxyConfig({ openProxy: true, protocal: 'http', host: '', port: '8080' }),
+    error => error?.code === 'PROXY_CONFIG_INVALID',
+    'an enabled but invalid proxy must fail closed rather than becoming direct mode',
+  );
   assert.equal(proxyRuntime.effectiveProxyConfig(accountA, globalConfig), accountA);
   assert.equal(proxyRuntime.effectiveProxyConfig(accountB, globalConfig), globalConfig);
 
@@ -117,7 +111,7 @@ function fakeSessionModule() {
     'setProxy',
     {
       mode: 'fixed_servers',
-      proxyRules: 'http=proxy-a.test:8080;https=proxy-a.test:8080',
+      proxyRules: 'http://proxy-a.test:8080',
       proxyBypassRules: '<local>',
     },
   ]]);
@@ -221,6 +215,20 @@ function fakeSessionModule() {
     authInfo: { isProxy: true, host: 'proxy-global.test', port: 1080 },
   }).credentials, [['global-user', 'global-secret']]);
 
+  // A malformed enabled config also fails closed for only its partition; it cannot
+  // silently drop to direct mode.
+  accountA.host = '';
+  assert.equal(await runtime.applyAccount(accountA), false);
+  assert.equal(runtime.isPartitionReady(accountA.partition), false);
+  assert.equal(errors.at(-1).error.code, 'PROXY_CONFIG_INVALID');
+  assert.equal(runtime.isPartitionReady(accountB.partition), true);
+
+  // Deleting an account removes only its operational runtime state. Credentials stay
+  // owned by Account/Config State and are never cached here in plaintext.
+  assert.equal(runtime.forgetPartition(accountA.partition), true);
+  assert.equal(runtime.isPartitionReady(accountA.partition), true, 'forgotten partitions return to unknown, not failed');
+  assert.equal(runtime.isPartitionReady(accountB.partition), true);
+
   // Disabling the global proxy moves B to direct mode and closes only B's pooled
   // connections because its effective proxy fingerprint changed.
   globalConfig = { ...globalConfig, openProxy: false };
@@ -251,6 +259,7 @@ function fakeSessionModule() {
     addBody.indexOf('await proxyRuntime?.applyAccount') < addBody.indexOf('notifyAccountsChanged'),
     'new account proxy must be attempted before renderer notification/return',
   );
+  assert.match(main, /proxyRuntime\?\.forgetPartition\(removedAccount\.partition\)/);
   assert.doesNotMatch(main, /function proxyRulesFor\(/, 'ProxyConfig grammar must have one owner');
   assert.doesNotMatch(main, /encodeURIComponent\(login\)|encodeURIComponent\(password\)/, 'main must not rebuild credential-bearing proxy rules');
   assert.match(main, /if \(proxyRuntime && !proxyRuntime\.isPartitionReady\(partition\)\) \{[\s\S]{0,240}event\.preventDefault\(\)/);
