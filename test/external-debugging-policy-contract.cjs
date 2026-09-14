@@ -12,27 +12,56 @@ const {
 assert.equal(externalDebuggingRequested({ argv: [] }), false);
 assert.equal(externalDebuggingRequested({ argv: ['--remote-debugging-port=9222'] }), false);
 assert.equal(externalDebuggingRequested({ argv: ['--remote-debugging-port=9344'] }), true);
+
+// Node http.get accepts URL/string, options objects, and URL + overriding options.
+// The fail-closed boundary must recognize the same effective legacy CDP target
+// regardless of which supported call shape reaches it.
 assert.equal(isExternalDebugProbeTarget('http://127.0.0.1:9344/json'), true);
+assert.equal(isExternalDebugProbeTarget(new URL('http://127.0.0.1:9344/json?source=legacy')), true);
+assert.equal(isExternalDebugProbeTarget({ hostname: '127.0.0.1', port: 9344, path: '/json' }), true);
+assert.equal(isExternalDebugProbeTarget({ host: '127.0.0.1', port: '9344', path: '/json?source=legacy' }), true);
+assert.equal(isExternalDebugProbeTarget(
+  'http://127.0.0.1:1843/',
+  { hostname: '127.0.0.1', port: 9344, path: '/json' },
+), true);
 assert.equal(isExternalDebugProbeTarget('http://127.0.0.1:9344/json/version'), false);
 assert.equal(isExternalDebugProbeTarget('http://localhost:9344/json'), false);
+assert.equal(isExternalDebugProbeTarget({ host: '127.0.0.1', hostname: 'localhost', port: 9344, path: '/json' }), false);
+assert.equal(isExternalDebugProbeTarget({ protocol: 'https:', hostname: '127.0.0.1', port: 9344, path: '/json' }), false);
+assert.equal(isExternalDebugProbeTarget(
+  'http://127.0.0.1:9344/json',
+  { hostname: 'localhost' },
+), false);
 
 const calls = [];
 const fakeHttp = {
-  get(input) {
-    calls.push(String(input));
+  get(input, ...args) {
+    calls.push([input, ...args]);
     return { on() { return this; } };
   },
 };
 const originalGet = fakeHttp.get;
 const guard = installExternalDebuggingProbeGuard({ httpModule: fakeHttp });
 assert.equal(guard.installed, true);
-assert.throws(
+for (const invoke of [
   () => fakeHttp.get('http://127.0.0.1:9344/json'),
-  error => error?.code === 'EXTERNAL_BROADCAST_CDP_DISABLED',
-);
-assert.deepEqual(calls, []);
-fakeHttp.get('http://127.0.0.1:1843/');
-assert.deepEqual(calls, ['http://127.0.0.1:1843/']);
+  () => fakeHttp.get({ hostname: '127.0.0.1', port: 9344, path: '/json' }),
+  () => fakeHttp.get(
+    'http://127.0.0.1:1843/',
+    { hostname: '127.0.0.1', port: 9344, path: '/json' },
+    () => {},
+  ),
+]) {
+  assert.throws(
+    invoke,
+    error => error?.code === 'EXTERNAL_BROADCAST_CDP_DISABLED',
+  );
+}
+assert.equal(calls.length, 0, 'every supported representation of the disabled legacy target must fail before I/O');
+const allowedTarget = { hostname: '127.0.0.1', port: 1843, path: '/' };
+fakeHttp.get(allowedTarget);
+assert.equal(calls.length, 1);
+assert.equal(calls[0][0], allowedTarget, 'unrelated localhost services must pass through unchanged');
 guard.restore();
 assert.equal(fakeHttp.get, originalGet);
 
