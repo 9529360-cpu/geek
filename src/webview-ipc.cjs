@@ -46,6 +46,7 @@ function installWebviewIpc(options = {}) {
   if (typeof getSessionForPartition !== 'function') throw new TypeError('getSessionForPartition is required');
 
   const registeredChannels = new Set();
+  const cleanupBoundGuests = new WeakSet();
   let disposed = false;
 
   const register = (channel, handler) => {
@@ -81,6 +82,12 @@ function installWebviewIpc(options = {}) {
     try { return String(guest.getURL?.() || ''); } catch { return ''; }
   };
 
+  const bindGuestCleanup = (guest) => {
+    if (cleanupBoundGuests.has(guest)) return;
+    cleanupBoundGuests.add(guest);
+    guest.once('destroyed', () => webviewOwnership.remove(guest.id));
+  };
+
   register('webview:register', async (event, accountId, guestId, token) => {
     const { account, partition } = resolveAccountBinding(accountId, 'WebView登记失败');
     const guest = resolveLiveGuest(guestId);
@@ -101,7 +108,7 @@ function installWebviewIpc(options = {}) {
       token,
       senderId: event.sender.id,
     });
-    guest.once('destroyed', () => webviewOwnership.remove(guest.id));
+    bindGuestCleanup(guest);
     return true;
   });
 
