@@ -14,6 +14,10 @@ function createRuntimeState() {
       ['persist:webview-page-b', new Map([['b', { text: 'B' }]])],
     ]),
     cacheLoaded: new Set(['persist:webview-page-a', 'persist:webview-page-b']),
+    cacheLoads: new Map([
+      ['persist:webview-page-a', Promise.resolve(new Map())],
+      ['persist:webview-page-b', Promise.resolve(new Map())],
+    ]),
     deletedPartitions: new Set(),
     inflight: new Map([
       ['persist:webview-page-a:key-a', Promise.resolve('A')],
@@ -37,6 +41,7 @@ function createRuntimeState() {
     assert.equal(state.deletedPartitions.has('persist:webview-page-a'), true);
     assert.equal(state.caches.has('persist:webview-page-a'), false);
     assert.equal(state.cacheLoaded.has('persist:webview-page-a'), false);
+    assert.equal(state.cacheLoads.has('persist:webview-page-a'), false);
     assert.equal(state.cacheWrites.has('persist:webview-page-a'), false);
     assert.equal(state.inflight.has('persist:webview-page-a:key-a'), false);
     assert.equal(state.latestRequest.has('persist:webview-page-a:key-a'), false);
@@ -44,6 +49,7 @@ function createRuntimeState() {
     assert.equal(state.deletedPartitions.has('persist:webview-page-b'), false, 'deleting account A must not mark account B deleted');
     assert.equal(state.caches.get('persist:webview-page-b').get('b').text, 'B', 'deleting account A must preserve account B cache');
     assert.equal(state.cacheLoaded.has('persist:webview-page-b'), true);
+    assert.equal(state.cacheLoads.has('persist:webview-page-b'), true);
     assert.equal(state.cacheWrites.has('persist:webview-page-b'), true);
     assert.equal(state.inflight.has('persist:webview-page-b:key-b'), true);
     assert.equal(state.latestRequest.get('persist:webview-page-b:key-b'), 2);
