@@ -1,0 +1,79 @@
+name: wa-js-refresh-master-once
+
+on:
+  push:
+    branches:
+      - fix/522-wa-js-4-6-migration
+    paths:
+      - '.github/workflows/wa-js-refresh-master-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/522-wa-js-4-6-migration
+          fetch-depth: 0
+
+      - name: Verify pinned refresh inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor d085993d5c0b563c6d65c9e4cfc3c11f6992553c HEAD
+          changed="$(git diff --name-only d085993d5c0b563c6d65c9e4cfc3c11f6992553c..HEAD | sort)"
+          test "$changed" = ".github/workflows/wa-js-refresh-master-once.yml"
+          git fetch origin master
+          test "$(git rev-parse origin/master)" = "5046230978b17f5c29dd6a482647c57b38e969c2"
+
+      - name: Three-way merge live master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Geek Validation Agent'
+          git config user.email 'actions@users.noreply.github.com'
+          git merge --no-commit --no-ff origin/master
+          test -z "$(git diff --name-only --diff-filter=U)"
+          git rm .github/workflows/wa-js-refresh-master-once.yml
+          changed="$(git diff --name-only origin/master | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/electron-e2e.yml' \
+            'e2e/run.cjs' \
+            'e2e/specs/whatsapp-wa-js-runtime.e2e.cjs' \
+            'package-lock.json' \
+            'package.json' \
+            'src/main.cjs' \
+            'test/electron-e2e-windows-whatsapp-contract.cjs' \
+            'test/wa-js-460-migration-contract.cjs' \
+            'test/wpp-converge-contract.cjs' \
+            'ui/app.js' \
+            'ui/broadcast-runtime.js' | sort)"
+          test "$changed" = "$expected"
+          git diff --check origin/master
+
+      - name: Validate merged candidate before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npm test
+          node test/wa-js-460-migration-contract.cjs
+          node test/electron-e2e-windows-whatsapp-contract.cjs
+          test "$(node -p "require('./package.json').dependencies['@wppconnect/wa-js']")" = "4.6.0"
+          test "$(node -p "require('./package.json').version")" = "$(cat .github/release-client-version | tr -d '\r\n')"
+
+      - name: Commit true merge and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .git/MERGE_HEAD
+          test "$(cat .git/MERGE_HEAD)" = "5046230978b17f5c29dd6a482647c57b38e969c2"
+          git add -A
+          git commit -m 'Merge master into fix/522-wa-js-4-6-migration'
+          test "$(git rev-list --parents -n 1 HEAD | awk '{print NF}')" = "3"
+          git push origin HEAD:fix/522-wa-js-4-6-migration
