@@ -1,0 +1,127 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+
+const STEP_TIMEOUT = 3000;
+const LOCK_PASSWORD = 'geek-e2e-lock';
+
+async function waitVisible(selector, timeout = STEP_TIMEOUT) {
+  const element = await $(selector);
+  await element.waitForDisplayed({ timeout });
+  return element;
+}
+
+async function waitHidden(selector, timeout = STEP_TIMEOUT) {
+  const element = await $(selector);
+  await browser.waitUntil(async () => !(await element.isDisplayed()), {
+    timeout,
+    timeoutMsg: `${selector} remained visible`,
+  });
+}
+
+async function keyOnFocused(key, extra = {}) {
+  await browser.execute((value, options) => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
+      key: value,
+      bubbles: true,
+      cancelable: true,
+      ...options,
+    }));
+  }, key, extra);
+}
+
+async function setLockPassword(value) {
+  const result = await browser.executeAsync((password, done) => {
+    window.api.config.set({ lockPassword: password })
+      .then(() => done({ ok: true }))
+      .catch(error => done({ ok: false, error: String(error?.message || error || 'config-set-failed') }));
+  }, value);
+  assert.equal(result?.ok, true, result?.error || 'failed to seed lock password');
+}
+
+describe('lock screen accessibility', () => {
+  afterEach(async () => {
+    await browser.executeAsync((done) => {
+      window.api.config.set({ lockPassword: '' }).then(() => done(true)).catch(() => done(false));
+    });
+  });
+
+  it('makes background inert, contains focus, announces errors, and restores focus after unlock', async () => {
+    await setLockPassword(LOCK_PASSWORD);
+    const lockButton = await waitVisible('#btn-lock');
+    await lockButton.click();
+    await waitVisible('#lock-overlay:not(.hidden)');
+
+    await browser.waitUntil(async () => browser.execute(() => document.activeElement?.id === 'lock-password'), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'lock password did not receive initial focus',
+    });
+
+    const opened = await browser.execute(() => {
+      const overlay = document.getElementById('lock-overlay');
+      return {
+        role: overlay?.getAttribute('role') || '',
+        modal: overlay?.getAttribute('aria-modal') || '',
+        labelledBy: overlay?.getAttribute('aria-labelledby') || '',
+        describedBy: overlay?.getAttribute('aria-describedby') || '',
+        appInert: document.querySelector('main.app')?.inert === true,
+        contextMenuInert: document.getElementById('ctx-menu')?.inert === true,
+        activeId: document.activeElement?.id || '',
+        errorRole: document.getElementById('lock-error')?.getAttribute('role') || '',
+        errorLive: document.getElementById('lock-error')?.getAttribute('aria-live') || '',
+      };
+    });
+    assert.equal(opened.role, 'dialog');
+    assert.equal(opened.modal, 'true');
+    assert.match(opened.labelledBy, /lock-screen-title/);
+    assert.match(opened.describedBy, /lock-screen-description/);
+    assert.match(opened.describedBy, /lock-error/);
+    assert.equal(opened.appInert, true);
+    assert.equal(opened.contextMenuInert, true);
+    assert.equal(opened.activeId, 'lock-password');
+    assert.equal(opened.errorRole, 'alert');
+    assert.equal(opened.errorLive, 'assertive');
+
+    await browser.execute(() => document.getElementById('btn-settings')?.focus());
+    await browser.waitUntil(async () => browser.execute(() => document.activeElement?.id === 'lock-password'), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'background focus escaped the lock screen',
+    });
+
+    await keyOnFocused('Tab');
+    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-unlock');
+    await keyOnFocused('Tab');
+    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-password');
+    await keyOnFocused('Tab', { shiftKey: true });
+    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-unlock');
+
+    await keyOnFocused('Escape');
+    assert.equal(await browser.execute(() => document.getElementById('lock-overlay')?.classList.contains('hidden') === false), true, 'Escape must not bypass the lock');
+    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-password');
+
+    const password = await waitVisible('#lock-password');
+    await password.setValue('wrong-password');
+    await (await waitVisible('#lock-unlock')).click();
+    await waitVisible('#lock-error:not(.hidden)');
+    assert.match(await (await waitVisible('#lock-error')).getText(), /密码错误/);
+    assert.equal(await password.getValue(), '');
+    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-password');
+
+    await password.setValue(LOCK_PASSWORD);
+    await (await waitVisible('#lock-unlock')).click();
+    await waitHidden('#lock-overlay');
+    await browser.waitUntil(async () => browser.execute(() => document.activeElement?.id === 'btn-lock'), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'unlock did not restore focus to the lock invoker',
+    });
+
+    const restored = await browser.execute(() => ({
+      appInert: document.querySelector('main.app')?.inert === true,
+      contextMenuInert: document.getElementById('ctx-menu')?.inert === true,
+      activeId: document.activeElement?.id || '',
+    }));
+    assert.equal(restored.appInert, false);
+    assert.equal(restored.contextMenuInert, false);
+    assert.equal(restored.activeId, 'btn-lock');
+  });
+});
