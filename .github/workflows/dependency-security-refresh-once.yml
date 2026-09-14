@@ -28,42 +28,58 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
-      - name: Verify branch base
+      - name: Verify branch ancestry
         shell: bash
         run: |
           set -euo pipefail
-          actual_base="$(git rev-parse HEAD^)"
-          if [ "$actual_base" != "$EXPECTED_BASE_SHA" ]; then
-            echo "unexpected base: expected=$EXPECTED_BASE_SHA actual=$actual_base" >&2
+          git fetch origin master --depth=1
+          merge_base="$(git merge-base HEAD origin/master)"
+          if [ "$merge_base" != "$EXPECTED_BASE_SHA" ]; then
+            echo "unexpected base: expected=$EXPECTED_BASE_SHA actual=$merge_base" >&2
             exit 1
           fi
 
-      - name: Inspect registry remediation targets
+      - name: Apply narrow security overrides
         shell: bash
         run: |
           set -euo pipefail
-          echo "wdio-cli=$(npm view @wdio/cli@9.31.9 version)"
-          echo "deepmerge-ts=$(npm view deepmerge-ts@8.0.0 version)"
-          if npm view extract-zip@2.0.2 version >/tmp/extract-zip-version.txt 2>/tmp/extract-zip-error.txt; then
-            echo "extract-zip=$(cat /tmp/extract-zip-version.txt)"
-          else
-            echo "extract-zip-2.0.2=unavailable"
-            cat /tmp/extract-zip-error.txt
-          fi
-          echo "serialize-javascript=$(npm view serialize-javascript@7.0.3 version)"
-
-      - name: Refresh safe WebdriverIO dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --save-dev --save-exact --ignore-scripts \
-            @wdio/cli@9.31.9 \
-            @wdio/local-runner@9.31.9 \
-            @wdio/mocha-framework@9.31.9
-          npm update extract-zip --package-lock-only --ignore-scripts || true
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.overrides = {
+            ...(pkg.overrides || {}),
+            'deepmerge-ts': '8.0.2',
+            '@puppeteer/browsers': '3.2.2',
+            mocha: {
+              ...(pkg.overrides?.mocha || {}),
+              'serialize-javascript': '7.1.1'
+            }
+          };
+          fs.writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+          npm install --package-lock-only --ignore-scripts
 
       - name: Install exact lockfile
         run: npm ci --ignore-scripts
+
+      - name: Verify resolved security versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ls deepmerge-ts @puppeteer/browsers serialize-javascript
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const expected = new Map([
+            ['node_modules/deepmerge-ts', '8.0.2'],
+            ['node_modules/@puppeteer/browsers', '3.2.2'],
+            ['node_modules/serialize-javascript', '7.1.1']
+          ]);
+          for (const [path, version] of expected) {
+            const actual = lock.packages?.[path]?.version;
+            if (actual !== version) throw new Error(`${path}: expected ${version}, got ${actual}`);
+          }
+          NODE
 
       - name: Audit dependency boundary
         shell: bash
@@ -85,6 +101,9 @@ jobs:
               }
             }
             console.log(`AUDIT_${label.toUpperCase()}_ADVISORIES=${[...advisories].sort().join(',') || 'none'}`);
+            if ((audit.metadata?.vulnerabilities?.total ?? 0) !== 0 || packages.length !== 0) {
+              throw new Error(`${label} audit is not clean`);
+            }
           }
           NODE
           node scripts/dependency-audit-policy.cjs
@@ -92,18 +111,13 @@ jobs:
       - name: Run repository tests
         run: npm test
 
-      - name: Commit generated dependency refresh and self-remove
+      - name: Commit verified dependency hardening and self-remove
         shell: bash
         run: |
           set -euo pipefail
           rm -f audit-prod.json audit-full.json
           git rm .github/workflows/dependency-security-refresh-once.yml
           git status --short
-          changed="$(git diff --name-only HEAD -- package.json package-lock.json)"
-          if [ -z "$changed" ]; then
-            echo "dependency refresh produced no package changes" >&2
-            exit 1
-          fi
           unexpected="$(git status --short | awk '{print $2}' | grep -v -E '^(package.json|package-lock.json|.github/workflows/dependency-security-refresh-once.yml)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "unexpected changed files:" >&2
@@ -113,5 +127,5 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add package.json package-lock.json .github/workflows/dependency-security-refresh-once.yml
-          git commit -m 'chore: reduce development dependency advisories'
+          git commit -m 'chore: harden development dependency graph'
           git push origin HEAD:chore/dependency-security-2026-09-14
