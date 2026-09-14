@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const removal = require('../ui/broadcast-account-removal.js');
+const safety = require('../ui/broadcast-safety.js');
 
 function createManager() {
   const jobs = new Map([
@@ -31,7 +32,49 @@ function createManager() {
   };
 }
 
+function createRemovalEvent() {
+  const state = { prevented: 0, stopped: 0 };
+  return {
+    state,
+    event: {
+      preventDefault() { state.prevented += 1; },
+      stopImmediatePropagation() { state.stopped += 1; },
+    },
+  };
+}
+
 (async () => {
+  const blockedEvent = createRemovalEvent();
+  assert.deepEqual(
+    safety.routeAccountRemoval({ event: blockedEvent.event, owner: null, accountId: 'A' }),
+    { handled: true, ready: false, opened: false, reason: 'OWNER_NOT_READY' },
+    'delete must fail closed until the lifecycle owner is ready',
+  );
+  assert.deepEqual(blockedEvent.state, { prevented: 1, stopped: 1 }, 'pre-ready delete must consume the event before legacy app.js can see it');
+
+  const missingEvent = createRemovalEvent();
+  assert.deepEqual(
+    safety.routeAccountRemoval({ event: missingEvent.event, owner: { openDialog() { throw new Error('must not open'); } }, accountId: '' }),
+    { handled: true, ready: false, opened: false, reason: 'ACCOUNT_MISSING' },
+    'delete must fail closed when the account owner cannot be resolved',
+  );
+  assert.deepEqual(missingEvent.state, { prevented: 1, stopped: 1 });
+
+  let openedAccountId = '';
+  const delegatedEvent = createRemovalEvent();
+  assert.deepEqual(
+    safety.routeAccountRemoval({
+      event: delegatedEvent.event,
+      owner: { openDialog(accountId) { openedAccountId = accountId; return true; } },
+      accountId: 'A',
+    }),
+    { handled: true, ready: true, opened: true, reason: '' },
+    'ready delete must delegate only to the lifecycle owner dialog',
+  );
+  assert.equal(openedAccountId, 'A');
+  assert.deepEqual(delegatedEvent.state, { prevented: 1, stopped: 1 });
+  assert.throws(() => safety.routeAccountRemoval({ event: {}, owner: null, accountId: 'A' }), /account removal event is required/);
+
   const manager = createManager();
   assert.deepEqual(removal.liveJobsForAccount(manager, 'A').map(job => job.id).sort(), ['run-a', 'sched-a']);
   await removal.beforeAccountRemoval('A', { manager, timeoutMs: 1000 });
@@ -42,6 +85,7 @@ function createManager() {
 
   const source = fs.readFileSync(path.join(__dirname, '../ui/broadcast-account-removal.js'), 'utf8');
   const safetyLoader = fs.readFileSync(path.join(__dirname, '../ui/broadcast-safety.js'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '../ui/index.html'), 'utf8');
   const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
   const accountBoundary = fs.readFileSync(path.join(__dirname, '../src/account-data-boundary.cjs'), 'utf8');
   const attachmentBoundary = fs.readFileSync(path.join(__dirname, '../src/scheduled-broadcast-attachment-boundary.cjs'), 'utf8');
@@ -73,7 +117,21 @@ function createManager() {
   assert.match(source, /catch \(error\) \{[\s\S]*setDialogStatus\(overlay,[\s\S]*'error'\)/, 'deletion failure must stay visible in the dialog');
   assert.match(source, /正在安全停止群发任务并删除账号/, 'pending state must explain the safety sequence');
 
+  const safetyScriptAt = index.indexOf('<script src="broadcast-safety.js"></script>');
+  const appScriptAt = index.indexOf('<script src="app.js"></script>');
+  const readinessGateAt = safetyLoader.indexOf("const item = event.target?.closest?.('#ctx-menu .ctx-item[data-act=\"delete\"]')");
+  const asyncBroadcastLoaderAt = safetyLoader.indexOf("loadScript('./broadcast-job-manager.js'");
+  assert.ok(safetyScriptAt >= 0 && appScriptAt > safetyScriptAt, 'readiness gate owner must load synchronously before app.js installs its legacy bubble handler');
+  assert.ok(readinessGateAt >= 0 && asyncBroadcastLoaderAt > readinessGateAt, 'delete readiness gate must register before the asynchronous Broadcast dependency chain starts');
+  assert.match(safetyLoader, /routeAccountRemoval\(\{[\s\S]*owner:\s*window\.GeekBroadcastAccountRemoval[\s\S]*accountId/,
+    'synchronous capture gate must delegate only to GeekBroadcastAccountRemoval');
+  assert.match(safetyLoader, /event\.preventDefault\(\)[\s\S]*event\.stopImmediatePropagation\(\)/,
+    'readiness gate must consume the destructive click before the legacy bubble path');
+  assert.doesNotMatch(safetyLoader, /window\.api\.accounts\.remove|wvMap\.delete|accounts\s*=\s*accounts\.filter/,
+    'readiness gate must never perform destructive account or renderer-state mutation itself');
+  assert.match(safetyLoader, /账号删除功能正在初始化，请稍后重试。/, 'pre-ready fail-closed path must give user-visible feedback');
   assert.match(safetyLoader, /broadcast-account-removal\.js/);
+
   assert.match(main, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.cleanupAccount\(accountId\)/, 'main composition must connect account deletion to scheduled attachment cleanup');
   assert.match(main, /accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly enter the account-data lifecycle');
   assert.ok(accountBoundary.indexOf('await beforeAccountRemove') < accountBoundary.indexOf('await removeImplementation(event, id'), 'durable resources must be cleaned before authoritative account deletion');
