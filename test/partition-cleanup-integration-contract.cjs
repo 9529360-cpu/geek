@@ -20,17 +20,18 @@ assert.doesNotMatch(
 );
 
 const removeAccountIndex = main.indexOf('async function removeAccount');
-const partDirIndex = main.indexOf("const partDir = path.join(app.getPath('userData'), 'Partitions'", removeAccountIndex);
-const clearStorageIndex = main.indexOf('await accountSession.clearStorageData()', removeAccountIndex);
-assert.ok(removeAccountIndex >= 0 && partDirIndex > removeAccountIndex, '删除账号后必须先固定该账号的分区目录');
-assert.ok(clearStorageIndex > partDirIndex, '分区目录必须在任何 Session 清理操作之前确定，确保早期失败也可登记重试');
+const removeAccountSource = main.slice(removeAccountIndex, main.indexOf('let accountIpcBoundary', removeAccountIndex));
+const partDirMatch = /const partDir = path\.join\(\s*app\.getPath\('userData'\),\s*'Partitions'/.exec(removeAccountSource);
+const clearStorageIndex = removeAccountSource.indexOf('await accountSession.clearStorageData()');
+assert.ok(removeAccountIndex >= 0 && partDirMatch, '删除账号后必须先固定该账号的分区目录');
+assert.ok(clearStorageIndex > partDirMatch.index, '分区目录必须在任何 Session 清理操作之前确定，确保早期失败也可登记重试');
 assert.match(
-  main.slice(removeAccountIndex, main.indexOf('let accountIpcBoundary', removeAccountIndex)),
+  removeAccountSource,
   /catch \(error\) \{[\s\S]{0,240}pendingPartitionDeletions\.add\(partDir\)/,
   'Session 或目录清理失败都必须登记同一个分区目录到退出重试集合',
 );
 assert.match(
-  main.slice(removeAccountIndex, main.indexOf('let accountIpcBoundary', removeAccountIndex)),
+  removeAccountSource,
   /pendingPartitionDeletions\.delete\(partDir\)/,
   '目录删除成功后必须清除可能存在的旧 pending 标记',
 );
