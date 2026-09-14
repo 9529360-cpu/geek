@@ -30,12 +30,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Prepare supported dependency patches
+      - name: Prepare compatible security patches
         run: |
           npm update js-yaml @xmldom/xmldom fast-uri --package-lock-only --ignore-scripts
-          npm install --package-lock-only --ignore-scripts --save-dev @wdio/cli@9.31.9 @wdio/local-runner@9.31.9 @wdio/mocha-framework@9.31.9
-          git diff --stat -- package.json package-lock.json
-          git diff -- package.json
+          git diff --stat -- package-lock.json
 
       - name: Validate generated lockfile
         run: npm ci --ignore-scripts
@@ -44,9 +42,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dependency-candidate-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            package.json
-            package-lock.json
+          path: package-lock.json
           if-no-files-found: error
           retention-days: 1
 
