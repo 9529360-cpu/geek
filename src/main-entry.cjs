@@ -5,6 +5,7 @@ const os = require('node:os');
 const nodeFs = require('node:fs');
 const { app, BrowserWindow, session } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
+const { installDevLoopControl } = require('./dev-loop-control.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
 const { prepareUserDataPath } = require('./user-data-path.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
@@ -21,6 +22,17 @@ const runtimeIdentity = configureRuntimeEnvironment({
   isPackaged: app.isPackaged,
   packagedProfile: packagedMetadata.geekRuntimeProfile,
   env: process.env,
+});
+
+// The development supervisor owns this exact Electron child through Node's IPC-over-stdio.
+// Keep the control inert in packaged/validation runtimes and require the per-process token
+// before honoring a shutdown request, so a fixed debugging port is never treated as ownership.
+installDevLoopControl({
+  app,
+  isPackaged: app.isPackaged,
+  profile: runtimeIdentity.profile,
+  env: process.env,
+  processObject: process,
 });
 
 // Hosted Linux has no desktop login session to auto-select an OS password manager.
