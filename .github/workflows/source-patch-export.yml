@@ -1,0 +1,47 @@
+name: source-patch-export
+
+on:
+  pull_request:
+    paths:
+      - src/main.cjs
+      - src/translation-runtime.cjs
+      - test/translation-cache-delete-drain-contract.cjs
+      - test/account-partition-removal-failure-contract.cjs
+      - .github/workflows/source-patch-export.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Apply exact main-process await patch in workspace only
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = 'src/main.cjs';
+          const source = fs.readFileSync(file, 'utf8');
+          const before = `  translationRuntime?.deleteAccount(removedAccount.partition);\n  proxyRuntime.forgetPartition(removedAccount.partition);\n\n  try {\n    const guests = webContents.getAllWebContents().filter(\n      (wc) => wc.session?.partition === removedAccount.partition\n    );\n    for (const wc of guests) {\n      if (!wc.isDestroyed()) wc.destroy();\n    }\n  } catch (e) { /* 销毁失败不影响 */ }\n\n  const partDir = path.join(`;
+          const after = `  const translationDeletion = translationRuntime?.deleteAccount(removedAccount.partition);\n  proxyRuntime.forgetPartition(removedAccount.partition);\n\n  try {\n    const guests = webContents.getAllWebContents().filter(\n      (wc) => wc.session?.partition === removedAccount.partition\n    );\n    for (const wc of guests) {\n      if (!wc.isDestroyed()) wc.destroy();\n    }\n  } catch (e) { /* 销毁失败不影响 */ }\n\n  await translationDeletion;\n\n  const partDir = path.join(`;
+          const first = source.indexOf(before);
+          if (first < 0 || source.indexOf(before, first + 1) >= 0) {
+            throw new Error('expected exactly one removeAccount translation cleanup boundary');
+          }
+          fs.writeFileSync(file, source.replace(before, after));
+          NODE
+
+      - name: Upload patched main source
+        uses: actions/upload-artifact@v7
+        with:
+          name: patched-main-${{ github.event.pull_request.head.sha }}
+          path: src/main.cjs
+          if-no-files-found: error
+          retention-days: 1
