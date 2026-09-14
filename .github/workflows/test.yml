@@ -46,11 +46,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --json || true
-
-      - name: Audit full dependency graph
-        run: npm audit --json || true
+      - name: Enforce dependency audit policy
+        run: node scripts/dependency-audit-policy.cjs
 
       - name: Run tests
         run: npm test
