@@ -6,6 +6,7 @@
 
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const { normalizeSubscriptionApiBase } = require('./subscription-api-url.cjs');
 
 const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
@@ -54,7 +55,7 @@ function decryptField(value) {
 }
 
 function apiBase() {
-  return (process.env.GEEK_SUBSCRIPTION_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
+  return normalizeSubscriptionApiBase(process.env.GEEK_SUBSCRIPTION_API_URL || DEFAULT_API_URL);
 }
 
 function normalizeUserIdentity(value = {}) {
