@@ -8,6 +8,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 
 const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 const ACCOUNT_NO_PATTERN = /^GK-[0-9a-f]{32}$/;
 const TOKEN_DECRYPT_ERROR = 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED';
 
@@ -69,8 +70,12 @@ function normalizeUserIdentity(value = {}) {
   };
 }
 
-function createSubscriptionStore({ userDataDir }) {
+function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS }) {
   const stateFile = () => path.join(userDataDir, 'subscription.json');
+  const parsedRequestTimeoutMs = Number(requestTimeoutMs);
+  const boundedRequestTimeoutMs = Number.isFinite(parsedRequestTimeoutMs) && parsedRequestTimeoutMs > 0
+    ? Math.floor(parsedRequestTimeoutMs)
+    : DEFAULT_REQUEST_TIMEOUT_MS;
   let diskWriteQueue = Promise.resolve();
 
   function writeStateDisk(disk, options = {}) {
@@ -105,6 +110,13 @@ function createSubscriptionStore({ userDataDir }) {
   function loginRequiredError() {
     const error = new Error('请先登录');
     error.code = 'SUBSCRIPTION_LOGIN_REQUIRED';
+    return error;
+  }
+
+  function requestTimeoutError(cause) {
+    const error = new Error('订阅服务请求超时，请重试');
+    error.code = 'SUBSCRIPTION_REQUEST_TIMEOUT';
+    error.cause = cause;
     return error;
   }
 
@@ -191,19 +203,36 @@ function createSubscriptionStore({ userDataDir }) {
       const state = await load();
       if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
     }
-    const res = await fetch(`${apiBase()}${pathname}`, {
-      method: options.method || 'GET',
-      headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const err = new Error(data.error || `HTTP ${res.status}`);
-      err.status = res.status;
-      err.code = data.error;
-      throw err;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), boundedRequestTimeoutMs);
+    try {
+      const res = await fetch(`${apiBase()}${pathname}`, {
+        method: options.method || 'GET',
+        headers,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal,
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (error) {
+        if (controller.signal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') throw error;
+      }
+      if (!res.ok) {
+        const err = new Error(data.error || `HTTP ${res.status}`);
+        err.status = res.status;
+        err.code = data.error;
+        throw err;
+      }
+      return data;
+    } catch (cause) {
+      if (controller.signal.aborted || cause?.name === 'AbortError' || cause?.name === 'TimeoutError') {
+        throw requestTimeoutError(cause);
+      }
+      throw cause;
+    } finally {
+      clearTimeout(timer);
     }
-    return data;
   }
 
   // 本地状态（不请求网络）：{ loggedIn, email, user_id, account_no, account_ref, remaining_chars, valid }
@@ -459,4 +488,4 @@ function createSubscriptionStore({ userDataDir }) {
   };
 }
 
-module.exports = { createSubscriptionStore, DEFAULT_API_URL };
+module.exports = { createSubscriptionStore, DEFAULT_API_URL, DEFAULT_REQUEST_TIMEOUT_MS };
