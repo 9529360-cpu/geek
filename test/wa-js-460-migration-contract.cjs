@@ -59,12 +59,17 @@ for (const capability of ['sendTextMessage', 'sendFileMessage', 'getActiveChat',
   assert.ok(capabilityProbeSource.includes(capability), 'capability diagnostics must retain Geek surface: ' + capability);
 }
 const officialBundleIndex = main.indexOf('../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js', injectionProbeStart);
-const injectionOwnerIndex = main.indexOf('wppInjected.add(part)', officialBundleIndex);
+const pickerInstallIndex = main.indexOf('executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE)', officialBundleIndex);
+const injectionOwnerIndex = main.indexOf('wppInjected.add(part)', pickerInstallIndex);
 const fallbackBundleIndex = main.indexOf('../resources/waplus-wpp.js', injectionOwnerIndex);
-assert.ok(officialBundleIndex >= 0 && injectionOwnerIndex > officialBundleIndex && fallbackBundleIndex > injectionOwnerIndex, 'official WA-JS injection ownership must commit before optional WAPLUS compatibility injection');
 assert.match(main, /WPP_CAPABILITY_PICKER_SOURCE/, 'main process must own the page capability picker source');
-const pickerInstallIndex = main.indexOf('executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE)', injectionOwnerIndex);
-assert.ok(pickerInstallIndex > injectionOwnerIndex && pickerInstallIndex < fallbackBundleIndex, 'capability picker must install after official injection ownership and before optional WAPLUS injection');
+assert.ok(
+  officialBundleIndex >= 0
+    && pickerInstallIndex > officialBundleIndex
+    && injectionOwnerIndex > pickerInstallIndex
+    && fallbackBundleIndex > injectionOwnerIndex,
+  'capability picker must install before injection ownership commits, while optional WAPLUS remains post-commit',
+);
 for (const [name, source] of [['main', main], ['app', app], ['runtime', runtime]]) {
   assert.doesNotMatch(source, /window\.WPP \|\| window\.WAPLUS_WPP/, name + ' must not select WPP/WAPLUS by object existence alone');
 }
@@ -75,6 +80,8 @@ for (const capability of ['whatsapp.UserPrefs', 'group.getParticipants', 'contac
   assert.ok(runtime.includes('__geekPickWpp') && runtime.includes(capability), 'broadcast runtime must capability-select WPP for ' + capability);
 }
 assert.match(main, /__geekPickWpp\?\.\(\['whatsapp\.ChatStore'\]\)/, 'main media path must capability-select ChatStore owner');
+assert.ok(app.includes("__geekPickWpp?.(['whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty'])"), 'selected-group clone picker must gate only core clone capabilities');
+assert.ok(app.includes("__geekPickWpp?.(['group.getGroupInfoFromInviteCode','whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty'])"), 'invite-link clone picker must gate only core clone capabilities');
 assert.match(recovery, /wpp\?\.loader[\s\S]*moduleRequire[\s\S]*_moduleIdMap/, 'ordinary composer recovery must continue consuming WA-JS loader metadata');
 assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');

@@ -1098,8 +1098,8 @@ function configureWebviewSecurity(window) {
         // From here on the official WA-JS bundle owns injection lifecycle. Authenticated
         // business modules and the WAPLUS compatibility bundle are independent capability
         // evidence and must never force a healthy primary bundle to be injected again.
-        wppInjected.add(part);
         await wc.executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE);
+        wppInjected.add(part);
 
         try {
           const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');

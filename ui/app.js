@@ -3013,7 +3013,7 @@
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const result = { created: [], errors: [] };
         try {
-          const W = window.__geekPickWpp?.(['whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty','contact.getProfilePictureUrl','whatsapp.WidFactory']);
+          const W = window.__geekPickWpp?.(['whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty']);
           const M = window.require('WAWebGroupModifyInfoJob');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
           const makeSquare = (dataUrl, size) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => { const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size; canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size); resolve(canvas.toDataURL('image/jpeg', .92)); }; img.onerror = () => reject(new Error('头像图片解码失败')); img.src = dataUrl; });
@@ -3099,7 +3099,7 @@
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const result = { created: [], errors: [], source: null };
         try {
-          const W = window.__geekPickWpp?.(['group.getGroupInfoFromInviteCode','whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty','whatsapp.WidFactory']);
+          const W = window.__geekPickWpp?.(['group.getGroupInfoFromInviteCode','whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty']);
           const M = window.require('WAWebGroupModifyInfoJob');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
           const makeSquare = (dataUrl, size) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => { const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size; canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size); resolve(canvas.toDataURL('image/jpeg', .92)); }; img.onerror = () => reject(new Error('头像图片解码失败')); img.src = dataUrl; });
