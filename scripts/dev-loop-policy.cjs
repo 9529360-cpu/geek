@@ -26,9 +26,21 @@ function normalizeRelativePath(value) {
     .replace(/^\/+/, '');
 }
 
+function isIgnoredDevPath(relativePath) {
+  const filePath = normalizeRelativePath(relativePath);
+  if (!filePath) return true;
+  const base = path.posix.basename(filePath);
+  return base === '.DS_Store'
+    || base === 'Thumbs.db'
+    || base.startsWith('.#')
+    || base.startsWith('~$')
+    || base.endsWith('~')
+    || /\.(?:swp|swo|swx|tmp|temp|bak)$/i.test(base);
+}
+
 function classifyDevChange(relativePath) {
   const filePath = normalizeRelativePath(relativePath);
-  if (!filePath) return DEV_ACTION.IGNORE;
+  if (!filePath || isIgnoredDevPath(filePath)) return DEV_ACTION.IGNORE;
 
   if (filePath === 'package.json' || filePath === 'package-lock.json') {
     return DEV_ACTION.RESTART_ELECTRON;
@@ -61,11 +73,14 @@ function isJavaScriptSource(filePath) {
   return ['.js', '.cjs', '.mjs'].includes(path.posix.extname(filePath));
 }
 
-function shouldSyntaxCheck(filePath) {
+function isRuntimeJavaScript(filePath) {
   if (!isJavaScriptSource(filePath)) return false;
+  return ['ui/', 'src/', 'resources/'].some((prefix) => filePath.startsWith(prefix));
+}
+
+function isFeedbackJavaScript(filePath) {
+  if (!isJavaScriptSource(filePath) || isRuntimeJavaScript(filePath)) return false;
   return [
-    'src/',
-    'ui/',
     'scripts/',
     'test-support/',
     'e2e/',
@@ -85,19 +100,28 @@ function isWorkerConfig(filePath) {
 
 function planDevChanges(relativePaths) {
   const changes = Array.from(new Set(
-    (relativePaths || []).map(normalizeRelativePath).filter(Boolean),
+    (relativePaths || [])
+      .map(normalizeRelativePath)
+      .filter((filePath) => filePath && !isIgnoredDevPath(filePath)),
   )).sort();
+  const runtimeSyntaxFiles = changes.filter(isRuntimeJavaScript);
+  const feedbackSyntaxFiles = changes.filter(isFeedbackJavaScript);
   return Object.freeze({
     changes: Object.freeze(changes),
     runtimeAction: selectDevAction(changes),
-    syntaxFiles: Object.freeze(changes.filter(shouldSyntaxCheck)),
+    runtimeSyntaxFiles: Object.freeze(runtimeSyntaxFiles),
+    feedbackSyntaxFiles: Object.freeze(feedbackSyntaxFiles),
+    syntaxFiles: Object.freeze([...runtimeSyntaxFiles, ...feedbackSyntaxFiles].sort()),
     testFiles: Object.freeze(changes.filter(isRunnableContract)),
     manifestFiles: Object.freeze(changes.filter((filePath) => (
       filePath === 'package.json' || filePath === 'package-lock.json'
     ))),
     workerConfigFiles: Object.freeze(changes.filter(isWorkerConfig)),
     requiresLoopRestart: changes.some((filePath) => (
-      filePath === 'scripts/dev-loop.cjs' || filePath === 'scripts/dev-loop-policy.cjs'
+      filePath === 'scripts/dev-loop.cjs'
+      || filePath === 'scripts/dev-loop-policy.cjs'
+      || filePath === 'scripts/dev-loop-process.cjs'
+      || filePath === 'src/dev-loop-control.cjs'
     )),
   });
 }
@@ -105,6 +129,7 @@ function planDevChanges(relativePaths) {
 module.exports = {
   DEV_ACTION,
   classifyDevChange,
+  isIgnoredDevPath,
   normalizeRelativePath,
   planDevChanges,
   selectDevAction,

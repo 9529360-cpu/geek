@@ -1,15 +1,28 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const {
+  DEV_LOOP_CONTROL_FLAG,
+  DEV_LOOP_CONTROL_TOKEN,
+  DEV_LOOP_MESSAGES,
+} = require('../src/dev-loop-control.cjs');
 const { DEV_ACTION, planDevChanges } = require('./dev-loop-policy.cjs');
+const {
+  childIsRunning,
+  requestGracefulQuit,
+  terminateProcessTree,
+  waitForChildExit,
+} = require('./dev-loop-process.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const DEBUG_PORT = 9344;
 const DEBOUNCE_MS = 160;
+const CONTROL_ACK_MS = 700;
 const STOP_GRACE_MS = 3000;
-const STOP_KILL_WAIT_MS = 1000;
+const STOP_KILL_WAIT_MS = 1500;
 const WATCH_ROOTS = Object.freeze([
   'ui',
   'src',
@@ -31,11 +44,13 @@ const ROOT_FEEDBACK_FILES = Object.freeze(new Set([
 ]));
 
 let electronProcess = null;
+let electronControl = null;
 let shuttingDown = false;
 let debounceTimer = null;
 let actionQueue = Promise.resolve();
 const pendingChanges = new Set();
 const watchers = [];
+const rootFileSignatures = new Map();
 
 function log(message) {
   process.stdout.write(`[dev] ${message}\n`);
@@ -57,32 +72,64 @@ function electronBinary() {
   return require('electron');
 }
 
-function childIsRunning(child) {
-  return Boolean(child && child.exitCode === null && child.signalCode === null);
+function fileSignature(relativePath) {
+  try {
+    const stat = fs.statSync(resolveRepoFile(relativePath));
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return 'missing';
+  }
+}
+
+function rememberRootFile(relativePath) {
+  rootFileSignatures.set(relativePath, fileSignature(relativePath));
+}
+
+function queueRootFileIfChanged(relativePath) {
+  const next = fileSignature(relativePath);
+  const previous = rootFileSignatures.get(relativePath);
+  rootFileSignatures.set(relativePath, next);
+  if (previous !== next) queueChange(relativePath);
 }
 
 function startElectron() {
   if (shuttingDown || childIsRunning(electronProcess)) return;
 
+  const token = crypto.randomUUID();
   const child = spawn(
     electronBinary(),
     ['.', `--remote-debugging-port=${DEBUG_PORT}`],
     {
       cwd: ROOT,
-      env: { ...process.env },
-      stdio: 'inherit',
+      env: {
+        ...process.env,
+        [DEV_LOOP_CONTROL_FLAG]: '1',
+        [DEV_LOOP_CONTROL_TOKEN]: token,
+      },
+      stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
       windowsHide: false,
     },
   );
   electronProcess = child;
+  electronControl = { child, token, ready: false };
   log(`Electron started with isolated development profile and CDP ${DEBUG_PORT}.`);
 
+  child.on('message', (message) => {
+    if (electronProcess !== child || electronControl?.child !== child) return;
+    if (message?.token !== token) return;
+    if (message?.type === DEV_LOOP_MESSAGES.READY) {
+      electronControl.ready = true;
+      log('Electron dev control channel ready.');
+    }
+  });
   child.once('error', (error) => {
     if (electronProcess === child) electronProcess = null;
+    if (electronControl?.child === child) electronControl = null;
     warn(`Electron failed to start: ${error.message}`);
   });
   child.once('exit', (code, signal) => {
     if (electronProcess === child) electronProcess = null;
+    if (electronControl?.child === child) electronControl = null;
     if (!shuttingDown) {
       const detail = signal ? `signal ${signal}` : `code ${code}`;
       warn(`Electron exited (${detail}); watching continues and the next runtime change will relaunch it.`);
@@ -94,56 +141,44 @@ async function stopElectron() {
   const child = electronProcess;
   if (!childIsRunning(child)) {
     if (electronProcess === child) electronProcess = null;
-    return;
+    if (electronControl?.child === child) electronControl = null;
+    return true;
   }
 
-  await new Promise((resolve) => {
-    let settled = false;
-    let forceTimer = null;
-    let finishTimer = null;
+  const control = electronControl?.child === child ? electronControl : null;
+  const graceful = await requestGracefulQuit(child, control, CONTROL_ACK_MS);
+  if (graceful) {
+    log('Electron acknowledged graceful dev-loop shutdown.');
+  } else if (childIsRunning(child)) {
+    warn('Electron dev control was unavailable; asking the OS to terminate the owned process tree.');
+    terminateProcessTree(child, { force: false });
+  }
 
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      if (forceTimer) clearTimeout(forceTimer);
-      if (finishTimer) clearTimeout(finishTimer);
-      child.removeListener('exit', finish);
-      resolve();
-    };
+  if (await waitForChildExit(child, STOP_GRACE_MS)) {
+    if (electronProcess === child) electronProcess = null;
+    if (electronControl?.child === child) electronControl = null;
+    return true;
+  }
 
-    child.once('exit', finish);
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      finish();
-      return;
-    }
-
-    forceTimer = setTimeout(() => {
-      if (!childIsRunning(child)) {
-        finish();
-        return;
-      }
-      warn('Electron did not stop in time; forcing shutdown before relaunch.');
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        finish();
-        return;
-      }
-      finishTimer = setTimeout(finish, STOP_KILL_WAIT_MS);
-      finishTimer.unref?.();
-    }, STOP_GRACE_MS);
-    forceTimer.unref?.();
-  });
+  warn('Electron did not stop in time; forcing the owned process tree down before relaunch.');
+  terminateProcessTree(child, { force: true });
+  const exited = await waitForChildExit(child, STOP_KILL_WAIT_MS);
+  if (!exited) {
+    warn('Electron process tree is still alive after the force deadline; relaunch is blocked to avoid duplicate profile owners.');
+    return false;
+  }
 
   if (electronProcess === child) electronProcess = null;
+  if (electronControl?.child === child) electronControl = null;
+  return true;
 }
 
 async function restartElectron(reason) {
   log(`Restarting Electron (${reason}).`);
-  await stopElectron();
+  const stopped = await stopElectron();
+  if (!stopped) return false;
   if (!shuttingDown) startElectron();
+  return true;
 }
 
 function runProcess(command, args, { inherited = true } = {}) {
@@ -197,26 +232,30 @@ async function runChangedContract(relativePath) {
   }
 }
 
-async function verifyPlan(plan) {
+async function verifyRuntimeInputs(plan) {
   let runtimeSafe = true;
-  for (const sourceFile of plan.syntaxFiles) {
+  for (const sourceFile of plan.runtimeSyntaxFiles) {
     if (!await syntaxCheck(sourceFile)) runtimeSafe = false;
   }
   for (const manifest of plan.manifestFiles) {
     if (!validateJsonFile(manifest)) runtimeSafe = false;
   }
+  return runtimeSafe;
+}
 
+async function runFeedbackChecks(plan) {
+  for (const sourceFile of plan.feedbackSyntaxFiles) {
+    await syntaxCheck(sourceFile);
+  }
   for (const testFile of plan.testFiles) {
     await runChangedContract(testFile);
   }
-
   if (plan.workerConfigFiles.length > 0) {
     log(`Worker config changed (${plan.workerConfigFiles.join(', ')}); Wrangler bundle dry-runs remain authoritative in CI.`);
   }
   if (plan.requiresLoopRestart) {
-    warn('The dev-loop implementation changed; restart npm run dev once to activate the new watcher code.');
+    warn('The dev-loop implementation or control protocol changed; restart npm run dev once to activate the new supervisor code.');
   }
-  return runtimeSafe;
 }
 
 async function reloadShell(changes) {
@@ -237,12 +276,9 @@ async function reloadShell(changes) {
   }
 }
 
-async function applyChanges(changes) {
-  const plan = planDevChanges(changes);
-  const runtimeSafe = await verifyPlan(plan);
-
+async function applyRuntimeAction(plan, runtimeSafe) {
   if (!runtimeSafe && plan.runtimeAction !== DEV_ACTION.IGNORE) {
-    warn('Runtime update skipped because changed executable input is invalid; the last working desktop process stays active.');
+    warn('Desktop update skipped because changed runtime input is invalid; the last working Electron process stays active.');
     return;
   }
 
@@ -256,6 +292,14 @@ async function applyChanges(changes) {
     }
     await restartElectron(plan.changes.join(', '));
   }
+}
+
+async function applyChanges(changes) {
+  const plan = planDevChanges(changes);
+  if (plan.changes.length === 0) return;
+  const runtimeSafe = await verifyRuntimeInputs(plan);
+  await applyRuntimeAction(plan, runtimeSafe);
+  await runFeedbackChecks(plan);
 }
 
 function flushPendingChanges() {
@@ -292,13 +336,14 @@ function watchDirectory(name) {
 }
 
 function watchRootFiles() {
+  for (const file of ROOT_FEEDBACK_FILES) rememberRootFile(file);
   const watcher = fs.watch(ROOT, (_eventType, filename) => {
     if (!filename) {
-      queueChange('package.json');
+      for (const file of ROOT_FEEDBACK_FILES) queueRootFileIfChanged(file);
       return;
     }
     const name = String(filename);
-    if (ROOT_FEEDBACK_FILES.has(name)) queueChange(name);
+    if (ROOT_FEEDBACK_FILES.has(name)) queueRootFileIfChanged(name);
   });
   watcher.on('error', (error) => {
     warn(`Root watcher failed: ${error.message}`);
@@ -314,8 +359,8 @@ async function shutdown(exitCode = 0) {
   debounceTimer = null;
   pendingChanges.clear();
   for (const watcher of watchers.splice(0)) watcher.close();
-  await stopElectron();
-  process.exit(exitCode);
+  const stopped = await stopElectron();
+  process.exit(stopped ? exitCode : Math.max(1, exitCode));
 }
 
 function closeWatchers() {
