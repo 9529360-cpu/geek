@@ -5,6 +5,7 @@ const net = require('node:net');
 
 const PROXY_APPLY_FAILED = 'PROXY_APPLY_FAILED';
 const PROXY_CONFIG_INVALID = 'PROXY_CONFIG_INVALID';
+const PROXY_APPLY_STALE = 'PROXY_APPLY_STALE';
 
 function createError(message, code, cause) {
   const error = new Error(message);
@@ -117,6 +118,8 @@ function createProxyRuntime(options = {}) {
   if (typeof getGlobalConfig !== 'function') throw new TypeError('proxy runtime global config resolver is required');
 
   const readiness = new Map();
+  const mutationTails = new Map();
+  const partitionGenerations = new Map();
   let authHandler = null;
 
   function report(error, partition, phase) {
@@ -132,6 +135,24 @@ function createProxyRuntime(options = {}) {
   function stateFor(partition) {
     const state = readiness.get(partition);
     return state ? { ...state } : null;
+  }
+
+  function generationFor(partition) {
+    return partitionGenerations.get(partition) || 0;
+  }
+
+  function isCurrentGeneration(partition, generation) {
+    return generationFor(partition) === generation;
+  }
+
+  function staleApplyResult() {
+    return { ok: false, changed: false, deduped: false, stale: true, code: PROXY_APPLY_STALE };
+  }
+
+  function maybeReleasePartitionGeneration(partition) {
+    if (!mutationTails.has(partition) && !readiness.has(partition)) {
+      partitionGenerations.delete(partition);
+    }
   }
 
   function lastAppliedProxy(previous, descriptor) {
@@ -165,19 +186,19 @@ function createProxyRuntime(options = {}) {
     return { ok: false, changed: false, deduped: false, code };
   }
 
-  async function applyPartition(partition, config) {
-    if (typeof partition !== 'string' || !partition) {
-      return markFailed(String(partition || ''), createError('proxy partition is required', PROXY_CONFIG_INVALID));
-    }
+  async function applyPartitionNow(partition, config, generation) {
+    if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
 
     const previous = readiness.get(partition) || null;
     let descriptor;
     try {
       descriptor = compileProxyConfig(config);
     } catch (error) {
+      if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
       return markFailed(partition, error, null, 'apply', previous);
     }
 
+    if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
     if (previous?.ready === true && previous.fingerprint === descriptor.fingerprint) {
       return { ok: true, changed: false, deduped: true, enabled: descriptor.enabled };
     }
@@ -185,6 +206,7 @@ function createProxyRuntime(options = {}) {
     // A fresh Electron Session is direct by default. Avoid a needless asynchronous
     // setProxy call when neither this runtime nor a prior live config has changed it.
     if (!descriptor.enabled && !previous) {
+      if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
       readiness.set(partition, {
         ready: true,
         fingerprint: descriptor.fingerprint,
@@ -199,6 +221,7 @@ function createProxyRuntime(options = {}) {
 
     let ses;
     try {
+      if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
       ses = sessionModule.fromPartition(partition, { cache: true });
       if (!ses || typeof ses.setProxy !== 'function') throw new Error('session setProxy is unavailable');
       if (descriptor.enabled) {
@@ -210,6 +233,7 @@ function createProxyRuntime(options = {}) {
       } else {
         await ses.setProxy({ mode: 'direct' });
       }
+      if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
 
       const staleAuthForSameProxy = descriptor.enabled
         && previous?.lastProxyHost === descriptor.canonicalHost
@@ -218,15 +242,19 @@ function createProxyRuntime(options = {}) {
         && previous.lastProxyAuthFingerprint !== descriptor.authFingerprint;
       if (staleAuthForSameProxy && typeof ses.clearAuthCache === 'function') {
         await ses.clearAuthCache();
+        if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
       }
       if (previous && previous.fingerprint !== descriptor.fingerprint && typeof ses.closeAllConnections === 'function') {
         await ses.closeAllConnections();
+        if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
       }
     } catch (cause) {
+      if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
       const error = createError('failed to apply account proxy', PROXY_APPLY_FAILED, cause);
       return markFailed(partition, error, descriptor, 'apply', previous);
     }
 
+    if (!isCurrentGeneration(partition, generation)) return staleApplyResult();
     readiness.set(partition, {
       ready: true,
       fingerprint: descriptor.fingerprint,
@@ -237,6 +265,30 @@ function createProxyRuntime(options = {}) {
       ...lastAppliedProxy(previous, descriptor),
     });
     return { ok: true, changed: true, deduped: false, enabled: descriptor.enabled };
+  }
+
+  function enqueuePartitionMutation(partition, config) {
+    const generation = generationFor(partition);
+    const previousTail = mutationTails.get(partition) || Promise.resolve();
+    const run = previousTail.then(
+      () => applyPartitionNow(partition, config, generation),
+      () => applyPartitionNow(partition, config, generation),
+    );
+    const tail = run.then(() => undefined, () => undefined);
+    mutationTails.set(partition, tail);
+    tail.finally(() => {
+      if (mutationTails.get(partition) !== tail) return;
+      mutationTails.delete(partition);
+      maybeReleasePartitionGeneration(partition);
+    });
+    return run;
+  }
+
+  async function applyPartition(partition, config) {
+    if (typeof partition !== 'string' || !partition) {
+      return markFailed(String(partition || ''), createError('proxy partition is required', PROXY_CONFIG_INVALID));
+    }
+    return enqueuePartitionMutation(partition, config);
   }
 
   async function applyAccount(account, globalConfig = getGlobalConfig()) {
@@ -264,7 +316,10 @@ function createProxyRuntime(options = {}) {
   }
 
   function forgetPartition(partition) {
+    if (typeof partition !== 'string' || !partition) return;
+    partitionGenerations.set(partition, generationFor(partition) + 1);
     readiness.delete(partition);
+    maybeReleasePartitionGeneration(partition);
   }
 
   function installAuthenticationHandler() {
@@ -310,6 +365,7 @@ function createProxyRuntime(options = {}) {
 
 module.exports = {
   PROXY_APPLY_FAILED,
+  PROXY_APPLY_STALE,
   PROXY_CONFIG_INVALID,
   compileProxyConfig,
   createProxyRuntime,
