@@ -3,40 +3,70 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const proxyRuntime = require('../src/proxy-runtime.cjs');
+const proxy = require('../src/proxy-runtime.cjs');
 
-function fakeApp() {
+function createEmitterApp() {
   const listeners = new Map();
   return {
     listeners,
-    on(event, handler) { listeners.set(event, handler); },
-    removeListener(event, handler) { if (listeners.get(event) === handler) listeners.delete(event); },
+    whenReady() { return Promise.resolve(); },
+    on(event, handler) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event).add(handler);
+      return this;
+    },
+    removeListener(event, handler) {
+      listeners.get(event)?.delete(handler);
+      if (!listeners.get(event)?.size) listeners.delete(event);
+      return this;
+    },
+    emit(event, ...args) {
+      for (const handler of [...(listeners.get(event) || [])]) handler(...args);
+    },
+    listenerCount(event) { return listeners.get(event)?.size || 0; },
   };
 }
 
-function fakeSessionModule() {
+function createSessionHarness(timeline = []) {
   const sessions = new Map();
+  const proto = {
+    async setProxy(config) {
+      this.calls.push(['native-setProxy', config]);
+      timeline.push(['native-setProxy', this.partitionHint || 'default', config]);
+      if (this.failNext) {
+        this.failNext = false;
+        throw Object.assign(new Error('proxy apply failed'), { code: 'PROXY_TEST_APPLY' });
+      }
+    },
+  };
+  function makeSession(partition = '') {
+    const value = Object.create(proto);
+    value.partitionHint = partition || 'default';
+    value.storagePath = partition
+      ? `/tmp/geek/Partitions/${partition.replace(/^persist:/, '')}`
+      : '/tmp/geek/Session Storage';
+    value.calls = [];
+    value.failNext = false;
+    value.closeAllConnections = async function closeAllConnections() {
+      this.calls.push(['closeAllConnections']);
+      timeline.push(['closeAllConnections', this.partitionHint]);
+    };
+    return value;
+  }
+  const defaultSession = makeSession('');
   return {
+    proto,
+    defaultSession,
     sessions,
     fromPartition(partition) {
-      if (!sessions.has(partition)) {
-        const calls = [];
-        sessions.set(partition, {
-          calls,
-          failNext: false,
-          async setProxy(config) {
-            calls.push(['setProxy', config]);
-            if (this.failNext) {
-              this.failNext = false;
-              throw Object.assign(new Error('proxy apply failed'), { code: 'PROXY_TEST_APPLY' });
-            }
-          },
-          async closeAllConnections() { calls.push(['closeAllConnections']); },
-        });
-      }
+      if (!sessions.has(partition)) sessions.set(partition, makeSession(partition));
       return sessions.get(partition);
     },
   };
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 (async () => {
@@ -55,8 +85,7 @@ function fakeSessionModule() {
     partition: 'persist:webview-page-B',
     openProxy: false,
   };
-  const accounts = [accountA, accountB];
-  let globalConfig = {
+  const globalProxy = {
     openProxy: true,
     protocal: 'socks5',
     host: 'proxy-global.test',
@@ -65,209 +94,354 @@ function fakeSessionModule() {
     password: 'global-secret',
   };
 
-  // The UI field is the proxy server protocol. Electron ProxyConfig accepts a proxy
-  // URI applying to the Session; credentials must never be embedded as URL userinfo.
-  assert.equal(proxyRuntime.proxyRulesFor(accountA), 'http://proxy-a.test:8080');
-  assert.equal(proxyRuntime.proxyRulesFor(globalConfig), 'socks5://proxy-global.test:1080');
-  assert.equal(proxyRuntime.proxyRulesFor({ ...accountA, protocal: 'https' }), 'https://proxy-a.test:8080');
-  assert.equal(proxyRuntime.proxyRulesFor({ ...accountA, protocal: 'socks4' }), 'socks4://proxy-a.test:8080');
-  assert.equal(proxyRuntime.proxyRulesFor({ ...accountA, host: '[2001:db8::1]' }), 'http://[2001:db8::1]:8080');
-  for (const rules of [proxyRuntime.proxyRulesFor(accountA), proxyRuntime.proxyRulesFor(globalConfig)]) {
+  // The UI protocol selector names the proxy server protocol. Electron receives only
+  // scheme/host/port; proxy credentials are handled by the login challenge instead.
+  assert.equal(proxy.proxyRulesFor(accountA), 'http://proxy-a.test:8080');
+  assert.equal(proxy.proxyRulesFor(globalProxy), 'socks5://proxy-global.test:1080');
+  assert.equal(proxy.proxyRulesFor({ ...accountA, protocal: 'https' }), 'https://proxy-a.test:8080');
+  assert.equal(proxy.proxyRulesFor({ ...accountA, protocal: 'socks4' }), 'socks4://proxy-a.test:8080');
+  assert.equal(proxy.proxyRulesFor({ ...accountA, host: '[2001:db8::1]' }), 'http://[2001:db8::1]:8080');
+  for (const rules of [proxy.proxyRulesFor(accountA), proxy.proxyRulesFor(globalProxy)]) {
     assert.doesNotMatch(rules, /alice|alpha-secret|global-user|global-secret|@/);
   }
-  assert.deepEqual(proxyRuntime.sessionProxyConfig(null), { mode: 'direct' });
+  assert.deepEqual(proxy.sessionProxyConfig(null), { mode: 'direct' });
   assert.throws(
-    () => proxyRuntime.sessionProxyConfig({ openProxy: true, protocal: 'http', host: '', port: '8080' }),
+    () => proxy.sessionProxyConfig({ openProxy: true, protocal: 'http', host: '', port: '8080' }),
     error => error?.code === 'PROXY_CONFIG_INVALID',
-    'an enabled but invalid proxy must fail closed rather than becoming direct mode',
+    'an enabled malformed proxy must fail closed instead of silently becoming direct',
   );
-  assert.equal(proxyRuntime.effectiveProxyConfig(accountA, globalConfig), accountA);
-  assert.equal(proxyRuntime.effectiveProxyConfig(accountB, globalConfig), globalConfig);
+  assert.equal(proxy.effectiveProxyConfig(accountA, globalProxy), accountA);
+  assert.equal(proxy.effectiveProxyConfig(accountB, globalProxy), globalProxy);
 
-  const app = fakeApp();
-  const session = fakeSessionModule();
-  const accountState = {
-    getSnapshot() { return { accounts: accounts.map(account => ({ ...account })) }; },
-    findByPartition(partition) { return accounts.find(account => account.partition === partition) || null; },
-  };
-  const errors = [];
-  const runtime = proxyRuntime.createProxyRuntime({
-    app,
-    session,
-    accountState,
-    getGlobalConfig: () => ({ ...globalConfig }),
-    onError(error, meta) { errors.push({ error, meta }); },
-  });
+  // Standalone runtime: prove authentication ownership, dedupe, changed-connection
+  // teardown, and per-partition failure isolation independently of composition wiring.
+  {
+    const app = createEmitterApp();
+    const session = createSessionHarness();
+    const accounts = [clone(accountA), clone(accountB)];
+    let globalConfig = clone(globalProxy);
+    const errors = [];
+    const runtime = proxy.createProxyRuntime({
+      app,
+      session,
+      accountState: {
+        getSnapshot: () => ({ accounts: clone(accounts) }),
+        findByPartition: partition => clone(accounts.find(item => item.partition === partition) || null),
+      },
+      getGlobalConfig: () => clone(globalConfig),
+      onError(error, meta) { errors.push({ error, meta }); },
+    });
 
-  assert.equal(runtime.installAuthentication(), true);
-  assert.equal(runtime.installAuthentication(), false, 'login owner must install only once');
-  assert.equal(typeof app.listeners.get('login'), 'function');
+    assert.equal(runtime.installAuthentication(), true);
+    assert.equal(runtime.installAuthentication(), false, 'authentication owner installs exactly once');
+    assert.equal(app.listenerCount('login'), 1);
 
-  const startup = await runtime.applyAllAccounts({ closeConnections: false });
-  assert.deepEqual(startup.map(row => [row.accountId, row.ok]), [['A', true], ['B', true]]);
-  const aSession = session.sessions.get(accountA.partition);
-  const bSession = session.sessions.get(accountB.partition);
-  assert.deepEqual(aSession.calls, [[
-    'setProxy',
-    {
-      mode: 'fixed_servers',
-      proxyRules: 'http://proxy-a.test:8080',
-      proxyBypassRules: '<local>',
-    },
-  ]]);
-  assert.deepEqual(bSession.calls, [[
-    'setProxy',
-    {
-      mode: 'fixed_servers',
-      proxyRules: 'socks5://proxy-global.test:1080',
-      proxyBypassRules: '<local>',
-    },
-  ]]);
+    const startup = await runtime.applyAllAccounts({ closeConnections: false });
+    assert.deepEqual(startup.map(row => [row.accountId, row.ok]), [['A', true], ['B', true]]);
+    const aSession = session.sessions.get(accountA.partition);
+    const bSession = session.sessions.get(accountB.partition);
+    assert.equal(aSession.calls[0][1].proxyRules, 'http://proxy-a.test:8080');
+    assert.equal(bSession.calls[0][1].proxyRules, 'socks5://proxy-global.test:1080');
 
-  // Unchanged effective proxy state is a no-op: ordinary account/config writes must
-  // not tear down healthy sockets.
-  await runtime.applyAccount(accountA);
-  assert.equal(aSession.calls.length, 1);
+    await runtime.applyAccount(accounts[0]);
+    assert.equal(aSession.calls.length, 1, 'unchanged effective proxy must not churn healthy sockets');
 
-  // Credential changes are part of the operational proxy fingerprint even though
-  // credentials are deliberately absent from proxyRules. Re-auth must close pooled
-  // connections after the new setting is committed.
-  accountA.hpwd = 'alpha-secret-2';
-  await runtime.applyAccount(accountA);
-  assert.equal(aSession.calls.length, 3);
-  assert.equal(aSession.calls[1][0], 'setProxy');
-  assert.deepEqual(aSession.calls[2], ['closeAllConnections']);
+    accounts[0].hpwd = 'alpha-secret-2';
+    await runtime.applyAccount(accounts[0]);
+    assert.deepEqual(aSession.calls.slice(-2).map(call => call[0]), ['native-setProxy', 'closeAllConnections']);
+    assert.doesNotMatch(JSON.stringify(aSession.calls.at(-2)[1]), /alpha-secret-2|alice/);
 
-  function challenge({ webContents, details, authInfo }) {
-    let prevented = 0;
-    const credentials = [];
-    const handled = runtime.handleLogin(
-      { preventDefault() { prevented += 1; } },
-      webContents,
-      details,
-      authInfo,
-      (username, password) => credentials.push([username, password]),
+    function challenge(partition, details, authInfo) {
+      let prevented = 0;
+      const credentials = [];
+      const handled = runtime.handleLogin(
+        { preventDefault() { prevented += 1; } },
+        { session: { partition } },
+        details,
+        authInfo,
+        (username, password) => credentials.push([username, password]),
+      );
+      return { handled, prevented, credentials };
+    }
+
+    assert.deepEqual(
+      challenge(accountA.partition, { firstAuthAttempt: true }, { isProxy: true, host: 'PROXY-A.TEST', port: 8080 }),
+      { handled: true, prevented: 1, credentials: [['alice', 'alpha-secret-2']] },
     );
-    return { handled, prevented, credentials };
+    assert.deepEqual(
+      challenge(accountB.partition, { firstAuthAttempt: true }, { isProxy: true, host: 'proxy-global.test', port: 1080 }).credentials,
+      [['global-user', 'global-secret']],
+    );
+    for (const rejected of [
+      challenge(accountA.partition, { firstAuthAttempt: true }, { isProxy: false, host: 'proxy-a.test', port: 8080 }),
+      challenge(accountA.partition, { firstAuthAttempt: true }, { isProxy: true, host: 'other.test', port: 8080 }),
+      challenge('persist:webview-page-UNKNOWN', { firstAuthAttempt: true }, { isProxy: true, host: 'proxy-a.test', port: 8080 }),
+      challenge(accountA.partition, { firstAuthAttempt: false }, { isProxy: true, host: 'proxy-a.test', port: 8080 }),
+    ]) {
+      assert.equal(rejected.handled, false);
+      assert.equal(rejected.prevented, 0);
+      assert.deepEqual(rejected.credentials, []);
+    }
+
+    accounts[0].host = 'proxy-a2.test';
+    aSession.failNext = true;
+    assert.equal(await runtime.applyAccount(accounts[0]), false);
+    assert.equal(runtime.isPartitionReady(accountA.partition), false);
+    assert.equal(runtime.isPartitionReady(accountB.partition), true);
+    assert.equal(errors.at(-1).meta.partition, accountA.partition);
+    assert.deepEqual(
+      challenge(accountA.partition, { firstAuthAttempt: true }, { isProxy: true, host: 'proxy-a2.test', port: 8080 }).credentials,
+      [],
+      'a failed partition must not receive proxy credentials',
+    );
+
+    accounts[0].host = '';
+    assert.equal(await runtime.applyAccount(accounts[0]), false);
+    assert.equal(errors.at(-1).error.code, 'PROXY_CONFIG_INVALID');
+    assert.equal(runtime.isPartitionReady(accountA.partition), false);
+    assert.equal(runtime.isPartitionReady(accountB.partition), true);
+
+    runtime.forgetPartition(accountA.partition);
+    assert.equal(runtime.isPartitionReady(accountA.partition), false, 'forgotten partitions are unknown/not ready');
+
+    globalConfig = { ...globalConfig, openProxy: false };
+    await runtime.applyAccount(accounts[1]);
+    assert.deepEqual(bSession.calls.slice(-2), [
+      ['native-setProxy', { mode: 'direct' }],
+      ['closeAllConnections'],
+    ]);
+
+    runtime.dispose();
+    assert.equal(app.listenerCount('login'), 0);
   }
 
-  const aChallenge = challenge({
-    webContents: { session: { partition: accountA.partition } },
-    details: { firstAuthAttempt: true },
-    authInfo: { isProxy: true, host: 'PROXY-A.TEST', port: 8080 },
-  });
-  assert.deepEqual(aChallenge, {
-    handled: true,
-    prevented: 1,
-    credentials: [['alice', 'alpha-secret-2']],
-  });
+  // Composition contract: main-entry decorates the same Account/Config Store factories
+  // consumed by legacy main.cjs. Durable mutations stay authoritative; the runtime only
+  // projects those commits into account Sessions and never caches a second plaintext config.
+  {
+    const timeline = [];
+    const app = createEmitterApp();
+    const sessionModule = createSessionHarness(timeline);
+    let accounts = [clone(accountA), clone(accountB)];
+    let config = clone(globalProxy);
 
-  const bChallenge = challenge({
-    webContents: { session: { partition: accountB.partition } },
-    details: { firstAuthAttempt: true },
-    authInfo: { isProxy: true, host: 'proxy-global.test', port: 1080 },
-  });
-  assert.deepEqual(bChallenge.credentials, [['global-user', 'global-secret']]);
+    const rawAccountStore = {
+      async load() { timeline.push(['account-load']); return { accounts: clone(accounts) }; },
+      getSnapshot() { return { accounts: clone(accounts) }; },
+      findByPartition(partition) { return clone(accounts.find(item => item.partition === partition) || null); },
+      async add(payload) {
+        const account = clone(payload);
+        accounts.push(account);
+        timeline.push(['account-add-commit', account.id]);
+        return { account: clone(account), snapshot: { accounts: clone(accounts) } };
+      },
+      async update(accountId, patch) {
+        const account = accounts.find(item => item.id === accountId);
+        Object.assign(account, patch || {});
+        timeline.push(['account-update-commit', accountId]);
+        return { account: clone(account), snapshot: { accounts: clone(accounts) } };
+      },
+      async remove(accountId) {
+        const index = accounts.findIndex(item => item.id === accountId);
+        const [removedAccount] = accounts.splice(index, 1);
+        timeline.push(['account-remove-commit', accountId]);
+        return { removedAccount: clone(removedAccount), snapshot: { accounts: clone(accounts) } };
+      },
+    };
+    const rawConfigStore = {
+      async load() { timeline.push(['config-load']); return clone(config); },
+      getSnapshot() { return clone(config); },
+      async update(patch) {
+        config = { ...config, ...(patch || {}) };
+        timeline.push(['config-update-commit']);
+        return clone(config);
+      },
+    };
+    const originalAccountFactory = () => rawAccountStore;
+    const originalConfigFactory = () => rawConfigStore;
+    const accountStateModule = { createAccountStateStore: originalAccountFactory };
+    const configStateModule = { createConfigStateStore: originalConfigFactory };
+    const errors = [];
 
-  for (const rejected of [
-    challenge({
-      webContents: { session: { partition: accountA.partition } },
-      details: { firstAuthAttempt: true },
-      authInfo: { isProxy: false, host: 'proxy-a.test', port: 8080 },
-    }),
-    challenge({
-      webContents: { session: { partition: accountA.partition } },
-      details: { firstAuthAttempt: true },
-      authInfo: { isProxy: true, host: 'proxy-b.test', port: 8080 },
-    }),
-    challenge({
-      webContents: { session: { partition: 'persist:webview-page-UNKNOWN' } },
-      details: { firstAuthAttempt: true },
-      authInfo: { isProxy: true, host: 'proxy-a.test', port: 8080 },
-    }),
-    challenge({
-      webContents: { session: { partition: accountA.partition } },
-      details: { firstAuthAttempt: false },
-      authInfo: { isProxy: true, host: 'proxy-a.test', port: 8080 },
-    }),
-  ]) {
-    assert.equal(rejected.handled, false);
-    assert.equal(rejected.prevented, 0);
-    assert.deepEqual(rejected.credentials, []);
+    const composition = proxy.installProxyRuntimeComposition({
+      app,
+      sessionModule,
+      accountStateModule,
+      configStateModule,
+      onError(error, meta) { errors.push({ error, meta }); },
+    });
+    await composition.ready;
+
+    const accountStore = accountStateModule.createAccountStateStore();
+    const configStore = configStateModule.createConfigStateStore();
+    assert.notEqual(accountStore, rawAccountStore, 'composition decorates the existing store instance rather than replacing its authority');
+    assert.notEqual(configStore, rawConfigStore);
+    assert.equal(accountStore.getSnapshot(), rawAccountStore.getSnapshot(), 'spread methods preserve the real account store projection');
+
+    await accountStore.load();
+    assert.equal(sessionModule.sessions.size, 0, 'proxy pre-apply waits until both durable stores have loaded');
+    await configStore.load();
+
+    const aSession = sessionModule.sessions.get(accountA.partition);
+    const bSession = sessionModule.sessions.get(accountB.partition);
+    assert.ok(aSession && bSession, 'all existing account Sessions are configured during startup state load');
+    assert.equal(aSession.calls[0][1].proxyRules, 'http://proxy-a.test:8080');
+    assert.equal(bSession.calls[0][1].proxyRules, 'socks5://proxy-global.test:1080');
+    assert.doesNotMatch(JSON.stringify(aSession.calls[0][1]), /alice|alpha-secret|@/);
+    assert.doesNotMatch(JSON.stringify(bSession.calls[0][1]), /global-user|global-secret|@/);
+    const runtime = composition.getRuntime();
+    assert.ok(runtime);
+    assert.equal(runtime.isPartitionReady(accountA.partition), true);
+    assert.equal(runtime.isPartitionReady(accountB.partition), true);
+
+    const addStart = timeline.length;
+    const accountC = {
+      id: 'C',
+      partition: 'persist:webview-page-C',
+      openProxy: false,
+      protocal: 'http',
+      host: '',
+      port: '',
+      huser: '',
+      hpwd: '',
+    };
+    await accountStore.add(accountC);
+    const addSlice = timeline.slice(addStart);
+    assert.equal(addSlice[0][0], 'account-add-commit', 'durable account add commits before proxy side effects');
+    assert.equal(addSlice[1][0], 'native-setProxy');
+    assert.equal(addSlice[1][1], accountC.partition);
+    assert.equal(sessionModule.sessions.get(accountC.partition).calls[0][1].proxyRules, 'socks5://proxy-global.test:1080');
+
+    const updateStart = timeline.length;
+    await accountStore.update('A', { hpwd: 'alpha-secret-3' });
+    const updateSlice = timeline.slice(updateStart);
+    assert.equal(updateSlice[0][0], 'account-update-commit', 'durable account update commits before proxy side effects');
+    assert.equal(updateSlice[1][0], 'native-setProxy');
+    assert.equal(updateSlice[1][1], accountA.partition);
+    assert.deepEqual(updateSlice[2], ['closeAllConnections', accountA.partition]);
+    assert.doesNotMatch(JSON.stringify(updateSlice[1][2]), /alpha-secret-3|alice|@/);
+
+    const configStart = timeline.length;
+    await configStore.update({ host: 'proxy-global2.test' });
+    const configSlice = timeline.slice(configStart);
+    assert.equal(configSlice[0][0], 'config-update-commit', 'global config commits before account Session reprojection');
+    const changedPartitions = configSlice.filter(row => row[0] === 'native-setProxy').map(row => row[1]).sort();
+    assert.deepEqual(changedPartitions, [accountB.partition, accountC.partition].sort(), 'only accounts inheriting global proxy are reconfigured');
+    for (const row of configSlice.filter(item => item[0] === 'native-setProxy')) {
+      assert.equal(row[2].proxyRules, 'socks5://proxy-global2.test:1080');
+      assert.doesNotMatch(JSON.stringify(row[2]), /global-user|global-secret|@/);
+    }
+
+    // Legacy main.cjs still calls Session.setProxy. For account Sessions the early
+    // compatibility seam ignores the caller-supplied rule (including old userinfo)
+    // and reapplies the authoritative current account/global config instead.
+    const bNativeBeforeLegacy = bSession.calls.length;
+    const legacyResult = await bSession.setProxy({
+      mode: 'fixed_servers',
+      proxyRules: 'http://wrong:secret@evil.invalid:9999',
+    });
+    assert.equal(legacyResult, true);
+    assert.equal(bSession.calls.length, bNativeBeforeLegacy, 'unchanged authoritative config dedupes legacy setProxy calls');
+
+    const defaultConfig = { mode: 'fixed_servers', proxyRules: 'http://default-proxy.test:8000' };
+    await sessionModule.defaultSession.setProxy(defaultConfig);
+    assert.deepEqual(sessionModule.defaultSession.calls.at(-1), ['native-setProxy', defaultConfig], 'non-account Sessions retain Electron native setProxy behavior');
+
+    function authChallenge(partition, details, authInfo) {
+      let prevented = 0;
+      const credentials = [];
+      const handled = runtime.handleLogin(
+        { preventDefault() { prevented += 1; } },
+        { session: sessionModule.fromPartition(partition) },
+        details,
+        authInfo,
+        (username, password) => credentials.push([username, password]),
+      );
+      return { handled, prevented, credentials };
+    }
+    assert.deepEqual(
+      authChallenge(accountA.partition, { firstAuthAttempt: true }, { isProxy: true, host: 'proxy-a.test', port: 8080 }).credentials,
+      [['alice', 'alpha-secret-3']],
+    );
+    assert.deepEqual(
+      authChallenge(accountB.partition, { firstAuthAttempt: true }, { isProxy: true, host: 'proxy-global2.test', port: 1080 }).credentials,
+      [['global-user', 'global-secret']],
+    );
+    assert.deepEqual(
+      authChallenge(accountB.partition, { firstAuthAttempt: true }, { isProxy: false, host: 'proxy-global2.test', port: 1080 }).credentials,
+      [],
+      'ordinary website auth is never answered with proxy credentials',
+    );
+
+    // A committed but invalid enabled proxy marks only that partition not ready. The
+    // early will-attach boundary blocks that account without affecting healthy peers.
+    await accountStore.update('A', { host: '' });
+    assert.equal(runtime.isPartitionReady(accountA.partition), false);
+    assert.equal(runtime.isPartitionReady(accountB.partition), true);
+    assert.equal(errors.at(-1).error.code, 'PROXY_CONFIG_INVALID');
+
+    function createHostContents() {
+      const handlers = new Map();
+      return {
+        on(event, handler) { handlers.set(event, handler); },
+        emit(event, ...args) { handlers.get(event)?.(...args); },
+      };
+    }
+    const hostContents = createHostContents();
+    app.emit('web-contents-created', {}, hostContents);
+    let blockedA = 0;
+    hostContents.emit('will-attach-webview', { preventDefault() { blockedA += 1; } }, {}, { partition: accountA.partition });
+    assert.equal(blockedA, 1, 'failed account partition must fail closed before WebView attach');
+    let blockedB = 0;
+    hostContents.emit('will-attach-webview', { preventDefault() { blockedB += 1; } }, {}, { partition: accountB.partition });
+    assert.equal(blockedB, 0, 'healthy account partitions remain isolated from peer failure');
+
+    assert.equal(runtime.isPartitionReady(accountC.partition), true);
+    const cSession = sessionModule.sessions.get(accountC.partition);
+    const cCallsBeforeRemove = cSession.calls.length;
+    await accountStore.remove('C');
+    assert.equal(runtime.isPartitionReady(accountC.partition), false, 'account removal forgets operational proxy readiness');
+    assert.equal(await cSession.setProxy({ mode: 'direct' }), false, 'removed account Session cannot resurrect a proxy config through the legacy seam');
+    assert.equal(cSession.calls.length, cCallsBeforeRemove, 'removed account never reaches native setProxy again');
+
+    await configStore.update({ openProxy: false });
+    assert.deepEqual(bSession.calls.slice(-2), [
+      ['native-setProxy', { mode: 'direct' }],
+      ['closeAllConnections'],
+    ]);
+
+    const decoratedAccountFactory = accountStateModule.createAccountStateStore;
+    assert.notEqual(decoratedAccountFactory, originalAccountFactory);
+    composition.dispose();
+    assert.equal(accountStateModule.createAccountStateStore, originalAccountFactory);
+    assert.equal(configStateModule.createConfigStateStore, originalConfigFactory);
+    assert.equal(app.listenerCount('login'), 0);
+    assert.equal(app.listenerCount('web-contents-created'), 0);
+
+    const nativeAfterDispose = { mode: 'fixed_servers', proxyRules: 'http://native-after-dispose.test:9000' };
+    await bSession.setProxy(nativeAfterDispose);
+    assert.deepEqual(bSession.calls.at(-1), ['native-setProxy', nativeAfterDispose], 'dispose restores the native Session method');
   }
 
-  // A failed apply belongs only to that account partition and fails auth closed. It
-  // cannot suppress or redirect another account's credentials.
-  accountA.host = 'proxy-a2.test';
-  aSession.failNext = true;
-  assert.equal(await runtime.applyAccount(accountA), false);
-  assert.equal(runtime.isPartitionReady(accountA.partition), false);
-  assert.equal(runtime.isPartitionReady(accountB.partition), true);
-  assert.equal(errors.at(-1).meta.partition, accountA.partition);
-  assert.deepEqual(challenge({
-    webContents: { session: { partition: accountA.partition } },
-    details: { firstAuthAttempt: true },
-    authInfo: { isProxy: true, host: 'proxy-a2.test', port: 8080 },
-  }).credentials, []);
-  assert.deepEqual(challenge({
-    webContents: { session: { partition: accountB.partition } },
-    details: { firstAuthAttempt: true },
-    authInfo: { isProxy: true, host: 'proxy-global.test', port: 1080 },
-  }).credentials, [['global-user', 'global-secret']]);
-
-  // A malformed enabled config also fails closed for only its partition; it cannot
-  // silently drop to direct mode.
-  accountA.host = '';
-  assert.equal(await runtime.applyAccount(accountA), false);
-  assert.equal(runtime.isPartitionReady(accountA.partition), false);
-  assert.equal(errors.at(-1).error.code, 'PROXY_CONFIG_INVALID');
-  assert.equal(runtime.isPartitionReady(accountB.partition), true);
-
-  // Deleting an account removes only its operational runtime state. Credentials stay
-  // owned by Account/Config State and are never cached here in plaintext.
-  assert.equal(runtime.forgetPartition(accountA.partition), true);
-  assert.equal(runtime.isPartitionReady(accountA.partition), true, 'forgotten partitions return to unknown, not failed');
-  assert.equal(runtime.isPartitionReady(accountB.partition), true);
-
-  // Disabling the global proxy moves B to direct mode and closes only B's pooled
-  // connections because its effective proxy fingerprint changed.
-  globalConfig = { ...globalConfig, openProxy: false };
-  await runtime.applyAccount(accountB);
-  assert.deepEqual(bSession.calls.slice(-2), [
-    ['setProxy', { mode: 'direct' }],
-    ['closeAllConnections'],
-  ]);
-
-  runtime.dispose();
-  assert.equal(app.listeners.has('login'), false);
-
-  // Production composition contract: the owner must be wired to loaded Account/Config
-  // authorities, pre-apply before the subscription/main-window gate, apply new accounts
-  // before renderer exposure, and fail closed when a partition apply failed.
-  const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
-  assert.match(main, /require\(['"]\.\/proxy-runtime\.cjs['"]\)/);
-  assert.match(main, /proxyRuntime\s*=\s*createProxyRuntime\(/);
-  assert.match(main, /proxyRuntime\.installAuthentication\(\)/);
-  assert.match(main, /await proxyRuntime\.applyAllAccounts\(\{\s*closeConnections:\s*false\s*\}\)/);
-  assert.ok(
-    main.indexOf('await proxyRuntime.applyAllAccounts({ closeConnections: false })') < main.indexOf('await enforceSubscriptionGate()'),
-    'existing account Sessions must be configured before the UI gate can create account WebViews',
-  );
-  const addBody = main.match(/async function addAccount\([\s\S]*?\n}\n\nasync function switchAccount/)?.[0] || '';
-  assert.match(addBody, /await proxyRuntime\?\.applyAccount\(account, \{ closeConnections: false \}\)/);
-  assert.ok(
-    addBody.indexOf('await proxyRuntime?.applyAccount') < addBody.indexOf('notifyAccountsChanged'),
-    'new account proxy must be attempted before renderer notification/return',
-  );
-  assert.match(main, /proxyRuntime\?\.forgetPartition\(removedAccount\.partition\)/);
-  assert.doesNotMatch(main, /function proxyRulesFor\(/, 'ProxyConfig grammar must have one owner');
-  assert.doesNotMatch(main, /encodeURIComponent\(login\)|encodeURIComponent\(password\)/, 'main must not rebuild credential-bearing proxy rules');
-  assert.match(main, /if \(proxyRuntime && !proxyRuntime\.isPartitionReady\(partition\)\) \{[\s\S]{0,240}event\.preventDefault\(\)/);
-  assert.doesNotMatch(
-    main,
-    /will-attach-webview[\s\S]{0,2600}applyProxyForPartition\(partition, accountProxy\)/,
-    'WebView attach must not race an unawaited setProxy operation',
-  );
+  // Production wiring: preserve the existing partition-compat startup gate while adding
+  // proxy readiness as a second early boundary before legacy main.cjs can create UI.
+  const entry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
+  const compatInstall = entry.indexOf('installSessionPartitionCompat({ app, sessionModule: session })');
+  const proxyInstall = entry.indexOf('installProxyRuntimeComposition({');
+  const readyList = entry.indexOf('Promise.all([');
+  const compatReady = entry.indexOf('sessionPartitionCompat.ready', readyList);
+  const proxyReady = entry.indexOf('proxyRuntimeComposition.ready', readyList);
+  const thenIndex = entry.indexOf('.then(', readyList);
+  const mainIndex = entry.indexOf("require('./main.cjs')", thenIndex);
+  const catchIndex = entry.indexOf('.catch(', mainIndex);
+  assert.ok(compatInstall >= 0 && proxyInstall > compatInstall, 'proxy owner composes after partition identity compatibility is installed');
+  assert.ok(readyList > proxyInstall && compatReady > readyList && proxyReady > readyList, 'both early runtime boundaries participate in startup readiness');
+  assert.ok(thenIndex > proxyReady && mainIndex > thenIndex, 'legacy main loads only after partition and proxy boundaries are ready');
+  assert.ok(catchIndex > mainIndex);
+  assert.match(entry.slice(catchIndex), /app\.quit\(\)/, 'early runtime boundary failure must block startup');
+  assert.match(entry, /accountStateModule\s*=\s*require\(['"]\.\/account-state\.cjs['"]\)/);
+  assert.match(entry, /configStateModule\s*=\s*require\(['"]\.\/config-state\.cjs['"]\)/);
+  assert.match(entry, /installProxyRuntimeComposition\(\{[\s\S]*accountStateModule,[\s\S]*configStateModule,/);
 
   console.log('PROXY_RUNTIME_CONTRACT_OK');
 })().catch(error => {
