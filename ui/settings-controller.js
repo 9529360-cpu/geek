@@ -36,7 +36,7 @@
 
     function settingsOverlay() { return el('settings-overlay'); }
     function settingsDialog() { return settingsOverlay()?.querySelector('[role="dialog"]') || null; }
-    function lockOverlayVisible() { const lock = el('lock-overlay'); return !!lock && !lock.classList.contains('hidden'); }
+    function lockOverlayVisible() { return overlayVisible('lock-overlay'); }
     function focusableControls() {
       const dialog = settingsDialog();
       if (!dialog) return [];
