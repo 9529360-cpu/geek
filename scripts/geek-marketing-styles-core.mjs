@@ -37,7 +37,8 @@ body{color:var(--text);font-family:var(--font)}
 ::selection{background:rgba(37,211,102,.28)}
 :focus-visible{outline-color:var(--green2)}
 .bg-glow::before{background:radial-gradient(ellipse at center,rgba(37,211,102,.11) 0%,rgba(84,217,255,.045) 38%,transparent 70%)}
-.logo-mark{background:linear-gradient(180deg,#23252a,#101114);border-color:rgba(255,255,255,.14);box-shadow:0 8px 30px rgba(0,0,0,.28)}
+.logo-mark{background:transparent;border:0;box-shadow:none;overflow:visible}
+.logo-mark .brand-mark{width:34px;height:34px}
 .btn-primary{background:var(--green);color:#061109;box-shadow:0 8px 28px rgba(37,211,102,.14)}
 .btn-primary:hover{background:var(--green2);box-shadow:0 10px 34px rgba(37,211,102,.2)}
 .btn-ghost:hover{border-color:rgba(37,211,102,.32);background:rgba(255,255,255,.065)}
@@ -45,13 +46,20 @@ body{color:var(--text);font-family:var(--font)}
 .feature::before{background:linear-gradient(90deg,transparent,rgba(37,211,102,.42),transparent)}
 .feature:hover{border-color:rgba(37,211,102,.30)}
 .feature .icon,.step::before,.download .big-icon{color:var(--green2);background:rgba(37,211,102,.09);border-color:rgba(37,211,102,.20)}
-.feature .icon svg,.download .big-icon svg{stroke:var(--green2)}
+.feature .icon svg,.download .big-icon svg,.plan li svg{stroke:var(--green2)}
 .plan.hot{border-color:rgba(37,211,102,.45);box-shadow:0 0 60px rgba(37,211,102,.08),inset 0 1px 0 rgba(255,255,255,.06);background:linear-gradient(180deg,rgba(37,211,102,.055),rgba(255,255,255,.02))}
 .plan .badge{background:var(--green);color:#061109}
 .download::before{background:radial-gradient(ellipse at 50% 0%,rgba(37,211,102,.11),transparent 60%)}
+.faq summary::after,.sidebar-support a{color:var(--green2)}
+.pill .dot,.status-dot{background:var(--green);box-shadow:0 0 10px rgba(37,211,102,.55)}
 input:focus,textarea:focus,select:focus{border-color:rgba(37,211,102,.62);box-shadow:0 0 0 3px rgba(37,211,102,.10);outline:none}
+.dashboard-sidebar{background:rgba(14,16,17,.86)}
 .dashboard-nav a:hover,.dashboard-nav a:first-child{background:var(--greenSoft)}
 .dashboard-nav .nav-icon{color:var(--green2);background:var(--greenSoft)}
+.metric.primary{background:linear-gradient(135deg,rgba(37,211,102,.12),rgba(84,217,255,.035));border-color:rgba(37,211,102,.30)}
+.metric.primary::after{background:rgba(37,211,102,.08)}
+.account-action:hover{border-color:rgba(37,211,102,.42)}
+.mini-plan.recommended{background:linear-gradient(180deg,rgba(37,211,102,.08),rgba(255,255,255,.025));border-color:rgba(37,211,102,.42)}
 .copy-btn{color:var(--green2);background:rgba(37,211,102,.08);border-color:rgba(37,211,102,.28)}
 .resource-card.primary{background:linear-gradient(135deg,rgba(37,211,102,.10),rgba(84,217,255,.04));border-color:rgba(37,211,102,.30)}
 .payment-workspace{background:rgba(37,211,102,.045);border-color:rgba(37,211,102,.22)}
