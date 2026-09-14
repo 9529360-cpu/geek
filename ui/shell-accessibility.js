@@ -3,6 +3,7 @@
 
   const PLATFORM_SELECTOR = '.tab-item[data-platform]';
   const ACCOUNT_SELECTOR = '.nav-account[data-id] .nav-account-main';
+  const ACCOUNT_IDENTITY_CLASS = 'shell-account-identity';
   let pendingFocus = null;
 
   function setAttrIfChanged(node, name, value) {
@@ -21,6 +22,49 @@
 
   function accountKey(node) {
     return String(node?.closest('.nav-account[data-id]')?.dataset?.id || '');
+  }
+
+  function firstCharacter(value) {
+    return Array.from(String(value || '').trim())[0] || '';
+  }
+
+  function accountIdentity(name, index) {
+    const text = String(name || '').trim();
+    if (!text) return String(index + 1);
+    const trailingNumber = text.match(/(\d{1,2})\s*$/u)?.[1] || '';
+    const tokens = text.split(/[\s_\-–—/\\]+/u).filter(Boolean);
+    if (trailingNumber) {
+      const first = firstCharacter(tokens[0] || text);
+      return `${first}${trailingNumber}`.toUpperCase().slice(0, 3);
+    }
+    if (tokens.length >= 2) {
+      return `${firstCharacter(tokens[0])}${firstCharacter(tokens[tokens.length - 1])}`.toUpperCase();
+    }
+    return Array.from(text).slice(0, 2).join('').toUpperCase();
+  }
+
+  function ensureAccountIdentity(main, name, index) {
+    if (!main) return;
+    let badge = main.querySelector(`.${ACCOUNT_IDENTITY_CLASS}`);
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = ACCOUNT_IDENTITY_CLASS;
+      badge.setAttribute('aria-hidden', 'true');
+      main.appendChild(badge);
+    }
+    const next = accountIdentity(name, index);
+    if (badge.textContent !== next) badge.textContent = next;
+  }
+
+  function decorateSidebarDisclosure(sideNav) {
+    const button = document.getElementById('btn-collapse');
+    if (!sideNav || !button) return;
+    const collapsed = sideNav.classList.contains('collapsed');
+    const label = collapsed ? '展开账号侧栏' : '收起账号侧栏';
+    setAttrIfChanged(button, 'aria-controls', sideNav.id || 'side-nav');
+    setAttrIfChanged(button, 'aria-expanded', collapsed ? 'false' : 'true');
+    setAttrIfChanged(button, 'aria-label', label);
+    setAttrIfChanged(button, 'title', label);
   }
 
   function decoratePlatformTabs(root) {
@@ -49,6 +93,7 @@
     setAttrIfChanged(root, 'aria-label', '账号列表');
     const sideNav = root.closest('nav');
     if (sideNav) setAttrIfChanged(sideNav, 'aria-label', '账号导航');
+    const collapsed = !!sideNav?.classList.contains('collapsed');
 
     const mains = [...root.querySelectorAll(ACCOUNT_SELECTOR)];
     const focusedIndex = mains.indexOf(document.activeElement);
@@ -62,6 +107,9 @@
       setAttrIfChanged(main, 'tabindex', index === fallbackIndex ? '0' : '-1');
       const name = String(main.querySelector('.nav-account-name')?.textContent || '').trim();
       setAttrIfChanged(main, 'aria-label', name ? `切换账号：${name}` : '切换账号');
+      ensureAccountIdentity(main, name, index);
+      if (collapsed && name) setAttrIfChanged(main, 'title', name);
+      else removeAttrIfPresent(main, 'title');
       if (item?.classList.contains('active')) setAttrIfChanged(main, 'aria-current', 'page');
       else removeAttrIfPresent(main, 'aria-current');
     });
@@ -118,11 +166,13 @@
   }
 
   function install() {
+    const sideNav = document.getElementById('side-nav');
     const platformRoot = document.getElementById('account-tabs');
     const accountRoot = document.getElementById('nav-accounts');
-    if (!platformRoot && !accountRoot) return;
+    if (!sideNav && !platformRoot && !accountRoot) return;
 
     const sync = () => {
+      decorateSidebarDisclosure(sideNav);
       decoratePlatformTabs(platformRoot);
       decorateAccountList(accountRoot);
       focusPending(platformRoot, accountRoot);
@@ -136,6 +186,7 @@
     });
 
     const observer = new MutationObserver(sync);
+    if (sideNav) observer.observe(sideNav, { attributes: true, attributeFilter: ['class'] });
     if (platformRoot) observer.observe(platformRoot, { childList: true, subtree: true });
     if (accountRoot) observer.observe(accountRoot, { childList: true, subtree: true });
     sync();
