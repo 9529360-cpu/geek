@@ -109,6 +109,8 @@
     const manager = options.manager;
     const accountsApi = options.accountsApi || api?.accounts;
     const accountData = options.accountData || api?.accountData;
+    const scheduledAttachments = options.scheduledAttachments || api?.broadcastScheduled || null;
+    const requireResourceCleanup = options.requireResourceCleanup === true;
     const clock = typeof options.now === 'function' ? options.now : () => Date.now();
     if (!accountData || typeof accountData.getAll !== 'function' || typeof accountData.set !== 'function' || typeof accountData.remove !== 'function') {
       throw new TypeError('broadcast execution checkpoint requires accountData API');
@@ -178,6 +180,17 @@
       });
     }
 
+    async function cleanupInterruptedResources(record) {
+      if (!scheduledAttachments || typeof scheduledAttachments.cleanup !== 'function') {
+        if (!requireResourceCleanup) return false;
+        const error = new Error('broadcast scheduled attachment cleanup is not ready');
+        error.code = 'BROADCAST_INTERRUPTED_RESOURCE_CLEANUP_UNAVAILABLE';
+        throw error;
+      }
+      await scheduledAttachments.cleanup({ accountId: record.accountId, taskId: record.jobId });
+      return true;
+    }
+
     async function restoreAccount(account) {
       const accountId = asId(account?.id);
       if (!accountId) return [];
@@ -215,8 +228,19 @@
             });
           }
         }
-        restored.push({ record, evidence, reason });
+
+        let resourcesFinalized = !requireResourceCleanup && !scheduledAttachments;
         if (evidence || !manager) {
+          try {
+            await cleanupInterruptedResources(record);
+            resourcesFinalized = true;
+          } catch (_) {
+            resourcesFinalized = false;
+          }
+        }
+
+        restored.push({ record, evidence, reason, resourcesFinalized });
+        if ((evidence || !manager) && resourcesFinalized) {
           try { await clear(accountId, record.jobId); } catch (_) {}
         }
       }
@@ -241,7 +265,7 @@
       catch (_) { return false; }
     }
 
-    return Object.freeze({ enterDispatch, settle, clear, finalize, restore, restoreAccount, load });
+    return Object.freeze({ enterDispatch, settle, clear, finalize, restore, restoreAccount, load, cleanupInterruptedResources });
   }
 
   function install() {
@@ -249,7 +273,7 @@
     if (window.GeekBroadcastExecutionCheckpointInstance) return window.GeekBroadcastExecutionCheckpointInstance;
     const manager = window.GeekBroadcastJobs;
     if (!manager || !window.api?.accountData) return null;
-    const instance = createStore({ api: window.api, manager });
+    const instance = createStore({ api: window.api, manager, requireResourceCleanup: true });
     window.GeekBroadcastExecutionCheckpointInstance = instance;
     setTimeout(() => { void instance.restore().catch(() => {}); }, 0);
     return instance;
