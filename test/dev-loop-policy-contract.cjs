@@ -31,18 +31,9 @@ assert.equal(classifyDevChange('test/example.cjs'), DEV_ACTION.IGNORE);
 assert.equal(classifyDevChange('scripts/geek-website-worker.js'), DEV_ACTION.IGNORE);
 assert.equal(classifyDevChange('ui/app.js~'), DEV_ACTION.IGNORE);
 
-assert.equal(
-  selectDevAction(['ui/app.js', 'ui/styles/app.css']),
-  DEV_ACTION.RELOAD_SHELL,
-);
-assert.equal(
-  selectDevAction(['ui/app.js', 'src/main.cjs']),
-  DEV_ACTION.RESTART_ELECTRON,
-);
-assert.equal(
-  selectDevAction(['docs/README.md', 'test/example.cjs']),
-  DEV_ACTION.IGNORE,
-);
+assert.equal(selectDevAction(['ui/app.js', 'ui/styles/app.css']), DEV_ACTION.RELOAD_SHELL);
+assert.equal(selectDevAction(['ui/app.js', 'src/main.cjs']), DEV_ACTION.RESTART_ELECTRON);
+assert.equal(selectDevAction(['docs/README.md', 'test/example.cjs']), DEV_ACTION.IGNORE);
 
 assert.deepEqual(
   planDevChanges([
@@ -80,18 +71,9 @@ const restartPlan = planDevChanges([
 ]);
 assert.equal(restartPlan.runtimeAction, DEV_ACTION.RESTART_ELECTRON);
 assert.deepEqual(restartPlan.manifestFiles, ['package.json']);
-assert.deepEqual(
-  restartPlan.runtimeSyntaxFiles,
-  ['resources/bridge-preload.cjs', 'src/main.cjs', 'ui/app.js'],
-);
-assert.deepEqual(
-  restartPlan.feedbackSyntaxFiles,
-  ['scripts/dev-loop.cjs', 'test/cdp-reload.cjs'],
-);
-assert.deepEqual(
-  restartPlan.syntaxFiles,
-  ['resources/bridge-preload.cjs', 'scripts/dev-loop.cjs', 'src/main.cjs', 'test/cdp-reload.cjs', 'ui/app.js'],
-);
+assert.deepEqual(restartPlan.runtimeSyntaxFiles, ['resources/bridge-preload.cjs', 'src/main.cjs', 'ui/app.js']);
+assert.deepEqual(restartPlan.feedbackSyntaxFiles, ['scripts/dev-loop.cjs', 'test/cdp-reload.cjs']);
+assert.deepEqual(restartPlan.syntaxFiles, ['resources/bridge-preload.cjs', 'scripts/dev-loop.cjs', 'src/main.cjs', 'test/cdp-reload.cjs', 'ui/app.js']);
 assert.equal(restartPlan.requiresLoopRestart, true);
 assert.deepEqual(restartPlan.testFiles, []);
 
@@ -103,5 +85,10 @@ const recoveryPlan = planDevChanges(['scripts/dev-loop-recovery.cjs']);
 assert.equal(recoveryPlan.runtimeAction, DEV_ACTION.IGNORE);
 assert.equal(recoveryPlan.requiresLoopRestart, true);
 assert.deepEqual(recoveryPlan.feedbackSyntaxFiles, ['scripts/dev-loop-recovery.cjs']);
+
+const workerFeedbackPlan = planDevChanges(['scripts/dev-worker-feedback.cjs']);
+assert.equal(workerFeedbackPlan.runtimeAction, DEV_ACTION.IGNORE);
+assert.equal(workerFeedbackPlan.requiresLoopRestart, true);
+assert.deepEqual(workerFeedbackPlan.feedbackSyntaxFiles, ['scripts/dev-worker-feedback.cjs']);
 
 console.log('dev-loop policy contract passed');
