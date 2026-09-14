@@ -29,7 +29,7 @@ const loginHandlers = [];
 const calls = new Map();
 
 function sessionFor(partition) {
-  if (!calls.has(partition)) calls.set(partition, { setProxy: [], close: 0, events: [] });
+  if (!calls.has(partition)) calls.set(partition, { setProxy: [], close: 0, clearAuth: 0, events: [] });
   const record = calls.get(partition);
   return {
     partition,
@@ -37,6 +37,11 @@ function sessionFor(partition) {
       record.events.push(`set:${value.mode}`);
       record.setProxy.push(value);
       if (record.failSetProxy) throw new Error('simulated setProxy failure');
+    },
+    async clearAuthCache() {
+      record.events.push('clear-auth');
+      record.clearAuth++;
+      if (record.failClearAuth) throw new Error('simulated clearAuthCache failure');
     },
     async closeAllConnections() {
       record.events.push('close');
@@ -74,6 +79,7 @@ assert.equal(effectiveProxyConfig(accountB, globalConfig), globalConfig);
   assert.equal(result.deduped, true);
   assert.equal(calls.get(accountA.partition).setProxy.length, 1);
   assert.equal(calls.get(accountA.partition).close, 0);
+  assert.equal(calls.get(accountA.partition).clearAuth, 0);
 
   result = await runtime.applyAccount(accountB, globalConfig);
   assert.equal(result.ok, true);
@@ -105,8 +111,17 @@ assert.equal(effectiveProxyConfig(accountB, globalConfig), globalConfig);
   assert.equal(runtime.isReadyForAccount(accountA, globalConfig), false, 'credential changes must invalidate readiness before apply');
   result = await runtime.applyAccount(accountA, globalConfig);
   assert.equal(result.ok, true);
-  assert.deepEqual(calls.get(accountA.partition).events.slice(-2), ['set:fixed_servers', 'close']);
+  assert.deepEqual(calls.get(accountA.partition).events.slice(-3), ['set:fixed_servers', 'clear-auth', 'close']);
+  assert.equal(calls.get(accountA.partition).clearAuth, 1, 'same-endpoint credential rotation must clear cached HTTP auth');
   assert.deepEqual(authAttempt({ account: accountA, host: 'a.proxy', port: 9001 }), { prevented: true, credentials: ['alice', 'rotated'] });
+
+  accountA.host = 'next.proxy';
+  result = await runtime.applyAccount(accountA, globalConfig);
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.get(accountA.partition).events.slice(-2), ['set:fixed_servers', 'close']);
+  assert.equal(calls.get(accountA.partition).clearAuth, 1, 'moving to a different proxy endpoint must not clear unrelated HTTP auth cache');
+  assert.deepEqual(authAttempt({ account: accountA, host: 'a.proxy', port: 9001 }), { prevented: false, credentials: null });
+  assert.deepEqual(authAttempt({ account: accountA, host: 'next.proxy', port: 9001 }), { prevented: true, credentials: ['alice', 'rotated'] });
 
   result = await runtime.applyAccount(accountC, globalConfig);
   assert.equal(result.ok, false);
