@@ -193,6 +193,7 @@ function createTranslationRuntime(options = {}) {
   let gatewayPool = null;
   const remoteQueue = [];
   const remoteControllersByPartition = new Map();
+  const authorizationAbortFanouts = new WeakMap();
   let remoteActive = 0;
   let installed = false;
 
@@ -278,6 +279,43 @@ function createTranslationRuntime(options = {}) {
       '登录状态已变化，请重试',
       { category: 'auth', retryable: true }
     );
+  }
+
+  function subscribeAuthorizationAbort(signal, subscriber) {
+    if (!signal || typeof signal.addEventListener !== 'function' || typeof subscriber !== 'function') return () => {};
+    if (signal.aborted) {
+      subscriber(signal.reason || authorizationChangedError());
+      return () => {};
+    }
+    let entry = authorizationAbortFanouts.get(signal);
+    if (!entry) {
+      const subscribers = new Set();
+      const onAbort = () => {
+        authorizationAbortFanouts.delete(signal);
+        const reason = signal.reason || authorizationChangedError();
+        const callbacks = [...subscribers];
+        subscribers.clear();
+        for (const callback of callbacks) {
+          try { callback(reason); } catch {}
+        }
+      };
+      entry = { subscribers, onAbort };
+      authorizationAbortFanouts.set(signal, entry);
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    entry.subscribers.add(subscriber);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      const current = authorizationAbortFanouts.get(signal);
+      if (!current) return;
+      current.subscribers.delete(subscriber);
+      if (!current.subscribers.size) {
+        signal.removeEventListener('abort', current.onAbort);
+        authorizationAbortFanouts.delete(signal);
+      }
+    };
   }
 
   function cacheFile(partition) {
@@ -409,8 +447,8 @@ function createTranslationRuntime(options = {}) {
   }
 
   function detachQueuedAbort(item) {
-    if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
-    item.onAbort = null;
+    if (typeof item.unsubscribeAbort === 'function') item.unsubscribeAbort();
+    item.unsubscribeAbort = null;
   }
 
   function enqueueRemote(partition, deadlineAt, task, signal = null) {
@@ -428,7 +466,7 @@ function createTranslationRuntime(options = {}) {
         reject(deadlineExceededError());
         return;
       }
-      const item = { partition, deadlineAt, task, resolve, reject, signal, onAbort: null, timer: null, settled: false };
+      const item = { partition, deadlineAt, task, resolve, reject, signal, unsubscribeAbort: null, timer: null, settled: false };
       const rejectQueued = (error) => {
         if (item.settled) return;
         const index = remoteQueue.indexOf(item);
@@ -439,10 +477,9 @@ function createTranslationRuntime(options = {}) {
         reject(error);
         drainRemoteQueue();
       };
-      if (signal) {
-        item.onAbort = () => rejectQueued(signal.reason || authorizationChangedError());
-        signal.addEventListener('abort', item.onAbort, { once: true });
-      }
+      item.unsubscribeAbort = signal
+        ? subscribeAuthorizationAbort(signal, (reason) => rejectQueued(reason || authorizationChangedError()))
+        : null;
       item.timer = setTimeout(() => rejectQueued(deadlineExceededError()), remaining);
       remoteQueue.push(item);
       drainRemoteQueue();
@@ -601,12 +638,12 @@ function createTranslationRuntime(options = {}) {
             const endpoint = picked.endpoint;
             const controller = new AbortController();
             trackRemoteController(partition, controller);
-            let authorizationAbort = null;
-            if (remoteAuthorizationLease?.signal) {
-              authorizationAbort = () => controller.abort(remoteAuthorizationLease.signal.reason || authorizationChangedError());
-              if (remoteAuthorizationLease.signal.aborted) authorizationAbort();
-              else remoteAuthorizationLease.signal.addEventListener('abort', authorizationAbort, { once: true });
-            }
+            const unsubscribeAuthorizationAbort = remoteAuthorizationLease?.signal
+              ? subscribeAuthorizationAbort(
+                remoteAuthorizationLease.signal,
+                (reason) => controller.abort(reason || authorizationChangedError())
+              )
+              : null;
             const timer = setTimeout(() => controller.abort(deadlineExceededError(lastError)), remaining);
             try {
               if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
@@ -709,9 +746,7 @@ function createTranslationRuntime(options = {}) {
               lastError = normalized;
             } finally {
               clearTimeout(timer);
-              if (authorizationAbort && remoteAuthorizationLease?.signal) {
-                remoteAuthorizationLease.signal.removeEventListener('abort', authorizationAbort);
-              }
+              if (typeof unsubscribeAuthorizationAbort === 'function') unsubscribeAuthorizationAbort();
               untrackRemoteController(partition, controller);
             }
           }
