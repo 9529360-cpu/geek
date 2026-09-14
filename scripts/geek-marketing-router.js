@@ -6,6 +6,7 @@ import { PAGE_BODY } from './geek-marketing-pages.mjs';
 import { cta, footer, nav } from './geek-marketing-visuals.mjs';
 
 const STYLES = MARKETING_STYLES_CORE + MARKETING_STYLES_COMPONENTS;
+const SITEMAP_ROUTES = ['/', ...MARKETING_ROUTES];
 
 function render(path) {
   const meta = PAGE_META[path];
@@ -21,6 +22,14 @@ function render(path) {
 <meta name="description" content="${meta.description}">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="${canonical}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="极客 Geek">
+<meta property="og:title" content="${meta.title}">
+<meta property="og:description" content="${meta.description}">
+<meta property="og:url" content="${canonical}">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="${meta.title}">
+<meta name="twitter:description" content="${meta.description}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>${STYLES}</style>
 </head>
@@ -43,9 +52,42 @@ function marketingHeaders() {
   });
 }
 
-export function marketingResponse(path) {
+function discoveryHeaders(contentType) {
+  return new Headers({
+    'Content-Type': contentType,
+    'Cache-Control': 'public, max-age=3600',
+    'X-Content-Type-Options': 'nosniff',
+  });
+}
+
+function robotsBody() {
+  return `User-agent: *\nAllow: /\n\nSitemap: ${SITE_ORIGIN}/sitemap.xml\n`;
+}
+
+function sitemapBody() {
+  const urls = SITEMAP_ROUTES.map(path => `  <url><loc>${SITE_ORIGIN}${path}</loc></url>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
+}
+
+export function marketingResponse(path, method = 'GET') {
   if (!MARKETING_ROUTES.has(path)) return null;
-  return new Response(render(path), { status: 200, headers: marketingHeaders() });
+  return new Response(method === 'HEAD' ? null : render(path), { status: 200, headers: marketingHeaders() });
+}
+
+export function discoveryResponse(path, method = 'GET') {
+  if (path === '/robots.txt') {
+    return new Response(method === 'HEAD' ? null : robotsBody(), {
+      status: 200,
+      headers: discoveryHeaders('text/plain; charset=utf-8'),
+    });
+  }
+  if (path === '/sitemap.xml') {
+    return new Response(method === 'HEAD' ? null : sitemapBody(), {
+      status: 200,
+      headers: discoveryHeaders('application/xml; charset=utf-8'),
+    });
+  }
+  return null;
 }
 
 export function enhanceHomepageHtml(html) {
@@ -71,9 +113,11 @@ async function homepageResponse(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (request.method === 'GET') {
-      if (url.pathname === '/') return homepageResponse(request, env, ctx);
-      const response = marketingResponse(url.pathname);
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      if (url.pathname === '/' && request.method === 'GET') return homepageResponse(request, env, ctx);
+      const discovery = discoveryResponse(url.pathname, request.method);
+      if (discovery) return discovery;
+      const response = marketingResponse(url.pathname, request.method);
       if (response) return response;
     }
     return websiteEntry.fetch(request, env, ctx);
