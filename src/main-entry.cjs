@@ -14,6 +14,9 @@ const { installSessionPartitionCompat } = require('./session-partition-compat.cj
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 const { installAccountSessionPermissionBoundary } = require('./session-permission-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
+const accountStateModule = require('./account-state.cjs');
+const configStateModule = require('./config-state.cjs');
+const { installProxyRuntimeComposition } = require('./proxy-runtime.cjs');
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
@@ -83,6 +86,22 @@ if (primaryInstance) {
   // compatibility getter before main.cjs can create or classify any account guest.
   const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
 
+  // Proxy routing/authentication is account-partition state, not renderer focus state.
+  // Decorate the same Account/Config Store factories that legacy main.cjs consumes,
+  // pre-apply each account Session before any WebView can attach, and route legacy
+  // Session.setProxy calls back through that single runtime owner. No second store or
+  // credential cache is introduced here.
+  const proxyRuntimeComposition = installProxyRuntimeComposition({
+    app,
+    sessionModule: session,
+    accountStateModule,
+    configStateModule,
+    onError: (error, meta) => {
+      const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
+      console.error(`[proxy-runtime] ${String(meta?.phase || 'runtime')} failed:`, code.slice(0, 80));
+    },
+  });
+
   // Bind the sole account-guest post-attach navigation authority before any
   // BrowserWindow/WebView is created. Policy resolves from the authoritative account
   // record for the fixed partition; missing/corrupt/mismatched state fails closed.
@@ -122,14 +141,17 @@ if (primaryInstance) {
   installExternalDebuggingProbeGuard();
 
 
-  // Fail closed if Electron changes in a way that prevents safe partition recovery.
-  // Starting legacy main without the account partition key would collapse WPP and
-  // account-deletion bookkeeping back onto an empty partition string.
-  sessionPartitionCompat.ready
+  // Fail closed if Electron changes in a way that prevents safe partition recovery or
+  // account-scoped proxy ownership. Starting legacy main without either early boundary
+  // could collapse account identity or let a first WebView navigation escape direct.
+  Promise.all([
+    sessionPartitionCompat.ready,
+    proxyRuntimeComposition.ready,
+  ])
     .then(() => require('./main.cjs'))
     .catch((error) => {
-      const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'SESSION_PARTITION_COMPAT_FAILED');
-      console.error('[session-partition] startup blocked:', code.slice(0, 80));
+      const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'RUNTIME_BOUNDARY_STARTUP_FAILED');
+      console.error('[runtime-boundary] startup blocked:', code.slice(0, 80));
       app.quit();
     });
 }
