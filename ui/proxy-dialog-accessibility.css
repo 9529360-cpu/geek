@@ -1,0 +1,26 @@
+#proxy-overlay .add-dialog[role='dialog'] #proxy-status {
+  min-height: 18px;
+  margin-top: 2px;
+}
+
+#proxy-overlay .add-dialog[role='dialog'] #proxy-status[data-state='error'] {
+  color: #ff8f8f;
+}
+
+#proxy-overlay [aria-invalid='true'] {
+  border-color: #d97706 !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #d97706 18%, transparent);
+}
+
+#proxy-overlay .add-dialog[role='dialog'] :is(input, select, button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #proxy-overlay .add-dialog[role='dialog'],
+  #proxy-overlay .add-dialog[role='dialog'] :is(input, select, button) {
+    animation: none !important;
+    transition: none !important;
+  }
+}
