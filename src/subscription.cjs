@@ -9,9 +9,10 @@ const fs = require('node:fs/promises');
 
 const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
 const ACCOUNT_NO_PATTERN = /^GK-[0-9a-f]{32}$/;
+const TOKEN_DECRYPT_ERROR = 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED';
 
 // 敏感字段加密（safeStorage DPAPI）：token 等不落明文
-// 注入方式：main.cjs 里调用 initSecureCrypto()，把 {encrypt, decrypt} 传进来
+// 注入方式：main.cjs 里通过 initSubscriptionStore() 把 {encrypt, decrypt} 传进来
 let secureCrypto = null;
 function setSecureCrypto(cryptoImpl) {
   secureCrypto = cryptoImpl;
@@ -33,10 +34,22 @@ function encryptField(text) {
   }
 }
 function decryptField(value) {
-  if (typeof value === 'string' && value.startsWith('enc:') && secureCrypto) {
-    try { return secureCrypto.decrypt(value.slice(4)); } catch (e) { return ''; }
+  if (typeof value !== 'string' || !value.startsWith('enc:')) return value;
+  if (!secureCrypto || typeof secureCrypto.decrypt !== 'function') {
+    const error = new Error('系统安全存储不可用，无法读取订阅 token');
+    error.code = 'SECURE_STORAGE_UNAVAILABLE';
+    throw error;
   }
-  return value;
+  try {
+    const decrypted = secureCrypto.decrypt(value.slice(4));
+    if (typeof decrypted !== 'string' || !decrypted) throw new Error('decrypted token is empty');
+    return decrypted;
+  } catch (cause) {
+    const error = new Error('订阅 token 解密失败，请重试');
+    error.code = TOKEN_DECRYPT_ERROR;
+    error.cause = cause;
+    throw error;
+  }
 }
 
 function apiBase() {
@@ -114,7 +127,7 @@ function createSubscriptionStore({ userDataDir }) {
       try {
         const raw = await fs.readFile(stateFile(), 'utf-8');
         const loaded = JSON.parse(raw || '{}');
-        // 兼容：解密加密的 token（enc: 前缀）
+        // 兼容：解密加密的 token（enc: 前缀）。解密失败必须保留密文并允许后续重试，不能伪装成登出。
         if (loaded.token && typeof loaded.token === 'string' && loaded.token.startsWith('enc:')) {
           loaded.token = decryptField(loaded.token);
         }
@@ -135,7 +148,8 @@ function createSubscriptionStore({ userDataDir }) {
         }
         if (generation !== sessionGeneration) return cache || {};
         cache = loaded;
-      } catch {
+      } catch (error) {
+        if (error?.code === 'SECURE_STORAGE_UNAVAILABLE' || error?.code === TOKEN_DECRYPT_ERROR) throw error;
         if (generation === sessionGeneration) cache = {};
       }
       return cache || {};
@@ -173,8 +187,10 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function request(pathname, options = {}) {
     const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-    const state = await load();
-    if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+    if (options.auth !== false) {
+      const state = await load();
+      if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+    }
     const res = await fetch(`${apiBase()}${pathname}`, {
       method: options.method || 'GET',
       headers,
@@ -250,8 +266,8 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function login(email, password, options = {}) {
     const generation = options.expectedSessionGeneration ?? sessionGeneration;
-    // 先请求登录（避免登录失败时误清旧账号状态）
-    const data = await request('/api/login', { method: 'POST', body: { email, password } });
+    // 登录/换号必须能从损坏或暂不可读的旧密文恢复，因此登录请求不依赖旧 bearer token。
+    const data = await request('/api/login', { method: 'POST', body: { email, password }, auth: false });
     // 登录成功：清空旧账号本地状态（token/quota_cache 等），防止换账号数据串号。
     // 条件 clear 保证晚到的登录响应不能越过一个更晚完成的 logout/account switch。
     await clear({ expectedSessionGeneration: generation });
@@ -284,7 +300,7 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function register(email, password) {
     const generation = sessionGeneration;
-    await request('/api/register', { method: 'POST', body: { email, password } });
+    await request('/api/register', { method: 'POST', body: { email, password }, auth: false });
     assertSessionGeneration(generation);
     return login(email, password, { expectedSessionGeneration: generation });
   }
