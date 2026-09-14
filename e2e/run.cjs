@@ -12,6 +12,8 @@ const requestedSuite = String(process.env.GEEK_E2E_SUITE || '').trim();
 const targetedSpecs = Object.freeze({
   'whatsapp-bootstrap': path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'),
 });
+const DEFAULT_RUN_TIMEOUT_MS = 120_000;
+const FULL_SUITE_TIMEOUT_MS = 180_000;
 const accounts = Object.freeze({
   activeAccountId: 'e2e-account-a',
   accounts: Object.freeze([
@@ -34,6 +36,12 @@ const baseEnv = {
 // WDIO CLI argument and never forwarded as product-runtime configuration.
 delete baseEnv.GEEK_E2E_SUITE;
 
+function runTimeoutMs(configName, specPath) {
+  return configName === 'wdio.conf.cjs' && !specPath
+    ? FULL_SUITE_TIMEOUT_MS
+    : DEFAULT_RUN_TIMEOUT_MS;
+}
+
 function runWdio(configName, phase, specPath) {
   return new Promise((resolve, reject) => {
     const env = phase ? { ...baseEnv, GEEK_E2E_RESTART_PHASE: phase } : baseEnv;
@@ -49,7 +57,7 @@ function runWdio(configName, phase, specPath) {
     const hardTimeout = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
-    }, 120_000);
+    }, runTimeoutMs(configName, specPath));
     hardTimeout.unref?.();
 
     const finish = (error) => {

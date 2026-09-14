@@ -5,6 +5,19 @@
   const MAIN_SELECTOR = '.nav-account-main';
   const BUTTON_SELECTOR = '.shell-account-menu-button';
   const MENU_ITEM_SELECTOR = '.ctx-item[data-act]';
+  const ACCOUNT_SETTINGS_OVERLAY_ID = 'account-settings-overlay';
+  const ACCOUNT_SETTINGS_DIALOG_SELECTOR = '#account-settings-overlay [role="dialog"]';
+  const ACCOUNT_SETTINGS_FOCUSABLE_SELECTOR = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[contenteditable="true"]',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(',');
+  const accountSettingsInertState = new Map();
+  let accountSettingsBodyObserver = null;
   let menuReturn = null;
   let dialogReturn = null;
   let refreshReturn = null;
@@ -18,6 +31,14 @@
 
   function menuVisible(menu) {
     return !!menu && !menu.classList.contains('hidden');
+  }
+
+  function overlayVisible(overlay) {
+    return !!overlay && !overlay.classList.contains('hidden');
+  }
+
+  function lockVisible() {
+    return overlayVisible(document.getElementById('lock-overlay'));
   }
 
   function rowAccountId(row) {
@@ -150,15 +171,134 @@
     return true;
   }
 
+  function accountSettingsDialog(overlay) {
+    return overlay?.querySelector('[role="dialog"]') || null;
+  }
+
+  function accountSettingsControls(overlay) {
+    const dialog = accountSettingsDialog(overlay);
+    if (!dialog) return [];
+    return [...dialog.querySelectorAll(ACCOUNT_SETTINGS_FOCUSABLE_SELECTOR)].filter(node => {
+      if (node.hidden || node.closest('.hidden') || node.closest('[inert]')) return false;
+      return node.getAttribute?.('aria-hidden') !== 'true';
+    });
+  }
+
+  function decorateAccountSettingsDialog(overlay) {
+    const dialog = accountSettingsDialog(overlay);
+    if (!dialog) return;
+    const header = dialog.querySelector('.settings-header');
+    const title = header?.querySelector('.settings-head-copy > span');
+    const target = document.getElementById('account-settings-target');
+    const status = document.getElementById('account-settings-status');
+    if (title) {
+      if (!title.id) title.id = 'account-settings-dialog-title';
+      setAttr(dialog, 'aria-labelledby', title.id);
+      dialog.removeAttribute('aria-label');
+    }
+    if (target?.id) setAttr(dialog, 'aria-describedby', target.id);
+    if (status) {
+      setAttr(status, 'role', 'status');
+      setAttr(status, 'aria-live', 'polite');
+      setAttr(status, 'aria-atomic', 'true');
+    }
+    for (const row of dialog.querySelectorAll('.row-item')) {
+      const control = row.querySelector('input, select, textarea');
+      const label = String(row.querySelector('span')?.textContent || '').trim();
+      if (control && label && !control.getAttribute('aria-label') && !control.getAttribute('aria-labelledby')) {
+        setAttr(control, 'aria-label', label);
+      }
+    }
+  }
+
+  function isAccountSettingsBackgroundNode(node, overlay) {
+    return !!node
+      && node.nodeType === 1
+      && node !== overlay
+      && node.id !== 'lock-overlay'
+      && node.tagName !== 'SCRIPT';
+  }
+
+  function rememberAndInertAccountSettingsBackground(node) {
+    if (!node || node.nodeType !== 1) return;
+    if (!accountSettingsInertState.has(node)) accountSettingsInertState.set(node, !!node.inert);
+    node.inert = true;
+  }
+
+  function activateAccountSettingsBoundary(overlay) {
+    if (!overlayVisible(overlay)) return;
+    for (const node of document.body?.children || []) {
+      if (isAccountSettingsBackgroundNode(node, overlay)) rememberAndInertAccountSettingsBackground(node);
+    }
+    if (!accountSettingsBodyObserver && document.body && typeof MutationObserver === 'function') {
+      accountSettingsBodyObserver = new MutationObserver(records => {
+        if (!overlayVisible(overlay)) return;
+        for (const record of records) {
+          for (const node of record.addedNodes || []) {
+            if (isAccountSettingsBackgroundNode(node, overlay)) rememberAndInertAccountSettingsBackground(node);
+          }
+        }
+      });
+      accountSettingsBodyObserver.observe(document.body, { childList: true });
+    }
+  }
+
+  function releaseAccountSettingsBoundary() {
+    accountSettingsBodyObserver?.disconnect();
+    accountSettingsBodyObserver = null;
+    for (const [node, wasInert] of accountSettingsInertState) {
+      if (node?.isConnected !== false) node.inert = wasInert;
+    }
+    accountSettingsInertState.clear();
+  }
+
+  function focusAccountSettingsPrimary(overlay) {
+    const primary = document.getElementById('account-settings-name');
+    const fallback = accountSettingsControls(overlay)[0] || accountSettingsDialog(overlay);
+    (primary || fallback)?.focus?.({ preventScroll: true });
+  }
+
+  function handleAccountSettingsKeydown(event, overlay) {
+    if (!overlayVisible(overlay)) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      document.getElementById('account-settings-cancel')?.click();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const controls = accountSettingsControls(overlay);
+    if (!controls.length) {
+      event.preventDefault();
+      return;
+    }
+    const current = controls.indexOf(document.activeElement);
+    const next = event.shiftKey
+      ? (current <= 0 ? controls.length - 1 : current - 1)
+      : (current < 0 || current === controls.length - 1 ? 0 : current + 1);
+    event.preventDefault();
+    controls[next]?.focus({ preventScroll: true });
+  }
+
+  function keepAccountSettingsFocusInside(event, overlay) {
+    if (!overlayVisible(overlay)) return;
+    const dialog = accountSettingsDialog(overlay);
+    if (!dialog || dialog.contains(event.target)) return;
+    const lock = document.getElementById('lock-overlay');
+    if (lockVisible() && lock?.contains(event.target)) return;
+    focusAccountSettingsPrimary(overlay);
+  }
+
   function install() {
     const accountRoot = document.getElementById('nav-accounts');
     const contextMenu = document.getElementById('ctx-menu');
-    const accountSettingsOverlay = document.getElementById('account-settings-overlay');
+    const accountSettingsOverlay = document.getElementById(ACCOUNT_SETTINGS_OVERLAY_ID);
     const proxyOverlay = document.getElementById('proxy-overlay');
     if (!accountRoot || !contextMenu) return;
 
     ensureButtons(accountRoot, contextMenu);
     decorateMenu(contextMenu);
+    decorateAccountSettingsDialog(accountSettingsOverlay);
 
     accountRoot.addEventListener('keydown', event => {
       const main = event.target?.closest?.(MAIN_SELECTOR);
@@ -235,7 +375,25 @@
       dialogReturn = null;
       focusReturn(accountRoot, target);
     };
-    if (accountSettingsOverlay) new MutationObserver(restoreDialogFocus).observe(accountSettingsOverlay, { attributes: true, attributeFilter: ['class'] });
+
+    if (accountSettingsOverlay) {
+      accountSettingsOverlay.addEventListener('keydown', event => handleAccountSettingsKeydown(event, accountSettingsOverlay), true);
+      document.addEventListener('focusin', event => keepAccountSettingsFocusInside(event, accountSettingsOverlay), true);
+      const syncAccountSettingsModal = () => {
+        decorateAccountSettingsDialog(accountSettingsOverlay);
+        if (overlayVisible(accountSettingsOverlay)) {
+          activateAccountSettingsBoundary(accountSettingsOverlay);
+          if (!accountSettingsDialog(accountSettingsOverlay)?.contains(document.activeElement)) {
+            queueMicrotask(() => focusAccountSettingsPrimary(accountSettingsOverlay));
+          }
+        } else {
+          releaseAccountSettingsBoundary();
+          restoreDialogFocus();
+        }
+      };
+      new MutationObserver(syncAccountSettingsModal).observe(accountSettingsOverlay, { attributes: true, attributeFilter: ['class'] });
+      syncAccountSettingsModal();
+    }
     if (proxyOverlay) new MutationObserver(restoreDialogFocus).observe(proxyOverlay, { attributes: true, attributeFilter: ['class'] });
   }
 

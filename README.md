@@ -83,8 +83,24 @@ LINE 页面由项目内置 3.5.1 MV3 扩展提供。其旧式 preload 依赖 `_p
 
 ## 运行与验证
 
+日常开发优先启动受影响开发循环：
+
 ```bash
 npm install
+npm run dev
+```
+
+`npm run dev` 会复用 Electron 已有的隔离 development profile，并固定使用受控的 9344 调试端口。它按变更范围给反馈，而不是每次保存都重启整个工程：
+
+- `ui/` 的 JavaScript 先做语法检查，再通过现有 CDP 工具执行无缓存桌面 shell 刷新；如果 CDP 刷新不可用，自动退回有序重启 Electron。
+- `src/`、`resources/`、`package.json` 和 `package-lock.json` 触发有序 Electron 重启；可执行输入或 JSON 无效时保留最后一个可工作的桌面进程。
+- `scripts/`、`e2e/`、`test-support/` 的 JavaScript 变更立即做 `node --check`；单个 `test/*.cjs` contract 变化只运行该 contract。
+- Electron 真正异常退出时按 0.5 秒、1.5 秒、4.5 秒做有界恢复；稳定运行 30 秒后重置不稳定计数，连续早崩超过恢复上限后熔断并等待下一次有效桌面运行代码变更。人工正常退出不会被自动拉起。
+- `wrangler*.toml` 变化会被提示；Cloudflare Worker 的完整 Wrangler bundle dry-run 仍以 CI 为权威，避免本地开发循环静默替代生产验证。
+
+只需要一次性启动、不需要持续反馈时：
+
+```bash
 npm start
 ```
 

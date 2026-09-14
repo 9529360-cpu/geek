@@ -27,12 +27,18 @@ function chromeDriverShutdownUrl(options) {
 exports.config = {
   runner: 'local',
   specs: ['./specs/shell-smoke.e2e.cjs'].concat(
+    './specs/first-run-onboarding.e2e.cjs',
+    './specs/lock-screen-accessibility.e2e.cjs',
+    './specs/settings-modal-accessibility.e2e.cjs',
+    './specs/proxy-dialog-validation.e2e.cjs',
     './specs/account-context-keyboard.e2e.cjs',
+    './specs/sidebar-collapse.e2e.cjs',
     './specs/whatsapp-live-bootstrap.e2e.cjs',
     './specs/session-permission-runtime.e2e.cjs',
     './specs/webview-navigation-runtime.e2e.cjs',
     './specs/broadcast-readiness.e2e.cjs',
     './specs/broadcast-feedback.e2e.cjs',
+    './specs/broadcast-command-center.e2e.cjs',
   ),
   maxInstances: 1,
   logLevel: 'warn',

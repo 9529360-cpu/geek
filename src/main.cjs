@@ -36,6 +36,7 @@ const { installBroadcastFileBoundary } = require('./broadcast-files.cjs');
 const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-broadcast-attachment-boundary.cjs');
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 const { externalDebuggingRequested } = require('./external-debugging-policy.cjs');
+const { createProxyRuntime } = require('./proxy-runtime.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -133,6 +134,20 @@ const configStore = createConfigStateStore({
     const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
     const phase = typeof meta?.phase === 'string' ? meta.phase : 'load';
     console.error(`[config-state] ${phase} failed: ${code.slice(0, 80)} recovered=${meta?.recovered === true ? 'yes' : 'no'}`);
+  },
+});
+
+const proxyRuntime = createProxyRuntime({
+  app,
+  sessionModule: session,
+  accountState,
+  getGlobalConfig: () => configStore.getSnapshot(),
+  onError: (_error, meta) => {
+    const partition = typeof meta?.partition === 'string' ? meta.partition : '';
+    const phase = typeof meta?.phase === 'string' ? meta.phase : 'apply';
+    const code = typeof meta?.code === 'string' ? meta.code : 'PROXY_APPLY_FAILED';
+    console.error(`[proxy] ${phase} failed (${partition}): ${code}`);
+    diagnostics.log('proxy-runtime-failed', { partition, phase, code });
   },
 });
 
@@ -277,41 +292,6 @@ function applyLoginItemSettings(config = configStore.getSnapshot()) {
   }
 }
 
-function proxyRulesFor(config) {
-  if (!config || !config.openProxy) return null;
-  const host = String(config.host || '').trim();
-  const port = String(config.port || '').trim();
-  if (!host || !port) return null;
-  const protocal = config.protocal === 'https' || config.protocal === 'socks4' || config.protocal === 'socks5'
-    ? config.protocal
-    : 'http';
-  const login = String(config.login || config.huser || '').trim();
-  const password = String(config.password || config.hpwd || '');
-  const auth = login ? `${encodeURIComponent(login)}:${encodeURIComponent(password)}@` : '';
-  const base = `${auth}${host}:${port}`;
-  if (protocal === 'http') return `http=${base};https=${base}`;
-  if (protocal === 'https') return `https=${base}`;
-  return `${protocal}://${base}`;
-}
-
-async function applyProxyForPartition(partition, config) {
-  try {
-    const ses = session.fromPartition(partition, { cache: true });
-    const rules = proxyRulesFor(config);
-    if (!rules) {
-      await ses.setProxy({ mode: 'direct' });
-      return;
-    }
-    await ses.setProxy({
-      mode: 'fixed_servers',
-      proxyRules: rules,
-      proxyBypassRules: '<local>'
-    });
-  } catch (error) {
-    console.error(`应用代理失败 (${partition}):`, error.message);
-  }
-}
-
 function isTrustedSender(event) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   return event.sender.id === mainWindow.webContents.id;
@@ -338,6 +318,7 @@ async function addAccount(_event, payload = {}) {
   const result = await accountState.add(payload);
   const account = result.account;
   const config = platformConfig(account.type);
+  await proxyRuntime.applyAccount(account, configStore.getSnapshot());
   notifyAccountsChanged(result.snapshot);
   return {
     state: publicState(result.snapshot),
@@ -363,6 +344,7 @@ async function removeAccount(event, accountId) {
   const removedAccount = result.removedAccount;
 
   translationRuntime?.deleteAccount(removedAccount.partition);
+  proxyRuntime.forgetPartition(removedAccount.partition);
 
   try {
     const guests = webContents.getAllWebContents().filter(
@@ -422,11 +404,7 @@ async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
   const result = await accountState.update(accountId, patchData);
   const account = result.account;
-  const globalConfig = configStore.getSnapshot();
-  await applyProxyForPartition(
-    account.partition,
-    account.openProxy ? account : (globalConfig.openProxy ? globalConfig : null)
-  );
+  await proxyRuntime.applyAccount(account, configStore.getSnapshot());
   notifyAccountsChanged(result.snapshot);
   return publicState(result.snapshot);
 }
@@ -534,16 +512,8 @@ function registerIpcHandlers() {
     store: configStore,
     onCommitted: async (config) => {
       applyLoginItemSettings(config);
-      const globalProxy = config.openProxy ? config : null;
       const snapshot = accountState.getSnapshot();
-      await Promise.all(
-        snapshot.accounts.map((account) =>
-          applyProxyForPartition(
-            account.partition,
-            account.openProxy ? account : globalProxy
-          )
-        )
-      );
+      await proxyRuntime.applyAccounts(snapshot.accounts, config);
       notifyAccountsChanged(snapshot);
     },
   });
@@ -973,6 +943,16 @@ function configureWebviewSecurity(window) {
       return;
     }
 
+    const globalConfig = configStore.getSnapshot();
+    if (!proxyRuntime.isReadyForAccount(account, globalConfig)) {
+      diagnostics.log('webview-proxy-not-ready', {
+        partition,
+        proxyEnabled: account.openProxy === true || globalConfig.openProxy === true
+      });
+      event.preventDefault();
+      return;
+    }
+
     delete webPreferences.preloadURL;
     const isLine = account.type === 'line' || account.type === 'line-business';
     const isWebsite = account.type === 'website';
@@ -1014,14 +994,6 @@ function configureWebviewSecurity(window) {
       : isWebsite
         ? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=no,spellcheck=no'
         : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';
-
-    const globalConfig = configStore.getSnapshot();
-    const accountProxy = account.openProxy
-      ? account
-      : globalConfig.openProxy
-        ? globalConfig
-        : null;
-    applyProxyForPartition(partition, accountProxy);
 
     if (account.type === 'line' || account.type === 'line-business') {
       loadLineExtension(partition);
@@ -1356,6 +1328,8 @@ app.whenReady().then(async () => {
   }
   await accountState.load();
   await configStore.load();
+  proxyRuntime.installAuthenticationHandler();
+  await proxyRuntime.applyAccounts(accountState.getSnapshot().accounts, configStore.getSnapshot());
   applyLoginItemSettings(configStore.getSnapshot());
   registerIpcHandlers();
   subscriptionIpcBoundary = installSubscriptionIpc({
