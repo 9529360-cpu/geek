@@ -573,15 +573,19 @@
 
   // ---------- WebView 创建 ----------
   let bridgePreloadPath = '';
-  // webview 崩溃自动重载限频（1分钟内最多2次，防崩溃循环）
+  // webview 崩溃自动重载限频（每账号1分钟内最多2次，防一个账号耗尽其他账号预算）
   const webviewCrashLimiter = (() => {
-    const timestamps = [];
+    const timestampsByAccount = new Map();
     return {
-      allow() {
+      allow(accountId) {
+        const key = String(accountId || '');
+        if (!key) return false;
         const t = Date.now();
+        const timestamps = timestampsByAccount.get(key) || [];
         while (timestamps.length && timestamps[0] <= t - 60000) timestamps.shift();
         if (timestamps.length >= 2) return false;
         timestamps.push(t);
+        timestampsByAccount.set(key, timestamps);
         return true;
       }
     };
@@ -627,7 +631,7 @@
     });
     // 崩溃自动恢复：限频重载（防崩溃循环），超限停止并记录
     wv.addEventListener('render-process-gone', () => {
-      if (webviewCrashLimiter.allow()) {
+      if (webviewCrashLimiter.allow(account.id)) {
         console.warn('[crash] webview 崩溃，1分钟内限频2次内自动重载');
         try { wv.reload(); } catch (e) { console.error('[crash] webview 重载失败:', e.message); }
       } else {

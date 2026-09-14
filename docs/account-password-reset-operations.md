@@ -1,10 +1,8 @@
 # 账户与忘记密码系统交接/运维手册
 
-更新时间：2026-08-19
+最初整理：2026-08-19。本文是账户/密码重置的运行与安全手册，不是实时生产状态数据库；当前源码、migration 应用状态、Worker 部署结果和生产行为必须从 live GitHub、对应 Actions、Issue #21/#23 与必要的只读生产检查重新确认。
 
-这份文档记录极客官网账户系统、忘记密码邮件、Resend、Cloudflare Worker 和 D1 的当前生产实现。生产结果以对应 GitHub Actions run、Issue #21 和 Issue #23 为准；历史维护记录按当时状态保留。
-
-## 1. 当前实现
+## 1. 当前设计边界
 
 - 官网登录页提供“忘记密码”。
 - `/forgot-password` 提交邮箱，调用 `POST /api/password-reset/request`。
@@ -23,6 +21,8 @@
 - `2dc1a24 feat(account): add secure email password reset`
 - `204326f chore(account): log password email delivery failures`
 
+上述提交只用于 Git archaeology；当前 active path 以 live source/contracts 为准。
+
 ## 2. 生产资源
 
 | 项目 | 值 |
@@ -34,6 +34,8 @@
 | D1 数据库 | `geek-subscriptions` |
 | Resend 域名 | `send.bbnba.com` |
 | 正式发件人 | `极客 Geek <no-reply@send.bbnba.com>` |
+
+生产资源名、域名和绑定若与 live Wrangler/source/Cloudflare evidence 冲突，以 live 配置为准并更新本手册。
 
 Resend 自动配置产生的 DNS 记录采用子域名嵌套，这是正常的：
 
@@ -80,12 +82,12 @@ npx wrangler secret put RESET_FROM_EMAIL --config wrangler-subscription.toml
 
 迁移文件：`scripts/migrations/002-password-resets.sql`。
 
-它已经在生产 D1 执行，增加：
+历史生产记录表明它已执行并增加：
 
 - `users.token_version`
 - `password_reset_requests` 表及索引
 
-不要重复执行该迁移，因为 SQLite/D1 的 `ALTER TABLE ... ADD COLUMN` 不是幂等操作。新环境初始化使用 `scripts/geek-subscription-schema.sql`；已有环境只按迁移顺序执行尚未应用的迁移。
+**执行任何 migration 前必须再次只读确认 live 生产 schema / migration 状态。** 不得因为本文写着某个 migration 文件就盲目重跑；SQLite/D1 的 `ALTER TABLE ... ADD COLUMN` 并非天然幂等。新环境初始化使用当前 `scripts/geek-subscription-schema.sql`；已有环境只按实际尚未应用的迁移顺序执行。
 
 只读检查最近请求：
 
@@ -115,20 +117,22 @@ node --check scripts/geek-website-worker.js
 git diff --check
 ```
 
-当前自动测试入口执行 62 项 contract。`scripts/run-tests.cjs` 动态发现 `test/*.cjs`，仅排除 `cdp-eval.cjs` 和 `cdp-reload.cjs` 两个手动 CDP 工具；不要把历史维护记录里的 37 项测试当作当前基线。
+`scripts/run-tests.cjs` 动态发现 `test/*.cjs` contract，并排除仓库明确标记为手动工具的条目。**当前 contract 数量以 live runner/CI 输出为准，不在本手册硬编码。** 历史记录中的 37、62 或任何其他数量都只是当时快照。
 
-账户改动至少要保持以下聚焦 contract 通过：
+账户改动至少要保持当前存在的相关聚焦 contract 通过，例如：
 
 - `test/account-security-contract.cjs`
 - `test/account-free-worker-kdf-contract.cjs`
 - `test/account-live-smoke-contract.cjs`
 - 与具体根因对应的其他 account/website contract
 
+若上述文件后来重命名/拆分，以 live test tree 为准，不为了迎合本手册恢复旧测试名。
+
 ### 正常生产路径
 
 1. 一个根因建立一个 Issue、分支和 PR。
-2. PR 的标准 `test` 工作流通过后再合并到 `master`。
-3. 合并内容命中路径过滤时，仓库自动运行受影响的生产工作流：
+2. PR 的标准 `test` / 相关验证工作流通过后再合并到 `master`。
+3. 合并内容命中现有生产 path filter 时，仓库自动运行受影响的生产工作流：
    - `deploy-subscription`：完整测试、订阅 Worker/入口/smoke/reporter 语法检查、Wrangler 部署、账号 smoke、公网 `/health` 验证；
    - `deploy-website`：完整测试、网站 Worker 语法检查、Wrangler 部署、官网 `/health` 验证。
 4. `deploy-subscription` 将注册、登录、鉴权和测试账号清理结果写入 Issue #23，并把整体部署结果写入 Issue #21。
@@ -180,6 +184,8 @@ LIMIT 3;
 
 ## 7. 代码导航
 
+以下名称用于快速定位，最终仍以 live source/search 为准：
+
 - `scripts/geek-subscription-entry.js`：账户/订阅生产入口。
 - `scripts/geek-subscription-worker.js`：账户、订阅和重置基础 Worker。
 - `scripts/geek-website-worker.js`：官网页面与代理。
@@ -198,9 +204,9 @@ LIMIT 3;
 - 不允许根据邮箱是否存在返回不同文案或状态。
 - 不允许跳过 `token_version` 会话撤销。
 - 不允许绕过限流、HttpOnly Cookie、同源/CORS 边界和支付确认校验。
-- 不允许覆盖生产 secrets 或重复跑迁移后不验证。
+- 不允许覆盖生产 secrets 或盲目重复 migration。
 - 不允许在 Workers Free 认证热路径重新引入高 CPU KDF。
-- 修改后必须通过分支/PR、聚焦 contract 和完整测试；合并后核对对应生产工作流及 #21/#23 状态。
+- 修改后必须通过分支/PR、相关 contract 和完整测试；合并后核对实际触发的生产 workflow 及 #21/#23 状态。
 - 失败时优先回滚到上一个已知正常 Worker 版本，不在生产上连续盲改。
 
 ## 9. BUG 维护流程
@@ -210,9 +216,9 @@ LIMIT 3;
 ### Block 0：建立现场
 
 - 记录用户看到的页面、准确时间、URL、操作顺序和是否为正式安装包。
-- 确认当前 `master`、生产对应提交、开放 PR 和相关 Actions run。
+- 确认 live `master`、生产对应提交、open PR/Issues 和相关 Actions run。
 - 只读检查 Worker 健康、最新 #21/#23 状态和必要的 D1 元数据。
-- 不得删除用户数据、清空表、重跑迁移或覆盖 secret 来“试试看”。
+- 不得删除用户数据、清空表、重跑 migration 或覆盖 secret 来“试试看”。
 
 ### Block 1：最小复现与定位
 
@@ -223,22 +229,23 @@ LIMIT 3;
 
 ### Block 2：修复与回归
 
-- 运行本手册第 5 节的全部检查和 `npm test`。
+- 运行本手册第 5 节的当前有效检查和 `npm test`。
 - 检查 diff，确认没有账号数据、密钥、构建产物或临时诊断文件进入提交。
 - 人工复核防枚举、令牌哈希、过期/单次使用、限流、旧会话撤销和 Free Worker CPU 边界。
 
 ### Block 3：提交、部署和线上验证
 
 - 一个根因对应一个 Issue、分支、PR 和清晰提交。
-- PR CI 通过后合并，由命中路径过滤的受影响工作流部署；没改的 Worker 不重复部署。
+- PR CI 通过后合并，由命中 path filter 的受影响工作流部署；没改的 Worker 不重复部署。
 - 线上先做只读检查，再做一次最小真实流程验证。
 - 记录 commit、Actions run、公开 HTTP 状态和最终结果；测试邮箱仅可脱敏，不记录凭据。
 - 自动化不可用时，只有在明确授权和回退计划下才执行手工 Wrangler 部署。
 
 ### Block 4：关闭与回滚准备
 
-- 在本文件“维护记录”增加一行，说明症状、根因、修复提交和验证结果。
-- 合并后立即更新 Issue #50；生产账号 smoke 由 #23 留档，整体部署由 #21 留档。
+- 若本轮形成长期有效的新安全/运维 invariant，更新本手册；单纯当前状态不要写成永久事实。
+- 如这次维护产生值得跨会话保留的恢复事实，可在 Issue #50 追加**简洁 dated checkpoint**；不要每个 merge 机械更新 #50。
+- 生产账号 smoke 由 #23 留档，整体 Worker 部署由 #21 留档。
 - 若线上验证失败，优先回滚到上一个已知正常 Worker 版本。
 - 回滚代码不能回滚 D1 用户数据。涉及 schema 时必须先评估向后兼容，禁止直接删除列或表。
 
@@ -253,16 +260,16 @@ LIMIT 3;
 | 所有人都收不到邮件 | Worker secret 名称、Resend 状态、DNS | 检查 DKIM 与 `send.send.bbnba.com` 的 SPF/MX |
 | 只有部分邮箱收不到 | Resend 投递日志、退信/垃圾邮件 | 不要把单个邮箱退信误判为全局故障 |
 | 官网页面有表单但 API 404 | 网站 Worker 路由/代理和订阅 Worker 路由 | 两个 Worker 可能版本不一致 |
-| 合并后未触发部署 | PR 文件范围、工作流 paths、Actions 状态 | 普通文档/无关路径不会触发生产部署 |
-| D1 报重复列 | 是否误跑 `002-password-resets.sql` | 生产迁移已经执行，禁止重复执行 |
+| 合并后未触发部署 | PR 文件范围、workflow paths、Actions 状态 | 普通文档/无关路径不会触发生产部署 |
+| D1 报重复列 | 是否误跑已应用 migration | 先核对生产 schema / migration 状态，禁止盲目重跑 |
 
 ## 11. 维护记录
 
-以下记录保留当时的版本和测试数量，不代表当前基线。
+以下记录明确是历史快照，不代表当前版本、测试数量或生产状态。
 
 | 日期 | 症状/任务 | 根因 | 修复/配置 | 验证 |
 |---|---|---|---|---|
 | 2026-08-17 | 增加忘记密码邮件 | 原系统缺少安全重置流程 | `2dc1a24` | 当时 37 项测试通过；生产请求为 `issued` |
 | 2026-08-17 | 正式发件域名接入 | 初始只能使用 Resend 测试发件人 | 验证 `send.bbnba.com`，Worker `RESET_FROM_EMAIL` 切换为正式地址 | 当时 DKIM/SPF/MX 存在；Gmail 实收成功 |
 
-后续每修复一个相关 BUG，追加一行并保留已有历史；不要用当前状态覆盖过去的事实。
+后续只有在记录**历史上真正发生过且有证据的安全/运维事件**时追加一行；当前 live 状态仍从 GitHub/Actions/#21/#23 读取。

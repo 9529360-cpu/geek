@@ -2,7 +2,7 @@
 
 This repository is the daily operations control plane for the Geek project. Production credentials remain in GitHub Repository Actions Secrets or Cloudflare Worker secrets; plaintext secrets must never be committed, printed or copied into Issue comments.
 
-The current client/package version is intentionally not hard-coded in this operations guide. Before maintenance or release work, read the live `package.json.version`, `.github/release-client-version`, current `master` HEAD and `.agent/HANDOFF.md`, then verify any production claim against the corresponding Actions run. Ordinary source and documentation changes must not modify the release marker. The normal new-version release path is marker-gated; explicit `workflow_dispatch` is reserved for an already authorized same-version recovery retry after a failed release attempt.
+The current client/package version is intentionally not hard-coded in this operations guide. Before maintenance or release work, read the live `package.json.version`, `.github/release-client-version`, current `master` HEAD, open PR/Issues and relevant Actions runs. Read `AGENTS.md` and `.agent/HANDOFF.md` for durable rules/recovery invariants, not for a second copy of live status. Ordinary source and documentation changes must not modify the release marker. The normal new-version release path is marker-gated; explicit `workflow_dispatch` is reserved for an already authorized same-version recovery retry after a failed release attempt.
 
 ## Production components
 
@@ -14,9 +14,11 @@ The current client/package version is intentionally not hard-coded in this opera
 - D1: `geek-subscriptions`.
 - Cloudflare zone: `bbnba.com`.
 
+These names describe the repository's control-plane model. When diagnosing production, verify current Wrangler bindings/routes and Actions evidence instead of assuming a dated document proves deployment state.
+
 ## Repository Actions Secrets
 
-Configured project control-plane credentials:
+Configured project control-plane credential names:
 
 - `CLOUDFLARE_API_TOKEN`: project-scoped Worker deployment and R2 publication token.
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account identifier.
@@ -76,11 +78,13 @@ Translation, release and subscription share `scripts/cloudflare-deploy-report.cj
 
 Use this order when determining production state:
 
-1. the corresponding GitHub Actions run and its job/step conclusions;
+1. the corresponding live GitHub Actions run and its job/step conclusions;
 2. the latest matching Issue #21 deployment comment;
 3. for account behavior, the latest Issue #23 smoke comment;
-4. current `master` workflow/source configuration;
-5. `.agent/HANDOFF.md` as the maintenance checkpoint, not as a substitute for production evidence.
+4. current `master` workflow/source/Wrangler configuration;
+5. dated Issue #50/history and old runbooks only as context after live evidence is known.
+
+`.agent/HANDOFF.md` is a recovery contract/durable invariant document, not a production-state checkpoint. It may tell a maintainer **how** to recover evidence, but it must not substitute for Actions/#21/#23/live source.
 
 Do not use a local maintenance container's DNS resolution as production evidence. Local environments may have transient network or resolver limits that say nothing about the GitHub-hosted deployment job.
 
@@ -112,6 +116,16 @@ The release Worker deployment and a client release are different operations:
 - `release-client` builds and publishes a Windows installer/blockmap, promotes `latest.yml` last, and can be explicitly rerun only for an authorized same-version recovery.
 
 Do not describe a release Worker code deployment as a new client release, and do not use the client release workflow as a general CI or deployment test.
+
+Windows Authenticode certificate/secret ownership is intentionally outside routine maintenance and is tracked separately in Issue #445. Enabling signing must not bypass the release authorization or artifact/public-propagation gates.
+
+## Repository merge-control boundary
+
+The repository's expected exact-head merge discipline should be enforced by GitHub rules rather than maintainer memory. Current owner/admin follow-up for `master` branch protection and required status checks is tracked in Issue #444.
+
+When that rule is configured, do not make a path-filtered workflow required unless it is guaranteed to emit a terminal check for every PR that needs it; otherwise a legitimate docs/source PR can be stuck forever waiting for a check that never starts. Always-emitted aggregate gates should be preferred for required-check policy.
+
+Routine maintainers must not weaken CI or request broader administration credentials merely to bypass the control plane.
 
 ## Infrastructure access verification
 
@@ -147,6 +161,8 @@ Zone permissions required for the current architecture:
 
 Do not add Billing Edit, Memberships Edit, API Tokens Edit, Account Settings Edit, or permissions for unrelated accounts/zones.
 
+Permissions and product availability can change. Before making an infrastructure change, verify the current Cloudflare/GitHub configuration and the minimum privilege actually required; this list is an architecture target, not permission to silently expand a token.
+
 ## Safety rules
 
 - Never commit API tokens, passwords, OAuth sessions, cookies, API keys, JWT secrets or provider credentials.
@@ -158,6 +174,8 @@ Do not add Billing Edit, Memberships Edit, API Tokens Edit, Account Settings Edi
 - Payment QR content must derive from the current server-provided address; do not hard-code a second destination in website or deployment tooling.
 - Release Worker routes remain updater-only and must not become a general static-file service.
 
-## Agent handoff
+## Agent recovery
 
-A future maintenance agent should first read `AGENTS.md` and `.agent/HANDOFF.md`, reconcile them with the live repository state, then read this file and the relevant Wrangler/workflow configuration. Issue #50 remains the long-term checkpoint/history channel and should be consulted when historical context is needed. Routine code, Worker deployment and CI can be managed through the repository. Infrastructure mutations must use the scoped infrastructure token through a purpose-built, reviewed workflow rather than exposing its value.
+A future maintenance agent should read `AGENTS.md`, `.agent/HANDOFF.md` and `docs/README.md` for durable rules and document authority, then **query live GitHub** for current `master`, version/marker, open PR/Issues and current Actions before selecting work. Read this file and relevant Wrangler/workflow configuration for control-plane changes. Issue #50 remains the long-term dated checkpoint/history channel and is useful only after live state is established.
+
+Routine code, Worker deployment and CI can be managed through the repository. Infrastructure mutations must use the minimum scoped credential through a purpose-built, reviewed workflow rather than exposing its value.
