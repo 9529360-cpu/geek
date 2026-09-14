@@ -311,10 +311,6 @@ function createTranslationRuntime(options = {}) {
       const current = authorizationAbortFanouts.get(signal);
       if (!current) return;
       current.subscribers.delete(subscriber);
-      if (!current.subscribers.size) {
-        signal.removeEventListener('abort', current.onAbort);
-        authorizationAbortFanouts.delete(signal);
-      }
     };
   }
 
