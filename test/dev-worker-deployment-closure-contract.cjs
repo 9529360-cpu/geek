@@ -14,10 +14,30 @@ const workflowByWorker = Object.freeze({
 });
 
 function deploymentTriggerPaths(source) {
-  const normalized = source.replace(/\r\n/g, '\n');
-  const match = normalized.match(/\n  push:\n[\s\S]*?\n    paths:\n((?:      - ['"][^'"\n]+['"]\n)+)/);
-  assert.ok(match, 'deployment workflow must keep an explicit push.paths list');
-  return Array.from(match[1].matchAll(/      - ['"]([^'"\n]+)['"]/g), (entry) => entry[1]);
+  const lines = source.replace(/\r/g, '').split('\n');
+  const pushIndex = lines.findIndex((line) => line === '  push:');
+  assert.notEqual(pushIndex, -1, 'deployment workflow must keep a push trigger');
+
+  let pathsIndex = -1;
+  for (let index = pushIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^  \S/.test(line)) break;
+    if (line === '    paths:') {
+      pathsIndex = index;
+      break;
+    }
+  }
+  assert.notEqual(pathsIndex, -1, 'deployment workflow must keep an explicit push.paths list');
+
+  const paths = [];
+  for (let index = pathsIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const match = line.match(/^      - ['"]([^'"]+)['"]$/);
+    if (!match) break;
+    paths.push(match[1]);
+  }
+  assert.ok(paths.length > 0, 'deployment workflow push.paths must not be empty');
+  return paths;
 }
 
 for (const [name, workflowPath] of Object.entries(workflowByWorker)) {
@@ -32,6 +52,11 @@ for (const [name, workflowPath] of Object.entries(workflowByWorker)) {
     deploymentTriggerPaths(source.replace(/\n/g, '\r\n')),
     expected,
     `${name} deployment trigger closure must parse Windows CRLF checkouts`,
+  );
+  assert.deepEqual(
+    deploymentTriggerPaths(source.replace(/\n/g, '\r\r\n')),
+    expected,
+    `${name} deployment trigger closure must tolerate repeated carriage returns`,
   );
   assert.match(source, new RegExp(`wrangler@${WRANGLER_VERSION.replaceAll('.', '\\.')}`));
   assert.ok(

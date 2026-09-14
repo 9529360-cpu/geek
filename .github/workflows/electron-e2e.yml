@@ -12,6 +12,7 @@ on:
       - 'e2e/**'
       - 'test/electron-e2e-safety-contract.cjs'
       - 'test/electron-e2e-windows-whatsapp-contract.cjs'
+      - 'test/dev-worker-deployment-closure-contract.cjs'
       - 'test/master-merge-gate-contract.cjs'
       - 'package.json'
       - 'package-lock.json'
@@ -139,6 +140,9 @@ jobs:
 
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
+
+      - name: Run Windows deployment closure contract
+        run: node test/dev-worker-deployment-closure-contract.cjs
 
       - name: Prepare Electron runtime explicitly
         run: npm run electron:install
