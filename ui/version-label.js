@@ -25,6 +25,8 @@
   ensureScript('./shell-accessibility.js', 'data-geek-shell-accessibility');
   ensureStyle('./account-context-accessibility.css', 'data-geek-account-context-accessibility');
   ensureScript('./account-context-accessibility.js', 'data-geek-account-context-accessibility');
+  ensureStyle('./lock-screen-accessibility.css', 'data-geek-lock-screen-accessibility');
+  ensureScript('./lock-screen-accessibility.js', 'data-geek-lock-screen-accessibility');
 
   const label = document.getElementById('nav-version');
   if (!label) return;
