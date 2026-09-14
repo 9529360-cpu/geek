@@ -2,7 +2,7 @@
 
 This repository is the daily operations control plane for the Geek project. Production credentials remain in GitHub Repository Actions Secrets or Cloudflare Worker secrets; plaintext secrets must never be committed, printed or copied into Issue comments.
 
-The current client/package version is intentionally not hard-coded in this operations guide. Before maintenance or release work, read the live `package.json.version`, `.github/release-client-version`, current `master` HEAD, open PR/Issues and relevant Actions runs. Read `AGENTS.md` and `.agent/HANDOFF.md` for durable rules/recovery invariants, not for a second copy of live status. Ordinary source and documentation changes must not modify the release marker. The normal new-version release path is marker-gated; explicit `workflow_dispatch` is reserved for an already authorized same-version recovery retry after a failed release attempt.
+The current client/package version is intentionally not hard-coded in this operations guide. Before maintenance or release work, read the live `package.json.version`, `.github/release-client-version`, current `master` HEAD, open PR/Issues and relevant Actions runs. Read `AGENTS.md` and `.agent/HANDOFF.md` for durable rules/recovery invariants, not for a second copy of live status. Ordinary source and documentation changes must not modify the release marker. The normal new-version release path is marker-gated; explicit `workflow_dispatch` is reserved for an already authorized same-version recovery retry after a failed release attempt and may only run from `master`.
 
 ## Production components
 
@@ -101,19 +101,25 @@ They must not contain response bodies, DNS values, D1/R2/KV contents, API tokens
 
 ## Client release boundary
 
-`.github/workflows/release-client.yml` has two controlled entrypoints:
+`.github/workflows/release-client-production.yml` owns formal Windows client publication. It has two controlled entrypoints:
 
 - a path-filtered `master` push when `.github/release-client-version` changes, used for a normal new-version release;
-- an explicit `workflow_dispatch`, used only to retry the same authorized version after a failed release attempt.
+- an explicit `workflow_dispatch`, used only to retry the same authorized version after a failed release attempt and only from `refs/heads/master`.
 
-Both paths validate that the marker exactly matches `package.json.version` and then execute the same Windows contract/build, artifact validation, previous-stable verification, immutable upload, rollback snapshot, `latest.yml`-last promotion and public verification sequence. Manual dispatch does not bypass any release safeguard.
+A normal marker-changing release push must advance `master` by exactly one reviewed commit and that exact push SHA becomes the unique authorized candidate. Manual recovery does not use the current moving `master` tree as build input: the workflow searches `master` history for the commit that last changed the current release marker and materializes that SHA in a detached candidate worktree. Candidate `package.json`, both lockfile version fields and the release marker must agree before dependency installation.
+
+The current triggering `master` checkout remains the release control plane. Candidate artifacts are built from the detached authorized worktree, then handed back to the current control plane for previous-stable capture, #593 same-version immutable-asset verification, R2 publication, rollback and public SHA-256 verification. This prevents recovery of an old candidate from also rolling back newer release-safety code.
+
+The legacy `.github/workflows/release-client.yml` path is retired. This is a security boundary: GitHub manual workflows can target a branch or tag and use the workflow version at that ref, so a new workflow path prevents historical refs from invoking the pre-candidate-binding recovery logic.
+
+Both release paths preserve the same Windows contract/build, artifact validation, previous-stable verification, immutable upload, rollback snapshot, `latest.yml`-last promotion and public verification sequence. Manual dispatch does not bypass any release safeguard and cannot accept an operator-supplied candidate SHA.
 
 A normal source, Worker or documentation merge must leave the marker unchanged and must not manually dispatch `release-client`. Formal new-version releases, deliberate same-version retries, certificate changes and changes to the public updater metadata require a separate release decision and the process documented in [`release-security.md`](release-security.md).
 
 The release Worker deployment and a client release are different operations:
 
 - `deploy-release-worker` deploys the updater-serving Worker code and verifies the existing public `latest.yml`.
-- `release-client` builds and publishes a Windows installer/blockmap, promotes `latest.yml` last, and can be explicitly rerun only for an authorized same-version recovery.
+- `release-client` builds and publishes a Windows installer/blockmap from the authorized candidate SHA, promotes `latest.yml` last, and can be explicitly rerun only for an authorized same-version recovery.
 
 Do not describe a release Worker code deployment as a new client release, and do not use the client release workflow as a general CI or deployment test.
 

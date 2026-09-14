@@ -181,7 +181,7 @@ function quietLogger() {
     );
     assert.equal(networkCalls, 0);
 
-    const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/release-client.yml'), 'utf8').replace(/\r\n?/g, '\n');
+    const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/release-client-production.yml'), 'utf8').replace(/\r\n?/g, '\n');
     const captureAt = workflow.indexOf('- name: Capture previous stable metadata');
     const immutableAt = workflow.indexOf('- name: Verify immutable same-version recovery');
     const uploadAt = workflow.indexOf('- name: Upload installer and blockmap to R2');
