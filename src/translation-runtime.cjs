@@ -146,6 +146,7 @@ function createTranslationRuntime(options = {}) {
     const write = previous.catch(() => {}).then(async () => {
       if (state.deletedPartitions.has(partition)) return;
       await fs.mkdir(path.dirname(file), { recursive: true });
+      if (state.deletedPartitions.has(partition)) return;
       await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8');
     });
     state.cacheWrites.set(partition, write);
@@ -386,6 +387,7 @@ function createTranslationRuntime(options = {}) {
           const item = { text: translated, at: Date.now() };
           cache.set(key, item);
           await appendCache(partition, key, item);
+          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
           return {
             text: translated,
             source: result.source || body.source || 'auto',
@@ -420,10 +422,16 @@ function createTranslationRuntime(options = {}) {
     }
   }
 
-  function deleteAccount(partition) {
+  async function deleteAccount(partition) {
     const owner = String(partition || '');
+    const cacheLoad = state.cacheLoads.get(owner) || null;
+    const cacheWrite = state.cacheWrites.get(owner) || null;
     clearPartitionRuntimeState(state, owner);
     cancelRemoteForPartition(owner);
+    const pendingIo = [];
+    if (cacheLoad) pendingIo.push(cacheLoad);
+    if (cacheWrite && cacheWrite !== cacheLoad) pendingIo.push(cacheWrite);
+    if (pendingIo.length) await Promise.allSettled(pendingIo);
   }
 
   function install() {
