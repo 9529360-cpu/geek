@@ -8,6 +8,13 @@ import { cta, footer, nav, stageProduct, stageSecurity } from './geek-marketing-
 const STYLES = MARKETING_STYLES_CORE + MARKETING_STYLES_COMPONENTS;
 const SITEMAP_ROUTES = ['/', ...MARKETING_ROUTES];
 const LEGACY_THEME_ROUTES = new Set(['/login', '/forgot-password', '/reset-password', '/account']);
+const LEGACY_PRIMARY_NAV = `<div class="nav-links">
+<a href="/product">产品</a>
+<a href="/translation">翻译</a>
+<a href="/broadcast">群发</a>
+<a href="/security">隔离</a>
+<a href="/windows">Windows</a>
+</div>`;
 
 const HOME_META = Object.freeze({
   title: '极客 Geek · 多平台多账号出海沟通工作台',
@@ -176,6 +183,17 @@ function canonicalHomeRedirect(method) {
   });
 }
 
+function projectLegacyAccountHtml(source) {
+  return String(source || '')
+    .replace(/<div class="nav-links">[\s\S]*?<\/div>/, LEGACY_PRIMARY_NAV)
+    .replaceAll('<a href="/#features">功能</a>', '<a href="/product">产品总览</a>')
+    .replaceAll('<a href="/#pricing">定价</a>', '<a href="/broadcast">群发任务</a>')
+    .replaceAll('<a href="/#download">Windows 下载</a>', '<a href="/windows">Windows 客户端</a>')
+    .replaceAll('<a href="/#guide">使用教程</a>', '<a href="/windows">安装与上手</a>')
+    .replaceAll('<a href="/#faq">常见问题</a>', '<a href="/security">安全边界</a>')
+    .replace('</head>', `${LEGACY_ACCOUNT_THEME_STYLE}\n</head>`);
+}
+
 async function delegatedResponse(request, env, ctx) {
   const response = await websiteEntry.fetch(request, env, ctx);
   const url = new URL(request.url);
@@ -187,7 +205,7 @@ async function delegatedResponse(request, env, ctx) {
     return new Response(source, { status: response.status, statusText: response.statusText, headers: new Headers(response.headers) });
   }
   const headers = new Headers(response.headers);
-  return new Response(source.replace('</head>', `${LEGACY_ACCOUNT_THEME_STYLE}\n</head>`), {
+  return new Response(projectLegacyAccountHtml(source), {
     status: response.status,
     statusText: response.statusText,
     headers,
