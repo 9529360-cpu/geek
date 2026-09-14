@@ -161,6 +161,10 @@ function trustedEnter(listeners, target, counters = {}) {
   trustedEnter(first.listeners, first.editor);
   const failedComposerSend = first.mod.sendTextMsgToChat(chat, 'must-not-leak');
   chat.setTestContents({});
+  const repeatedCounters = trustedEnter(first.listeners, first.editor, {});
+  assert.equal(repeatedCounters.prevented, 1, 'a second trusted Enter while translation is pending must be blocked');
+  assert.equal(repeatedCounters.stopped, 1, 'a second trusted Enter while translation is pending must not reach WhatsApp');
+  assert.match(first.notices.at(-1) || '', /翻译处理中，请稍候/);
   await Promise.resolve();
   assert.equal(typeof rejectTranslation, 'function', 'queued recovery must enter the translation request before the test rejects it');
   rejectTranslation(new Error('QUOTA_EXHAUSTED'));
@@ -169,6 +173,27 @@ function trustedEnter(listeners, target, counters = {}) {
   assert.equal(chat.getTestContents().text, 'must-not-leak', 'translation failure must restore the source draft');
   assert.equal(chat.getTestContents().omittedURL, 'https://example.test/path', 'compose snapshot restoration should retain native draft metadata');
   assert.match(first.notices.at(-1) || '', /翻译失败，原文已恢复/);
+
+  // If the user switches chats while translation is pending, the request may
+  // finish successfully but must be converted into a fail-closed Geek outcome.
+  // Restore the draft on the original chat model and never send into either chat.
+  first.page.__editorText = 'switch-away';
+  chat.setTestContents({ text: 'switch-away', timestamp: 600, omittedURL: 'https://example.test/switch' });
+  let resolveSwitchedTranslation;
+  first.page.__geekTranslationRequest = () => new Promise(resolve => { resolveSwitchedTranslation = resolve; });
+  trustedEnter(first.listeners, first.editor);
+  const switchedSend = first.mod.sendTextMsgToChat(chat, 'switch-away');
+  chat.setTestContents({});
+  await Promise.resolve();
+  assert.equal(typeof resolveSwitchedTranslation, 'function', 'chat-switch test must reach the queued translation request');
+  const otherChat = makeChat('999@c.us', 'other-draft');
+  first.page.__activeChat = otherChat;
+  resolveSwitchedTranslation({ text: 'translated:switch-away' });
+  assert.equal(await switchedSend, undefined, 'chat switch during translation must be consumed as a Geek fail-closed outcome');
+  assert.deepEqual(native2Calls, ['translated:hello'], 'chat switch during translation must never call the native send owner');
+  assert.equal(chat.getTestContents().text, 'switch-away', 'chat switch must restore the source draft on the original chat model');
+  assert.equal(otherChat.getTestContents().text, 'other-draft', 'chat switch recovery must not mutate the newly active chat draft');
+  first.page.__activeChat = chat;
 
   // The same translation-layer error without a trusted composer gesture may be a
   // quick reply or other internal caller. Do not silently convert it to success.
