@@ -37,6 +37,19 @@ async function pathExists(target) {
   }
 }
 
+async function resolvesBeforeNextTurn(promise, message) {
+  const outcome = await Promise.race([
+    promise.then(
+      value => ({ type: 'resolved', value }),
+      error => ({ type: 'rejected', error }),
+    ),
+    new Promise(resolve => setImmediate(() => resolve({ type: 'next-turn' }))),
+  ]);
+  assert.notEqual(outcome.type, 'next-turn', message);
+  if (outcome.type === 'rejected') throw outcome.error;
+  return outcome.value;
+}
+
 (async () => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'geek-translation-partition-lifecycle-'));
   const partitionA = 'persist:webview-page-delete-race';
@@ -48,8 +61,10 @@ async function pathExists(target) {
   await fsp.mkdir(dirB, { recursive: true });
 
   const handlers = new Map();
-  const ioStarted = deferred();
-  const releaseIo = deferred();
+  const firstAppendStarted = deferred();
+  const releaseFirstAppend = deferred();
+  const firstAppendFinished = deferred();
+  const liveAppendFinished = deferred();
   let mkdirCalls = 0;
   let appendCalls = 0;
   let fetchCalls = 0;
@@ -63,15 +78,24 @@ async function pathExists(target) {
       readFile: async () => '',
       async mkdir(...args) {
         mkdirCalls += 1;
-        ioStarted.resolve('mkdir');
-        await releaseIo.promise;
         return fsp.mkdir(...args);
       },
       async appendFile(...args) {
         appendCalls += 1;
-        ioStarted.resolve('append');
-        await releaseIo.promise;
-        return fsp.appendFile(...args);
+        if (appendCalls === 1) {
+          firstAppendStarted.resolve();
+          await releaseFirstAppend.promise;
+          try {
+            return await fsp.appendFile(...args);
+          } finally {
+            firstAppendFinished.resolve();
+          }
+        }
+        try {
+          return await fsp.appendFile(...args);
+        } finally {
+          liveAppendFinished.resolve();
+        }
       },
     },
     safeStorage: {
@@ -104,7 +128,7 @@ async function pathExists(target) {
     fetchImpl: async (_url, options) => {
       fetchCalls += 1;
       const body = JSON.parse(options.body || '{}');
-      return successResponse(body.text === 'B-work' ? 'B-ok' : 'A-ok');
+      return successResponse(`${body.text}-ok`);
     },
     randomUUID: (() => { let id = 0; return () => `request-${++id}`; })(),
   });
@@ -116,28 +140,55 @@ async function pathExists(target) {
     const translate = async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload));
     const event = { sender: { id: 1 } };
 
-    const pendingA = translate(event, {
+    const pendingA1 = translate(event, {
       accountId: 'account-a',
-      text: 'A-work',
+      text: 'A-work-1',
       target: 'it',
       refresh: true,
       skipQuota: true,
     });
 
-    const firstIo = await ioStarted.promise;
+    await firstAppendStarted.promise;
+    const resultA1 = await resolvesBeforeNextTurn(
+      pendingA1,
+      'a validated translation must return without waiting for an unresolved cache append',
+    );
+    assert.equal(resultA1.text, 'A-work-1-ok');
+    assert.equal(appendCalls, 1, 'the first best-effort cache append should start exactly once');
+
+    const cachedA1 = await translate(event, {
+      accountId: 'account-a',
+      text: 'A-work-1',
+      target: 'it',
+      skipQuota: true,
+    });
+    assert.equal(cachedA1.text, 'A-work-1-ok');
+    assert.equal(cachedA1.cached, true, 'in-memory cache must be reusable before disk persistence completes');
+    assert.equal(fetchCalls, 1, 'an immediate cache hit must not repeat the remote request');
+
+    const pendingA2 = translate(event, {
+      accountId: 'account-a',
+      text: 'A-work-2',
+      target: 'it',
+      refresh: true,
+      skipQuota: true,
+    });
+    const resultA2 = await resolvesBeforeNextTurn(
+      pendingA2,
+      'a second translation must not wait behind another cache append in the same account partition',
+    );
+    assert.equal(resultA2.text, 'A-work-2-ok');
+    assert.equal(appendCalls, 1, 'the second append must stay queued behind the first partition write');
+
     runtime.deleteAccount(partitionA);
     await fsp.rm(dirA, { recursive: true, force: true });
-    releaseIo.resolve();
+    releaseFirstAppend.resolve();
+    await firstAppendFinished.promise;
+    await new Promise(resolve => setImmediate(resolve));
 
-    await assert.rejects(
-      pendingA,
-      error => error?.code === 'TRANSLATION_ACCOUNT_DELETED',
-      'a translation finishing cache I/O after account deletion must fail closed',
-    );
-    assert.equal(firstIo, 'append', 'Translation Runtime must append only inside an existing partition and must not create the partition directory');
-    assert.equal(mkdirCalls, 0, 'translation cache persistence must never own/recreate the account partition directory');
-    assert.equal(appendCalls, 1, 'the already-admitted cache append should be attempted exactly once');
-    assert.equal(await pathExists(dirA), false, 'late translation cache I/O must not resurrect a deleted account partition');
+    assert.equal(appendCalls, 1, 'a queued stale append must be skipped when account deletion wins before it executes');
+    assert.equal(await pathExists(dirA), false, 'late best-effort cache I/O must not resurrect a deleted account partition');
+    assert.equal(mkdirCalls, 0, 'translation cache persistence must never own or recreate account partition directories');
 
     const resultB = await translate(event, {
       accountId: 'account-b',
@@ -146,17 +197,18 @@ async function pathExists(target) {
       refresh: true,
       skipQuota: true,
     });
-    assert.equal(resultB.text, 'B-ok', 'an unrelated live account must keep translating normally');
+    assert.equal(resultB.text, 'B-work-ok', 'an unrelated live account must keep translating normally');
+    await liveAppendFinished.promise;
     assert.equal(await pathExists(dirB), true, 'live account partition must remain intact');
     assert.match(await fsp.readFile(cacheB, 'utf8'), /"version":"prompt-20260822-2"/, 'live account cache should still persist when its partition already exists');
     assert.equal(mkdirCalls, 0, 'live cache writes must also respect Session ownership of the partition directory');
-    assert.equal(appendCalls, 2, 'live account should perform its own independent cache append');
-    assert.equal(fetchCalls, 2, 'the deletion race must not start duplicate remote requests');
+    assert.equal(appendCalls, 2, 'the live account should perform its own independent cache append');
+    assert.equal(fetchCalls, 3, 'the write-behind path must not duplicate remote requests');
 
     console.log('TRANSLATION_CACHE_PARTITION_LIFECYCLE_CONTRACT_OK');
   } finally {
     runtime.dispose();
-    releaseIo.resolve();
+    releaseFirstAppend.resolve();
     await fsp.rm(root, { recursive: true, force: true });
   }
 })().catch((error) => {
