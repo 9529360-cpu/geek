@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const entry = fs.readFileSync(path.join(__dirname, '../scripts/geek-website-entry.js'), 'utf8');
 const router = fs.readFileSync(path.join(__dirname, '../scripts/geek-marketing-router.js'), 'utf8');
+const styles = fs.readFileSync(path.join(__dirname, '../scripts/geek-marketing-styles-core.mjs'), 'utf8');
 
 // WEB-HOME-01: production owns / in the shared marketing router. The isolated entry keeps
 // its previous homepage only as a compatibility fallback for direct callers and rollback.
@@ -34,12 +35,15 @@ assert.match(router, /href="\/product"/, '首页必须进入统一产品信息�
 assert.ok(router.includes('不同账号可以同时工作'), '群发说明必须表达多账号并行语义');
 assert.ok(router.includes('同一账号一次只执行一个群发任务'), '群发说明必须表达同账号串行边界');
 
-// WEB-HOME-03: account surfaces keep existing behavior but receive the current site theme.
+// WEB-HOME-03: account surfaces keep existing behavior but consume the same semantic site tokens.
 for (const route of ['/login', '/forgot-password', '/reset-password', '/account']) {
-  assert.ok(router.includes(`'${route}'`), `账户页面必须纳入统一主题投影: ${route}`);
+  assert.ok(router.includes(`'${route}'`), `账户页面必须纳入共享主题适配: ${route}`);
 }
-assert.match(router, /data-geek-site-theme="unified-20260914"/, '账户页面必须带可验证的统一主题标记');
-assert.match(router, /--accent:#25d366!important/, '账户页面强调色必须与新版官网一致');
+assert.match(router, /LEGACY_ACCOUNT_THEME_STYLE/, '账户页面适配必须来自共享主题 owner');
+assert.match(styles, /data-geek-site-theme="shared-core"/, '账户页面必须带可验证的共享主题标记');
+assert.match(styles, /--accent:var\(--green\);/, '账户页面强调色必须从统一绿色语义 token 派生');
+assert.doesNotMatch(styles, /!important/, '主题统一不得依赖长期 !important 覆盖');
+assert.doesNotMatch(router, /#4f8cff|#a78bfa|const LEGACY_THEME_STYLE/, 'router 不得重新成为第二套视觉 token owner');
 
 // WEB-HOME-04: reset-token URL hardening remains part of the delegated entry boundary.
 assert.match(entry, /const RESET_TOKEN_CAPTURE = \[/, '密码重置 token 捕获逻辑不得丢失');
