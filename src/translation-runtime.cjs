@@ -584,9 +584,16 @@ function createTranslationRuntime(options = {}) {
                 if (reason?.code === 'TRANSLATION_ACCOUNT_DELETED') throw reason;
                 throw reason?.code === 'TRANSLATION_DEADLINE_EXCEEDED' ? reason : deadlineExceededError(error);
               }
-              const normalized = normalizeRuntimeError(error);
-              if (normalized?.endpointFailure) pool.reportFailure(endpoint);
-              if (!normalized?.retryable || !normalized?.endpointFailure) throw normalized;
+              const normalizedBase = normalizeRuntimeError(error);
+              const normalized = normalizedBase?.code || normalizedBase?.category
+                ? normalizedBase
+                : createTranslationError(
+                  'TRANSLATION_GATEWAY_NETWORK',
+                  normalizedBase?.message || '翻译网关连接失败',
+                  { category: 'gateway', retryable: true, endpointFailure: true, cause: normalizedBase }
+                );
+              if (normalized.endpointFailure) pool.reportFailure(endpoint);
+              if (!normalized.retryable || !normalized.endpointFailure) throw normalized;
               lastError = normalized;
             } finally {
               clearTimeout(timer);
