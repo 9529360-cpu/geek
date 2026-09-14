@@ -121,9 +121,9 @@ Windows Authenticode certificate/secret ownership is intentionally outside routi
 
 ## Repository merge-control boundary
 
-The repository's expected exact-head merge discipline should be enforced by GitHub rules rather than maintainer memory. Current owner/admin follow-up for `master` branch protection and required status checks is tracked in Issue #444.
+Repository merge-control is owned by GitHub rulesets, not by maintainer memory. Issue #444 records the completed rollout/history of the `Protect master` ruleset; it is not a live status source. Before relying on or changing enforcement, required checks, bypass actors, target branches or any other rule parameter, query the live repository rulesets and current Actions behavior.
 
-When that rule is configured, do not make a path-filtered workflow required unless it is guaranteed to emit a terminal check for every PR that needs it; otherwise a legitimate docs/source PR can be stuck forever waiting for a check that never starts. Always-emitted aggregate gates should be preferred for required-check policy.
+Required-check policy should prefer always-emitted aggregate gates. Do not make a path-filtered workflow required unless it is guaranteed to emit a terminal check for every pull request that needs it; otherwise a legitimate docs/source PR can remain blocked waiting for a check that never starts. Exact-head merge discipline remains mandatory even when the live ruleset configuration changes.
 
 Routine maintainers must not weaken CI or request broader administration credentials merely to bypass the control plane.
 
