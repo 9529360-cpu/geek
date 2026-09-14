@@ -80,6 +80,15 @@ function createHarness({ sessionFailure = null, rmFailure = null, pending = [] }
   }
 
   {
+    const harness = createHarness({ rmFailure: new Error('PARTITION_LOCKED') });
+    const result = await harness.removeAccount({}, 'acct-rm-failure');
+    assert.deepEqual(result, { activeAccountId: null, accounts: [] });
+    assert.equal(harness.pendingPartitionDeletions.has(harness.partDir), true, 'directory retry exhaustion must register the exact partition for exit-time cleanup');
+    assert.equal(harness.calls.filter(call => call === `rm:${harness.partDir}`).length, 5, 'directory deletion should exhaust the existing bounded five-attempt retry before deferring');
+    assert.equal(harness.calls.at(-1), 'notify', 'directory cleanup failure must not roll back the committed account deletion');
+  }
+
+  {
     const expected = path.join(path.sep, 'tmp', 'geek-partition-contract', 'Partitions', 'webview-page-removed');
     const harness = createHarness({ pending: [expected] });
     const result = await harness.removeAccount({}, 'acct-2');
