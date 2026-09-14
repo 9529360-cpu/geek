@@ -22,9 +22,12 @@
     return `(async () => {
       /* __GEEK_BROADCAST_CHAT_READINESS__ */
       const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-      const deadline = Date.now() + ${timeoutMs};
+      const clockNow = (typeof performance === 'object' && performance && typeof performance.now === 'function')
+        ? () => performance.now()
+        : () => Date.now();
+      const deadline = clockNow() + ${timeoutMs};
       let lastError = '';
-      while (Date.now() <= deadline) {
+      while (clockNow() <= deadline) {
         try {
           const candidates = [window.WPP, window.WAPLUS_WPP].filter(Boolean);
           for (const W of candidates) {
@@ -50,7 +53,7 @@
         } catch (error) {
           lastError = String(error?.message || error || '');
         }
-        const remaining = deadline - Date.now();
+        const remaining = deadline - clockNow();
         if (remaining <= 0) break;
         await sleep(Math.min(${pollMs}, Math.max(1, remaining)));
       }
