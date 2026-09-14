@@ -5,14 +5,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const worker = fs.readFileSync(path.join(__dirname, '../scripts/geek-website-worker.js'), 'utf8');
+const router = fs.readFileSync(path.join(__dirname, '../scripts/geek-marketing-router.js'), 'utf8');
 
-// WEB-ONB-01: support navigation must target real, uniquely named sections.
-for (const id of ['guide', 'faq']) {
-  assert.match(worker, new RegExp(`<section class="section" id="${id}">`), `官网必须包含 #${id} 区块`);
-  assert.match(worker, new RegExp(`href="/#${id}"`), `官网必须提供指向 #${id} 的导航`);
+// WEB-ONB-01: production account/auth navigation projects into the current product IA.
+// The legacy Worker may retain its old homepage as a direct-call rollback surface, but the
+// production router must not send account users back to retired homepage anchors.
+for (const href of ['/product', '/translation', '/broadcast', '/security', '/windows']) {
+  assert.ok(router.includes(`href="${href}"`), `账户页面统一导航必须提供 ${href}`);
 }
-assert.doesNotMatch(worker, /<a href="\/#download">使用教程<\/a>/, '使用教程不能继续错误指向下载区');
-assert.doesNotMatch(worker, /<a href="\/#pricing">常见问题<\/a>/, '常见问题不能继续错误指向定价区');
+assert.match(router, /function projectLegacyAccountHtml\(source\)/, '账户页面旧壳必须通过显式投影进入当前信息架构');
+assert.match(router, /replace\(\/<div class="nav-links">/, '账户页面主导航必须由当前导航投影接管');
+for (const retired of ['features', 'guide', 'pricing', 'download', 'faq']) {
+  assert.ok(router.includes(`/#${retired}`), `兼容投影必须显式处理历史 #${retired} 链接`);
+}
+assert.match(router, /<a href="\/product">产品总览<\/a>/, '旧功能入口必须投影到产品总览');
+assert.match(router, /<a href="\/windows">安装与上手<\/a>/, '旧教程入口必须投影到 Windows 上手页');
+assert.match(router, /<a href="\/security">安全边界<\/a>/, '旧 FAQ 入口必须投影到当前安全说明');
 
 // WEB-ACC-01/03: account data and orders have explicit refresh/recovery affordances.
 assert.match(worker, /id="member-since"/, '个人中心必须展示账户创建信息');
