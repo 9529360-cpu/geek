@@ -41,9 +41,66 @@ async function setLockPassword(value) {
 
 describe('lock screen accessibility', () => {
   afterEach(async () => {
+    await browser.execute(() => {
+      if (window.__geekE2EOriginalLockAlert) window.alert = window.__geekE2EOriginalLockAlert;
+      delete window.__geekE2EOriginalLockAlert;
+      delete window.__geekE2ELockAlertCount;
+      const settings = document.getElementById('settings-overlay');
+      if (settings && !settings.classList.contains('hidden')) document.getElementById('settings-cancel')?.click();
+    });
     await browser.executeAsync((done) => {
       window.api.config.set({ lockPassword: '' }).then(() => done(true)).catch(() => done(false));
     });
+  });
+
+  it('routes a missing lock password into Security settings without a native alert', async () => {
+    await setLockPassword('');
+    await browser.execute(() => {
+      window.__geekE2EOriginalLockAlert = window.alert;
+      window.__geekE2ELockAlertCount = 0;
+      window.alert = () => { window.__geekE2ELockAlertCount += 1; };
+    });
+
+    const lockButton = await waitVisible('#btn-lock');
+    await lockButton.click();
+    await waitVisible('#settings-overlay:not(.hidden)');
+    await browser.waitUntil(async () => browser.execute(() => document.activeElement?.id === 'cfg-lockPassword'), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'missing-password route did not focus the lock password setting',
+    });
+
+    const routed = await browser.execute(() => ({
+      alertCount: window.__geekE2ELockAlertCount,
+      lockVisible: document.getElementById('lock-overlay')?.classList.contains('hidden') === false,
+      status: document.getElementById('settings-status')?.textContent || '',
+      statusRole: document.getElementById('settings-status')?.getAttribute('role') || '',
+      statusLive: document.getElementById('settings-status')?.getAttribute('aria-live') || '',
+      describedBy: document.getElementById('cfg-lockPassword')?.getAttribute('aria-describedby') || '',
+      focusedId: document.activeElement?.id || '',
+    }));
+    assert.equal(routed.alertCount, 0);
+    assert.equal(routed.lockVisible, false);
+    assert.match(routed.status, /请先设置锁屏密码/);
+    assert.equal(routed.statusRole, 'status');
+    assert.equal(routed.statusLive, 'polite');
+    assert.equal(routed.describedBy, 'settings-status');
+    assert.equal(routed.focusedId, 'cfg-lockPassword');
+
+    await (await waitVisible('#cfg-lockPassword')).setValue('draft-password');
+    await browser.waitUntil(async () => browser.execute(() =>
+      !document.getElementById('settings-status')?.textContent
+      && !document.getElementById('cfg-lockPassword')?.hasAttribute('aria-describedby')), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'lock password setup guidance did not clear after user input',
+    });
+
+    await keyOnFocused('Escape');
+    await waitHidden('#settings-overlay');
+    await browser.waitUntil(async () => browser.execute(() => document.activeElement?.id === 'btn-lock'), {
+      timeout: STEP_TIMEOUT,
+      timeoutMsg: 'closing Security settings did not restore focus to the lock entry',
+    });
+    assert.equal(await browser.execute(() => window.__geekE2ELockAlertCount), 0);
   });
 
   it('makes background inert, contains focus, announces errors, and restores focus after unlock', async () => {
