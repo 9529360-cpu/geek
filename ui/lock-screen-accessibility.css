@@ -1,0 +1,23 @@
+#lock-password:focus-visible,
+#lock-unlock:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+#lock-password[aria-invalid='true'] {
+  border-color: #ff6b70;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #ff6b70 22%, transparent);
+}
+
+#lock-overlay[data-modal-active='true'] .lock-box {
+  isolation: isolate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #lock-overlay,
+  #lock-overlay .lock-box,
+  #lock-overlay .lock-logo {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
