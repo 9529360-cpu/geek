@@ -52,7 +52,8 @@
       badge.setAttribute('aria-hidden', 'true');
       main.appendChild(badge);
     }
-    badge.textContent = accountIdentity(name, index);
+    const next = accountIdentity(name, index);
+    if (badge.textContent !== next) badge.textContent = next;
   }
 
   function decorateSidebarDisclosure(sideNav) {
