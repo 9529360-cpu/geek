@@ -118,8 +118,30 @@ function seedInterruptedCheckpoint(accountData, id = 'scheduled-with-files') {
     assert.equal(accountData.state.get('account-a')[checkpointApi.STORAGE_KEY], undefined);
   }
 
-  // Browser installation must fail closed on missing cleanup capability instead of
-  // discarding the last durable owner for an interrupted scheduled task.
+  // The browser-installed mode requires the dependent-resource finalizer. If the
+  // bridge capability is missing, preserve both interruption evidence and the
+  // original checkpoint instead of silently abandoning cleanup authority.
+  {
+    const accountData = memoryAccountData();
+    const job = await seedInterruptedCheckpoint(accountData, 'scheduled-cleanup-unavailable');
+    const recoveryManager = createManager({ now: () => 5000 });
+    const recoveryStore = checkpointApi.createStore({
+      accountData,
+      manager: recoveryManager,
+      requireResourceCleanup: true,
+      now: () => 5000,
+    });
+    const restored = await recoveryStore.restoreAccount({ id: 'account-a', name: 'Account A', partition: 'persist:a' });
+    assert.equal(restored[0].resourcesFinalized, false);
+    assert.equal(recoveryManager.get(`interrupted-${job.id}`).state, 'failed');
+    assert.ok(accountData.state.get('account-a')[checkpointApi.STORAGE_KEY], 'missing cleanup capability must not discard finalizer authority');
+    await assert.rejects(
+      recoveryStore.cleanupInterruptedResources(restored[0].record),
+      error => error?.code === 'BROADCAST_INTERRUPTED_RESOURCE_CLEANUP_UNAVAILABLE',
+    );
+  }
+
+  // Browser installation must opt into the fail-closed cleanup contract.
   const source = fs.readFileSync(path.join(__dirname, '../ui/broadcast-execution-checkpoint.js'), 'utf8');
   assert.match(source, /createStore\(\{ api: window\.api, manager, requireResourceCleanup: true \}\)/);
   assert.match(source, /BROADCAST_INTERRUPTED_RESOURCE_CLEANUP_UNAVAILABLE/);
