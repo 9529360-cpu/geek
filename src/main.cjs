@@ -560,7 +560,7 @@ function registerIpcHandlers() {
         const file = inp && inp.files && inp.files[0];
         if (!file) return 'NO_FILE';
         const W = window.require;
-        const wpp = window.WAPLUS_WPP || window.WPP;
+        const wpp = window.WPP || window.WAPLUS_WPP;
         const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
         if (!chatModel) return 'NO_CHAT';
         const mediaData = W('WAWebMediaOpaqueData').createFromData(file, file.type);
@@ -1042,18 +1042,62 @@ function configureWebviewSecurity(window) {
     });
 
   async function injectWppWithRetry(wc, part) {
+    const readinessProbe = `(async () => {
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        const W = window.WPP;
+        const ready = W?.isReady === true
+          && typeof W?.loader?.moduleRequire === 'function'
+          && typeof W?.whatsapp?._moduleIdMap?.get === 'function'
+          && typeof W?.chat?.sendTextMessage === 'function'
+          && typeof W?.chat?.sendFileMessage === 'function'
+          && typeof W?.chat?.getActiveChat === 'function'
+          && typeof W?.contact?.getPnLidEntry === 'function'
+          && typeof W?.group?.getParticipants === 'function'
+          && !!W?.whatsapp?.ChatStore
+          && !!W?.whatsapp?.UserPrefs;
+        if (ready) return true;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      return false;
+    })()`;
+
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
-        await wc.executeJavaScript(wppScript).catch(() => null);
+        let wppReady = await wc.executeJavaScript(readinessProbe).catch(() => false);
+        if (!wppReady) {
+          const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
+          await wc.executeJavaScript(wppScript);
+          wppReady = await wc.executeJavaScript(readinessProbe).catch(() => false);
+        }
+        if (!wppReady) {
+          console.log(`[wpp] 第 ${attempt + 1} 次注入后 WA-JS 核心兼容面未就绪，3 秒后重试…`);
+          await new Promise((r) => setTimeout(r, 3000));
+          continue;
+        }
+
         try {
           const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');
-          await wc.executeJavaScript(waplusScript).catch(() => null);
-        } catch (e) { console.log('[wpp] WAPLUS 注入失败:', e.message); }
-        const ok = await wc.executeJavaScript('!!(window.WPP && window.WAPLUS_WPP && window.WAPLUS_WPP.chat && window.WAPLUS_WPP.chat.sendTextMessage)').catch(() => false);
-        if (ok) {
+          await wc.executeJavaScript(waplusScript);
+        } catch (e) {
+          console.log('[wpp] WAPLUS 注入失败:', e.message);
+        }
+
+        const compatReady = await wc.executeJavaScript(`(() => {
+          const primary = window.WPP;
+          const fallback = window.WAPLUS_WPP;
+          return primary?.isReady === true
+            && typeof primary?.chat?.sendTextMessage === 'function'
+            && typeof primary?.chat?.sendFileMessage === 'function'
+            && typeof primary?.contact?.getPnLidEntry === 'function'
+            && typeof primary?.group?.getParticipants === 'function'
+            && !!primary?.whatsapp?.ChatStore
+            && !!primary?.whatsapp?.UserPrefs
+            && typeof fallback?.chat?.sendTextMessage === 'function';
+        })()`).catch(() => false);
+        if (compatReady) {
           wppInjected.add(part);
-          console.log('[wpp] 注入成功', part);
+          console.log('[wpp] WA-JS 4.6 runtime + WAPLUS compatibility boundary ready', part);
           wc.executeJavaScript(`(async () => {
             for (let i = 0; i < 10; i++) {
               const arrow = document.querySelector('.bulk-sender .el-icon-arrow-left');
@@ -1064,8 +1108,10 @@ function configureWebviewSecurity(window) {
           })()`).catch(() => null);
           return;
         }
-        console.log(`[wpp] 第 ${attempt + 1} 次注入后 WPP 未就绪，3 秒后重试…`);
-      } catch (e) { console.log('[wpp] 注入异常:', e.message); }
+        console.log(`[wpp] 第 ${attempt + 1} 次注入后兼容边界未就绪，3 秒后重试…`);
+      } catch (e) {
+        console.log('[wpp] 注入异常:', e.message);
+      }
       await new Promise((r) => setTimeout(r, 3000));
     }
     console.log('[wpp] 注入失败（5 次重试后仍不可用）', part);

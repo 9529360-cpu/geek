@@ -24,7 +24,7 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "@wppconnect/wa-js": "^4.3.0",
+    "@wppconnect/wa-js": "4.6.0",
     "electron-updater": "^6.8.9"
   },
   "allowScripts": {

@@ -179,7 +179,7 @@
     if (!(ctx.account.type === 'whatsapp' || ctx.account.type === 'whatsapp-pure')) throw new Error('群成员私聊发送仅支持 WhatsApp');
     const result = await ctx.wv.executeJavaScript(`(async () => {
       try {
-        const W = window.WAPLUS_WPP || window.WPP;
+        const W = window.WPP || window.WAPLUS_WPP;
         const UP = W.whatsapp.UserPrefs;
         const mePn = UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : UP.getMeUser();
         const meLid = UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null;
@@ -239,7 +239,7 @@
     if (!(ctx.account.type === 'whatsapp' || ctx.account.type === 'whatsapp-pure') || !targets.length) return targets;
     const result = await ctx.wv.executeJavaScript(`(async () => {
       try {
-        const W = window.WAPLUS_WPP || window.WPP;
+        const W = window.WPP || window.WAPLUS_WPP;
         const out = [];
         for (const n of ${JSON.stringify(targets.map(target => target.id))}) {
           const raw = String(n).replace(/[^0-9@]/g, '');

@@ -17,6 +17,6 @@ assert.match(main, /ChatStore\.get/, '必须通过 ChatStore.get 取聊天模型
 
 // 3) WPP 注入保留（扩展就绪标记）
 assert.match(main, /injectWppWithRetry/, 'WPP 注入重试逻辑必须保留');
-assert.match(main, /WAPLUS_WPP \|\| window\.WPP/, '页面 API 必须兼容 WAPLUS_WPP 与 WPP');
+assert.match(main, /window\.WPP \|\| window\.WAPLUS_WPP/, '页面 API 必须以 WA-JS 为主并保留 WAPLUS_WPP 回退');
 
 console.log('WPP_CONVERGE_CONTRACT_OK');
