@@ -11,7 +11,25 @@ const end = mainSource.indexOf('\nlet accountIpcBoundary', start);
 assert.ok(start >= 0 && end > start, 'removeAccount production owner must remain extractable for failure-path execution');
 const removeAccountSource = mainSource.slice(start, end).trim();
 
-function createHarness({ sessionFailure = null, rmFailure = null, pending = [] } = {}) {
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function waitFor(predicate, label) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+function createHarness({ sessionFailure = null, rmFailure = null, pending = [], translationDeleteGate = null } = {}) {
   const removedPartition = 'persist:webview-page-removed';
   const userData = path.join(path.sep, 'tmp', 'geek-partition-contract');
   const partDir = path.join(userData, 'Partitions', 'webview-page-removed');
@@ -40,7 +58,13 @@ function createHarness({ sessionFailure = null, rmFailure = null, pending = [] }
         };
       },
     },
-    translationRuntime: { deleteAccount(partition) { calls.push(`translation:${partition}`); } },
+    translationRuntime: {
+      async deleteAccount(partition) {
+        calls.push(`translation:${partition}`);
+        if (translationDeleteGate) await translationDeleteGate.promise;
+        calls.push(`translation-drained:${partition}`);
+      },
+    },
     proxyRuntime: { forgetPartition(partition) { calls.push(`proxy:${partition}`); } },
     webContents: { getAllWebContents() { return []; } },
     path,
@@ -66,6 +90,24 @@ function createHarness({ sessionFailure = null, rmFailure = null, pending = [] }
 }
 
 (async () => {
+  {
+    const translationDeleteGate = deferred();
+    const harness = createHarness({ translationDeleteGate });
+    const removal = harness.removeAccount({}, 'acct-drain');
+    await waitFor(
+      () => harness.calls.includes('translation:persist:webview-page-removed'),
+      'translation deletion barrier to start',
+    );
+    assert.equal(harness.calls.includes('clearStorageData'), false, 'Session cleanup must not begin while Translation Runtime still owns in-flight cache I/O');
+    assert.equal(harness.calls.some(call => call.startsWith('rm:')), false, 'partition deletion must not race Translation Runtime cache I/O');
+
+    translationDeleteGate.resolve();
+    await removal;
+    const drainedIndex = harness.calls.indexOf('translation-drained:persist:webview-page-removed');
+    const sessionIndex = harness.calls.indexOf('clearStorageData');
+    assert.ok(drainedIndex >= 0 && sessionIndex > drainedIndex, 'main must await Translation Runtime quiescence before Session cleanup');
+  }
+
   {
     const harness = createHarness({ sessionFailure: new Error('SESSION_CLEAR_FAILED') });
     await assert.rejects(
