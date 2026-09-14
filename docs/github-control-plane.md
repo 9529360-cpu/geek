@@ -114,11 +114,33 @@ The report records only resource/check names, result and HTTP status. It does no
 
 ## Infrastructure-token target scope
 
-Account scope is only the account that owns Geek Workers and D1. Current architecture may require Workers Scripts, KV, R2, D1, Pages, Workers Builds/Observability and Account Settings read capabilities; zone scope is only `bbnba.com`, with DNS, Workers Routes, Zone read/settings, SSL/certificates and cache purge capabilities as needed by reviewed infrastructure workflows.
+Account scope: only the account that owns the Geek Workers and D1.
 
-Permission names and product availability can change. Before an infrastructure mutation, verify the current Cloudflare/GitHub configuration and minimum permission actually required. This section is an architecture target, not permission to silently expand a token.
+Account permissions required for the current architecture:
 
-Never add Billing Edit, Memberships Edit, API Tokens Edit, broad account ownership permissions or unrelated account/zone access for routine project work.
+- Workers Scripts: Edit
+- Workers KV Storage: Edit
+- Workers R2 Storage: Edit
+- D1: Edit
+- Cloudflare Pages: Edit
+- Workers Builds Configuration: Edit
+- Workers Observability: Edit
+- Account Settings: Read
+
+Zone scope: only `bbnba.com`.
+
+Zone permissions required for the current architecture:
+
+- DNS: Edit
+- Workers Routes: Edit
+- Zone: Read
+- Zone Settings: Edit
+- SSL and Certificates: Edit
+- Cache Purge: Purge/Edit when available in the dashboard permission selector
+
+Permissions and product availability can change. Before an infrastructure mutation, verify the current Cloudflare/GitHub configuration and minimum permission actually required. This list is an architecture target, not permission to silently expand a token.
+
+Do not add Billing Edit, Memberships Edit, API Tokens Edit, Account Settings Edit, or permissions for unrelated accounts/zones.
 
 ## Safety rules
 
