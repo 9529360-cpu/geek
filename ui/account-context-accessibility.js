@@ -8,6 +8,7 @@
   let menuReturn = null;
   let dialogReturn = null;
   let refreshReturn = null;
+  let refreshReturnTimer = null;
 
   function setAttr(node, name, value) {
     if (!node) return;
@@ -41,6 +42,21 @@
     if (!node) return false;
     node.focus({ preventScroll: true });
     return true;
+  }
+
+  function clearRefreshReturn() {
+    refreshReturn = null;
+    if (refreshReturnTimer) clearTimeout(refreshReturnTimer);
+    refreshReturnTimer = null;
+  }
+
+  function expectRefreshReturn(target) {
+    clearRefreshReturn();
+    refreshReturn = target;
+    refreshReturnTimer = setTimeout(() => {
+      if (refreshReturn === target) refreshReturn = null;
+      refreshReturnTimer = null;
+    }, 3000);
   }
 
   function ensureButtons(accountRoot, contextMenu) {
@@ -121,7 +137,7 @@
     const action = String(target.dataset.act || '');
     const returnTarget = menuReturn;
     if (action === 'refresh' && returnTarget?.accountId) {
-      refreshReturn = returnTarget;
+      expectRefreshReturn(returnTarget);
       focusReturn(accountRoot, returnTarget);
     } else if ((action === 'edit' || action === 'proxy') && returnTarget?.accountId) {
       dialogReturn = returnTarget;
@@ -186,7 +202,7 @@
 
     const accountObserver = new MutationObserver(() => {
       ensureButtons(accountRoot, contextMenu);
-      if (refreshReturn && focusReturn(accountRoot, refreshReturn)) refreshReturn = null;
+      if (refreshReturn && focusReturn(accountRoot, refreshReturn)) clearRefreshReturn();
     });
     accountObserver.observe(accountRoot, {
       childList: true,
@@ -197,6 +213,11 @@
 
     const menuObserver = new MutationObserver(() => {
       decorateMenu(contextMenu);
+      if (!menuVisible(contextMenu)) {
+        menuReturn = null;
+      } else if (menuReturn && String(contextMenu.dataset.accountId || '') !== menuReturn.accountId) {
+        menuReturn = null;
+      }
       ensureButtons(accountRoot, contextMenu);
     });
     menuObserver.observe(contextMenu, {
