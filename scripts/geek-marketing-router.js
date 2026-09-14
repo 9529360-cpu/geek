@@ -1,5 +1,5 @@
 import websiteEntry from './geek-website-entry.js';
-import { MARKETING_ROUTES, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
+import { LOGO, MARKETING_ROUTES, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
 import { LEGACY_ACCOUNT_THEME_STYLE, MARKETING_STYLES_CORE } from './geek-marketing-styles-core.mjs';
 import { MARKETING_STYLES_COMPONENTS } from './geek-marketing-styles-components.mjs';
 import { PAGE_BODY } from './geek-marketing-pages.mjs';
@@ -185,6 +185,7 @@ function canonicalHomeRedirect(method) {
 
 function projectLegacyAccountHtml(source) {
   return String(source || '')
+    .replace(/<span class="logo-mark"><svg[\s\S]*?<\/svg><\/span>/g, `<span class="logo-mark">${LOGO}</span>`)
     .replace(/<div class="nav-links">[\s\S]*?<\/div>/, LEGACY_PRIMARY_NAV)
     .replaceAll('<a href="/#features">功能</a>', '<a href="/product">产品总览</a>')
     .replaceAll('<a href="/#pricing">定价</a>', '<a href="/broadcast">群发任务</a>')
