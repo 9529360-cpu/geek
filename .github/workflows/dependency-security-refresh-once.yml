@@ -1,0 +1,117 @@
+name: dependency-security-refresh-once
+
+on:
+  push:
+    branches:
+      - chore/dependency-security-2026-09-14
+    paths:
+      - '.github/workflows/dependency-security-refresh-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_BASE_SHA: cf766399253fa93b63bf3e937ce30f3b124fe7a1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Verify branch base
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_base="$(git rev-parse HEAD^)"
+          if [ "$actual_base" != "$EXPECTED_BASE_SHA" ]; then
+            echo "unexpected base: expected=$EXPECTED_BASE_SHA actual=$actual_base" >&2
+            exit 1
+          fi
+
+      - name: Inspect registry remediation targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "wdio-cli=$(npm view @wdio/cli@9.31.9 version)"
+          echo "deepmerge-ts=$(npm view deepmerge-ts@8.0.0 version)"
+          if npm view extract-zip@2.0.2 version >/tmp/extract-zip-version.txt 2>/tmp/extract-zip-error.txt; then
+            echo "extract-zip=$(cat /tmp/extract-zip-version.txt)"
+          else
+            echo "extract-zip-2.0.2=unavailable"
+            cat /tmp/extract-zip-error.txt
+          fi
+          echo "serialize-javascript=$(npm view serialize-javascript@7.0.3 version)"
+
+      - name: Refresh safe WebdriverIO dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --save-dev --save-exact --ignore-scripts \
+            @wdio/cli@9.31.9 \
+            @wdio/local-runner@9.31.9 \
+            @wdio/mocha-framework@9.31.9
+          npm update extract-zip --package-lock-only --ignore-scripts || true
+
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Audit dependency boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --omit=dev --json > audit-prod.json || true
+          npm audit --json > audit-full.json || true
+          node - <<'NODE'
+          const fs = require('node:fs');
+          for (const [label, file] of [['prod', 'audit-prod.json'], ['full', 'audit-full.json']]) {
+            const audit = JSON.parse(fs.readFileSync(file, 'utf8'));
+            const packages = Object.keys(audit.vulnerabilities || {}).sort();
+            console.log(`AUDIT_${label.toUpperCase()} total=${audit.metadata?.vulnerabilities?.total ?? 'unknown'} packages=${packages.length}`);
+            console.log(`AUDIT_${label.toUpperCase()}_PACKAGES=${packages.join(',') || 'none'}`);
+            const advisories = new Set();
+            for (const item of Object.values(audit.vulnerabilities || {})) {
+              for (const via of item.via || []) {
+                if (via && typeof via === 'object' && via.url) advisories.add(via.url);
+              }
+            }
+            console.log(`AUDIT_${label.toUpperCase()}_ADVISORIES=${[...advisories].sort().join(',') || 'none'}`);
+          }
+          NODE
+          node scripts/dependency-audit-policy.cjs
+
+      - name: Run repository tests
+        run: npm test
+
+      - name: Commit generated dependency refresh and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f audit-prod.json audit-full.json
+          git rm .github/workflows/dependency-security-refresh-once.yml
+          git status --short
+          changed="$(git diff --name-only HEAD -- package.json package-lock.json)"
+          if [ -z "$changed" ]; then
+            echo "dependency refresh produced no package changes" >&2
+            exit 1
+          fi
+          unexpected="$(git status --short | awk '{print $2}' | grep -v -E '^(package.json|package-lock.json|.github/workflows/dependency-security-refresh-once.yml)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "unexpected changed files:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add package.json package-lock.json .github/workflows/dependency-security-refresh-once.yml
+          git commit -m 'chore: reduce development dependency advisories'
+          git push origin HEAD:chore/dependency-security-2026-09-14
