@@ -14,17 +14,24 @@ const workflowByWorker = Object.freeze({
 });
 
 function deploymentTriggerPaths(source) {
-  const match = source.match(/\n  push:\n[\s\S]*?\n    paths:\n((?:      - ['"][^'"\n]+['"]\n)+)/);
+  const normalized = source.replace(/\r\n/g, '\n');
+  const match = normalized.match(/\n  push:\n[\s\S]*?\n    paths:\n((?:      - ['"][^'"\n]+['"]\n)+)/);
   assert.ok(match, 'deployment workflow must keep an explicit push.paths list');
   return Array.from(match[1].matchAll(/      - ['"]([^'"\n]+)['"]/g), (entry) => entry[1]);
 }
 
 for (const [name, workflowPath] of Object.entries(workflowByWorker)) {
   const source = fs.readFileSync(path.join(root, workflowPath), 'utf8');
+  const expected = Array.from(WORKERS[name].inputs);
   assert.deepEqual(
     deploymentTriggerPaths(source),
-    Array.from(WORKERS[name].inputs),
+    expected,
     `${name} affected mapping must stay identical to the production deployment trigger closure`,
+  );
+  assert.deepEqual(
+    deploymentTriggerPaths(source.replace(/\n/g, '\r\n')),
+    expected,
+    `${name} deployment trigger closure must parse Windows CRLF checkouts`,
   );
   assert.match(source, new RegExp(`wrangler@${WRANGLER_VERSION.replaceAll('.', '\\.')}`));
   assert.ok(
