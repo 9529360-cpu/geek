@@ -1,14 +1,52 @@
 /* Main shell keyboard affordances. These selectors decorate existing dynamic controls only. */
 .tab-item[role='button']:focus-visible,
-.nav-account-main[role='button']:focus-visible {
+.nav-account-main[role='button']:focus-visible,
+.nav-collapse:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.shell-account-identity {
+  display: none;
+}
+
+.side-nav.collapsed .nav-account-main {
+  flex: 0 0 28px;
+  justify-content: center;
+}
+.side-nav.collapsed .shell-account-identity {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--border-standard);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.15px;
+  pointer-events: none;
+}
+.side-nav.collapsed .nav-account.active .shell-account-identity {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--text-primary);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .tab-item,
   .nav-account,
-  .nav-account-main {
+  .nav-account-main,
+  .nav-collapse {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
