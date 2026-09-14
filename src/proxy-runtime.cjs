@@ -159,6 +159,14 @@ function createProxyRuntime(options = {}) {
     return readinessByPartition.get(String(partition || '')) !== false;
   }
 
+  function forgetPartition(partition) {
+    const key = String(partition || '');
+    if (!key) return false;
+    const existed = appliedFingerprintByPartition.delete(key) || readinessByPartition.has(key);
+    readinessByPartition.delete(key);
+    return existed;
+  }
+
   function credentialsForChallenge(webContents, details, authInfo) {
     if (disposed || authInfo?.isProxy !== true || details?.firstAuthAttempt === false) return null;
     const partition = String(webContents?.session?.partition || '');
@@ -209,6 +217,7 @@ function createProxyRuntime(options = {}) {
     applyAccount,
     applyAllAccounts,
     isPartitionReady,
+    forgetPartition,
     credentialsForChallenge,
     handleLogin,
     installAuthentication,
