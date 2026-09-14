@@ -39,7 +39,9 @@ assert.match(runtime, /closest\?\.\('#broadcast-send'\)/, 'runtime must own the 
 assert.match(runtime, /event\.stopImmediatePropagation\(\)/, 'new runtime must stop the legacy window-global sender from running');
 assert.match(runtime, /manager\.get\(jobId\)/, 'executor must resolve an explicit job rather than the current active account');
 assert.match(runtime, /contextForAccount\(job\.accountId\)/, 'transport context must be resolved from the immutable job owner');
-assert.match(runtime, /accountData\.set\(job\.accountId, 'sendHistory'/, 'history must be written directly to the job owner account');
+assert.match(runtime, /getAll: accountId => window\.api\.accountData\.getAll\(accountId\)/, 'history transaction owner must read from the explicit account id');
+assert.match(runtime, /set: \(accountId, key, value\) => window\.api\.accountData\.set\(accountId, key, value\)/, 'history transaction owner must write back to the same explicit account id');
+assert.match(runtime, /getHistoryAppender\(\)\.append\(job\)/, 'production history writes must pass through the serialized per-account owner');
 assert.doesNotMatch(runtime, /broadcastRunning|broadcastPaused|broadcastStop|broadcastCurrent|broadcastOkCount/, 'new runtime must not depend on legacy window-global broadcast state');
 assert.match(runtime, /GeekBroadcastSafety\.authorizeSend/, 'new runtime must preserve chat/composer authorization');
 assert.match(runtime, /GeekPlatformTransports\?\.forAccount/, 'new runtime must reuse the existing platform transport rather than fork WA\/TG\/LINE adapters');
