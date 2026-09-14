@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const RECOVERY_VERSION = 4;
+  const RECOVERY_VERSION = 5;
   const COMPOSER_INTENT_TTL_MS = 2000;
   const TRANSLATION_FAILURE_MARK = '__geekTranslationLayerFailure';
 
@@ -44,9 +44,24 @@
     let composerSendPending = false;
     const composerAttempts = new Map();
 
-    const liveRequire = page.require;
-    const legacyRequire = liveRequire?.__geekWhatsAppSendModuleAliasOriginal || liveRequire;
+    let legacyRequire = null;
+    let aliasedRequire = null;
     let mappedSendModuleId = null;
+
+    const currentLegacyRequire = function () {
+      const current = page.require;
+      let original = current;
+      if (current === page.__geekWhatsAppSendModuleAlias && typeof page.__geekWhatsAppSendModuleAliasOriginal === 'function') {
+        original = page.__geekWhatsAppSendModuleAliasOriginal;
+      } else if (typeof current?.__geekWhatsAppSendModuleAliasOriginal === 'function') {
+        // Migration path for recovery v4, which stored the original on the alias.
+        original = current.__geekWhatsAppSendModuleAliasOriginal;
+      }
+      if (typeof original === 'function') legacyRequire = original;
+      return legacyRequire;
+    };
+
+    currentLegacyRequire();
 
     const resolveMappedSendModule = function () {
       try {
@@ -55,10 +70,10 @@
         const moduleRequire = loader?.moduleRequire;
         const moduleIdMap = wpp?.whatsapp?._moduleIdMap;
         if (typeof moduleRequire !== 'function' || typeof moduleIdMap?.get !== 'function') return null;
-        if (!mappedSendModuleId) {
-          const exportedSend = wpp?.whatsapp?.functions?.sendTextMsgToChat;
-          if (typeof exportedSend !== 'function') return null;
-          mappedSendModuleId = moduleIdMap.get(exportedSend) || null;
+        const exportedSend = wpp?.whatsapp?.functions?.sendTextMsgToChat;
+        if (typeof exportedSend === 'function') {
+          const liveModuleId = moduleIdMap.get(exportedSend) || null;
+          if (liveModuleId) mappedSendModuleId = liveModuleId;
         }
         if (!mappedSendModuleId) return null;
         const mod = moduleRequire.call(loader, mappedSendModuleId);
@@ -71,9 +86,10 @@
     };
 
     const resolveLegacySendModule = function () {
-      if (typeof legacyRequire !== 'function') return null;
+      const requireFn = currentLegacyRequire();
+      if (typeof requireFn !== 'function') return null;
       try {
-        const mod = legacyRequire.call(page, 'WAWebSendTextMsgChatAction');
+        const mod = requireFn.call(page, 'WAWebSendTextMsgChatAction');
         return typeof mod?.sendTextMsgToChat === 'function' ? mod : null;
       } catch {
         return null;
@@ -85,20 +101,33 @@
     };
 
     const installLegacySendModuleAlias = function () {
-      if (typeof legacyRequire !== 'function') return false;
-      if (page.require?.__geekWhatsAppSendModuleAliasVersion === version) return true;
-      const aliasedRequire = function (name, ...args) {
-        if (name === 'WAWebSendTextMsgChatAction') {
-          const mapped = resolveMappedSendModule();
-          if (mapped) return mapped;
-        }
-        return legacyRequire.call(this, name, ...args);
-      };
+      if (page.require === aliasedRequire && aliasedRequire) return true;
+      if (page.require === page.__geekWhatsAppSendModuleAlias && page.__geekWhatsAppSendModuleAliasVersion === version) {
+        aliasedRequire = page.require;
+        currentLegacyRequire();
+        return true;
+      }
+
+      const baseRequire = currentLegacyRequire();
+      if (typeof baseRequire !== 'function') return false;
+      const ProxyCtor = page.Proxy || (typeof Proxy === 'function' ? Proxy : null);
+      if (typeof ProxyCtor !== 'function') return false;
+      const nextAlias = new ProxyCtor(baseRequire, {
+        apply(target, thisArg, args) {
+          if (args?.[0] === 'WAWebSendTextMsgChatAction') {
+            const mapped = resolveMappedSendModule();
+            if (mapped) return mapped;
+          }
+          return target.apply(thisArg, args);
+        },
+      });
       try {
-        Object.defineProperty(aliasedRequire, '__geekWhatsAppSendModuleAliasVersion', { value: version });
-        Object.defineProperty(aliasedRequire, '__geekWhatsAppSendModuleAliasOriginal', { value: legacyRequire });
-        page.require = aliasedRequire;
-        return page.require === aliasedRequire;
+        page.__geekWhatsAppSendModuleAliasOriginal = baseRequire;
+        page.__geekWhatsAppSendModuleAlias = nextAlias;
+        page.__geekWhatsAppSendModuleAliasVersion = version;
+        page.require = nextAlias;
+        aliasedRequire = nextAlias;
+        return page.require === nextAlias;
       } catch {
         return false;
       }
@@ -364,6 +393,10 @@
     const ensureHook = function () {
       if (typeof page.__geekGetTranslationSetting !== 'function') return false;
       ensureTranslationRequestMarker();
+      // WhatsApp may replace the global require function without reloading the
+      // WebView. Repair the narrow compatibility alias before app.js's document
+      // capture guard runs in the same user gesture.
+      installLegacySendModuleAlias();
       const mod = resolveSendModule();
       const live = mod?.sendTextMsgToChat;
       if (typeof live !== 'function') return false;
@@ -433,7 +466,7 @@
     }, signalOptions);
 
     const timer = typeof page.setInterval === 'function' ? page.setInterval(ensureHook, 3000) : null;
-    const state = Object.freeze({ version, controller, timer, ensureHook });
+    const state = Object.freeze({ version, controller, timer, ensureHook, resolveSendModule });
     page.__geekWhatsAppSendRecovery = state;
     return ensureHook() ? 'READY' : 'WAITING';
   }
