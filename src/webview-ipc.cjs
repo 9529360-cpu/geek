@@ -8,19 +8,59 @@ const WEBVIEW_IPC_CHANNELS = Object.freeze([
 const TELEGRAM_TYPES = new Set(['telegram-z', 'telegram', 'telegram-pure', 'telegram-k']);
 const TELEGRAM_URL = /^https:\/\/web\.telegram\.org\//;
 const LINE_URL = /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//;
+const NATIVE_INPUT_ENVELOPE_PREFIX = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
 
-const FOCUSED_COMPOSER_SCRIPT = `(() => {
+function decodeNativeInputRequest(text, token) {
+  const wireValue = String(text ?? '');
+  if (!wireValue.startsWith(NATIVE_INPUT_ENVELOPE_PREFIX)) {
+    return { value: wireValue, expectedChatId: '' };
+  }
+  let payload;
+  try {
+    payload = JSON.parse(wireValue.slice(NATIVE_INPUT_ENVELOPE_PREFIX.length));
+  } catch {
+    throw new Error('输入请求格式不合法');
+  }
+  if (!payload || typeof payload !== 'object' || String(payload.token || '') !== String(token || '')) {
+    throw new Error('输入请求令牌不匹配');
+  }
+  if (typeof payload.text !== 'string' || typeof payload.expectedChatId !== 'string') {
+    throw new Error('输入请求格式不合法');
+  }
+  const value = payload.text;
+  const expectedChatId = payload.expectedChatId;
+  if (!expectedChatId || expectedChatId.length > 2048) throw new Error('聊天标识不合法');
+  return { value, expectedChatId };
+}
+
+function focusedComposerScript(expectedChatId = '') {
+  const expected = JSON.stringify(String(expectedChatId || ''));
+  return `(() => {
+      const expectedChatId = ${expected};
       if (/^https:\\/\\/web\\.telegram\\.org\\//.test(location.href)) {
+        if (expectedChatId) {
+          const currentChatId = String(location.hash || '').replace(/^#/, '').split('?')[0];
+          if (currentChatId !== expectedChatId) return 'CHAT_CHANGED';
+        }
         const editor = document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"]');
         return !!editor && (document.activeElement === editor || editor.contains(document.activeElement));
       }
       if (/^chrome-extension:\\/\\/ophjlpahpchlmihnnnihgmmeilfjmjjc\\//.test(location.href)) {
+        if (expectedChatId) {
+          try {
+            const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
+            const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
+            const currentChatId = match ? decodeURIComponent(match[1]) : '';
+            if (currentChatId !== expectedChatId) return 'CHAT_CHANGED';
+          } catch { return 'CHAT_CHANGED'; }
+        }
         const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
         const textarea = host?.shadowRoot?.querySelector('textarea');
         return /#\\/chats\\/[^/?#]+/.test(location.hash) && !!textarea && (document.activeElement === host || host.shadowRoot?.activeElement === textarea);
       }
       return false;
     })()`;
+}
 
 function installWebviewIpc(options = {}) {
   const {
@@ -114,7 +154,7 @@ function installWebviewIpc(options = {}) {
 
   register('webview:insert-text', async (event, accountId, guestId, text, token) => {
     const { partition } = resolveAccountBinding(accountId, '账号输入页面不可用');
-    const value = String(text ?? '');
+    const { value, expectedChatId } = decodeNativeInputRequest(text, token);
     if (!value || value.length > 10000) throw new Error('输入文本不合法');
     const guest = resolveLiveGuest(guestId);
     const url = guestUrl(guest);
@@ -135,7 +175,8 @@ function installWebviewIpc(options = {}) {
       || typeof guest.insertText !== 'function') {
       throw new Error('账号输入页面不可用');
     }
-    const focusedComposer = await guest.executeJavaScript(FOCUSED_COMPOSER_SCRIPT);
+    const focusedComposer = await guest.executeJavaScript(focusedComposerScript(expectedChatId));
+    if (focusedComposer === 'CHAT_CHANGED') throw new Error('聊天已切换，翻译发送已取消');
     if (!focusedComposer) throw new Error('消息输入框未获得焦点');
     await guest.insertText(value);
     return true;

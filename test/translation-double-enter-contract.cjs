@@ -18,7 +18,15 @@ for (const [platform, block, lock] of [
   assert.match(block, new RegExp(`if \\(window\\.${lock}\\) \\{ blockRepeatedUserSend\\(event\\); return; \\}`), `${platform} 发送锁判断必须先拦截重复回车/点击再返回`);
 }
 
-assert.match(telegram, /\(button \|\| sendButton\(\)\)\?\.click\(\)/, 'Telegram 必须保留译文的程序化提交');
-assert.match(line, /textarea\.dispatchEvent\(new KeyboardEvent\('keydown'/, 'LINE 必须保留译文的程序化提交');
+const telegramSubmit = telegram.indexOf('submitButton.click();');
+const telegramFinalGuard = telegram.lastIndexOf('assertSendContext();', telegramSubmit);
+assert.ok(telegramSubmit >= 0, 'Telegram 必须保留译文的程序化提交');
+assert.ok(telegramFinalGuard >= 0 && telegramFinalGuard < telegramSubmit && telegramSubmit - telegramFinalGuard < 420, 'Telegram 程序化提交前必须执行最终聊天上下文校验');
+assert.equal((telegram.match(/submitButton\.click\(\);/g) || []).length, 1, 'Telegram 每次译文流程只能保留一个最终程序化 click 提交点');
+
+const lineSubmit = line.indexOf("textarea.dispatchEvent(new KeyboardEvent('keydown'");
+const lineFinalGuard = line.lastIndexOf('assertSendContext();', lineSubmit);
+assert.ok(lineSubmit >= 0, 'LINE 必须保留译文的程序化提交');
+assert.ok(lineFinalGuard >= 0 && lineFinalGuard < lineSubmit && lineSubmit - lineFinalGuard < 520, 'LINE 程序化提交前必须执行最终聊天上下文校验');
 
 console.log('TRANSLATION_DOUBLE_ENTER_CONTRACT_OK');
