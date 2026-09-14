@@ -161,6 +161,8 @@ function trustedEnter(listeners, target, counters = {}) {
   trustedEnter(first.listeners, first.editor);
   const failedComposerSend = first.mod.sendTextMsgToChat(chat, 'must-not-leak');
   chat.setTestContents({});
+  await Promise.resolve();
+  assert.equal(typeof rejectTranslation, 'function', 'queued recovery must enter the translation request before the test rejects it');
   rejectTranslation(new Error('QUOTA_EXHAUSTED'));
   assert.equal(await failedComposerSend, undefined, 'trusted composer translation failure must be consumed outside WhatsApp native send');
   assert.deepEqual(native2Calls, ['translated:hello'], 'translation failure must never call native send with raw source');
