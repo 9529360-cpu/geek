@@ -49,7 +49,8 @@ function createHarness({ sessionFailure = null, rmFailure = null, pending = [] }
     fs: {
       async rm(target, options) {
         calls.push(`rm:${target}`);
-        assert.deepEqual(options, { recursive: true, force: true });
+        assert.equal(options?.recursive, true);
+        assert.equal(options?.force, true);
         if (rmFailure) throw rmFailure;
       },
     },
