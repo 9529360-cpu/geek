@@ -20,6 +20,7 @@ assert.match(runtime, /responseDetails\?\.firstAuthAttempt === false/, 'repeated
 assert.match(runtime, /accountState\.findByPartition\(partition\)/, 'proxy credentials must resolve through authoritative account partition ownership');
 assert.match(runtime, /canonicalHost\(authInfo\.host\) !== descriptor\.canonicalHost/, 'proxy auth host must match exactly');
 assert.match(runtime, /Number\(authInfo\.port\) !== descriptor\.port/, 'proxy auth port must match exactly');
+assert.match(runtime, /await ses\.clearAuthCache\(\)/, 'same-endpoint credential rotation must invalidate the Session HTTP auth cache');
 assert.match(runtime, /await ses\.closeAllConnections\(\)/, 'live proxy changes must close pooled connections after setProxy');
 
 function bodyBetween(startMarker, endMarker) {
