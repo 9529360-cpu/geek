@@ -12,7 +12,7 @@ const {
 
 const root = path.join(__dirname, '..');
 const workflow = fs
-  .readFileSync(path.join(root, '.github', 'workflows', 'release-client.yml'), 'utf8')
+  .readFileSync(path.join(root, '.github', 'workflows', 'release-client-production.yml'), 'utf8')
   .replace(/\r\n?/g, '\n');
 const checkerSource = fs.readFileSync(path.join(root, 'scripts', 'release-public-check.cjs'), 'utf8');
 
