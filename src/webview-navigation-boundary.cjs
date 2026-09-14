@@ -108,7 +108,12 @@ function installAccountScopedWebviewNavigationBoundary({ app, resolvePolicyForPa
     contents.on?.('will-redirect', blockIfOutsidePolicy);
     contents.setWindowOpenHandler?.((details) => (
       policy && isNavigationAllowed(policy, details?.url)
-        ? { action: 'allow' }
+        ? {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+              webPreferences: { partition },
+            },
+          }
         : { action: 'deny' }
     ));
   });
