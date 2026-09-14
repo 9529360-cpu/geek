@@ -10,14 +10,25 @@ export const SCOPED_PENDING_ORDER_SQL =
 export const LEGACY_ORDER_INSERT_SQL =
   'INSERT INTO orders (user_id, plan, amount, currency, pay_method, amount_cents) VALUES (?, ?, ?, ?, ?, ?)';
 
+export const ATOMIC_PENDING_ORDER_INSERT_SQL =
+  'INSERT INTO orders (user_id, plan, amount, currency, pay_method, amount_cents) ' +
+  'SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (' +
+  "SELECT 1 FROM orders WHERE user_id = ? AND plan = ? AND status = 'pending' " +
+  "AND COALESCE(NULLIF(pay_method, ''), 'manual') = ?" +
+  ')';
+
 export const ATOMIC_USDT_ORDER_INSERT_SQL =
-  "INSERT INTO orders (user_id, plan, amount, currency, pay_method, amount_cents) " +
-  "SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (" +
+  'INSERT INTO orders (user_id, plan, amount, currency, pay_method, amount_cents) ' +
+  'SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (' +
+  "SELECT 1 FROM orders WHERE user_id = ? AND plan = ? AND status = 'pending' " +
+  "AND COALESCE(NULLIF(pay_method, ''), 'manual') = 'usdt'" +
+  ') AND NOT EXISTS (' +
   "SELECT 1 FROM orders WHERE pay_method = 'usdt' " +
   "AND status IN ('pending', 'processing') AND amount_cents = ?" +
-  ")";
+  ')';
 
 export const USDT_PAYMENT_SLOTS_EXHAUSTED = 'USDT_PAYMENT_SLOTS_EXHAUSTED';
+export const PENDING_ORDER_ALREADY_EXISTS = 'PENDING_ORDER_ALREADY_EXISTS';
 const USDT_DISCOUNT_SLOTS = 100;
 
 export function normalizeRequestedPayMethod(value, provided = false) {
@@ -38,6 +49,12 @@ export function isLegacyPendingOrderQuery(sql) {
 
 export function isLegacyOrderInsert(sql) {
   return normalizeSql(sql) === NORMALIZED_LEGACY_ORDER_INSERT_SQL;
+}
+
+function pendingOrderAlreadyExistsError() {
+  const error = new Error('Pending order already exists');
+  error.code = PENDING_ORDER_ALREADY_EXISTS;
+  return error;
 }
 
 function usdtAmountCandidates(amountUsd, preferredAmountCents) {
@@ -73,18 +90,36 @@ export function scopePendingOrderReuse(db, payMethod) {
       }
 
       return (sql) => {
-        if (!isLegacyPendingOrderQuery(sql)) return target.prepare(sql);
+        if (isLegacyPendingOrderQuery(sql)) {
+          const statement = target.prepare(SCOPED_PENDING_ORDER_SQL);
+          return new Proxy(statement, {
+            get(prepared, method) {
+              if (method === 'bind') {
+                return (...values) => prepared.bind(...values, payMethod);
+              }
+              const value = prepared[method];
+              return typeof value === 'function' ? value.bind(prepared) : value;
+            },
+          });
+        }
 
-        const statement = target.prepare(SCOPED_PENDING_ORDER_SQL);
-        return new Proxy(statement, {
-          get(prepared, method) {
-            if (method === 'bind') {
-              return (...values) => prepared.bind(...values, payMethod);
-            }
-            const value = prepared[method];
-            return typeof value === 'function' ? value.bind(prepared) : value;
+        if (!isLegacyOrderInsert(sql)) return target.prepare(sql);
+
+        return {
+          bind(...values) {
+            if (values[4] !== payMethod) throw new TypeError('Unexpected order pay method');
+            return {
+              async run() {
+                const result = await target
+                  .prepare(ATOMIC_PENDING_ORDER_INSERT_SQL)
+                  .bind(...values, values[0], values[1], payMethod)
+                  .run();
+                if (Number(result?.meta?.changes) === 1) return result;
+                throw pendingOrderAlreadyExistsError();
+              },
+            };
           },
-        });
+        };
       };
     },
   });
@@ -114,9 +149,18 @@ export function scopeUsdtOrderAmountAllocation(db, payMethod) {
                 for (const amountCents of candidates) {
                   const result = await target
                     .prepare(ATOMIC_USDT_ORDER_INSERT_SQL)
-                    .bind(values[0], values[1], values[2], values[3], values[4], amountCents, amountCents)
+                    .bind(
+                      values[0], values[1], values[2], values[3], values[4], amountCents,
+                      values[0], values[1], amountCents
+                    )
                     .run();
                   if (Number(result?.meta?.changes) === 1) return result;
+
+                  const existing = await target
+                    .prepare(SCOPED_PENDING_ORDER_SQL)
+                    .bind(values[0], values[1], 'usdt')
+                    .first();
+                  if (existing) throw pendingOrderAlreadyExistsError();
                 }
 
                 const error = new Error('USDT payment amount slots exhausted');

@@ -1,6 +1,7 @@
 import coreWorker from './geek-subscription-worker-core.js';
 import {
   normalizeRequestedPayMethod,
+  PENDING_ORDER_ALREADY_EXISTS,
   scopePendingOrderReuse,
   scopeUsdtOrderAmountAllocation,
   USDT_PAYMENT_SLOTS_EXHAUSTED,
@@ -110,9 +111,17 @@ export default {
 
     let scopedDb = scopePendingOrderReuse(scopedEnv.geek_subscriptions, payMethod);
     scopedDb = scopeUsdtOrderAmountAllocation(scopedDb, payMethod);
+    const scopedRequestEnv = withSubscriptionDatabase(scopedEnv, scopedDb);
+    const reuseReplayRequest = request.clone();
     try {
-      return await coreWorker.fetch(request, withSubscriptionDatabase(scopedEnv, scopedDb), ctx);
+      return await coreWorker.fetch(request, scopedRequestEnv, ctx);
     } catch (error) {
+      if (error?.code === PENDING_ORDER_ALREADY_EXISTS) {
+        // The initial reuse read raced with another request that won the atomic
+        // insert admission. Re-run only the core read/reuse path using the same
+        // already-scoped DB; it must now return the committed pending order.
+        return coreWorker.fetch(reuseReplayRequest, scopedRequestEnv, ctx);
+      }
       if (error?.code === USDT_PAYMENT_SLOTS_EXHAUSTED) {
         return json({ error: 'payment_slots_exhausted' }, 409);
       }
