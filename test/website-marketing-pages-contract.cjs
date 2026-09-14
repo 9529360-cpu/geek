@@ -1,11 +1,15 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const root = path.join(__dirname, '..');
 const routerPath = path.join(root, 'scripts', 'geek-marketing-router.js');
+const stylesPath = path.join(root, 'scripts', 'geek-marketing-styles-core.mjs');
+const routerSource = fs.readFileSync(routerPath, 'utf8');
+const stylesSource = fs.readFileSync(stylesPath, 'utf8');
 const routes = ['/', '/product', '/translation', '/broadcast', '/security', '/windows'];
 const expected = {
   '/': ['海外会话工作台', '账号就是工作现场', '不同账号可以同时工作'],
@@ -15,6 +19,16 @@ const expected = {
   '/security': ['边界真的存在', 'safeStorage'],
   '/windows': ['桌面主战场', '下载当前公开版本'],
 };
+
+// WEB-MKT-00: one semantic theme owner feeds both public marketing and legacy account surfaces.
+assert.match(stylesSource, /export const SITE_THEME_TOKENS = `/, 'site design tokens must have one explicit owner');
+assert.match(stylesSource, /--green:#25d366;/, 'shared theme must retain the current Geek green');
+assert.match(stylesSource, /--accent:var\(--green\);/, 'legacy account aliases must resolve through shared semantic tokens');
+assert.match(stylesSource, /export const LEGACY_ACCOUNT_THEME_STYLE = `<style data-geek-site-theme="shared-core">/, 'legacy account pages must consume the shared core theme through the compatibility adapter');
+assert.doesNotMatch(stylesSource, /!important/, 'shared theme convergence must not depend on !important overrides');
+assert.match(routerSource, /LEGACY_ACCOUNT_THEME_STYLE/, 'production router must consume the shared compatibility adapter');
+assert.doesNotMatch(routerSource, /const LEGACY_THEME_STYLE/, 'router must not own a second copy of site colors');
+assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not reintroduce the retired blue-purple theme');
 
 (async () => {
   const originalFetch = global.fetch;
@@ -48,6 +62,7 @@ const expected = {
       assert.ok(html.includes(`<meta property="og:url" content="https://geek.bbnba.com${route}">`), `${route} missing canonical social URL`);
       assert.match(html, /<meta property="og:site_name" content="极客 Geek">/);
       assert.match(html, /<meta name="twitter:card" content="summary">/);
+      assert.match(html, /--green:#25d366;/, `${route} must render from the shared theme token owner`);
       assert.doesNotMatch(html, /<script\b/i);
       assert.doesNotMatch(html, /src="https?:\/\//i, `${route} must not load remote resources`);
       const absoluteHrefs = [...html.matchAll(/href="(https?:\/\/[^\"]+)"/ig)].map(match => match[1]);
@@ -88,10 +103,19 @@ const expected = {
       const response = await production.default.fetch(new Request(`https://geek.bbnba.com${route}`), {}, {});
       assert.equal(response.status, 200, `${route} must remain owned by the existing account surface`);
       const html = await response.text();
-      assert.match(html, /data-geek-site-theme="unified-20260914"/, `${route} missing unified site theme projection`);
-      assert.match(html, /--accent:#25d366!important/, `${route} must use the current Geek green accent`);
-      assert.match(html, /--bg:#08090a!important/, `${route} must use the current Geek marketing background`);
+      const legacyIndex = html.indexOf('--accent: #4f8cff;');
+      const sharedIndex = html.indexOf('data-geek-site-theme="shared-core"');
+      assert.ok(sharedIndex >= 0, `${route} missing shared site theme adapter`);
+      assert.ok(legacyIndex < 0 || sharedIndex > legacyIndex, `${route} shared theme must be the final cascade authority`);
+      assert.match(html, /--green:#25d366;/, `${route} must receive the canonical Geek green token`);
+      assert.match(html, /--accent:var\(--green\);/, `${route} account aliases must resolve through the canonical token`);
     }
+
+    const reset = await production.default.fetch(new Request('https://geek.bbnba.com/reset-password?token=contract-sentinel'), {}, {});
+    assert.equal(reset.status, 200);
+    assert.equal(reset.headers.get('cache-control'), 'no-store', 'reset page must remain non-cacheable');
+    assert.equal(reset.headers.get('referrer-policy'), 'no-referrer', 'reset page must keep reset tokens out of referrers');
+    assert.doesNotMatch(await reset.text(), /contract-sentinel/, 'reset token must never be reflected into returned HTML');
 
     const download = await production.default.fetch(new Request('https://geek.bbnba.com/download'), {}, {});
     assert.equal(download.status, 302, '/download must preserve the existing direct-download contract');
