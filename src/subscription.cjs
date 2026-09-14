@@ -187,8 +187,10 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function request(pathname, options = {}) {
     const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-    const state = await load();
-    if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+    if (options.auth !== false) {
+      const state = await load();
+      if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+    }
     const res = await fetch(`${apiBase()}${pathname}`, {
       method: options.method || 'GET',
       headers,
@@ -264,8 +266,8 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function login(email, password, options = {}) {
     const generation = options.expectedSessionGeneration ?? sessionGeneration;
-    // 先请求登录（避免登录失败时误清旧账号状态）
-    const data = await request('/api/login', { method: 'POST', body: { email, password } });
+    // 登录/换号必须能从损坏或暂不可读的旧密文恢复，因此登录请求不依赖旧 bearer token。
+    const data = await request('/api/login', { method: 'POST', body: { email, password }, auth: false });
     // 登录成功：清空旧账号本地状态（token/quota_cache 等），防止换账号数据串号。
     // 条件 clear 保证晚到的登录响应不能越过一个更晚完成的 logout/account switch。
     await clear({ expectedSessionGeneration: generation });
@@ -298,7 +300,7 @@ function createSubscriptionStore({ userDataDir }) {
 
   async function register(email, password) {
     const generation = sessionGeneration;
-    await request('/api/register', { method: 'POST', body: { email, password } });
+    await request('/api/register', { method: 'POST', body: { email, password }, auth: false });
     assertSessionGeneration(generation);
     return login(email, password, { expectedSessionGeneration: generation });
   }
