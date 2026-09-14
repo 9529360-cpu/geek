@@ -39,6 +39,21 @@ for (const file of workflowFiles) {
     );
   }
 
+  const lines = workflow.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/^\s*uses:\s*actions\/setup-node@/.test(lines[index])) continue;
+    const step = [];
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      if (/^\s*-\s+name:/.test(lines[cursor])) break;
+      step.push(lines[cursor]);
+    }
+    assert.match(
+      step.join('\n'),
+      /^\s+(?:cache:\s*\S+|package-manager-cache:\s*false)\s*$/m,
+      `${file} setup-node must preserve an explicit cache policy instead of inheriting the action default`,
+    );
+  }
+
   const runnerLines = [...workflow.matchAll(/^\s*runs-on:\s*(.+?)\s*$/gm)];
   assert.ok(runnerLines.length > 0, `${file} must declare at least one runner`);
   for (const [, runner] of runnerLines) {
