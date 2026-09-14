@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -41,6 +42,7 @@ const main = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
 const runtime = fs.readFileSync(path.join(root, 'ui/broadcast-runtime.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'ui/whatsapp-translation-hook-recovery.js'), 'utf8');
+const { installWppCapabilityPicker, WPP_CAPABILITY_PICKER_SOURCE } = require('../src/wpp-capability-picker.cjs');
 
 const injectionProbeStart = main.indexOf('const injectionReadinessProbe =');
 const capabilityProbeStart = main.indexOf('const capabilityProbe =', injectionProbeStart);
@@ -60,12 +62,34 @@ const officialBundleIndex = main.indexOf('../node_modules/@wppconnect/wa-js/dist
 const injectionOwnerIndex = main.indexOf('wppInjected.add(part)', officialBundleIndex);
 const fallbackBundleIndex = main.indexOf('../resources/waplus-wpp.js', injectionOwnerIndex);
 assert.ok(officialBundleIndex >= 0 && injectionOwnerIndex > officialBundleIndex && fallbackBundleIndex > injectionOwnerIndex, 'official WA-JS injection ownership must commit before optional WAPLUS compatibility injection');
-assert.match(main, /window\.WPP \|\| window\.WAPLUS_WPP/, 'main-process guest code must prefer stable WA-JS and preserve WAPLUS fallback');
-assert.match(app, /window\.WPP \|\| window\.WAPLUS_WPP/, 'renderer WhatsApp integrations must prefer stable WA-JS');
-assert.match(runtime, /window\.WPP \|\| window\.WAPLUS_WPP/, 'broadcast runtime must prefer stable WA-JS');
+assert.match(main, /WPP_CAPABILITY_PICKER_SOURCE/, 'main process must own the page capability picker source');
+const pickerInstallIndex = main.indexOf('executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE)', injectionOwnerIndex);
+assert.ok(pickerInstallIndex > injectionOwnerIndex && pickerInstallIndex < fallbackBundleIndex, 'capability picker must install after official injection ownership and before optional WAPLUS injection');
+for (const [name, source] of [['main', main], ['app', app], ['runtime', runtime]]) {
+  assert.doesNotMatch(source, /window\.WPP \|\| window\.WAPLUS_WPP/, name + ' must not select WPP/WAPLUS by object existence alone');
+}
+for (const capability of ['chat.sendTextMessage', 'chat.getMessages', 'chat.getActiveChat', 'whatsapp.ChatStore', 'contact.queryExists', 'group.getParticipants']) {
+  assert.ok(app.includes('__geekPickWpp') && app.includes(capability), 'renderer must capability-select WPP for ' + capability);
+}
+for (const capability of ['whatsapp.UserPrefs', 'group.getParticipants', 'contact.queryExists']) {
+  assert.ok(runtime.includes('__geekPickWpp') && runtime.includes(capability), 'broadcast runtime must capability-select WPP for ' + capability);
+}
+assert.match(main, /__geekPickWpp\?\.\(\['whatsapp\.ChatStore'\]\)/, 'main media path must capability-select ChatStore owner');
 assert.match(recovery, /wpp\?\.loader[\s\S]*moduleRequire[\s\S]*_moduleIdMap/, 'ordinary composer recovery must continue consuming WA-JS loader metadata');
 assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(main, /waplus-wpp\.js/, 'WAPLUS compatibility bundle must remain wired');
+
+const primary = { chat: { list() {}, sendTextMessage() {} } };
+const fallback = { chat: { list() {}, sendTextMessage() {}, getMessages() {}, getActiveChat() {} }, whatsapp: { ChatStore: {} } };
+const fakeWindow = { WPP: primary, WAPLUS_WPP: fallback };
+assert.equal(installWppCapabilityPicker(fakeWindow), true, 'picker installer must report success');
+assert.equal(fakeWindow.__geekPickWpp(['chat.list']), primary, 'official WPP must win when it satisfies the requested capability');
+assert.equal(fakeWindow.__geekPickWpp(['chat.getMessages']), fallback, 'WAPLUS must win when official WPP is present but lacks the requested capability');
+assert.equal(fakeWindow.__geekPickWpp(['whatsapp.ChatStore']), fallback, 'object-valued capability paths must select the capable fallback');
+assert.equal(fakeWindow.__geekPickWpp(['group.getParticipants']), null, 'picker must fail closed when neither runtime owns the capability');
+const serializedWindow = { WPP: primary, WAPLUS_WPP: fallback };
+vm.runInNewContext(WPP_CAPABILITY_PICKER_SOURCE, { window: serializedWindow });
+assert.equal(serializedWindow.__geekPickWpp(['chat.getActiveChat']), fallback, 'serialized page picker must preserve capability-based fallback behavior');
 
 console.log('WA-JS 4.6 migration contract passed');

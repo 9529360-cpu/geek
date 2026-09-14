@@ -22,6 +22,7 @@ const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { normalizeWebsiteUrl } = require('./website-url.cjs');
+const { WPP_CAPABILITY_PICKER_SOURCE } = require('./wpp-capability-picker.cjs');
 const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_LOCAL_PORT, WA_LOCAL_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
 const { isAccountNavigationAllowed } = require('./webview-navigation-boundary.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
@@ -560,7 +561,7 @@ function registerIpcHandlers() {
         const file = inp && inp.files && inp.files[0];
         if (!file) return 'NO_FILE';
         const W = window.require;
-        const wpp = window.WPP || window.WAPLUS_WPP;
+        const wpp = window.__geekPickWpp?.(['whatsapp.ChatStore']);
         const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
         if (!chatModel) return 'NO_CHAT';
         const mediaData = W('WAWebMediaOpaqueData').createFromData(file, file.type);
@@ -1098,6 +1099,7 @@ function configureWebviewSecurity(window) {
         // business modules and the WAPLUS compatibility bundle are independent capability
         // evidence and must never force a healthy primary bundle to be injected again.
         wppInjected.add(part);
+        await wc.executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE);
 
         try {
           const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');

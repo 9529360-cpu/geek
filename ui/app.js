@@ -8,7 +8,7 @@
   const GT_AGENT_SOURCE = `(() => {
   var GT_VERSION = 9;
   if (window.__gtAgentInstalled && window.__gtAgentVersion === GT_VERSION) return 'ALREADY';
-  var W = window.WPP || window.WAPLUS_WPP;
+  var W = window.__geekPickWpp?.(['on','off','chat.sendTextMessage','group.getParticipants','whatsapp.UserPrefs']);
   if (!W || typeof W.on !== 'function' || !W.chat || !W.group) { window.__gtAgentInstalled = false; return 'NO_WPP'; }
   // 新版本脚本：先卸载旧版本监听（开发/升级场景避免残留）
   if (window.__gtUninstall) { try { window.__gtUninstall(); } catch (e) {} }
@@ -961,7 +961,7 @@
           window.__geekMessageFromMe = async function (chatId, messageId) {
             const cache = window.__geekDirectionCache;
             if (cache.chatId !== chatId || Date.now() - cache.at > 1000 || !cache.map.has(messageId)) {
-              const api = window.WPP || window.WAPLUS_WPP;
+              const api = window.__geekPickWpp?.(['chat.getMessages']);
               const messages = await api.chat.getMessages(chatId, { count: -100 });
               cache.chatId = chatId; cache.at = Date.now(); cache.map = new Map();
               messages.forEach(msg => { const id = msg.id?.id || msg.id?._serialized?.split('_').at(-1); if (id) cache.map.set(id, !!msg.id?.fromMe); });
@@ -973,7 +973,7 @@
             const messageRoot = textNode?.closest?.('[data-testid^="conv-msg-"]');
             const messageId = messageRoot?.getAttribute('data-id') || '';
             if (!textNode || !messageRoot || !messageId || messageRoot.dataset.geekTranslationState || messageRoot.querySelector('.geek-translation-result')) return;
-            const activeChat = window.WPP?.chat?.getActiveChat?.() || window.W?.chat?.getActive?.();
+            const activeChat = window.__geekPickWpp?.(['chat.getActiveChat'])?.chat?.getActiveChat?.() || window.W?.chat?.getActive?.();
             const chatId = activeChat?.id?._serialized;
             const setting = chatId ? window.__geekGetTranslationSetting(chatId) : null;
             if (!setting?.displayTranslation || !window.__geekTranslationRequest) return;
@@ -1459,7 +1459,7 @@
       // window.WPP（WA-JS 4.6 主路径）+ window.WAPLUS_WPP（HelloWorld fork，仅作兼容回退）
       getChats: `(async () => {
         try {
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['chat.list']);
           const chats = await W.chat.list();
           const arr = Array.isArray(chats) ? chats : (chats ? Object.values(chats) : []);
           const out = arr.map(c => ({
@@ -1473,7 +1473,7 @@
       })()`,
       sendDirect: (chatId, msg, tagall) => `(async () => {
         try {
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['chat.sendTextMessage']);
           const extra = {};
           if (${!!tagall}) {
             try {
@@ -1493,7 +1493,7 @@
       // 电子名片：使用 WA-JS 4.6 官方 API，避免旧内部 SendAction 返回 Promise 但消息不落地
       sendVcards: (chatId, vcards) => `(async () => {
         try {
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['chat.sendVCardContactMessage','contact.getPnLidEntry']);
           if (!W.chat || typeof W.chat.sendVCardContactMessage !== 'function') return 'ERR:当前 WPP 不支持电子名片发送';
           const rawContacts = ${JSON.stringify(vcards)};
           const contacts = [];
@@ -1515,7 +1515,7 @@
       sendFileDirect: (chatId, file, caption) => `(async () => {
         try {
           const W = window.require;
-          const wpp = window.WPP || window.WAPLUS_WPP;
+          const wpp = window.__geekPickWpp?.(['whatsapp.ChatStore']);
           const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
           if (!chatModel) return 'NO_CHAT';
           const bytes = Uint8Array.from(atob('${file.base64}'), c => c.charCodeAt(0));
@@ -2205,7 +2205,7 @@
       try {
         const res = await wv.executeJavaScript(`(async () => {
           try {
-            const W = window.WPP || window.WAPLUS_WPP;
+            const W = window.__geekPickWpp?.(['whatsapp.UserPrefs','group.getParticipants','contact.get','contact.getPnLidEntry']);
             const UP = W.whatsapp.UserPrefs;
             const mePn = UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : UP.getMeUser();
             const meLid = UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null;
@@ -2268,7 +2268,7 @@
         try {
           const checked = await wv.executeJavaScript(`(async () => {
             try {
-              const W = window.WPP || window.WAPLUS_WPP;
+              const W = window.__geekPickWpp?.(['contact.queryExists']);
               const out = [];
               for (const n of ${JSON.stringify(targets.map(t => t.id))}) {
                 const raw = String(n).replace(/[^0-9@]/g, '');
@@ -2723,7 +2723,7 @@
       try {
         const contacts = await wv.executeJavaScript(`(async () => {
           try {
-            const W = window.WPP || window.WAPLUS_WPP;
+            const W = window.__geekPickWpp?.(['chat.list']);
             const chats = await W.chat.list();
             return JSON.stringify(chats.filter(c => !c.isGroup && String(c.id) !== '0@c.us').map(c => {
               const contact = (W.whatsapp.ContactStore && W.whatsapp.ContactStore.get(c.id)) || c.contact || null;
@@ -2935,7 +2935,7 @@
         const res = await Promise.race([
           wv.executeJavaScript(`(async () => {
             try {
-              const W = window.WPP || window.WAPLUS_WPP;
+              const W = window.__geekPickWpp?.(['chat.list']);
               const chats = await W.chat.list();
               const out = [];
               for (const c of chats) {
@@ -3013,7 +3013,7 @@
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const result = { created: [], errors: [] };
         try {
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty','contact.getProfilePictureUrl','whatsapp.WidFactory']);
           const M = window.require('WAWebGroupModifyInfoJob');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
           const makeSquare = (dataUrl, size) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => { const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size; canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size); resolve(canvas.toDataURL('image/jpeg', .92)); }; img.onerror = () => reject(new Error('头像图片解码失败')); img.src = dataUrl; });
@@ -3099,7 +3099,7 @@
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const result = { created: [], errors: [], source: null };
         try {
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['group.getGroupInfoFromInviteCode','whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty','whatsapp.WidFactory']);
           const M = window.require('WAWebGroupModifyInfoJob');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
           const makeSquare = (dataUrl, size) => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => { const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size; canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size); resolve(canvas.toDataURL('image/jpeg', .92)); }; img.onerror = () => reject(new Error('头像图片解码失败')); img.src = dataUrl; });
@@ -3173,7 +3173,7 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const W = window.WPP || window.WAPLUS_WPP, gid = ${JSON.stringify(gid)};
+          const W = window.__geekPickWpp?.(['whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.removeParticipants','group.leave']), gid = ${JSON.stringify(gid)};
           const Meta = window.require('WAWebGroupMetadataCollection');
           const UP = W.whatsapp.UserPrefs, me = UP.getMaybeMeLidUser?.() || UP.getMaybeMePnUser?.() || UP.getMeUser?.();
           const meId = String(me?._serialized || me?.id?._serialized || me?.id || '');
@@ -3214,7 +3214,7 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const W = window.WPP || window.WAPLUS_WPP, gid = ${JSON.stringify(gid)};
+          const W = window.__geekPickWpp?.(['group.leave']), gid = ${JSON.stringify(gid)};
           await W.group.leave(gid);
           await new Promise(r => setTimeout(r, 1500));
           const meta = window.require('WAWebGroupMetadataCollection').get(gid);
@@ -3271,7 +3271,7 @@
         const gid = t.id;
       const res = await wv.executeJavaScript(`(async () => {
         try {
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['group.getInviteCode']);
           // 走 WPP 封装：ensureGroup + iAmAdmin + queryGroupInviteCode(wid, isAdmin)
           // （旧版页面直接调 queryGroupInviteCode(wid) 缺第二个参数会崩 "reading iAmAdmin"）
           const code = await W.group.getInviteCode(${JSON.stringify(gid)});
@@ -3468,7 +3468,7 @@
         try {
           const M = window.require('WAWebGroupModifyInfoJob');
           const Pic = window.require('WAWebContactProfilePicThumbBridge');
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['chat.list','group.setProperty','group.addParticipants','group.promoteParticipants']);
           const chats = await W.chat.list();
           const chat = chats.find(c => String(c.id) === ${JSON.stringify(gid)});
           const wid = chat ? chat.id : window.require('WAWebWidFactory').createWid(${JSON.stringify(gid)});
@@ -3528,7 +3528,7 @@
     try {
       const contacts = await wv.executeJavaScript(`(async () => {
         try {
-          const W = window.WPP || window.WAPLUS_WPP;
+          const W = window.__geekPickWpp?.(['chat.list']);
           const chats = await W.chat.list();
           return JSON.stringify(chats.filter(c => !c.isGroup && c.name).map(c => ({ id: c.id, name: c.name, number: (c.id || '').replace('@c.us', '').replace('@lid', '') })));
         } catch (e) { return 'ERR:' + e.message; }
