@@ -145,7 +145,10 @@ function createTranslationRuntime(options = {}) {
     const previous = state.cacheWrites.get(partition) || Promise.resolve();
     const write = previous.catch(() => {}).then(async () => {
       if (state.deletedPartitions.has(partition)) return;
-      await fs.mkdir(path.dirname(file), { recursive: true });
+      // The Electron Session/account lifecycle owns the persistent partition directory.
+      // Translation cache persistence is best-effort and must never recreate that owner
+      // after account deletion. appendFile may create the cache file, but cannot create
+      // a missing parent partition directory.
       await fs.appendFile(file, JSON.stringify(record) + '\n', 'utf-8');
     });
     state.cacheWrites.set(partition, write);
@@ -386,6 +389,7 @@ function createTranslationRuntime(options = {}) {
           const item = { text: translated, at: Date.now() };
           cache.set(key, item);
           await appendCache(partition, key, item);
+          if (state.deletedPartitions.has(partition)) throw accountDeletedError();
           return {
             text: translated,
             source: result.source || body.source || 'auto',
