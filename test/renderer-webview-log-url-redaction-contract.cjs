@@ -14,6 +14,7 @@ const mainSanitizer = require('../src/log-url.cjs');
 
 const cases = [
   'https://user:pass@example.com/path?token=secret#state',
+  'https://alice:secret@example.com:bad/path?token=x#state',
   'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html?lw-key=secret#chat',
   'about:blank#secret',
   'not-a-valid-url/path?token=secret#state',
@@ -37,6 +38,13 @@ assert.doesNotMatch(
   /user|pass|token|secret|state/,
   'renderer URL sanitizer must remove credentials, query and hash'
 );
+const malformedUserinfo = rendererSanitizer.sanitizeUrlForLog('https://alice:secret@example.com:bad/path?token=x#state');
+assert.equal(malformedUserinfo, 'https://[REDACTED]@example.com:bad/path');
+assert.doesNotMatch(
+  malformedUserinfo,
+  /alice|secret|token|state/,
+  'renderer malformed fallback must redact userinfo as well as query/hash secrets'
+);
 
 const browser = vm.createContext({ window: {}, URL });
 vm.runInContext(rendererSource, browser, { filename: 'ui/log-url.js' });
@@ -44,6 +52,11 @@ assert.equal(typeof browser.window.GeekLogUrl?.sanitizeUrlForLog, 'function', 'b
 assert.equal(
   browser.window.GeekLogUrl.sanitizeUrlForLog('https://example.com/a?secret=1#x'),
   'https://example.com/a'
+);
+assert.equal(
+  browser.window.GeekLogUrl.sanitizeUrlForLog('https://alice:secret@example.com:bad/path?token=x#state'),
+  'https://[REDACTED]@example.com:bad/path',
+  'browser execution must use the same malformed-userinfo redaction'
 );
 
 const helperIndex = index.indexOf('<script src="log-url.js"></script>');

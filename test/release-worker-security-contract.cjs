@@ -220,13 +220,13 @@ function releaseBucket(key, body) {
     assert.equal(touched, false, `${method} 不得触碰 R2`);
   }
 
-  // 12. future client config 必须显式使用单 Range；本任务不得改版本/发布 marker。
+  // 12. future client config 必须显式使用单 Range；版本 authority 只能来自正式客户端版本 + release marker 的同步关系。
   const builder = fs.readFileSync(builderPath, 'utf8');
   assert.match(builder, /provider:\s*generic[\s\S]*url:\s*https:\/\/geek-release\.9529360\.workers\.dev[\s\S]*useMultipleRangeRequest:\s*false/, 'generic updater 必须明确使用单 Range 差分下载');
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const releaseMarker = fs.readFileSync(path.join(root, '.github/release-client-version'), 'utf8').trim();
-  assert.equal(pkg.version, '1.2.22', 'Range 支持不得偷偷 bump 客户端版本');
-  assert.equal(releaseMarker, '1.2.22', 'Range 支持不得触发正式发布 marker');
+  assert.match(pkg.version, /^\d+\.\d+\.\d+$/, '客户端版本必须是标准 semver 三段版本');
+  assert.equal(releaseMarker, pkg.version, 'Release Worker Range 契约不得建立独立版本 authority；正式 release marker 必须与客户端版本同步');
 
   console.log('RELEASE_WORKER_SECURITY_CONTRACT_OK');
 })().catch((err) => {

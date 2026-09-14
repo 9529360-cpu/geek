@@ -60,7 +60,9 @@ function installAccountDataBoundary(options = {}) {
   const platform = options.platform || process.platform;
   const store = options.store || createAccountDataStore(options);
   const resolveAccountPartition = options.resolveAccountPartition || createAccountPartitionResolver(options);
-  const beforeAccountRemove = options.beforeAccountRemove || (async () => {});
+  // Compatibility option name retained; live caller performs irreversible scheduled-attachment cleanup.
+  // It must therefore run only after authoritative account deletion is known to have committed.
+  const committedAccountCleanup = options.beforeAccountRemove || (async () => {});
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparablePath = (value) => platform === 'win32' ? value.toLowerCase() : value;
   const registeredChannels = new Set();
@@ -111,24 +113,38 @@ function installAccountDataBoundary(options = {}) {
     const id = assertAccountId(accountId);
     const partition = await resolveAccountPartition(id);
     await store.beginDelete(partition);
+
+    let response;
     try {
-      await beforeAccountRemove({ event, accountId: id, partition });
-      const response = await removeImplementation(event, id, ...rest);
-      store.finalizeDelete(partition);
-      return response;
+      response = await removeImplementation(event, id, ...rest);
     } catch (error) {
+      let removalCommitted = false;
       try {
         await resolveAccountPartition(id);
-        store.cancelDelete(partition);
       } catch (probeError) {
-        if (probeError?.code === 'ACCOUNT_DATA_ACCOUNT_MISSING') {
-          store.finalizeDelete(partition);
-          return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
+        if (probeError?.code === 'ACCOUNT_DATA_ACCOUNT_MISSING') removalCommitted = true;
+        else {
+          store.cancelDelete(partition);
+          throw error;
         }
-        store.cancelDelete(partition);
       }
-      throw error;
+      if (!removalCommitted) {
+        store.cancelDelete(partition);
+        throw error;
+      }
+      try { await committedAccountCleanup({ event, accountId: id, partition }); } catch {}
+      store.finalizeDelete(partition);
+      return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
     }
+
+    try {
+      await committedAccountCleanup({ event, accountId: id, partition });
+    } catch {
+      store.finalizeDelete(partition);
+      return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
+    }
+    store.finalizeDelete(partition);
+    return response;
   }
 
   return Object.freeze({
