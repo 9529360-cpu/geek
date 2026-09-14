@@ -5,6 +5,7 @@ const { EventEmitter } = require('node:events');
 const path = require('node:path');
 const {
   WRANGLER_VERSION,
+  WORKER_ORDER,
   affectedWorkers,
   buildWorkerBundleCommand,
   createWorkerBundleFeedback,
@@ -17,6 +18,8 @@ assert.deepEqual(affectedWorkers(['scripts/website-payment-qr.mjs']), ['website'
 assert.deepEqual(affectedWorkers(['scripts/atomic-rate-limit.mjs']), ['subscription', 'translation']);
 assert.deepEqual(affectedWorkers(['wrangler-subscription.toml']), ['subscription']);
 assert.deepEqual(affectedWorkers(['scripts/geek-release-worker.js']), ['release']);
+assert.deepEqual(affectedWorkers(['package.json']), WORKER_ORDER);
+assert.deepEqual(affectedWorkers(['package-lock.json']), WORKER_ORDER);
 assert.deepEqual(affectedWorkers(['scripts/cloudflare-deploy-report.cjs', 'README.md']), []);
 assert.deepEqual(affectedWorkers(['scripts\\geek-translate-worker.js']), ['translation']);
 

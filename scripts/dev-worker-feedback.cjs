@@ -10,6 +10,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const STOP_WAIT_MS = 1_500;
 
 const WORKER_ORDER = Object.freeze(['website', 'subscription', 'translation', 'release']);
+const GLOBAL_WORKER_INPUTS = Object.freeze(['package.json', 'package-lock.json']);
 const WORKERS = Object.freeze({
   website: Object.freeze({
     config: 'wrangler-website.toml',
@@ -59,6 +60,7 @@ function normalizePath(value) {
 
 function affectedWorkers(relativePaths) {
   const changed = new Set((relativePaths || []).map(normalizePath).filter(Boolean));
+  if (GLOBAL_WORKER_INPUTS.some((input) => changed.has(input))) return [...WORKER_ORDER];
   return WORKER_ORDER.filter((name) => WORKERS[name].inputs.some((input) => changed.has(input)));
 }
 
@@ -246,6 +248,7 @@ function createWorkerBundleFeedback(options = {}) {
 }
 
 module.exports = {
+  GLOBAL_WORKER_INPUTS,
   WORKERS,
   WORKER_ORDER,
   WRANGLER_VERSION,
