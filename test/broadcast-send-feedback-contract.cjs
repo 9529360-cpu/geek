@@ -28,7 +28,7 @@ assert.match(controller, /broadcast-workbench-status/, 'feedback must reuse the 
 assert.match(controller, /setAttribute\('role', 'status'\)/, 'feedback must expose status semantics');
 assert.match(controller, /setAttribute\('aria-live', 'polite'\)/, 'feedback must announce without stealing focus');
 assert.match(controller, /setAttribute\('aria-atomic', 'true'\)/, 'feedback updates must be announced atomically');
-assert.match(controller, /data-step=\\"audience\\"/, 'audience errors should move keyboard focus toward the actionable step');
+assert.match(controller, /data-step="audience"/, 'audience errors should move keyboard focus toward the actionable step');
 assert.match(controller, /broadcast-message/, 'content errors should focus the composer');
 assert.match(controller, /broadcast-schedule-time/, 'schedule errors should focus the time field');
 assert.doesNotMatch(controller, /\balert\s*\(|window\.alert/, 'canonical send-start feedback must never open a system alert');
