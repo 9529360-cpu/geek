@@ -8,6 +8,12 @@ const SENSITIVE_KEY_FRAGMENTS = [
   'credential', 'session', 'email', 'phone', 'login', 'username'
 ];
 const DROP_KEY_FRAGMENTS = ['chattext', 'chatbody', 'messagebody', 'messagetext', 'content'];
+const EMBEDDED_URL_PATTERN = /\b(?:https?|wss?):\/\/[^\s<>"']+/gi;
+const AUTHORIZATION_VALUE_PATTERN = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{4,}/gi;
+const JWT_VALUE_PATTERN = /\b(?:eyJ[A-Za-z0-9_-]{6,}|[A-Za-z0-9_-]{12,})\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g;
+const SENSITIVE_ASSIGNMENT_PATTERN = /\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password|passwd|pwd|session(?:id|token)?|cookie|set-cookie|credential)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
+const EMAIL_VALUE_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const INTERNATIONAL_PHONE_PATTERN = /\+\d[\d\s().-]{7,}\d/g;
 
 function isSensitiveKey(key) {
   const lower = key.toLowerCase();
@@ -35,6 +41,28 @@ function sanitizeUrl(value) {
   }
 }
 
+function sanitizeEmbeddedUrl(value) {
+  const source = String(value || '');
+  const trailingMatch = source.match(/[),.;!?]+$/);
+  const trailing = trailingMatch ? trailingMatch[0] : '';
+  const core = trailing ? source.slice(0, -trailing.length) : source;
+  return `${sanitizeUrl(core)}${trailing}`;
+}
+
+function sanitizeDiagnosticText(value) {
+  try {
+    return String(value)
+      .replace(EMBEDDED_URL_PATTERN, sanitizeEmbeddedUrl)
+      .replace(AUTHORIZATION_VALUE_PATTERN, '$1 [REDACTED]')
+      .replace(JWT_VALUE_PATTERN, '[REDACTED]')
+      .replace(SENSITIVE_ASSIGNMENT_PATTERN, '$1$2[REDACTED]')
+      .replace(EMAIL_VALUE_PATTERN, '[REDACTED]')
+      .replace(INTERNATIONAL_PHONE_PATTERN, '[REDACTED]');
+  } catch {
+    return '[REDACTED]';
+  }
+}
+
 function sanitizeValue(value, key) {
   if (typeof value === 'string') {
     if (key.toLowerCase() === 'url') {
@@ -43,7 +71,7 @@ function sanitizeValue(value, key) {
     if (isSensitiveKey(key)) {
       return '[REDACTED]';
     }
-    return value;
+    return sanitizeDiagnosticText(value);
   }
   return value;
 }
@@ -68,6 +96,7 @@ function sanitizeMetadata(obj) {
     }
     return result;
   }
+  if (typeof obj === 'string') return sanitizeDiagnosticText(obj);
   return obj;
 }
 

@@ -45,6 +45,31 @@ const malformed = sanitizeMetadata({
 assert.equal(malformed.url, 'not-a-valid-url/path', '非法URL也必须去掉query/hash');
 assert.doesNotMatch(malformed.nested.url, /user|pass|auth=|SHOULD_NOT_LEAK/, '嵌套URL不得泄露userinfo/query');
 
+const embedded = sanitizeMetadata({
+  errorMessage: [
+    'upstream request failed but retry context should remain;',
+    'Authorization: Bearer bearer-super-secret;',
+    'Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==;',
+    'access_token=access-super-secret;',
+    'password: plain-password;',
+    'url=https://user:pass@example.com/private/path?token=query-secret#private-fragment;',
+    'email=user@example.com;',
+    'phone=+60123456789;',
+    'jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuvwxyz012345'
+  ].join(' '),
+  details: [
+    'ordinary array diagnostic',
+    'refresh_token=array-secret',
+    'request https://api.example.com/path?apiKey=url-secret failed',
+  ],
+});
+assert.match(embedded.errorMessage, /upstream request failed but retry context should remain/, '自由错误文本必须保留非敏感上下文');
+assert.match(embedded.details[0], /ordinary array diagnostic/, '数组中的普通诊断文本必须保留');
+const embeddedOutput = JSON.stringify(embedded);
+assert.doesNotMatch(embeddedOutput, /bearer-super-secret|QWxhZGRpbjpvcGVuIHNlc2FtZQ|access-super-secret|plain-password|query-secret|private-fragment|user:pass|user@example\.com|\+60123456789|eyJhbGciOiJIUzI1NiJ9|array-secret|url-secret/, '自由字符串中的凭据、PII与URL敏感部分必须脱敏');
+assert.doesNotMatch(embeddedOutput, /\?(?:token|apiKey)=/, '嵌入URL query必须从自由文本中移除');
+assert.match(embeddedOutput, /\[REDACTED\]/, '自由文本脱敏应留下明确的redaction标记');
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-diagnostics-'));
 const diagnostics = createDiagnostics({ dir, maxBytes: 220, maxFiles: 3, now: () => '2026-08-16T10:00:00.000Z' });
 for (let i = 0; i < 20; i += 1) {
@@ -56,12 +81,17 @@ for (let i = 0; i < 20; i += 1) {
     chatText: `PRIVATE-${i}`
   });
 }
+diagnostics.log('uncaught-exception', {
+  origin: 'uncaughtException',
+  errorMessage: 'network failed Authorization: Bearer runtime-secret at https://user:pass@example.com/path?token=runtime-query email runtime@example.com phone +60123456789',
+});
 const files = fs.readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort();
 assert.ok(files.length >= 1 && files.length <= 3, '轮转文件最多保留3个');
 const output = files.map((name) => fs.readFileSync(path.join(dir, name), 'utf8')).join('\n');
-assert.match(output, /webview-load-failed/, '应记录事件名');
-assert.match(output, /account-1/, '应记录账号ID元数据');
-assert.doesNotMatch(output, /secret-|PRIVATE-|Bearer|@example\.com|proxy-user/, '日志不得包含凭据、PII或聊天正文');
+assert.match(output, /webview-load-failed/, '原有WebView诊断事件必须继续保留');
+assert.match(output, /account-1/, '原有账号ID诊断元数据必须继续保留');
+assert.match(output, /uncaught-exception/, '自由异常文本必须经过真实日志写入路径验证');
+assert.doesNotMatch(output, /secret-|PRIVATE-|Bearer runtime-secret|runtime-query|user:pass|@example\.com|proxy-user|\+60123456789/, '日志不得包含字段级或自由文本中的凭据、PII、聊天正文');
 assert.doesNotMatch(output, /\?token=/, '日志不得包含URL query');
 
 const rotationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-diagnostics-rotation-'));
