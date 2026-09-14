@@ -122,6 +122,45 @@ function makePage() {
   assert.equal(recovery.installPageRecovery(missing.page, 1), 'WAITING');
   assert.equal(missing.page.__geekWhatsAppSendRecovery.ensureHook(), false, 'missing WhatsApp send module must stay not-ready instead of failing open');
 
+  // A newly inserted guest is not safe for synchronous WebView methods until
+  // Electron attaches it and emits dom-ready. The shell bootstrap must never probe
+  // getURL() (or execute a non-WhatsApp guest) merely to detect readiness.
+  let websiteGetUrlCalls = 0;
+  let websiteExecuteCalls = 0;
+  const unreadyWebsite = {
+    partition: 'persist:website',
+    getURL() {
+      websiteGetUrlCalls += 1;
+      throw new Error('WebView must be attached before getURL');
+    },
+    addEventListener() {},
+    async executeJavaScript() {
+      websiteExecuteCalls += 1;
+      throw new Error('website guest must not receive WhatsApp recovery');
+    },
+  };
+  const shellHost = {
+    document: {
+      readyState: 'complete',
+      documentElement: {},
+      querySelectorAll(selector) {
+        assert.equal(selector, 'webview');
+        return [unreadyWebsite];
+      },
+    },
+    api: {
+      accounts: {
+        async list() {
+          return { accounts: [{ id: 'website', type: 'website', partition: 'persist:website' }] };
+        },
+      },
+    },
+  };
+  assert.doesNotThrow(() => recovery.installShell(shellHost), 'shell bootstrap must tolerate newly inserted unready WebViews');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(websiteGetUrlCalls, 0, 'shell recovery must not call getURL before dom-ready');
+  assert.equal(websiteExecuteCalls, 0, 'non-WhatsApp partitions must never receive the page recovery script');
+
   assert.match(source, /page\.addEventListener\?\.\('keydown'/, 'recovery must run at window capture before the existing document guard');
   assert.match(source, /mod\.__geekOriginalSendText = original/, 'recovery must refresh the original for later app reinjection');
   assert.match(source, /String\(account\?\.partition \|\| ''\) === owner/, 'host recovery must use exact partition ownership');
