@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const CONTROLLER_VERSION = 2;
+  const CONTROLLER_VERSION = 3;
   const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
@@ -89,10 +89,25 @@
     if (category === 'bridge' || code.startsWith('TRANSLATION_BRIDGE_')) {
       return `翻译连接状态异常，请刷新当前账号后重试；${tail}`;
     }
+    if (category === 'input' || status === 400 || status === 404 || status === 413 || status === 422) {
+      if (code === 'TRANSLATION_TARGET_INVALID' || code === 'invalid_target') {
+        return `翻译目标语言配置无效，请重新选择目标语言；${tail}`;
+      }
+      const safeCode = /^[A-Za-z0-9_.:-]{1,100}$/.test(code) ? code : 'TRANSLATION_INPUT';
+      return `翻译请求参数无效（${safeCode}），请检查翻译设置；${tail}`;
+    }
+    if (category === 'account' || code === 'TRANSLATION_ACCOUNT_MISSING' || code === 'TRANSLATION_ACCOUNT_DELETED') {
+      return `翻译账号状态异常，请刷新当前账号后重试；${tail}`;
+    }
+    if (category === 'conflict' || status === 409) {
+      return `翻译请求状态冲突，请重试；${tail}`;
+    }
     if (category === 'gateway' || category === 'rate-limit' || status >= 500) {
       return `翻译服务暂时不可用，请稍后重试；${tail}`;
     }
-    return restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送';
+    const safeCode = /^[A-Za-z0-9_.:-]{1,100}$/.test(code) ? code : '';
+    if (safeCode) return `翻译失败（${safeCode}）；${tail}`;
+    return restored ? '翻译失败（未分类），原文已恢复，请重试' : '翻译失败（未分类），原文未发送';
   }
 
   function installPageController(

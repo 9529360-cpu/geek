@@ -73,7 +73,7 @@ function injectionReady(state) {
     && state?.wppReady === true
     && state?.loaderReady === true;
   return waJsReady
-    && state?.directComposerVersion === 2
+    && state?.directComposerVersion === 3
     && state?.directComposerReady === true
     && state?.recoveryInactive === true
     && state?.legacyFallbackInactive === true;
@@ -104,7 +104,7 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
     assert.equal(state.wppInjected, true, 'WA-JS bundle must report injected before the partition is owned');
     assert.equal(state.wppReady, true, 'WA-JS official readiness must settle');
     assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by compatibility paths is missing');
-    assert.equal(state.directComposerVersion, 2, 'direct composer controller must match the tested owner generation');
+    assert.equal(state.directComposerVersion, 3, 'direct composer controller must match the tested owner generation');
     assert.equal(state.directComposerReady, true, 'direct composer controller must be injected into the WhatsApp guest');
     assert.equal(state.recoveryInactive, true, 'legacy recovery capture listener must be retired by the direct composer owner');
     assert.equal(state.legacyFallbackInactive, true, 'superseded composer fallback must not remain an active owner');
