@@ -61,6 +61,7 @@ function makePage(options = {}) {
     __geekWhatsAppPublicComposerFallback: { controller: makeAbort() },
     __geekWhatsAppGuardAbort: makeAbort(),
   };
+  if (options.identityApiUnavailable) delete page.WPP.contact;
   const original = async (chat, ...args) => { nativeSends.push([chat, ...args]); return { id: 'native-1' }; };
   return { page, nativeChat, original, notices, nativeSends, remembered, translationCalls, setActiveChat(chat) { activeChat = chat; } };
 }
