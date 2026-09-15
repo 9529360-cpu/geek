@@ -17,13 +17,6 @@ function sanitizeParsedUrl(parsed) {
 }
 
 function sanitizeMalformedUrl(raw) {
-  const authorityMatch = raw.match(/^([a-z][a-z0-9+.-]*:\/\/)(?:[^/@?#\s]+@)?([^/?#\s]+)/i);
-  if (authorityMatch) {
-    const prefix = authorityMatch[1];
-    const host = authorityMatch[2].slice(0, 255);
-    return `${prefix}${host}/${REDACTED_PATH}`;
-  }
-
   const schemeMatch = raw.match(/^([a-z][a-z0-9+.-]*:)/i);
   if (schemeMatch) return `${schemeMatch[1]}${REDACTED_VALUE}`;
   return '[INVALID_URL]';
