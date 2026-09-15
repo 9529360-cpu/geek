@@ -3,6 +3,7 @@
 // Public Translation Runtime owner. The base module keeps the proven cache,
 // auth, failover and gateway transaction machinery; this owner adds the
 // explicit-intent admission layer before any request can reach that machinery.
+const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const base = require('./translation-runtime-base.cjs');
 const {
@@ -13,6 +14,8 @@ const {
 } = require('./translation-smart-queue.cjs');
 
 const TRANSLATION_INTENT_HEADER = 'X-Geek-Translation-Intent';
+const VALID_CALLER_REQUEST_ID = /^[A-Za-z0-9._:-]{8,128}$/;
+const SINGLEFLIGHT_IGNORED_FIELDS = new Set(['accountId', 'deadlineAt', 'intent', 'coalesce', 'requestId']);
 
 function createTranslationRuntime(options = {}) {
   const {
@@ -71,6 +74,7 @@ function createTranslationRuntime(options = {}) {
       { category: 'account', retryable: false },
     ),
   });
+  const scheduledInflight = new Map();
   let installed = false;
 
   function baseHandler(channel) {
@@ -94,6 +98,60 @@ function createTranslationRuntime(options = {}) {
     return { ...body, intent, deadlineAt, ...(coalesce === undefined ? {} : { coalesce }) };
   }
 
+  // Preserve the runtime's historical singleflight semantics *before* bounded
+  // admission. Otherwise a cold duplicate burst can occupy every background slot
+  // and later followers miss the leader merely because they waited in the queue.
+  // The fingerprint is intentionally conservative: extra payload fields reduce
+  // coalescing rather than risk merging requests the base runtime would distinguish.
+  function scheduledSingleflightKey(body, partition) {
+    if (body.intent !== TRANSLATION_INTENTS.MESSAGE_DISPLAY || body.refresh === true || body.coalesce === false) return '';
+    const callerRequestId = typeof body.requestId === 'string' && VALID_CALLER_REQUEST_ID.test(body.requestId)
+      ? body.requestId
+      : '';
+    const fingerprint = {};
+    for (const key of Object.keys(body).sort()) {
+      if (SINGLEFLIGHT_IGNORED_FIELDS.has(key)) continue;
+      const value = body[key];
+      if (value !== undefined) fingerprint[key] = value;
+    }
+    let serialized;
+    try { serialized = JSON.stringify(fingerprint); }
+    catch { return ''; }
+    const digest = crypto.createHash('sha256').update(serialized).digest('hex');
+    return `${partition}:${digest}${callerRequestId ? `:request:${callerRequestId}` : ''}`;
+  }
+
+  function awaitScheduledLeader(promise, deadlineAt) {
+    const remaining = Number(deadlineAt) - Number(now());
+    if (!Number.isFinite(remaining) || remaining <= 0) return Promise.reject(base.deadlineExceededError());
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(base.deadlineExceededError());
+      }, Math.max(1, remaining));
+      Promise.resolve(promise).then(
+        value => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        },
+        error => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
+  }
+
+  function scheduledTask(event, body) {
+    return () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body));
+  }
+
   async function translateIpc(event, payload) {
     // Keep sender security outside the application envelope and before queueing.
     assertTrustedSender(event);
@@ -108,13 +166,34 @@ function createTranslationRuntime(options = {}) {
       return intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body));
     }
 
+    const singleflightKey = scheduledSingleflightKey(body, partition);
+    if (singleflightKey) {
+      const existing = scheduledInflight.get(singleflightKey);
+      if (existing) {
+        try {
+          return await awaitScheduledLeader(existing, body.deadlineAt);
+        } catch (error) {
+          return { ok: false, error: base.serializeTranslationIpcError(error) };
+        }
+      }
+    }
+
+    const leader = scheduler.enqueue({
+      partition,
+      intent: body.intent,
+      deadlineAt: body.deadlineAt,
+      task: scheduledTask(event, body),
+    });
+    if (singleflightKey) {
+      scheduledInflight.set(singleflightKey, leader);
+      const cleanup = () => {
+        if (scheduledInflight.get(singleflightKey) === leader) scheduledInflight.delete(singleflightKey);
+      };
+      leader.then(cleanup, cleanup);
+    }
+
     try {
-      return await scheduler.enqueue({
-        partition,
-        intent: body.intent,
-        deadlineAt: body.deadlineAt,
-        task: () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body)),
-      });
+      return await leader;
     } catch (error) {
       return { ok: false, error: base.serializeTranslationIpcError(error) };
     }
@@ -138,6 +217,7 @@ function createTranslationRuntime(options = {}) {
     if (!installed) return;
     for (const channel of base.TRANSLATION_CHANNELS) ipcMain.removeHandler(channel);
     baseRuntime.dispose();
+    scheduledInflight.clear();
     installed = false;
   }
 
@@ -150,6 +230,9 @@ function createTranslationRuntime(options = {}) {
         '翻译账号已删除',
         { category: 'account', retryable: false },
       ));
+      for (const key of scheduledInflight.keys()) {
+        if (key.startsWith(`${owner}:`)) scheduledInflight.delete(key);
+      }
     }
     baseRuntime.deleteAccount(owner);
   }
