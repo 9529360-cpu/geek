@@ -9,6 +9,7 @@ on:
       - 'scripts/geek-translate-entry.js'
       - 'scripts/geek-translate-worker.js'
       - 'scripts/translation-rate-limit-compat.mjs'
+      - 'scripts/translation-reservation-recovery.mjs'
       - 'scripts/atomic-rate-limit.mjs'
       - 'wrangler-translate.toml'
 
@@ -48,6 +49,7 @@ jobs:
           node --check scripts/geek-translate-entry.js
           node --check scripts/geek-translate-worker.js
           node --check scripts/translation-rate-limit-compat.mjs
+          node --check scripts/translation-reservation-recovery.mjs
           node --check scripts/atomic-rate-limit.mjs
           node --check scripts/cloudflare-deploy-report.cjs
 
