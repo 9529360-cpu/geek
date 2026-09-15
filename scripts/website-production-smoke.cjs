@@ -89,7 +89,7 @@ async function verifySitemap(options) {
   assertStatus(response, 200, 'website sitemap');
   assertHeaderContains(response, 'content-type', 'application/xml', 'website sitemap');
   const body = await response.text();
-  for (const path of ['/guide', '/faq']) {
+  for (const path of ['/pricing', '/guide', '/faq']) {
     if (!body.includes(`<loc>${SITE_ORIGIN}${path}</loc>`)) {
       throw new Error(`website sitemap missing required route ${path}`);
     }
@@ -132,12 +132,13 @@ async function runSmoke({
   if (health.body && typeof health.body.cancel === 'function') await health.body.cancel();
 
   await verifyHtml('/', ['一个桌面，', '先跑通一个账号'], options);
+  await verifyHtml('/pricing', ['按实际翻译用量付费', '注册赠送 2 万字符'], options);
   await verifyHtml('/guide', ['先跑通一个账号', '先验证日常收发'], options);
   await verifyHtml('/faq', ['先把边界说清楚', '独立产品'], options);
   await verifySitemap(options);
   await verifyDownload(options);
 
-  const result = { healthHttpCode: String(health.status), routesChecked: 6 };
+  const result = { healthHttpCode: String(health.status), routesChecked: 7 };
   const outputPath = process.env.GITHUB_OUTPUT;
   if (outputPath) {
     fs.appendFileSync(outputPath, `health_http_code=${result.healthHttpCode}\nroutes_checked=${result.routesChecked}\n`, 'utf8');

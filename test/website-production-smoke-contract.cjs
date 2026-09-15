@@ -25,6 +25,7 @@ assert.match(source, /script-src 'none'/, 'production smoke must verify the publ
 assert.match(source, /cross-origin-opener-policy/, 'production smoke must verify opener isolation');
 assert.match(source, /__geek_deploy/, 'production smoke must bind probes to a deployment-specific cache key');
 assert.match(source, /process\.env\.GITHUB_SHA/, 'GitHub deployment verification must use the exact candidate SHA as its cache-bust identity');
+assert.match(source, /verifyHtml\('\/pricing'/, 'production smoke must verify the public pricing decision surface');
 assert.match(source, /redirect: 'manual'/, 'download verification must inspect rather than follow the release handoff');
 assert.match(routerSource, /'Cross-Origin-Opener-Policy': 'same-origin'/, 'marketing pages must isolate cross-origin opener relationships');
 
@@ -53,12 +54,14 @@ function fakeProductionFetch(requests, expectedCacheBust) {
         return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
       case '/':
         return html('<main>一个桌面，先跑通一个账号</main>');
+      case '/pricing':
+        return html('<main>按实际翻译用量付费，注册赠送 2 万字符</main>');
       case '/guide':
         return html('<main>先跑通一个账号，先验证日常收发</main>');
       case '/faq':
         return html('<main>先把边界说清楚，极客是独立产品</main>');
       case '/sitemap.xml':
-        return new Response(`<urlset><url><loc>${SITE_ORIGIN}/guide</loc></url><url><loc>${SITE_ORIGIN}/faq</loc></url></urlset>`, {
+        return new Response(`<urlset><url><loc>${SITE_ORIGIN}/pricing</loc></url><url><loc>${SITE_ORIGIN}/guide</loc></url><url><loc>${SITE_ORIGIN}/faq</loc></url></urlset>`, {
           status: 200,
           headers: { 'content-type': 'application/xml; charset=utf-8' },
         });
@@ -77,7 +80,7 @@ function fakeProductionFetch(requests, expectedCacheBust) {
   const originalOutput = process.env.GITHUB_OUTPUT;
   delete process.env.GITHUB_OUTPUT;
   try {
-    const cacheBust = '9039e632295c14e3ca8454c068f6a91a208ef180';
+    const cacheBust = 'f7de234836e944ed20bf56f3a9b2dac240419254';
     assert.equal(deploymentProbeUrl('/guide', cacheBust), `${SITE_ORIGIN}/guide?${DEPLOY_PROBE_PARAM}=${cacheBust}`);
     assert.equal(
       deploymentProbeUrl('/guide', 'candidate with spaces'),
@@ -93,10 +96,11 @@ function fakeProductionFetch(requests, expectedCacheBust) {
       retryDelayMs: 0,
       cacheBust,
     });
-    assert.deepEqual(result, { healthHttpCode: '200', routesChecked: 6 });
+    assert.deepEqual(result, { healthHttpCode: '200', routesChecked: 7 });
     assert.deepEqual(requests.map(({ url }) => url), [
       `${SITE_ORIGIN}/health?${DEPLOY_PROBE_PARAM}=${cacheBust}`,
       `${SITE_ORIGIN}/?${DEPLOY_PROBE_PARAM}=${cacheBust}`,
+      `${SITE_ORIGIN}/pricing?${DEPLOY_PROBE_PARAM}=${cacheBust}`,
       `${SITE_ORIGIN}/guide?${DEPLOY_PROBE_PARAM}=${cacheBust}`,
       `${SITE_ORIGIN}/faq?${DEPLOY_PROBE_PARAM}=${cacheBust}`,
       `${SITE_ORIGIN}/sitemap.xml?${DEPLOY_PROBE_PARAM}=${cacheBust}`,
