@@ -12,7 +12,9 @@
       window.__geekTranslationRequest = function (payload) {
         return new Promise((resolve, reject) => {
           const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-          const securedPayload = { ...(payload || {}), bridgeToken: window.__geekTranslationBridgeToken };
+          const body = payload && typeof payload === 'object' ? payload : {};
+          const intent = body.intent === 'outgoing-send' ? 'outgoing-send' : 'message-display';
+          const securedPayload = { ...body, intent, bridgeToken: window.__geekTranslationBridgeToken };
           window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
           if (document.documentElement?.getAttribute?.('data-geek-bridge') === '1') {
             window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id, token: window.__geekTranslationBridgeToken } }, window.location.origin);
@@ -150,7 +152,7 @@
         box.textContent = '';
         row.dataset.geekTelegramTranslationState = 'loading';
         try {
-          const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, messageId: id, isHistory, translateHistory: setting.translateHistory || setting.translationMode === 'click' });
+          const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, messageId: id, isHistory, translateHistory: setting.translateHistory || setting.translationMode === 'click', intent: 'message-display' });
           if (current !== window.__geekTelegramTranslationGeneration || !settingFor(cid).displayTranslation) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
           if (result?.skipped) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
           if (!result?.text) throw new Error('翻译失败');
@@ -204,7 +206,7 @@
       window.__geekTelegramSendLock = true;
       editor.setAttribute('contenteditable', 'false');
       try {
-        const result = await window.__geekTranslationRequest({ text: original, source: setting.source || 'auto', target: setting.target || 'en', provider: setting.provider, route: setting.route, chatId: cid });
+        const result = await window.__geekTranslationRequest({ text: original, source: setting.source || 'auto', target: setting.target || 'en', provider: setting.provider, route: setting.route, chatId: cid, intent: 'outgoing-send' });
         if (!result?.text) throw new Error('翻译失败');
         assertSendContext();
         editor.setAttribute('contenteditable', 'true'); editor.focus();
@@ -259,7 +261,9 @@
       window.__geekTranslationPending = new Map();
       window.__geekTranslationRequest = payload => new Promise((resolve, reject) => {
         const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-        const securedPayload = { ...(payload || {}), bridgeToken: window.__geekTranslationBridgeToken };
+        const body = payload && typeof payload === 'object' ? payload : {};
+        const intent = body.intent === 'outgoing-send' ? 'outgoing-send' : 'message-display';
+        const securedPayload = { ...body, intent, bridgeToken: window.__geekTranslationBridgeToken };
         window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
         if (window.$electron?.send2Host) window.$electron.send2Host({ type: 'geek-translation-request', id, token: window.__geekTranslationBridgeToken });
         else console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
@@ -351,7 +355,7 @@
       content.appendChild(box);
       const run = async () => {
         box.textContent = '翻译中…'; row.dataset.geekLineTranslationState = 'loading';
-        try { const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid }); if (generation !== window.__geekLineTranslationGeneration || !box.isConnected) return; if (!result?.text) throw new Error('翻译失败'); box.textContent = result.text; row.dataset.geekLineTranslationState = 'done'; }
+        try { const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, intent: 'message-display' }); if (generation !== window.__geekLineTranslationGeneration || !box.isConnected) return; if (!result?.text) throw new Error('翻译失败'); box.textContent = result.text; row.dataset.geekLineTranslationState = 'done'; }
         catch (error) { if (generation !== window.__geekLineTranslationGeneration || !box.isConnected) return; box.textContent = `翻译失败，点击重试`; box.title = String(error?.message || error); row.dataset.geekLineTranslationState = 'error'; }
       };
       box.addEventListener('click', run);
@@ -395,7 +399,7 @@
       };
       try {
         if (!cid || !window.__geekTranslationRequest) throw new Error('翻译尚未就绪');
-        const result = await window.__geekTranslationRequest({ text: original, source: setting.sendFrom || 'auto', target: setting.target || setting.sendTo || 'en', provider: setting.provider, route: setting.route, chatId: cid });
+        const result = await window.__geekTranslationRequest({ text: original, source: setting.sendFrom || 'auto', target: setting.target || setting.sendTo || 'en', provider: setting.provider, route: setting.route, chatId: cid, intent: 'outgoing-send' });
         if (!result?.text) throw new Error('翻译失败');
         assertSendContext();
         const textarea = host.shadowRoot?.querySelector('textarea'); if (!textarea) throw new Error('LINE输入组件不可用');
