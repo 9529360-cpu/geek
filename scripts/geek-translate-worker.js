@@ -101,7 +101,7 @@ function bearer(request) {
 
 function countChars(text) {
   let total = 0;
-  for (const char of String(text || '')) total += char.codePointAt(0) > 127 ? 2 : 1;
+  for (const char of String(text || '')) total += char.codePointAt(0) > 255 ? 2 : 1;
   return total;
 }
 
