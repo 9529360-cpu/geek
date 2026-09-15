@@ -10,14 +10,15 @@ const routerPath = path.join(root, 'scripts', 'geek-marketing-router.js');
 const stylesPath = path.join(root, 'scripts', 'geek-marketing-styles-core.mjs');
 const routerSource = fs.readFileSync(routerPath, 'utf8');
 const stylesSource = fs.readFileSync(stylesPath, 'utf8');
-const routes = ['/', '/product', '/translation', '/broadcast', '/security', '/guide', '/faq', '/windows'];
-const productRoutes = ['/product', '/translation', '/broadcast', '/security', '/guide', '/faq', '/windows'];
+const routes = ['/', '/product', '/translation', '/broadcast', '/security', '/pricing', '/guide', '/faq', '/windows'];
+const productRoutes = ['/product', '/translation', '/broadcast', '/security', '/pricing', '/guide', '/faq', '/windows'];
 const expected = {
   '/': ['海外会话工作台', '跨境销售跟进', '先跑通一个账号', '兼容性不是官方背书'],
   '/product': ['账号就是工作现场', '多平台多账号'],
   '/translation': ['语言不同', '供应商密钥'],
   '/broadcast': ['群发是任务', '不同账号可以并行'],
   '/security': ['边界真的存在', 'safeStorage'],
+  '/pricing': ['按实际翻译用量付费', '注册赠送 2 万字符'],
   '/guide': ['先跑通一个账号', '先验证日常收发', '查看常见问题'],
   '/faq': ['先把边界说清楚', '第三方平台说明', '独立产品'],
   '/windows': ['桌面主战场', '下载当前公开版本'],
@@ -32,6 +33,8 @@ assert.doesNotMatch(stylesSource, /!important/, 'shared theme convergence must n
 assert.match(routerSource, /LEGACY_ACCOUNT_THEME_STYLE/, 'production router must consume the shared compatibility adapter');
 assert.doesNotMatch(routerSource, /const LEGACY_THEME_STYLE/, 'router must not own a second copy of site colors');
 assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not reintroduce the retired blue-purple theme');
+assert.match(routerSource, /\.replaceAll\('href="\/#pricing"', 'href="\/pricing"'\)/, 'legacy pricing anchors must migrate to the canonical pricing route');
+assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast/, 'legacy pricing anchors must never be repurposed as broadcast navigation');
 
 (async () => {
   const originalFetch = global.fetch;
@@ -118,6 +121,7 @@ assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not
       assert.match(html, /--accent:var\(--green\);/, `${route} account aliases must resolve through the canonical token`);
       assert.doesNotMatch(html, /href="\/#(?:features|guide|pricing|download|faq)"/, `${route} must not expose retired homepage anchors`);
       for (const href of productRoutes) assert.ok(html.includes(`href="${href}"`), `${route} missing current product navigation ${href}`);
+      assert.doesNotMatch(html, /<a href="\/broadcast">群发任务<\/a>/, `${route} must not disguise legacy pricing as broadcast navigation`);
     }
 
     const reset = await production.default.fetch(new Request('https://geek.bbnba.com/reset-password?token=contract-sentinel'), {}, {});
