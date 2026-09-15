@@ -15,6 +15,7 @@ on:
       - 'scripts/geek-public-pricing.mjs'
       - 'scripts/geek-website-entry.js'
       - 'scripts/geek-website-worker.js'
+      - 'scripts/geek-website-versioned-entry.mjs'
       - 'scripts/website-payment-qr.mjs'
       - 'wrangler-website.toml'
 
@@ -60,18 +61,48 @@ jobs:
           node --check scripts/geek-public-pricing.mjs
           node --check scripts/geek-website-entry.js
           node --check scripts/geek-website-worker.js
+          node --check scripts/geek-website-versioned-entry.mjs
           node --check scripts/website-payment-qr.mjs
           node --check scripts/website-production-smoke.cjs
 
       - name: Deploy website Worker
         id: deploy
-        run: npx --yes wrangler@4.36.0 deploy --config wrangler-website.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-website-deploy.ndjson
+        run: |
+          DEPLOY_LOG="$RUNNER_TEMP/wrangler-website-deploy.log"
+          npx --yes wrangler@4.36.0 deploy --config wrangler-website.toml | tee "$DEPLOY_LOG"
+          VERSION_ID="$(node - "$WRANGLER_OUTPUT_FILE_PATH" <<'NODE'
+          const fs = require('node:fs');
+          const file = process.argv[2];
+          let version = '';
+          if (file && fs.existsSync(file)) {
+            for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+              if (!line.trim()) continue;
+              try {
+                const event = JSON.parse(line);
+                if (event?.type === 'deploy' && event?.version_id) version = String(event.version_id).trim();
+              } catch (_) {}
+            }
+          }
+          process.stdout.write(version);
+          NODE
+          )"
+          if [ -z "$VERSION_ID" ]; then
+            VERSION_ID="$(sed -n 's/.*Current Version ID:[[:space:]]*//p' "$DEPLOY_LOG" | tail -n 1 | tr -d '\r')"
+          fi
+          if ! printf '%s' "$VERSION_ID" | grep -Eq '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'; then
+            echo 'Unable to recover the exact deployed Cloudflare Worker version ID.' >&2
+            exit 1
+          fi
+          printf 'version_id=%s\n' "$VERSION_ID" >> "$GITHUB_OUTPUT"
 
       - name: Verify critical public website routes
         id: verify
+        env:
+          GEEK_EXPECTED_WORKER_VERSION: ${{ steps.deploy.outputs.version_id }}
         run: node scripts/website-production-smoke.cjs
 
       - name: Publish non-sensitive deployment status
@@ -80,7 +111,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           JOB_STATUS: ${{ job.status }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          DEPLOYED_WORKER_VERSION: ${{ steps.deploy.outputs.version_id }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          VERIFIED_WORKER_VERSION: ${{ steps.verify.outputs.worker_version }}
           HTTP_CODE: ${{ steps.verify.outputs.health_http_code }}
           ROUTES_CHECKED: ${{ steps.verify.outputs.routes_checked }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -89,6 +122,8 @@ jobs:
         run: |
           if [ -z "$HTTP_CODE" ]; then HTTP_CODE="unavailable"; fi
           if [ -z "$ROUTES_CHECKED" ]; then ROUTES_CHECKED="unavailable"; fi
+          if [ -z "$DEPLOYED_WORKER_VERSION" ]; then DEPLOYED_WORKER_VERSION="unavailable"; fi
+          if [ -z "$VERIFIED_WORKER_VERSION" ]; then VERIFIED_WORKER_VERSION="unavailable"; fi
           SHORT_SHA="$(printf '%s' "$COMMIT_SHA" | cut -c1-12)"
           REPORT="$RUNNER_TEMP/cloudflare-website-deployment-status.md"
           {
@@ -99,7 +134,9 @@ jobs:
             printf -- '- Trigger: `%s`\n' "$TRIGGER_EVENT"
             printf -- '- Job: **%s**\n' "$JOB_STATUS"
             printf -- '- Wrangler deploy: `%s`\n' "$DEPLOY_OUTCOME"
+            printf -- '- Deployed Worker version: `%s`\n' "$DEPLOYED_WORKER_VERSION"
             printf -- '- Public verification: `%s` (`%s` critical routes; health HTTP `%s`)\n' "$VERIFY_OUTCOME" "$ROUTES_CHECKED" "$HTTP_CODE"
+            printf -- '- Verified Worker version: `%s`\n' "$VERIFIED_WORKER_VERSION"
             printf -- '- Commit: `%s`\n' "$SHORT_SHA"
             printf -- '- Surface: `/health`, `/`, `/pricing`, `/guide`, `/faq`, `/sitemap.xml`, `/download`\n\n'
             printf 'No tokens, Authorization headers, cookies, DNS values, database contents, Cloudflare response bodies, or user data are included in this report.\n'
