@@ -28,10 +28,13 @@ const fallbackIsPreviousPatch = (
 // 1.2.13 曾正式发布但因真实 LINE 白屏回滚；1.2.14 的已验证上一稳定版因此仍是 1.2.12。
 // 1.2.23 的 Windows 发布在任何安装包/R2/latest.yml 写入前即失败，从未成为公网稳定版；
 // 1.2.24 因此必须继续以真实上一稳定版 1.2.22 作为官网 fallback。
+// 1.2.26 的 Windows 正式构建同样在任何产物校验/R2/latest.yml 写入前失败，从未成为公网稳定版；
+// 1.2.27 因此必须继续以真实上一稳定版 1.2.25 作为官网 fallback。
 // 这些例外必须精确绑定版本对，不能泛化为允许任意陈旧 fallback。
 const fallbackIsVerifiedRollbackStable = (
   (pkg.version === '1.2.14' && fallback === '1.2.12') ||
-  (pkg.version === '1.2.24' && fallback === '1.2.22')
+  (pkg.version === '1.2.24' && fallback === '1.2.22') ||
+  (pkg.version === '1.2.27' && fallback === '1.2.25')
 );
 assert.ok(
   fallbackIsCurrent || fallbackIsPreviousPatch || fallbackIsVerifiedRollbackStable,
