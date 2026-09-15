@@ -1,0 +1,8 @@
+name = "geek-translate"
+main = "scripts/provider-direct-probe-worker.js"
+compatibility_date = "2026-08-16"
+workers_dev = true
+preview_urls = true
+
+[secrets]
+required = ["GEMINI_API_KEY", "MISTRAL_API_KEY", "ZAI_API_KEY"]
