@@ -31,11 +31,15 @@ assert.match(stateOwner, /let transactionTail = Promise\.resolve\(\)/);
 assert.match(stateOwner, /createCommittedStateMirror\(/, 'Config State must delegate raw durable generation ownership to the shared committed-state mirror');
 const updateBody = stateOwner.match(/function update\(patchData = \{\}\) \{([\s\S]*?)\n  \}/)?.[1] || '';
 const candidateAt = updateBody.indexOf('const candidate = normalizeConfig');
-const durableAt = updateBody.indexOf('await durableWrite(candidate)');
+const durableMatch = updateBody.match(/await durableWrite\(candidate(?:,\s*\{\s*initializing\s*\})?\)/);
+const durableAt = durableMatch ? durableMatch.index : -1;
 const commitAt = updateBody.indexOf('state = candidate');
 assert.ok(candidateAt >= 0 && durableAt > candidateAt && commitAt > durableAt, 'config transaction must commit memory only after durable write');
 assert.match(stateOwner, /CONFIG_STATE_RECOVERY_REQUIRED/);
 assert.match(stateOwner, /CONFIG_STATE_SECRET_DECRYPT_FAILED/);
+assert.match(stateOwner, /let needsInitialCommit = false/, 'missing Config State must retain an explicit first-mutation initialization seam');
+assert.match(stateOwner, /loaded\.status === 'empty'[\s\S]*needsInitialCommit = true[\s\S]*return cloneConfig\(state\)/,
+  'missing Config State load must stay unmaterialized until a real mutation commits it');
 
 assert.match(committedMirror, /async function writeSynced\(file, content\)[\s\S]*handle\.writeFile\(content, 'utf8'\)[\s\S]*handle\.sync\(\)[\s\S]*handle\.close\(\)/,
   'shared Config/Account durable writes must fsync and close temp files when supported');
