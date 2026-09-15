@@ -10,14 +10,16 @@ const routerPath = path.join(root, 'scripts', 'geek-marketing-router.js');
 const stylesPath = path.join(root, 'scripts', 'geek-marketing-styles-core.mjs');
 const routerSource = fs.readFileSync(routerPath, 'utf8');
 const stylesSource = fs.readFileSync(stylesPath, 'utf8');
-const routes = ['/', '/product', '/translation', '/broadcast', '/security', '/windows'];
-const productRoutes = ['/product', '/translation', '/broadcast', '/security', '/windows'];
+const routes = ['/', '/product', '/translation', '/broadcast', '/security', '/guide', '/faq', '/windows'];
+const productRoutes = ['/product', '/translation', '/broadcast', '/security', '/guide', '/faq', '/windows'];
 const expected = {
-  '/': ['海外会话工作台', '账号就是工作现场', '不同账号可以同时工作'],
+  '/': ['海外会话工作台', '跨境销售跟进', '先跑通一个账号', '兼容性不是官方背书'],
   '/product': ['账号就是工作现场', '多平台多账号'],
   '/translation': ['语言不同', '供应商密钥'],
   '/broadcast': ['群发是任务', '不同账号可以并行'],
   '/security': ['边界真的存在', 'safeStorage'],
+  '/guide': ['先跑通一个账号', '先验证日常收发', '查看常见问题'],
+  '/faq': ['先把边界说清楚', '第三方平台说明', '独立产品'],
   '/windows': ['桌面主战场', '下载当前公开版本'],
 };
 
@@ -36,7 +38,7 @@ assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not
   global.fetch = async (input) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url === 'https://geek-release.9529360.workers.dev/latest.yml') {
-      return new Response('version: 1.2.24\n', { status: 200 });
+      return new Response('version: 1.2.25\n', { status: 200 });
     }
     throw new Error(`unexpected external fetch in website marketing contract: ${url}`);
   };
@@ -58,10 +60,13 @@ assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not
       const html = await response.text();
       const pageName = route === '/' ? 'home' : route.slice(1);
       assert.match(html, new RegExp(`data-marketing-page="${pageName}"`));
-      for (const href of routes) assert.ok(html.includes(`href="${href}"`), `${route} missing nav ${href}`);
+      for (const href of routes) assert.ok(html.includes(`href="${href}"`), `${route} missing navigation path ${href}`);
       assert.ok(html.includes('href="/download"'), `${route} must retain the direct installer route`);
+      assert.ok(html.includes('href="/faq"'), `${route} must expose the FAQ trust surface`);
+      assert.ok(html.includes('href="/guide"'), `${route} must expose the onboarding surface`);
       assert.ok(html.includes(`<meta property="og:url" content="https://geek.bbnba.com${route}">`), `${route} missing canonical social URL`);
       assert.match(html, /<meta property="og:site_name" content="极客 Geek">/);
+      assert.match(html, /<meta property="og:locale" content="zh_CN">/);
       assert.match(html, /<meta name="twitter:card" content="summary">/);
       assert.match(html, /--green:#25d366;/, `${route} must render from the shared theme token owner`);
       assert.doesNotMatch(html, /<script\b/i);
@@ -69,6 +74,7 @@ assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not
       const absoluteHrefs = [...html.matchAll(/href="(https?:\/\/[^\"]+)"/ig)].map(match => match[1]);
       assert.deepEqual(absoluteHrefs, [`https://geek.bbnba.com${route}`], `${route} may only expose its same-origin canonical URL`);
       for (const marker of expected[route]) assert.ok(html.includes(marker), `${route} missing product marker: ${marker}`);
+      assert.ok(html.includes('平台名称仅用于说明兼容范围'), `${route} must carry the independent-product compatibility disclosure`);
 
       const head = await production.default.fetch(new Request(`https://geek.bbnba.com${route}`, { method: 'HEAD' }), {}, {});
       assert.equal(head.status, 200, `${route} HEAD must resolve through the marketing router`);
@@ -122,7 +128,7 @@ assert.doesNotMatch(routerSource, /#4f8cff|#a78bfa/, 'production router must not
 
     const download = await production.default.fetch(new Request('https://geek.bbnba.com/download'), {}, {});
     assert.equal(download.status, 302, '/download must preserve the existing direct-download contract');
-    assert.equal(download.headers.get('location'), 'https://geek-release.9529360.workers.dev/geek-setup-1.2.24.exe');
+    assert.equal(download.headers.get('location'), 'https://geek-release.9529360.workers.dev/geek-setup-1.2.25.exe');
   } finally {
     global.fetch = originalFetch;
   }
