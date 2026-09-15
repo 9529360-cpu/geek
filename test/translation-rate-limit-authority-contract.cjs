@@ -75,8 +75,13 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
   assert.match(entry, /scopeTranslationRateLimitAuthority\(db\)/, 'production entry must scope D1 through the atomic translation rate-limit authority');
   assert.match(
     entry,
-    /const workerEnv = db && typeof db\.prepare === 'function'\s*\? withTranslationDatabase\(env, scopeTranslationRateLimitAuthority\(db\)\)\s*:\s*env;/,
-    'entry must derive the base Worker environment from the atomic translation rate-limit scope'
+    /const workerDb = db && typeof db\.prepare === 'function'\s*\? scopeTranslationRateLimitAuthority\(db\)\s*:\s*db;/,
+    'entry must derive one authoritative scoped D1 handle for translation work and recovery'
+  );
+  assert.match(
+    entry,
+    /const workerEnv = workerDb \? withTranslationDatabase\(env, workerDb\) : env;/,
+    'entry must pass the authoritative scoped D1 handle to the base Worker environment'
   );
   assert.match(
     entry,
@@ -88,6 +93,7 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
     "'scripts/geek-translate-entry.js'",
     "'scripts/geek-translate-worker.js'",
     "'scripts/translation-rate-limit-compat.mjs'",
+    "'scripts/translation-reservation-recovery.mjs'",
     "'scripts/atomic-rate-limit.mjs'",
     "'wrangler-translate.toml'",
   ]) {

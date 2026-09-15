@@ -47,21 +47,26 @@ function createD1() {
     return bound();
   }
 
+  let batchTail = Promise.resolve();
   return {
     sqlite,
     db: {
       prepare,
-      async batch(statements) {
-        sqlite.exec('BEGIN IMMEDIATE');
-        try {
-          const results = [];
-          for (const statement of statements) results.push(await statement.run());
-          sqlite.exec('COMMIT');
-          return results;
-        } catch (error) {
-          try { sqlite.exec('ROLLBACK'); } catch {}
-          throw error;
-        }
+      batch(statements) {
+        const run = batchTail.then(async () => {
+          sqlite.exec('BEGIN IMMEDIATE');
+          try {
+            const results = [];
+            for (const statement of statements) results.push(await statement.run());
+            sqlite.exec('COMMIT');
+            return results;
+          } catch (error) {
+            try { sqlite.exec('ROLLBACK'); } catch {}
+            throw error;
+          }
+        });
+        batchTail = run.then(() => undefined, () => undefined);
+        return run;
       },
     },
   };
@@ -91,6 +96,19 @@ function addReservation(sqlite, { requestId, userId = 42, chars = 5, status = 'r
     const second = await recoverStaleTranslationReservations(db, { userId: 42, limit: 8 });
     assert.equal(second.recovered, 0);
     assert.equal(sqlite.prepare('SELECT quota_chars FROM users WHERE id = 42').get().quota_chars, 100, 'repeat cleanup must not double-refund');
+    sqlite.close();
+  }
+
+  {
+    const { db, sqlite } = createD1();
+    addReservation(sqlite, { requestId: 'race-a' });
+    const [left, right] = await Promise.all([
+      recoverStaleTranslationReservations(db, { userId: 42, limit: 8 }),
+      recoverStaleTranslationReservations(db, { userId: 42, limit: 8 }),
+    ]);
+    assert.equal(left.recovered + right.recovered, 1, 'concurrent recovery passes must claim one stale owner exactly once');
+    assert.equal(sqlite.prepare('SELECT quota_chars FROM users WHERE id = 42').get().quota_chars, 100, 'concurrent recovery must refund the source debit exactly once');
+    assert.equal(sqlite.prepare('SELECT 1 FROM translation_usage WHERE request_id = ?').get('race-a'), undefined, 'the winning recovery transaction must remove the stale owner row');
     sqlite.close();
   }
 
