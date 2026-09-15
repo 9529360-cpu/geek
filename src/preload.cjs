@@ -329,6 +329,7 @@ contextBridge.exposeInMainWorld(
       createOrder: (plan) => invokeSubscription('subscription:create-order', plan),
       getOrderStatus: (orderId) => invokeSubscription('subscription:get-order-status', orderId),
       getQuota: (force) => invokeSubscription('subscription:get-quota', force === true),
+      translationReadiness: () => invokeSubscription('subscription:translation-readiness'),
       logout: () => invokeSubscription('subscription:logout'),
       enterApp: () => invokeSubscription('subscription:enter-app'),
       closeWindow: () => invokeSubscription('subscription:close-window'),
