@@ -1,0 +1,43 @@
+name: apply-direct-composer-owner-cutover
+
+on:
+  push:
+    branches:
+      - fix/573-retire-legacy-translation-owner
+    paths:
+      - scripts/apply-direct-composer-owner-cutover.cjs
+      - .github/workflows/apply-direct-composer-owner-cutover.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Apply focused patch
+        run: node scripts/apply-direct-composer-owner-cutover.cjs
+
+      - name: Validate focused contracts
+        run: |
+          node --check ui/whatsapp-direct-composer-controller.js
+          node --check ui/app.js
+          node test/whatsapp-direct-composer-controller-contract.cjs
+          node test/whatsapp-direct-composer-actionable-errors-contract.cjs
+          node test/translation-send-safety-contract.cjs
+          node --check e2e/specs/whatsapp-wa-js-runtime.e2e.cjs
+          git diff --check
+
+      - name: Commit focused change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: retire legacy WhatsApp private translation owner"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
