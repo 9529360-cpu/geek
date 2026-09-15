@@ -1,4 +1,4 @@
-export const MARKETING_ROUTES = new Set(['/product', '/translation', '/broadcast', '/security', '/windows']);
+export const MARKETING_ROUTES = new Set(['/product', '/translation', '/broadcast', '/security', '/guide', '/faq', '/windows']);
 export const SITE_ORIGIN = 'https://geek.bbnba.com';
 
 export const PAGE_META = {
@@ -33,6 +33,22 @@ export const PAGE_META = {
     eyebrow: 'Isolation by default',
     headline: '多账号的第一要求，\n是边界真的存在。',
     lede: '真正的多账号工作台不能只在界面上“看起来分开”。账号身份、会话环境、工具数据、后台任务与附件能力都必须拥有明确归属。',
+  },
+  '/guide': {
+    label: 'Guide',
+    title: '安装与上手 · 极客 Geek',
+    description: '从下载 Windows 客户端、登录极客账户，到添加 WhatsApp、Telegram、LINE 账号并配置翻译与群发任务，快速建立第一条跨境沟通工作流。',
+    eyebrow: 'Getting started',
+    headline: '先跑通一个账号，\n再扩展整个工作台。',
+    lede: '不要一上来把所有账号和任务都搬进来。先完成安装、登录和第一个真实账号，再逐步打开翻译与群发，最快建立一条可验证的日常工作流。',
+  },
+  '/faq': {
+    label: 'FAQ',
+    title: '常见问题 · 极客 Geek',
+    description: '了解极客 Geek 当前支持的平台与 Windows 客户端边界、账号隔离、翻译、群发、更新与第三方平台兼容说明。',
+    eyebrow: 'Frequently asked',
+    headline: '先把边界说清楚，\n再决定要不要使用。',
+    lede: '极客不是把限制藏进页脚的产品。这里集中说明当前平台、系统、账号隔离、翻译、群发与更新方式，以及第三方平台兼容关系。',
   },
   '/windows': {
     label: 'Windows',
