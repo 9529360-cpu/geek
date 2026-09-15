@@ -298,6 +298,18 @@ function validateTranslationOutput(source, output, target) {
   return result;
 }
 
+function providerQualityError(provider, error) {
+  const quality = new Error(`${provider.id}: ${String(error?.message || error || 'translation output rejected')}`);
+  quality.code = 'provider_quality_rejected';
+  quality.healthImpact = false;
+  quality.cause = error;
+  return quality;
+}
+
+function shouldAffectProviderHealth(error) {
+  return error?.healthImpact !== false;
+}
+
 async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS) {
   const boundedTimeout = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, Math.floor(Number(timeoutMs) || 0)));
   const controller = new AbortController();
@@ -328,7 +340,7 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
     result = result.replace(/^(Here's a thinking process|Let me think|I'll translate|以下是思考过程|让我思考)[：:\s]*/i, '');
     if (!result) throw new Error(`${provider.id}: empty after strip`);
     try { result = validateTranslationOutput(text, result, target); }
-    catch (error) { throw new Error(`${provider.id}: ${error.message}`); }
+    catch (error) { throw providerQualityError(provider, error); }
     return { text: result, engine: provider.id };
   } catch (error) {
     if (controller.signal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') {
@@ -358,7 +370,7 @@ async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BU
     } catch (error) {
       const deadlineLimitedTimeout = error?.code === 'provider_timeout' && attemptBudget < PROVIDER_TIMEOUT_MS;
       if (deadlineLimitedTimeout) throw deadlineExceededError(error);
-      markProviderFail(provider.id, error.message);
+      if (shouldAffectProviderHealth(error)) markProviderFail(provider.id, error.message);
       lastError = error;
       if (providerAttemptBudget(deadlineAt) <= 0) throw deadlineExceededError(error);
     }
