@@ -1,36 +1,5 @@
 'use strict';
 
-const fs = require('node:fs');
-const path = require('node:path');
-
-const root = path.resolve(__dirname, '..');
-const appPath = path.join(root, 'ui', 'app.js');
-const adaptersPath = path.join(root, 'ui', 'translation-adapters.js');
-const testPath = path.join(root, 'test', 'translation-bridge-readiness-contract.cjs');
-const workflowPath = path.join(root, '.github', 'workflows', 'tmp-apply-524.yml');
-const selfPath = __filename;
-
-const unsafe = "document.documentElement.getAttribute('data-geek-bridge') === '1' || document.getAttribute('data-geek-bridge') === '1'";
-const safe = "document.documentElement?.getAttribute?.('data-geek-bridge') === '1'";
-
-function replaceExact(filePath, expectedCount) {
-  const before = fs.readFileSync(filePath, 'utf8');
-  const count = before.split(unsafe).length - 1;
-  if (count !== expectedCount) {
-    throw new Error(`${path.relative(root, filePath)} expected ${expectedCount} unsafe bridge checks, found ${count}`);
-  }
-  const after = before.split(unsafe).join(safe);
-  if (after.includes("document.getAttribute('data-geek-bridge')")) {
-    throw new Error(`${path.relative(root, filePath)} still contains invalid Document.getAttribute bridge check`);
-  }
-  fs.writeFileSync(filePath, after);
-}
-
-replaceExact(appPath, 1);
-replaceExact(adaptersPath, 2);
-
-const testSource = String.raw`'use strict';
-
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -134,11 +103,3 @@ assert.equal(missingRoot.posts.length, 0, 'missing documentElement must not use 
 assert.equal(missingRoot.logs.filter(line => line.startsWith('__GEEK_TRANSLATION_REQUEST__:')).length, 1, 'missing documentElement must still reach the compatibility fallback');
 
 console.log('TRANSLATION_BRIDGE_READINESS_CONTRACT_OK');
-`;
-fs.writeFileSync(testPath, testSource);
-
-for (const temporaryPath of [workflowPath, selfPath]) {
-  try { fs.unlinkSync(temporaryPath); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-}
-
-console.log('APPLY_524_OK');
