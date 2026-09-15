@@ -30,10 +30,10 @@ function capacityError(code, message) {
 
 function createTranslationSmartQueue(options = {}) {
   const concurrency = Math.max(1, Number(options.concurrency) || DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.concurrency);
-  const outgoingReserve = Math.min(
-    concurrency - 1,
-    Math.max(0, Number(options.outgoingReserve) || DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.outgoingReserve),
-  );
+  const requestedReserve = Number.isFinite(Number(options.outgoingReserve))
+    ? Number(options.outgoingReserve)
+    : DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.outgoingReserve;
+  const outgoingReserve = Math.min(concurrency - 1, Math.max(0, requestedReserve));
   const outgoingBurst = Math.max(1, Number(options.outgoingBurst) || DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.outgoingBurst);
   const totalQueueLimit = Math.max(concurrency, Number(options.totalQueueLimit) || DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.totalQueueLimit);
   const partitionQueueLimit = Math.max(1, Number(options.partitionQueueLimit) || DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.partitionQueueLimit);
@@ -125,31 +125,50 @@ function createTranslationSmartQueue(options = {}) {
     return true;
   }
 
-  function dropOldestBackground(partition, reason = capacityError(
+  function dropBackgroundItem(item, reason = capacityError(
     'TRANSLATION_BACKGROUND_DROPPED',
     '后台翻译队列繁忙，已跳过较旧请求',
   )) {
-    const queue = partitionQueue(TRANSLATION_INTENTS.MESSAGE_DISPLAY, partition);
-    if (!queue?.length) return false;
-    const item = queue[0];
-    if (!settleQueued(item, reason)) return false;
+    if (!item || !settleQueued(item, reason)) return false;
     droppedBackground += 1;
     return true;
+  }
+
+  function dropOldestBackground(partition) {
+    const queue = partitionQueue(TRANSLATION_INTENTS.MESSAGE_DISPLAY, partition);
+    return dropBackgroundItem(queue?.[0]);
+  }
+
+  function dropOldestBackgroundAnywhere() {
+    let oldest = null;
+    for (const queue of queues[TRANSLATION_INTENTS.MESSAGE_DISPLAY].values()) {
+      const candidate = queue[0];
+      if (candidate && (!oldest || candidate.id < oldest.id)) oldest = candidate;
+    }
+    return dropBackgroundItem(oldest);
   }
 
   function admitOrReject(intent, partition) {
     const partitionTotal = partitionQueued(partition);
     if (intent === TRANSLATION_INTENTS.MESSAGE_DISPLAY) {
       const backgroundCount = partitionQueue(intent, partition)?.length || 0;
-      if (backgroundCount >= backgroundPartitionLimit || partitionTotal >= partitionQueueLimit || queued >= totalQueueLimit) {
+      if (backgroundCount >= backgroundPartitionLimit || partitionTotal >= partitionQueueLimit) {
         if (backgroundCount > 0 && dropOldestBackground(partition)) return;
+        throw capacityError('TRANSLATION_BUSY', '后台翻译队列繁忙，请稍后重试');
+      }
+      if (queued >= totalQueueLimit) {
+        if (dropOldestBackgroundAnywhere()) return;
         throw capacityError('TRANSLATION_BUSY', '后台翻译队列繁忙，请稍后重试');
       }
       return;
     }
 
-    if (partitionTotal >= partitionQueueLimit || queued >= totalQueueLimit) {
-      if (dropOldestBackground(partition)) return;
+    if (partitionTotal >= partitionQueueLimit) {
+      if (!dropOldestBackground(partition)) {
+        throw capacityError('TRANSLATION_BUSY', '翻译发送队列繁忙，请稍后重试');
+      }
+    }
+    if (queued >= totalQueueLimit && !dropOldestBackgroundAnywhere()) {
       throw capacityError('TRANSLATION_BUSY', '翻译发送队列繁忙，请稍后重试');
     }
   }
@@ -180,7 +199,7 @@ function createTranslationSmartQueue(options = {}) {
       return TRANSLATION_INTENTS.MESSAGE_DISPLAY;
     }
     if (outgoing) {
-      outgoingStreak = Math.min(outgoingBurst, outgoingStreak + 1);
+      outgoingStreak = 0;
       return TRANSLATION_INTENTS.OUTGOING_SEND;
     }
     if (background) {
