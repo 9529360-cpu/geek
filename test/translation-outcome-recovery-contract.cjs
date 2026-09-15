@@ -20,6 +20,7 @@ function loadWorker(fetchImpl) {
     TextEncoder,
     TextDecoder,
     AbortController,
+    DOMException,
     crypto: globalThis.crypto,
     btoa,
     atob,
@@ -113,7 +114,7 @@ function tokenFor(secret = 'translation-test-secret') {
   return `${header}.${payload}.${signature}`;
 }
 
-function requestFor(requestId, overrides = {}, secret = 'translation-test-secret') {
+function requestFor(requestId, overrides = {}, secret = 'translation-test-secret', signal = undefined) {
   const body = {
     text: 'hello',
     source: 'en',
@@ -132,6 +133,7 @@ function requestFor(requestId, overrides = {}, secret = 'translation-test-secret
       'CF-Connecting-IP': '203.0.113.42',
     },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -171,9 +173,37 @@ function successResponse() {
     const row = usage(sqlite, requestId);
     assert.equal(row.status, 'complete');
     assert.match(String(row.request_hash), /^[0-9a-f]{64}$/);
+    const plainCanonical = JSON.stringify({
+      version: 'translation-op-v1',
+      requestId,
+      userId: 42,
+      text: 'hello',
+      source: 'en',
+      target: 'it',
+      provider: 'auto',
+      route: 'default',
+    });
+    const plainDigest = nodeCrypto.createHash('sha256').update(plainCanonical).digest('hex');
+    assert.notEqual(row.request_hash, plainDigest, 'request identity must be keyed, not a dictionary-friendly plain text digest');
     assert.match(String(row.replay_ciphertext), /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     assert.equal(String(row.replay_ciphertext).includes('ciao'), false, 'D1 must not persist plaintext translation output');
     assert.ok(row.replay_expires_at);
+    sqlite.close();
+  }
+
+  // Equal message semantics under a different request ID must not create a cross-row equality oracle.
+  {
+    const { db, sqlite } = createD1();
+    const worker = loadWorker(async () => successResponse());
+    const firstId = nodeCrypto.randomUUID();
+    const secondId = nodeCrypto.randomUUID();
+    assert.equal((await worker.fetch(requestFor(firstId), envFor(db))).status, 200);
+    assert.equal((await worker.fetch(requestFor(secondId), envFor(db))).status, 200);
+    assert.notEqual(
+      usage(sqlite, firstId).request_hash,
+      usage(sqlite, secondId).request_hash,
+      'request ID must be part of the keyed semantic binding so identical messages do not correlate across D1 rows'
+    );
     sqlite.close();
   }
 
@@ -227,6 +257,46 @@ function successResponse() {
     sqlite.close();
   }
 
+  // Client cancellation after reservation must abort provider work, refund exactly once and not poison provider health.
+  {
+    const { db, sqlite } = createD1();
+    const controller = new AbortController();
+    let started;
+    const providerStarted = new Promise(resolve => { started = resolve; });
+    const worker = loadWorker((_url, options = {}) => new Promise((_resolve, reject) => {
+      started();
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    }));
+    const requestId = nodeCrypto.randomUUID();
+    const pending = worker.fetch(requestFor(requestId, {}, 'translation-test-secret', controller.signal), envFor(db));
+    await providerStarted;
+    controller.abort(new Error('client canceled'));
+    const response = await pending;
+    assert.equal(response.status, 499);
+    assert.equal((await response.json()).error, 'request_aborted');
+    assert.equal(quota(sqlite), 100, 'cancellation before terminal commit must refund the reserved source debit');
+    assert.equal(usage(sqlite, requestId), null, 'canceled reservation must not remain as durable debt');
+    const health = await worker.fetch(new Request('https://translate.invalid/health'), envFor(db));
+    assert.equal((await health.json()).models.gemini.failCount, 0, 'caller cancellation must not count as provider failure');
+    sqlite.close();
+  }
+
+  // Cancellation observed after provider success but before finalization must still compensate the reservation.
+  {
+    const { db, sqlite } = createD1();
+    const controller = new AbortController();
+    const worker = loadWorker(async () => {
+      controller.abort(new Error('client closed after provider result'));
+      return successResponse();
+    });
+    const requestId = nodeCrypto.randomUUID();
+    const response = await worker.fetch(requestFor(requestId, {}, 'translation-test-secret', controller.signal), envFor(db));
+    assert.equal(response.status, 499);
+    assert.equal(quota(sqlite), 100);
+    assert.equal(usage(sqlite, requestId), null, 'provider result must not become a charge when cancellation is observed before finalization');
+    sqlite.close();
+  }
+
   // Replay material has a bounded privacy lifetime and is erased when an expired outcome is revisited.
   {
     const { db, sqlite } = createD1();
@@ -248,6 +318,11 @@ function successResponse() {
   assert.match(migration, /ADD COLUMN request_hash TEXT/);
   assert.match(migration, /ADD COLUMN replay_ciphertext TEXT/);
   assert.match(workerSource, /AES-GCM/, 'replay data must be encrypted before D1 persistence');
+  assert.match(workerSource, /OPERATION_HASH_DOMAIN/, 'operation identity must use a purpose-separated keyed domain');
+  assert.match(workerSource, /REPLAY_KEY_DOMAIN/, 'replay encryption key derivation must use a distinct purpose domain');
+  assert.match(workerSource, /requestId:\s*String\(requestId\)/, 'request ID must be bound into keyed semantic identity');
+  assert.match(workerSource, /if \(shouldAffectProviderHealth\(error\)\) markProviderFail/, 'replay work must preserve provider-health fault classification');
+  assert.match(workerSource, /callerSignal\?\.addEventListener\?\.\('abort'/, 'provider work must observe incoming request cancellation');
   assert.match(workerSource, /request_hash = \?/, 'finalization must stay bound to the semantic request hash');
   assert.match(workerSource, /replay_ciphertext = \?, replay_expires_at = datetime\('now', \?\)/, 'billing finalization and encrypted replay metadata must share one terminal update');
 
