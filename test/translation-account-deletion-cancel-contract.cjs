@@ -95,10 +95,14 @@ async function waitFor(predicate, label) {
   const translate = async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload));
   const event = { sender: { id: 1 } };
 
+  // This contract is about account deletion cancellation, not background
+  // reservation. Use explicit outgoing work so it may intentionally occupy all
+  // 20 global slots and keep the original cancellation stress shape intact.
   const aRequests = Array.from({ length: 21 }, (_, index) => translate(event, {
     accountId: 'account-a',
     text: `A-${index}`,
     target: 'en',
+    intent: 'outgoing-send',
     refresh: true,
     skipQuota: true,
   }));
@@ -106,6 +110,7 @@ async function waitFor(predicate, label) {
     accountId: 'account-b',
     text: 'B-work',
     target: 'en',
+    intent: 'outgoing-send',
     refresh: true,
     skipQuota: true,
   });
@@ -130,7 +135,7 @@ async function waitFor(predicate, label) {
   assert.equal(bResult.text, 'B-ok', 'deleting A must not cancel or corrupt B work');
 
   await assert.rejects(
-    () => translate(event, { accountId: 'account-a', text: 'A-after-delete', target: 'en', refresh: true, skipQuota: true }),
+    () => translate(event, { accountId: 'account-a', text: 'A-after-delete', target: 'en', intent: 'outgoing-send', refresh: true, skipQuota: true }),
     error => error?.code === 'TRANSLATION_ACCOUNT_DELETED',
     'new A work must fail before reaching the remote queue after deletion',
   );
