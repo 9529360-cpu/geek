@@ -64,6 +64,7 @@ jobs:
           node --check scripts/geek-public-pricing.mjs
           node --check scripts/geek-website-entry.js
           node --check scripts/geek-website-worker.js
+          node --check scripts/geek-website-versioned-entry.mjs
           node --check scripts/website-payment-qr.mjs
           node --check scripts/geek-subscription-atomic-entry.js
           node --check scripts/geek-subscription-entry.js
