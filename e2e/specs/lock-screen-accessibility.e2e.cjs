@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 
 const STEP_TIMEOUT = 3000;
 const LOCK_PASSWORD = 'geek-e2e-lock';
+const W3C_ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf';
 const WEBDRIVER_KEY = Object.freeze({
   NULL: '\uE000',
   TAB: '\uE004',
@@ -35,17 +36,24 @@ async function waitFocused(id, timeout = STEP_TIMEOUT) {
   });
 }
 
+function webdriverElementId(element) {
+  return element?.elementId || element?.[W3C_ELEMENT_KEY] || element?.ELEMENT || '';
+}
+
 async function keyOnFocused(key, extra = {}) {
+  const activeElement = await browser.getActiveElement();
+  const elementId = webdriverElementId(activeElement);
+  assert.ok(elementId, `active WebDriver element is unavailable for ${key}`);
+
   if (key === 'Tab') {
-    if (extra.shiftKey === true) {
-      await browser.keys([WEBDRIVER_KEY.SHIFT, WEBDRIVER_KEY.TAB, WEBDRIVER_KEY.NULL]);
-    } else {
-      await browser.keys(WEBDRIVER_KEY.TAB);
-    }
+    const sequence = extra.shiftKey === true
+      ? `${WEBDRIVER_KEY.SHIFT}${WEBDRIVER_KEY.TAB}${WEBDRIVER_KEY.NULL}`
+      : WEBDRIVER_KEY.TAB;
+    await browser.elementSendKeys(elementId, sequence);
     return;
   }
   if (key === 'Escape') {
-    await browser.keys(WEBDRIVER_KEY.ESCAPE);
+    await browser.elementSendKeys(elementId, WEBDRIVER_KEY.ESCAPE);
     return;
   }
   throw new Error(`unsupported lock-screen test key: ${key}`);
