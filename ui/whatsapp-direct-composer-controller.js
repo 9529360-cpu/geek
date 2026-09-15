@@ -2,13 +2,13 @@
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) {
-    root.GeekWhatsAppComposerPublicFallback = api;
+    root.GeekWhatsAppDirectComposerController = api;
     if (root.document) api.installShell(root);
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const FALLBACK_VERSION = 2;
+  const CONTROLLER_VERSION = 1;
 
   function isWhatsAppType(type) {
     return type === 'whatsapp' || type === 'whatsapp-pure';
@@ -22,22 +22,43 @@
     ) || null;
   }
 
-  // Runs inside the WhatsApp WebView. This is a degraded-path owner only: it
-  // stays out of the way while the native send-module recovery is healthy, and
-  // takes over a trusted translated DIRECT-chat composer gesture only when that
-  // private owner cannot be resolved but the public WPP text API is available.
-  function installPageFallback(page, version = FALLBACK_VERSION) {
+  function installPageController(page, version = CONTROLLER_VERSION) {
     if (!page) return 'NO_PAGE';
 
-    const current = page.__geekWhatsAppPublicComposerFallback;
+    try { page.__geekWhatsAppSendRecovery?.controller?.abort?.(); } catch {}
+    try {
+      const timer = page.__geekWhatsAppSendRecovery?.timer;
+      if (timer != null && typeof page.clearInterval === 'function') page.clearInterval(timer);
+    } catch {}
+    try { page.__geekWhatsAppPublicComposerFallback?.controller?.abort?.(); } catch {}
+
+    const current = page.__geekWhatsAppDirectComposerController;
     if (current?.version === version && typeof current.handleGesture === 'function') return 'READY';
     try { current?.controller?.abort?.(); } catch {}
 
-    let composerSendPending = false;
     const cleanText = value => String(value == null ? '' : value).replace(/\u200b/g, '').trim();
-    const composerSelector = '#main footer [contenteditable="true"],#main [data-testid="conversation-compose-box-input"],[contenteditable="true"][data-tab="10"]';
-    const composerTarget = target => !!target?.closest?.('[contenteditable="true"], [data-testid="conversation-compose-box-input"]');
-    const sendButtonTarget = target => !!target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],[data-testid="compose-btn-send"],button:has([data-icon="send"])');
+    const composerSelector = [
+      '#main [data-testid="conversation-compose-box-input"]',
+      '#main footer [contenteditable="true"]',
+      '#main [contenteditable="true"][role="textbox"]',
+      '#main [contenteditable="true"]',
+      '[contenteditable="true"][data-tab="10"]',
+    ].join(',');
+
+    const diagnostics = {
+      phase: 'ready',
+      handled: 0,
+      sent: 0,
+      lastError: '',
+      lastAt: Date.now(),
+    };
+    let pending = null;
+
+    const setPhase = function (phase, error) {
+      diagnostics.phase = phase;
+      diagnostics.lastError = error ? String(error?.message || error).slice(0, 160) : '';
+      diagnostics.lastAt = Date.now();
+    };
 
     const notify = function (message) {
       try {
@@ -53,17 +74,8 @@
           color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)'
         });
         doc.body.appendChild(notice);
-        page.setTimeout?.(() => notice.remove?.(), 3200);
+        page.setTimeout?.(() => notice.remove?.(), 3600);
       } catch {}
-    };
-
-    const activeComposerText = function () {
-      try {
-        const editor = page.document?.querySelector?.(composerSelector);
-        return cleanText(editor?.innerText || editor?.textContent || '');
-      } catch {
-        return '';
-      }
     };
 
     const pickRuntime = function (requirements) {
@@ -72,10 +84,10 @@
         if (picked) return picked;
       } catch {}
       const paths = Array.isArray(requirements) ? requirements : [requirements];
-      const resolvePath = (root, path) => String(path || '')
+      const resolvePath = (candidate, path) => String(path || '')
         .split('.')
         .filter(Boolean)
-        .reduce((value, key) => value == null ? undefined : value[key], root);
+        .reduce((value, key) => value == null ? undefined : value[key], candidate);
       return [page.WPP, page.WAPLUS_WPP]
         .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index)
         .find(candidate => paths.every(path => resolvePath(candidate, path) != null)) || null;
@@ -90,15 +102,20 @@
       }
     };
 
+    const chatIdOf = function (chat) {
+      try {
+        return String(chat?.id?._serialized || chat?.id?.toString?.() || chat?.id || '');
+      } catch {
+        return '';
+      }
+    };
+
     const isDirectChat = function (chat, chatId) {
       const id = String(chatId || '');
       if (!id) return false;
       if (chat?.isGroup === true || chat?.isNewsletter === true || chat?.isBroadcast === true) return false;
-      try {
-        if (typeof chat?.id?.isGroup === 'function' && chat.id.isGroup()) return false;
-      } catch {}
-      if (/@g\.us$/i.test(id) || /@broadcast$/i.test(id) || /@newsletter$/i.test(id)) return false;
-      return true;
+      try { if (typeof chat?.id?.isGroup === 'function' && chat.id.isGroup()) return false; } catch {}
+      return !/@g\.us$/i.test(id) && !/@broadcast$/i.test(id) && !/@newsletter$/i.test(id);
     };
 
     const translationSetting = function (chatId, text) {
@@ -106,6 +123,36 @@
       if (!setting?.enabled || !setting?.autoSend || !text) return null;
       if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) return null;
       return setting;
+    };
+
+    const composerFromTarget = function (target) {
+      try {
+        if (target?.isContentEditable === true) return target;
+        return target?.closest?.('[contenteditable="true"], [data-testid="conversation-compose-box-input"]') || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const findComposer = function (event) {
+      const fromTarget = composerFromTarget(event?.target);
+      if (fromTarget) return fromTarget;
+      try { return page.document?.querySelector?.(composerSelector) || null; }
+      catch { return null; }
+    };
+
+    const composerText = function (event) {
+      const editor = findComposer(event);
+      return { editor, text: cleanText(editor?.innerText || editor?.textContent || '') };
+    };
+
+    const isSendButtonTarget = function (target) {
+      try {
+        if (target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],[data-testid="compose-btn-send"]')) return true;
+        return !!target?.closest?.('[data-icon="send"]')?.closest?.('button');
+      } catch {
+        return false;
+      }
     };
 
     const captureComposeSnapshot = function (chat, text) {
@@ -120,10 +167,10 @@
       return snapshot;
     };
 
-    const clearCompose = function (chat) {
+    const setCompose = function (chat, contents) {
       try {
         if (typeof chat?.setComposeContents !== 'function') return false;
-        chat.setComposeContents({});
+        chat.setComposeContents(contents || {});
         return true;
       } catch {
         return false;
@@ -131,15 +178,9 @@
     };
 
     const restoreCompose = function (chat, snapshot, text) {
-      try {
-        if (typeof chat?.setComposeContents !== 'function') return false;
-        const next = snapshot && typeof snapshot === 'object' ? { ...snapshot } : {};
-        if (!cleanText(next.text)) next.text = String(text || '');
-        chat.setComposeContents(next);
-        return true;
-      } catch {
-        return false;
-      }
+      const next = snapshot && typeof snapshot === 'object' ? { ...snapshot } : {};
+      if (!cleanText(next.text)) next.text = String(text || '');
+      return setCompose(chat, next);
     };
 
     const block = function (event) {
@@ -150,48 +191,45 @@
     const handleGesture = function (event) {
       if (event?.isTrusted !== true) return false;
 
-      const text = activeComposerText();
-      if (!text) return false;
       const chat = getActiveChat();
-      const chatId = String(chat?.id?._serialized || chat?.id || '');
-      // The live regression is direct-chat-only. Group/newsletter/broadcast
-      // composer behavior is already healthy and must remain under its existing
-      // native/public owners instead of being widened into this degraded path.
+      const chatId = chatIdOf(chat);
       if (!isDirectChat(chat, chatId)) return false;
+
+      const composed = composerText(event);
+      const text = composed.text;
+      if (!text) return false;
       const setting = translationSetting(chatId, text);
       if (!setting) return false;
 
-      // Keep the existing native-module recovery authoritative whenever it can
-      // bind the live send owner for this generation.
-      try {
-        if (page.__geekWhatsAppSendRecovery?.ensureHook?.() === true) return false;
-      } catch {}
-
       block(event);
-      if (composerSendPending) {
+      diagnostics.handled += 1;
+
+      if (pending) {
+        setPhase('busy');
         notify('翻译处理中，请稍候');
         return true;
       }
 
       const translate = page.__geekTranslationRequest;
       if (typeof translate !== 'function') {
-        notify('翻译尚未就绪，已阻止原文发送');
+        setPhase('translation-unavailable');
+        notify('翻译尚未就绪，原文未发送');
         return true;
       }
 
       const runtime = pickRuntime(['chat.sendTextMessage']);
       if (!runtime || typeof runtime?.chat?.sendTextMessage !== 'function') {
-        notify('WhatsApp发送通道尚未就绪，已阻止原文发送');
+        setPhase('send-unavailable');
+        notify('WhatsApp发送通道尚未就绪，原文未发送');
         return true;
       }
 
       const snapshot = captureComposeSnapshot(chat, text);
       const quotedMsg = chat?.composeQuotedMsg || null;
-      composerSendPending = true;
-      clearCompose(chat);
+      const cleared = setCompose(chat, {});
 
       const task = (async () => {
-        let stage = 'translation';
+        setPhase('translating');
         try {
           const translated = await translate({
             text,
@@ -201,61 +239,70 @@
             route: setting.route,
             chatId,
           });
-          if (!translated?.text) throw new Error('翻译失败');
+          if (!translated?.text) throw Object.assign(new Error('翻译失败'), { __geekStage: 'translation' });
+
           const currentChat = getActiveChat();
-          const currentChatId = String(currentChat?.id?._serialized || currentChat?.id || '');
-          if (currentChatId !== chatId) throw new Error('聊天已切换，翻译发送已取消');
+          if (chatIdOf(currentChat) !== chatId) {
+            throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
+          }
 
           page.__geekRememberOutgoing?.(translated.text, text);
-          stage = 'send';
+          setPhase('sending');
           const options = quotedMsg ? { quotedMsg } : undefined;
           const sent = await runtime.chat.sendTextMessage(chatId, translated.text, options);
-          if (sent == null) throw new Error('WhatsApp未确认消息发送');
+          if (sent == null) throw Object.assign(new Error('WhatsApp未确认消息发送'), { __geekStage: 'send' });
+          setCompose(chat, {});
+          diagnostics.sent += 1;
+          setPhase('sent');
           return sent;
         } catch (error) {
-          const message = String(error?.message || error || '');
+          const stage = error?.__geekStage || (diagnostics.phase === 'sending' ? 'send' : 'translation');
           if (stage === 'translation') {
-            const restored = restoreCompose(chat, snapshot, text);
-            if (/聊天已切换/.test(message)) {
-              notify(restored ? '聊天已切换，原文已恢复，请重试' : '聊天已切换，翻译发送已取消');
+            const restored = cleared ? restoreCompose(chat, snapshot, text) : true;
+            setPhase('translation-error', error);
+            if (/聊天已切换/.test(String(error?.message || error))) {
+              notify(restored ? '聊天已切换，原文已恢复，请重试' : '聊天已切换，原文未发送');
             } else {
               notify(restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送');
             }
           } else {
-            notify('WhatsApp发送失败，请检查当前会话后重试');
+            setPhase('send-error', error);
+            notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120));
           }
-          page.console?.error?.('[geek-whatsapp-composer-fallback]', message.slice(0, 240));
+          page.console?.error?.('[geek-whatsapp-direct-composer]', String(error?.message || error || '').slice(0, 240));
           return null;
         } finally {
-          composerSendPending = false;
+          pending = null;
         }
       })();
 
-      page.__geekWhatsAppPublicComposerFallbackLastTask = task;
+      pending = task;
+      page.__geekWhatsAppDirectComposerLastTask = task;
       return true;
     };
 
     const Abort = page.AbortController || globalThis.AbortController;
     const controller = typeof Abort === 'function' ? new Abort() : null;
-    const signalOptions = controller ? { capture: true, signal: controller.signal } : { capture: true };
+    const listenerOptions = controller ? { capture: true, signal: controller.signal } : { capture: true };
 
     page.addEventListener?.('keydown', event => {
-      if (event?.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing || !composerTarget(event.target)) return;
+      if (event?.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+      if (!composerFromTarget(event?.target)) return;
       handleGesture(event);
-    }, signalOptions);
+    }, listenerOptions);
     page.addEventListener?.('click', event => {
-      if (!sendButtonTarget(event?.target)) return;
+      if (!isSendButtonTarget(event?.target)) return;
       handleGesture(event);
-    }, signalOptions);
+    }, listenerOptions);
 
-    const state = Object.freeze({ version, controller, handleGesture });
-    page.__geekWhatsAppPublicComposerFallback = state;
+    const state = Object.freeze({ version, controller, diagnostics, handleGesture });
+    page.__geekWhatsAppDirectComposerController = state;
     return 'READY';
   }
 
   function installShell(host = root) {
-    if (!host?.document || host.__geekWhatsAppComposerPublicFallbackShellInstalled) return false;
-    host.__geekWhatsAppComposerPublicFallbackShellInstalled = true;
+    if (!host?.document || host.__geekWhatsAppDirectComposerControllerShellInstalled) return false;
+    host.__geekWhatsAppDirectComposerControllerShellInstalled = true;
     const observed = new WeakSet();
 
     async function inject(webview) {
@@ -267,7 +314,7 @@
       const accounts = listed?.accounts || listed || [];
       if (!accountForPartition(accounts, partition)) return false;
       try {
-        const result = await webview.executeJavaScript(`(${installPageFallback.toString()})(window, ${FALLBACK_VERSION})`);
+        const result = await webview.executeJavaScript(`(${installPageController.toString()})(window, ${CONTROLLER_VERSION})`);
         return result === 'READY';
       } catch {
         return false;
@@ -291,7 +338,7 @@
       if (typeof Observer !== 'function') return;
       const observer = new Observer(scan);
       observer.observe(host.document.documentElement || host.document.body, { childList: true, subtree: true });
-      host.__geekWhatsAppComposerPublicFallbackObserver = observer;
+      host.__geekWhatsAppDirectComposerControllerObserver = observer;
     }
 
     if (host.document.readyState === 'loading') host.document.addEventListener('DOMContentLoaded', start, { once: true });
@@ -300,10 +347,10 @@
   }
 
   return Object.freeze({
-    FALLBACK_VERSION,
+    CONTROLLER_VERSION,
     isWhatsAppType,
     accountForPartition,
-    installPageFallback,
+    installPageController,
     installShell,
   });
 });

@@ -28,6 +28,9 @@ async function probeGuestRuntime() {
     const pageProbe = guest.executeJavaScript(`(() => {
       const W = window.WPP;
       const fallback = window.WAPLUS_WPP;
+      const directComposer = window.__geekWhatsAppDirectComposerController;
+      const recovery = window.__geekWhatsAppSendRecovery;
+      const legacyFallback = window.__geekWhatsAppPublicComposerFallback;
       return {
         rendererProbeOk: true,
         version: String(W?.version || ''),
@@ -47,6 +50,10 @@ async function probeGuestRuntime() {
           && typeof fallback?.group?.getParticipants === 'function'
           && !!fallback?.whatsapp?.ChatStore
           && !!fallback?.whatsapp?.UserPrefs,
+        directComposerVersion: Number(directComposer?.version || 0),
+        directComposerReady: typeof directComposer?.handleGesture === 'function',
+        recoveryInactive: !recovery?.controller || recovery.controller.signal?.aborted === true,
+        legacyFallbackInactive: !legacyFallback?.controller || legacyFallback.controller.signal?.aborted === true,
       };
     })()`, true).catch(() => ({ rendererProbeFailed: true }));
     const probeTimeout = new Promise((resolve) => {
@@ -59,16 +66,21 @@ async function probeGuestRuntime() {
 }
 
 function injectionReady(state) {
-  return state?.found === true
+  const waJsReady = state?.found === true
     && state?.rendererProbeOk === true
     && state?.version === '4.6.0'
     && state?.wppInjected === true
     && state?.wppReady === true
     && state?.loaderReady === true;
+  return waJsReady
+    && state?.directComposerVersion === 1
+    && state?.directComposerReady === true
+    && state?.recoveryInactive === true
+    && state?.legacyFallbackInactive === true;
 }
 
 describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
-  it('settles WA-JS injection independently from authenticated capabilities and WAPLUS fallback', async () => {
+  it('settles WA-JS injection with one direct-composer owner', async () => {
     let state = null;
     await browser.waitUntil(async () => {
       state = await probeGuestRuntime();
@@ -85,16 +97,20 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
     }, {
       timeout: RUNTIME_TIMEOUT_MS,
       interval: 500,
-      timeoutMsg: 'WA-JS 4.6 injection boundary did not become ready',
+      timeoutMsg: 'WA-JS 4.6 + direct composer ownership did not become ready',
     });
 
     assert.equal(state.version, '4.6.0', 'injected WA-JS version must match the exact dependency pin');
     assert.equal(state.wppInjected, true, 'WA-JS bundle must report injected before the partition is owned');
     assert.equal(state.wppReady, true, 'WA-JS official readiness must settle');
-    assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by composer recovery is missing');
+    assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by compatibility paths is missing');
+    assert.equal(state.directComposerVersion, 1, 'direct composer controller must match the tested owner generation');
+    assert.equal(state.directComposerReady, true, 'direct composer controller must be injected into the WhatsApp guest');
+    assert.equal(state.recoveryInactive, true, 'legacy recovery capture listener must be retired by the direct composer owner');
+    assert.equal(state.legacyFallbackInactive, true, 'superseded composer fallback must not remain an active owner');
     for (const key of ['chatReady', 'lidGroupReady', 'storesReady', 'fallbackReady']) {
       assert.equal(typeof state[key], 'boolean', key + ' must remain bounded diagnostic evidence');
     }
-    console.log(`WA_JS_RUNTIME version=${state.version} injected=${state.wppInjected} ready=${state.wppReady} loader=${state.loaderReady} chat=${state.chatReady} lidGroup=${state.lidGroupReady} stores=${state.storesReady} fallback=${state.fallbackReady}`);
+    console.log(`WA_JS_RUNTIME version=${state.version} injected=${state.wppInjected} ready=${state.wppReady} loader=${state.loaderReady} chat=${state.chatReady} lidGroup=${state.lidGroupReady} stores=${state.storesReady} fallback=${state.fallbackReady} directComposer=${state.directComposerVersion} recoveryInactive=${state.recoveryInactive}`);
   });
 });
