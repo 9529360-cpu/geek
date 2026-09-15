@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
   locked_until TEXT
 );
 
--- 翻译请求幂等与服务端计费记录；不保存聊天正文或译文。
+-- 翻译请求幂等、计费与短期加密结果回放；不保存聊天明文或译文明文。
 CREATE TABLE IF NOT EXISTS translation_usage (
   request_id TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
@@ -81,10 +81,14 @@ CREATE TABLE IF NOT EXISTS translation_usage (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at TEXT,
   lease_expires_at TEXT,
+  request_hash TEXT,
+  replay_ciphertext TEXT,
+  replay_expires_at TEXT,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_translation_usage_user_created ON translation_usage(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_translation_usage_lease ON translation_usage(lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_translation_usage_replay_expiry ON translation_usage(replay_expires_at);
 CREATE TRIGGER IF NOT EXISTS trg_translation_usage_reservation_lease
 AFTER INSERT ON translation_usage
 WHEN NEW.lease_expires_at IS NULL
