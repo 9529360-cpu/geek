@@ -13,6 +13,7 @@ const LEGACY_PRIMARY_NAV = `<div class="nav-links">
 <a href="/translation">翻译</a>
 <a href="/broadcast">群发</a>
 <a href="/security">隔离</a>
+<a href="/pricing">价格</a>
 <a href="/guide">上手</a>
 <a href="/faq">FAQ</a>
 <a href="/windows">Windows</a>
@@ -197,13 +198,13 @@ function projectLegacyAccountHtml(source) {
     .replace(/<span class="logo-mark"><svg[\s\S]*?<\/svg><\/span>/g, `<span class="logo-mark">${LOGO}</span>`)
     .replace(/<div class="nav-links">[\s\S]*?<\/div>/, LEGACY_PRIMARY_NAV)
     .replaceAll('<a href="/#features">功能</a>', '<a href="/product">产品总览</a>')
-    .replaceAll('<a href="/#pricing">定价</a>', '<a href="/broadcast">群发任务</a>')
+    .replaceAll('<a href="/#pricing">定价</a>', '<a href="/pricing">价格</a>')
     .replaceAll('<a href="/#download">Windows 下载</a>', '<a href="/windows">Windows 客户端</a>')
     .replaceAll('<a href="/#guide">使用教程</a>', '<a href="/guide">安装与上手</a>')
     .replaceAll('<a href="/#faq">常见问题</a>', '<a href="/faq">常见问题</a>')
     .replaceAll('href="/#features"', 'href="/product"')
     .replaceAll('href="/#guide"', 'href="/guide"')
-    .replaceAll('href="/#pricing"', 'href="/broadcast"')
+    .replaceAll('href="/#pricing"', 'href="/pricing"')
     .replaceAll('href="/#download"', 'href="/windows"')
     .replaceAll('href="/#faq"', 'href="/faq"')
     .replace('</head>', `${LEGACY_ACCOUNT_THEME_STYLE}\n</head>`);
