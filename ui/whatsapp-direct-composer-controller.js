@@ -8,7 +8,8 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const CONTROLLER_VERSION = 1;
+  const CONTROLLER_VERSION = 2;
+  const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
     return type === 'whatsapp' || type === 'whatsapp-pure';
@@ -22,7 +23,64 @@
     ) || null;
   }
 
-  function installPageController(page, version = CONTROLLER_VERSION) {
+  function parseTranslationFailure(error) {
+    const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
+    const tagged = error && (typeof error === 'object' || typeof error === 'function')
+      ? error
+      : new Error(String(error || '翻译失败'));
+    const rawMessage = String(tagged?.message || '');
+    if (!rawMessage.startsWith(prefix)) return tagged;
+    let detail;
+    try { detail = JSON.parse(rawMessage.slice(prefix.length)); }
+    catch { return tagged; }
+    if (!detail || typeof detail !== 'object') return tagged;
+    try { tagged.message = String(detail.message || '翻译请求失败').slice(0, 300); } catch {}
+    try { tagged.code = String(detail.code || 'TRANSLATION_FAILED').slice(0, 100); } catch {}
+    try { tagged.category = String(detail.category || 'gateway').slice(0, 64); } catch {}
+    try { tagged.retryable = detail.retryable === true; } catch {}
+    if (Number.isInteger(detail.status)) {
+      try { tagged.status = detail.status; } catch {}
+    }
+    return tagged;
+  }
+
+  function translationFailureNotice(error, restored = false) {
+    const source = error && typeof error === 'object' ? error : {};
+    const code = String(source.code || '');
+    const category = String(source.category || '');
+    const status = Number(source.status) || 0;
+    const tail = restored ? '原文已恢复，请处理后重试' : '原文未发送';
+
+    if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) {
+      return `翻译额度已用完，请到个人中心开通；${tail}`;
+    }
+    if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') {
+      return `翻译需要重新登录，请到个人中心登录；${tail}`;
+    }
+    if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) {
+      return `翻译授权状态已变化，请重新登录后重试；${tail}`;
+    }
+    if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) {
+      return `翻译服务响应超时，请稍后重试；${tail}`;
+    }
+    if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') {
+      return `译文未通过质量校验，请修改原文后重试；${tail}`;
+    }
+    if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) {
+      return `翻译请求繁忙，请稍后重试；${tail}`;
+    }
+    if (category === 'gateway' || category === 'rate-limit' || status >= 500) {
+      return `翻译服务暂时不可用，请稍后重试；${tail}`;
+    }
+    return restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送';
+  }
+
+  function installPageController(
+    page,
+    version = CONTROLLER_VERSION,
+    parseFailure = parseTranslationFailure,
+    failureNotice = translationFailureNotice,
+  ) {
     if (!page) return 'NO_PAGE';
 
     try { page.__geekWhatsAppSendRecovery?.controller?.abort?.(); } catch {}
@@ -50,6 +108,9 @@
       handled: 0,
       sent: 0,
       lastError: '',
+      lastCode: '',
+      lastCategory: '',
+      lastStatus: 0,
       lastAt: Date.now(),
     };
     let pending = null;
@@ -57,6 +118,9 @@
     const setPhase = function (phase, error) {
       diagnostics.phase = phase;
       diagnostics.lastError = error ? String(error?.message || error).slice(0, 160) : '';
+      diagnostics.lastCode = error ? String(error?.code || '').slice(0, 100) : '';
+      diagnostics.lastCategory = error ? String(error?.category || '').slice(0, 64) : '';
+      diagnostics.lastStatus = error && Number.isInteger(error.status) ? error.status : 0;
       diagnostics.lastAt = Date.now();
     };
 
@@ -258,18 +322,22 @@
         } catch (error) {
           const stage = error?.__geekStage || (diagnostics.phase === 'sending' ? 'send' : 'translation');
           if (stage === 'translation') {
+            const normalized = typeof parseFailure === 'function' ? parseFailure(error) : error;
             const restored = cleared ? restoreCompose(chat, snapshot, text) : true;
-            setPhase('translation-error', error);
-            if (/聊天已切换/.test(String(error?.message || error))) {
+            setPhase('translation-error', normalized);
+            if (/聊天已切换/.test(String(normalized?.message || normalized))) {
               notify(restored ? '聊天已切换，原文已恢复，请重试' : '聊天已切换，原文未发送');
             } else {
-              notify(restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送');
+              notify(typeof failureNotice === 'function'
+                ? failureNotice(normalized, restored)
+                : (restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送'));
             }
+            page.console?.error?.('[geek-whatsapp-direct-composer]', String(normalized?.message || normalized || '').slice(0, 240));
           } else {
             setPhase('send-error', error);
             notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120));
+            page.console?.error?.('[geek-whatsapp-direct-composer]', String(error?.message || error || '').slice(0, 240));
           }
-          page.console?.error?.('[geek-whatsapp-direct-composer]', String(error?.message || error || '').slice(0, 240));
           return null;
         } finally {
           pending = null;
@@ -314,7 +382,7 @@
       const accounts = listed?.accounts || listed || [];
       if (!accountForPartition(accounts, partition)) return false;
       try {
-        const result = await webview.executeJavaScript(`(${installPageController.toString()})(window, ${CONTROLLER_VERSION})`);
+        const result = await webview.executeJavaScript(`(${installPageController.toString()})(window, ${CONTROLLER_VERSION}, ${parseTranslationFailure.toString()}, ${translationFailureNotice.toString()})`);
         return result === 'READY';
       } catch {
         return false;
@@ -348,8 +416,11 @@
 
   return Object.freeze({
     CONTROLLER_VERSION,
+    TRANSLATION_ERROR_ENVELOPE_PREFIX,
     isWhatsAppType,
     accountForPartition,
+    parseTranslationFailure,
+    translationFailureNotice,
     installPageController,
     installShell,
   });
