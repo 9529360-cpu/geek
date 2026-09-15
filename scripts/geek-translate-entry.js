@@ -1,5 +1,10 @@
 import baseWorker from './geek-translate-worker.js';
-import { scopeTranslationRateLimitAuthority } from './translation-rate-limit-compat.mjs';
+import {
+  normalizeTranslationIntent,
+  scopeTranslationRateLimitAuthority,
+} from './translation-rate-limit-compat.mjs';
+
+const TRANSLATION_INTENT_HEADER = 'X-Geek-Translation-Intent';
 
 function withTranslationDatabase(env, db) {
   return new Proxy(env, {
@@ -36,8 +41,9 @@ async function sanitizePublicHealthResponse(response) {
 export default {
   async fetch(request, env, ctx) {
     const db = env.geek_subscriptions;
+    const intent = normalizeTranslationIntent(request.headers.get(TRANSLATION_INTENT_HEADER));
     const workerEnv = db && typeof db.prepare === 'function'
-      ? withTranslationDatabase(env, scopeTranslationRateLimitAuthority(db))
+      ? withTranslationDatabase(env, scopeTranslationRateLimitAuthority(db, { intent }))
       : env;
     const response = await baseWorker.fetch(request, workerEnv, ctx);
     const url = new URL(request.url);

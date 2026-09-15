@@ -14,7 +14,8 @@ const subscriptionSource = [
   read('scripts/geek-subscription-worker.js'),
   read('scripts/geek-subscription-worker-core.js'),
 ].join('\n');
-const runtimeSource = read('src/translation-runtime.cjs');
+const runtimeOwnerSource = read('src/translation-runtime.cjs');
+const runtimeBaseSource = read('src/translation-runtime-base.cjs');
 const schema = read('scripts/geek-subscription-schema.sql');
 
 function loadWorker() {
@@ -47,13 +48,14 @@ function loadWorker() {
   assert.match(schema, /request_id TEXT PRIMARY KEY/, '请求 ID 必须数据库唯一');
   assert.match(subscriptionSource, /aud:\s*'geek-translate'/, '订阅 Worker 必须签发限定 audience 的短期令牌');
   assert.match(subscriptionSource, /exp:\s*now \+ 5 \* 60/, '翻译令牌有效期必须为 5 分钟');
-  assert.match(runtimeSource, /getRemoteAuthorizationLease\(subscriptionStore, deadlineAt\)/, '远程翻译必须先取得当前订阅会话的授权 lease');
-  assert.match(runtimeSource, /headers\.Authorization = `Bearer \$\{remoteAuthorizationLease\?\.token \|\| ''\}`/, '远程翻译 Bearer token 必须来自当前授权 lease');
-  assert.match(runtimeSource, /assertRemoteAuthorizationCurrent\(subscriptionStore, remoteAuthorizationLease\)/, '远程翻译必须重验授权 lease 生命周期');
-  assert.match(runtimeSource, /const needsRemoteAuthorization = pool\.endpoints\.some/, 'Translation Runtime 必须只在远程网关需要授权时取短期令牌');
-  assert.match(runtimeSource, /parsed\.protocol === 'http:' && parsed\.hostname === '127\.0\.0\.1'/, '本地回环网关必须保持无远程凭据例外');
-  assert.match(runtimeSource, /'X-Request-ID': requestId/, '每次翻译必须携带幂等请求 ID');
-  assert.doesNotMatch(runtimeSource, /reportUsage\(/, 'Translation Runtime 不得在服务端扣费后再次上报扣费');
+  assert.match(runtimeOwnerSource, /translation-runtime-base\.cjs/, '公共 Runtime 必须通过唯一内部事务层完成授权和网关调用');
+  assert.match(runtimeBaseSource, /getRemoteAuthorizationLease\(subscriptionStore, deadlineAt\)/, '远程翻译必须先取得当前订阅会话的授权 lease');
+  assert.match(runtimeBaseSource, /headers\.Authorization = `Bearer \$\{remoteAuthorizationLease\?\.token \|\| ''\}`/, '远程翻译 Bearer token 必须来自当前授权 lease');
+  assert.match(runtimeBaseSource, /assertRemoteAuthorizationCurrent\(subscriptionStore, remoteAuthorizationLease\)/, '远程翻译必须重验授权 lease 生命周期');
+  assert.match(runtimeBaseSource, /const needsRemoteAuthorization = pool\.endpoints\.some/, 'Translation Runtime 必须只在远程网关需要授权时取短期令牌');
+  assert.match(runtimeBaseSource, /parsed\.protocol === 'http:' && parsed\.hostname === '127\.0\.0\.1'/, '本地回环网关必须保持无远程凭据例外');
+  assert.match(runtimeBaseSource, /'X-Request-ID': requestId/, '每次翻译必须携带幂等请求 ID');
+  assert.doesNotMatch(runtimeBaseSource, /reportUsage\(/, 'Translation Runtime 不得在服务端扣费后再次上报扣费');
 
   const worker = loadWorker();
   const env = { ZAI_API_KEY: 'configured', JWT_SECRET: 'secret', geek_subscriptions: {} };

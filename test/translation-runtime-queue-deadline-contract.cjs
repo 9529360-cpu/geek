@@ -92,13 +92,13 @@ function successResponse(text) {
   try {
     assert.equal(TRANSLATION_REMOTE_LIMIT, 20, 'contract assumes the current bounded remote pool size');
 
-    // Fill every remote slot with distinct account-A work so the next request must
-    // remain queued. Each request has its own cache key, so singleflight cannot
-    // hide scheduler/deadline behavior.
+    // Fill every remote slot with explicit interactive work so the next request
+    // must remain queued. Background intentionally cannot consume all 20 slots.
     const active = Array.from({ length: TRANSLATION_REMOTE_LIMIT }, (_, index) => translate({
       accountId: 'account-a',
       text: `occupy-slot-${index}`,
       target: 'it',
+      intent: 'outgoing-send',
       skipQuota: true,
       refresh: true,
       deadlineAt: Date.now() + 5000,
@@ -106,13 +106,11 @@ function successResponse(text) {
 
     await waitFor(() => fetchBodies.length === TRANSLATION_REMOTE_LIMIT, 'all remote slots to become active');
 
-    // A caller deadline is created before remote-queue admission. Account B must
-    // time out while waiting for capacity, and that expired work must be removed
-    // rather than starting later when capacity returns.
     const queued = translate({
       accountId: 'account-b',
       text: 'must-expire-in-queue',
       target: 'it',
+      intent: 'outgoing-send',
       skipQuota: true,
       refresh: true,
       deadlineAt: Date.now() + 120,

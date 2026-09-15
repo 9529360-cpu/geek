@@ -89,8 +89,8 @@ function successResponse(text) {
     }
 
     // 2. Runtime queue admission must bind to the subscription lease, eject queued work on
-    //    invalidation, and abort active requests without poisoning gateway health. Many requests
-    //    in one generation must share one native AbortSignal listener through Runtime fan-out.
+    //    invalidation, and abort active requests without poisoning gateway health. Request fan-out
+    //    must use a fixed O(1) number of native AbortSignal listeners across admission and active layers.
     {
       const handlers = new Map();
       let generation = 1;
@@ -172,15 +172,24 @@ function successResponse(text) {
       const translateIpc = handlers.get('translation:translate');
       const translate = async payload => unwrapTranslationIpcResponse(await translateIpc({ sender: { id: 1 } }, payload));
 
+      // This lease test intentionally saturates the entire 20-slot remote pool so
+      // invalidation proves both active abort and queued ejection. Mark the load as
+      // interactive; background display work is deliberately capped at 16 slots by
+      // the production scheduler and is covered by its own admission contracts.
       const requests = Array.from({ length: 21 }, (_, index) => translate({
         accountId: 'account-a',
         text: `lease-${index}`,
         target: 'en',
         refresh: true,
         skipQuota: true,
+        intent: 'outgoing-send',
       }));
       await waitFor(() => fetches === 20, '20 active lease-bound translations');
-      assert.equal(nativeSessionAbortListeners, 1, 'one subscription generation must have one native abort listener regardless of request fan-out');
+      assert.equal(
+        nativeSessionAbortListeners,
+        2,
+        'one generation must use exactly one scheduler listener plus one active-gateway listener regardless of request fan-out',
+      );
       subscription.invalidate();
       const results = await Promise.allSettled(requests);
 

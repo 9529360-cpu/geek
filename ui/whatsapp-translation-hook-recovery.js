@@ -441,6 +441,7 @@
               provider: setting.provider,
               route: setting.route,
               chatId,
+              intent: 'outgoing-send',
             });
             if (!result?.text) throw new Error('翻译失败');
             page.__geekRememberOutgoing?.(result.text, text);

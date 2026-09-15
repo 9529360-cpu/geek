@@ -35,6 +35,23 @@
           } catch (_) { return ''; }
         };
 
+        const installTranslationIntentTransport = () => {
+          const current = window.__geekTranslationRequest;
+          if (typeof current !== 'function') return false;
+          if (current.__geekTranslationIntentTransport === true) return true;
+          const wrapped = function (payload) {
+            const body = payload && typeof payload === 'object' ? payload : {};
+            const intent = body.intent === 'outgoing-send' ? 'outgoing-send' : 'message-display';
+            return current.call(this, Object.assign({}, body, { intent }));
+          };
+          try {
+            Object.defineProperty(wrapped, '__geekTranslationIntentTransport', { value: true });
+            Object.defineProperty(wrapped, '__geekTranslationIntentOriginal', { value: current });
+          } catch (_) {}
+          window.__geekTranslationRequest = wrapped;
+          return true;
+        };
+
         const markInitialHistoryRows = () => {
           const main = document.querySelector('#main');
           if (!main) return;
@@ -117,7 +134,9 @@
         };
 
         const scheduleAdmissionInstall = () => {
-          if (installBackgroundAdmission()) {
+          const intentReady = installTranslationIntentTransport();
+          const admissionReady = installBackgroundAdmission();
+          if (intentReady && admissionReady) {
             if (admissionRetryTimer) clearTimeout(admissionRetryTimer);
             admissionRetryTimer = null;
             admissionRetryCount = 0;

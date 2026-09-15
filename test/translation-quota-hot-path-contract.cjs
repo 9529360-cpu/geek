@@ -7,14 +7,16 @@ const os = require('node:os');
 const path = require('node:path');
 const { createSubscriptionStore } = require('../src/subscription.cjs');
 
-const runtimeSource = fs.readFileSync(path.join(__dirname, '../src/translation-runtime.cjs'), 'utf8');
+const runtimeOwnerSource = fs.readFileSync(path.join(__dirname, '../src/translation-runtime.cjs'), 'utf8');
+const runtimeBaseSource = fs.readFileSync(path.join(__dirname, '../src/translation-runtime-base.cjs'), 'utf8');
+assert.match(runtimeOwnerSource, /translation-runtime-base\.cjs/, '公共 Translation Runtime 必须继续组合唯一 quota/gateway 事务层');
 assert.match(
-  runtimeSource,
+  runtimeBaseSource,
   /const subscriptionStore = getSubscriptionStore\(\);[\s\S]*subscriptionStore\.getQuota\(\{\s*network:\s*false\s*\}\)/,
   '翻译热路径必须从同一 Subscription authority 明确请求 quota 本地只读模式'
 );
 assert.match(
-  runtimeSource,
+  runtimeBaseSource,
   /getRemoteAuthorizationLease\(subscriptionStore, deadlineAt\)/,
   '远程授权 lease 必须复用与 quota preflight 相同的 Subscription authority'
 );
