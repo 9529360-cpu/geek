@@ -38,6 +38,7 @@
     const statusTimers = new Map();
     const saveQueues = new Map();
     const saveRevisions = new Map();
+    const freshDefaultPromises = new Map();
 
     const el = id => document.getElementById(id);
     const value = (id, fallback = '') => el(id)?.value || fallback;
@@ -124,17 +125,23 @@
       return cfg;
     }
 
-    async function ensureFreshAccountDefaults() {
+    function ensureFreshAccountDefaults() {
+      const accountId = String(deps.getActiveId() || '');
+      if (!accountId) return Promise.resolve(false);
       const raw = deps.getStorage('translationGlobal');
-      if (raw !== null && raw !== undefined && String(raw).trim()) return false;
-      try {
-        const result = await deps.setStorage('translationGlobal', JSON.stringify(DEFAULTS));
-        if (result === false) return false;
-        deps.sync();
-        return true;
-      } catch {
-        return false;
-      }
+      if (raw !== null && raw !== undefined && String(raw).trim()) return Promise.resolve(false);
+      if (freshDefaultPromises.has(accountId)) return freshDefaultPromises.get(accountId);
+      const task = Promise.resolve()
+        .then(() => deps.setStorage('translationGlobal', JSON.stringify(DEFAULTS)))
+        .then(result => {
+          if (result === false) return false;
+          if (String(deps.getActiveId() || '') === accountId) deps.sync();
+          return true;
+        })
+        .catch(() => false)
+        .finally(() => { freshDefaultPromises.delete(accountId); });
+      freshDefaultPromises.set(accountId, task);
+      return task;
     }
 
     function syncDependencies(cfg = globalConfig()) {
@@ -198,6 +205,7 @@
     }
 
     function refreshGlobal() {
+      void ensureFreshAccountDefaults();
       populateLanguages();
       const cfg = globalConfig();
       setValue('translation-source', cfg.source || 'auto');
