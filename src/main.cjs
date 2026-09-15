@@ -22,6 +22,7 @@ const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { normalizeWebsiteUrl } = require('./website-url.cjs');
+const { WPP_CAPABILITY_PICKER_SOURCE } = require('./wpp-capability-picker.cjs');
 const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_LOCAL_PORT, WA_LOCAL_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
 const { isAccountNavigationAllowed } = require('./webview-navigation-boundary.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
@@ -560,7 +561,7 @@ function registerIpcHandlers() {
         const file = inp && inp.files && inp.files[0];
         if (!file) return 'NO_FILE';
         const W = window.require;
-        const wpp = window.WAPLUS_WPP || window.WPP;
+        const wpp = window.__geekPickWpp?.(['whatsapp.ChatStore']);
         const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
         if (!chatModel) return 'NO_CHAT';
         const mediaData = W('WAWebMediaOpaqueData').createFromData(file, file.type);
@@ -1042,33 +1043,89 @@ function configureWebviewSecurity(window) {
     });
 
   async function injectWppWithRetry(wc, part) {
+    const injectionReadinessProbe = `(async () => {
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        const W = window.WPP;
+        const ready = W?.isInjected === true
+          && W?.isReady === true
+          && typeof W?.loader?.moduleRequire === 'function'
+          && typeof W?.whatsapp?._moduleIdMap?.get === 'function';
+        if (ready) return true;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      return false;
+    })()`;
+
+    const capabilityProbe = `(() => {
+      const primary = window.WPP;
+      const fallback = window.WAPLUS_WPP;
+      return {
+        primaryChatReady: typeof primary?.chat?.sendTextMessage === 'function'
+          && typeof primary?.chat?.sendFileMessage === 'function'
+          && typeof primary?.chat?.getActiveChat === 'function',
+        primaryLidGroupReady: typeof primary?.contact?.getPnLidEntry === 'function'
+          && typeof primary?.group?.getParticipants === 'function',
+        primaryStoresReady: !!primary?.whatsapp?.ChatStore && !!primary?.whatsapp?.UserPrefs,
+        fallbackPresent: !!fallback,
+        fallbackChatReady: typeof fallback?.chat?.sendTextMessage === 'function'
+          && typeof fallback?.chat?.sendFileMessage === 'function'
+          && typeof fallback?.chat?.getActiveChat === 'function',
+        fallbackLidGroupReady: typeof fallback?.contact?.getPnLidEntry === 'function'
+          && typeof fallback?.group?.getParticipants === 'function',
+        fallbackStoresReady: !!fallback?.whatsapp?.ChatStore && !!fallback?.whatsapp?.UserPrefs,
+      };
+    })()`;
+
+    let bundleExecuted = false;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
-        await wc.executeJavaScript(wppScript).catch(() => null);
+        if (!bundleExecuted) {
+          const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
+          await wc.executeJavaScript(wppScript);
+          bundleExecuted = true;
+        }
+
+        const injectionReady = await wc.executeJavaScript(injectionReadinessProbe).catch(() => false);
+        if (!injectionReady) {
+          const stillInjected = await wc.executeJavaScript('window.WPP?.isInjected === true').catch(() => false);
+          if (!stillInjected) bundleExecuted = false;
+          console.log(`[wpp] 第 ${attempt + 1} 次等待后 WA-JS 注入边界未就绪（bundle=${stillInjected ? 'injected' : 'retry'}），3 秒后重试…`);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          continue;
+        }
+
+        // From here on the official WA-JS bundle owns injection lifecycle. Authenticated
+        // business modules and the WAPLUS compatibility bundle are independent capability
+        // evidence and must never force a healthy primary bundle to be injected again.
+        await wc.executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE);
+        wppInjected.add(part);
+
         try {
           const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');
-          await wc.executeJavaScript(waplusScript).catch(() => null);
-        } catch (e) { console.log('[wpp] WAPLUS 注入失败:', e.message); }
-        const ok = await wc.executeJavaScript('!!(window.WPP && window.WAPLUS_WPP && window.WAPLUS_WPP.chat && window.WAPLUS_WPP.chat.sendTextMessage)').catch(() => false);
-        if (ok) {
-          wppInjected.add(part);
-          console.log('[wpp] 注入成功', part);
-          wc.executeJavaScript(`(async () => {
-            for (let i = 0; i < 10; i++) {
-              const arrow = document.querySelector('.bulk-sender .el-icon-arrow-left');
-              if (arrow) { arrow.click(); return 'COLLAPSED'; }
-              await new Promise(r => setTimeout(r, 800));
-            }
-            return 'NO_ARROW';
-          })()`).catch(() => null);
-          return;
+          await wc.executeJavaScript(waplusScript);
+        } catch (error) {
+          console.log('[wpp] WAPLUS 兼容层注入失败（WA-JS 主路径保留）:', error.message);
         }
-        console.log(`[wpp] 第 ${attempt + 1} 次注入后 WPP 未就绪，3 秒后重试…`);
-      } catch (e) { console.log('[wpp] 注入异常:', e.message); }
-      await new Promise((r) => setTimeout(r, 3000));
+
+        const capabilityState = await wc.executeJavaScript(capabilityProbe).catch(() => null);
+        console.log(`[wpp] WA-JS 4.6 injection ready ${part} primaryChat=${capabilityState?.primaryChatReady === true ? 'ready' : 'partial'} primaryLidGroup=${capabilityState?.primaryLidGroupReady === true ? 'ready' : 'partial'} primaryStores=${capabilityState?.primaryStoresReady === true ? 'ready' : 'partial'} fallback=${capabilityState?.fallbackPresent === true ? 'present' : 'absent'}`);
+        wc.executeJavaScript(`(async () => {
+          for (let i = 0; i < 10; i++) {
+            const arrow = document.querySelector('.bulk-sender .el-icon-arrow-left');
+            if (arrow) { arrow.click(); return 'COLLAPSED'; }
+            await new Promise(r => setTimeout(r, 800));
+          }
+          return 'NO_ARROW';
+        })()`).catch(() => null);
+        return;
+      } catch (error) {
+        bundleExecuted = false;
+        console.log('[wpp] 注入异常:', error.message);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
     }
-    console.log('[wpp] 注入失败（5 次重试后仍不可用）', part);
+    console.log('[wpp] 注入失败（5 次重试后 WA-JS 注入边界仍不可用）', part);
   }
 
   });
