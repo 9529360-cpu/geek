@@ -20,51 +20,35 @@ function loadInstallerSource() {
   return context.window.GeekWhatsAppTranslationRehydrate.guestInstallerSource();
 }
 
-function makeTarget(matches) {
-  return {
-    closest(selector) { return matches.some(value => selector.includes(value)) ? this : null; },
-  };
-}
-
 (function () {
   assert.match(runtimeSource, /normalizeTranslationIntent\(body\.intent\)/, 'runtime owner must normalize the explicit wire intent');
   assert.match(runtimeSource, /intent === TRANSLATION_INTENTS\.OUTGOING_SEND \? false : body\.coalesce/, 'outgoing work must not coalesce behind background work');
   assert.match(queueSource, /value === TRANSLATION_INTENTS\.OUTGOING_SEND[\s\S]*TRANSLATION_INTENTS\.MESSAGE_DISPLAY/, 'unknown intent must fail toward background priority');
   assert.doesNotMatch(runtimeSource, /activeElement|document\.|querySelector|target language/i, 'main-process priority must not infer user intent from UI/DOM state');
+  assert.doesNotMatch(rehydrateSource, /pendingOutgoingIntent|recordOutgoingIntent|activeComposerText|isComposerTarget|isSendButtonTarget|OUTGOING_INTENT_TTL_MS/, 'WhatsApp rehydrate must not infer outgoing priority from DOM gestures or composer text');
 
-  const listeners = new Map();
   const captured = [];
   const timers = [];
   const rows = [];
-  const composer = { innerText: 'hello customer' };
   const main = { querySelectorAll() { return rows; } };
-  let chatId = 'chat-a';
   const window = {
-    WPP: { chat: { getActiveChat: () => ({ id: { _serialized: chatId } }) } },
+    WPP: { chat: { getActiveChat: () => ({ id: { _serialized: 'chat-a' } }) } },
     __geekTranslateVisibleMessage: async () => true,
     __geekGetTranslationSetting: () => ({ displayTranslation: true, translationMode: 'auto' }),
     __geekRefreshTranslationView() {},
     __geekTranslationRequest: async payload => { captured.push(payload); return { text: 'ok' }; },
-    addEventListener(type, listener) { listeners.set(type, listener); },
   };
   const document = {
     title: 'WhatsApp',
     documentElement: {},
-    querySelector(selector) {
-      if (selector === '#main') return main;
-      if (selector.includes('contenteditable')) return composer;
-      return null;
-    },
+    querySelector(selector) { return selector === '#main' ? main : null; },
   };
   class FakeMutationObserver { constructor(callback) { this.callback = callback; } observe() {} disconnect() {} }
-  class FakeAbortController { constructor() { this.signal = {}; } abort() {} }
-  window.AbortController = FakeAbortController;
   const context = vm.createContext({
     window,
     document,
     location: { hostname: 'web.whatsapp.com' },
     MutationObserver: FakeMutationObserver,
-    AbortController: FakeAbortController,
     setTimeout(callback) { timers.push(callback); return timers.length; },
     clearTimeout() {},
     Promise,
@@ -80,27 +64,15 @@ function makeTarget(matches) {
 
   return window.__geekTranslationRequest({ text: 'visible message', chatId: 'chat-a' })
     .then(() => {
-      assert.equal(captured.at(-1).intent, 'message-display', 'ordinary visible/background work must carry low-priority intent explicitly');
-
-      listeners.get('keydown')({
-        key: 'Enter', shiftKey: false, ctrlKey: false, metaKey: false, isComposing: false, isTrusted: true,
-        target: makeTarget(['contenteditable']),
-      });
-      return window.__geekTranslationRequest({ text: 'hello customer', chatId: 'chat-a' });
+      assert.equal(captured.at(-1).intent, 'message-display', 'missing intent must be explicitly downgraded to background priority');
+      return window.__geekTranslationRequest({ text: 'hello customer', chatId: 'chat-a', intent: 'outgoing-send' });
     })
     .then(() => {
-      assert.equal(captured.at(-1).intent, 'outgoing-send', 'trusted composer send must carry outgoing intent explicitly through the page-host request');
-      return window.__geekTranslationRequest({ text: 'hello customer', chatId: 'chat-a' });
+      assert.equal(captured.at(-1).intent, 'outgoing-send', 'already-explicit outgoing intent must be preserved through the WhatsApp transport');
+      return window.__geekTranslationRequest({ text: 'unknown class', chatId: 'chat-a', intent: 'unexpected' });
     })
     .then(() => {
-      assert.equal(captured.at(-1).intent, 'message-display', 'outgoing intent must be one-shot and must not promote later display work');
-      chatId = 'chat-b';
-      composer.innerText = 'next chat';
-      listeners.get('click')({ isTrusted: true, target: makeTarget(['aria-label="Send"']) });
-      return window.__geekTranslationRequest({ text: 'next chat', chatId: 'chat-b', intent: 'outgoing-send' });
-    })
-    .then(() => {
-      assert.equal(captured.at(-1).intent, 'outgoing-send', 'already-explicit outgoing intent must be preserved');
+      assert.equal(captured.at(-1).intent, 'message-display', 'unknown intent must fail toward background priority');
       console.log('TRANSLATION_INTENT_CONTRACT_OK');
     });
 })().catch(error => {
