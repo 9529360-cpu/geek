@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const CONTROLLER_VERSION = 5;
+  const CONTROLLER_VERSION = 6;
   const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
@@ -104,6 +104,7 @@
 
     const diagnostics = { phase: 'ready', handled: 0, translated: 0, sent: 0, passthrough: 0, lastError: '', lastCode: '', lastCategory: '', lastStatus: 0, lastAt: Date.now() };
     let nativeQueue = Promise.resolve();
+
     const setPhase = (phase, error) => {
       diagnostics.phase = phase;
       diagnostics.lastError = error ? String(error?.message || error).slice(0, 160) : '';
@@ -112,29 +113,45 @@
       diagnostics.lastStatus = error && Number.isInteger(error.status) ? error.status : 0;
       diagnostics.lastAt = Date.now();
     };
+
     const notify = message => {
       try {
         const doc = page.document;
         if (!doc?.createElement || !doc?.body) return;
         doc.getElementById?.('geek-translation-send-error')?.remove?.();
         const notice = doc.createElement('div');
-        notice.id = 'geek-translation-send-error'; notice.textContent = message;
+        notice.id = 'geek-translation-send-error';
+        notice.textContent = message;
         Object.assign(notice.style || {}, { position: 'fixed', left: '50%', bottom: '82px', transform: 'translateX(-50%)', zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318', color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)' });
-        doc.body.appendChild(notice); page.setTimeout?.(() => notice.remove?.(), 3600);
+        doc.body.appendChild(notice);
+        page.setTimeout?.(() => notice.remove?.(), 3600);
       } catch {}
     };
+
     const pickRuntime = requirements => {
       try { const picked = page.__geekPickWpp?.(requirements); if (picked) return picked; } catch {}
       const paths = Array.isArray(requirements) ? requirements : [requirements];
       const resolvePath = (candidate, path) => String(path || '').split('.').filter(Boolean).reduce((value, key) => value == null ? undefined : value[key], candidate);
-      return [page.WPP, page.WAPLUS_WPP].filter((candidate, index, all) => candidate && all.indexOf(candidate) === index).find(candidate => paths.every(path => resolvePath(candidate, path) != null)) || null;
+      return [page.WPP, page.WAPLUS_WPP]
+        .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index)
+        .find(candidate => paths.every(path => resolvePath(candidate, path) != null)) || null;
     };
+
     const getActiveChat = () => {
-      try { const runtime = pickRuntime(['chat.getActiveChat']); return runtime?.chat?.getActiveChat?.() || page.W?.chat?.getActive?.() || null; } catch { return null; }
+      try {
+        const runtime = pickRuntime(['chat.getActiveChat']);
+        return runtime?.chat?.getActiveChat?.() || page.W?.chat?.getActive?.() || null;
+      } catch {
+        return null;
+      }
     };
-    const chatIdOf = chat => {
-      try { return String(chat?.id?._serialized || chat?.id?.toString?.() || chat?.id || ''); } catch { return ''; }
+
+    const idString = value => {
+      try { return String(value?._serialized || value?.id?._serialized || value?.toString?.() || value || ''); }
+      catch { return ''; }
     };
+    const chatIdOf = chat => idString(chat?.id || chat);
+
     const isDirectChat = (chat, chatId) => {
       const id = String(chatId || '');
       if (!id) return false;
@@ -142,66 +159,193 @@
       try { if (typeof chat?.id?.isGroup === 'function' && chat.id.isGroup()) return false; } catch {}
       return !/@g\.us$/i.test(id) && !/@broadcast$/i.test(id) && !/@newsletter$/i.test(id);
     };
+
+    const pnIdentity = value => {
+      const raw = idString(value).trim().toLowerCase();
+      const match = raw.match(/^([+0-9]+)@(?:c\.us|s\.whatsapp\.net)$/i);
+      const digits = match ? match[1].replace(/\D/g, '') : '';
+      return digits ? `pn:${digits}` : '';
+    };
+
+    const canonicalDirectIdentity = async value => {
+      const raw = idString(value).trim();
+      if (!raw) return null;
+      const directPn = pnIdentity(raw);
+      if (directPn) return directPn;
+      if (/@lid$/i.test(raw)) {
+        try {
+          const runtime = pickRuntime(['contact.getPnLidEntry']);
+          const pair = await runtime?.contact?.getPnLidEntry?.(raw);
+          const phoneNumber = pair?.phoneNumber || pair?.pn;
+          return pnIdentity(phoneNumber) || null;
+        } catch {
+          return null;
+        }
+      }
+      return `raw:${raw.toLowerCase()}`;
+    };
+
+    const sameDirectIdentity = async (left, right) => {
+      const a = idString(left).trim();
+      const b = idString(right).trim();
+      if (!a || !b) return null;
+      if (a === b) return true;
+      const canonicalA = await canonicalDirectIdentity(a);
+      const canonicalB = await canonicalDirectIdentity(b);
+      if (!canonicalA || !canonicalB) return null;
+      return canonicalA === canonicalB;
+    };
+
     const hasOwn = (value, key) => !!value && Object.prototype.hasOwnProperty.call(value, key);
-    const resolveTranslationSetting = (chat, text) => {
+
+    const resolveTranslationSetting = async (chat, text) => {
       const nativeId = chatIdOf(chat);
-      if (!isDirectChat(chat, nativeId) || typeof text !== 'string' || !text.trim()) return { mode: 'passthrough', chatId: nativeId, setting: null };
+      if (!isDirectChat(chat, nativeId) || typeof text !== 'string' || !text.trim()) {
+        return { mode: 'passthrough', chatId: nativeId, setting: null };
+      }
+
       const config = page.__geekTranslationConfig;
       const getter = page.__geekGetTranslationSetting;
-      if (!config || typeof getter !== 'function') return { mode: 'blocked', chatId: nativeId, setting: null };
+      if (!config || typeof getter !== 'function') {
+        return { mode: 'blocked', chatId: nativeId, setting: null, reason: 'config-unavailable' };
+      }
+
       const activeId = chatIdOf(getActiveChat());
       const chats = config.chats || {};
-      let settingId = '';
-      if (activeId && hasOwn(chats, activeId)) settingId = activeId;
-      else if (nativeId && hasOwn(chats, nativeId)) settingId = nativeId;
-      else settingId = activeId || nativeId;
+      let settingId = nativeId || activeId;
+
+      if (activeId && hasOwn(chats, activeId)) {
+        if (activeId === nativeId) {
+          settingId = activeId;
+        } else {
+          const same = await sameDirectIdentity(activeId, nativeId);
+          if (same === true) settingId = activeId;
+          else if (same === null) return { mode: 'blocked', chatId: nativeId, setting: null, reason: 'identity-unresolved' };
+          else if (nativeId && hasOwn(chats, nativeId)) settingId = nativeId;
+        }
+      } else if (nativeId && hasOwn(chats, nativeId)) {
+        settingId = nativeId;
+      }
+
       const setting = getter(settingId);
-      if (!setting?.enabled || !setting?.autoSend) return { mode: 'passthrough', chatId: settingId || nativeId, setting };
-      if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) return { mode: 'passthrough', chatId: settingId || nativeId, setting };
+      if (!setting?.enabled || !setting?.autoSend) {
+        return { mode: 'passthrough', chatId: settingId || nativeId, setting };
+      }
+      if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) {
+        return { mode: 'passthrough', chatId: settingId || nativeId, setting };
+      }
       return { mode: 'translate', chatId: settingId || nativeId, setting };
     };
+
     const handleNativeSend = function (chat, rawArgs, original, thisArg) {
       const args = Array.isArray(rawArgs) ? [...rawArgs] : [];
       if (typeof original !== 'function') return Promise.reject(new TypeError('WhatsApp原生发送函数不可用'));
-      const nativeId = chatIdOf(chat); const text = args[0];
-      if (typeof text !== 'string' || !isDirectChat(chat, nativeId)) { diagnostics.passthrough += 1; return original.call(thisArg, chat, ...args); }
+
+      const nativeId = chatIdOf(chat);
+      const text = args[0];
+      if (typeof text !== 'string' || !isDirectChat(chat, nativeId)) {
+        diagnostics.passthrough += 1;
+        return original.call(thisArg, chat, ...args);
+      }
+
       const run = async () => {
         diagnostics.handled += 1;
-        const resolved = resolveTranslationSetting(chat, text);
-        if (resolved.mode === 'passthrough') { diagnostics.passthrough += 1; setPhase('passthrough'); return original.call(thisArg, chat, ...args); }
-        if (resolved.mode === 'blocked') {
-          const error = Object.assign(new Error('翻译配置尚未就绪'), { __geekStage: 'translation', code: 'TRANSLATION_BRIDGE_UNAVAILABLE', category: 'bridge', retryable: true });
-          setPhase('translation-error', error); notify('翻译尚未就绪，原文未发送'); throw error;
+        const resolved = await resolveTranslationSetting(chat, text);
+        if (resolved.mode === 'passthrough') {
+          diagnostics.passthrough += 1;
+          setPhase('passthrough');
+          return original.call(thisArg, chat, ...args);
         }
+        if (resolved.mode === 'blocked') {
+          const identityBlocked = resolved.reason === 'identity-unresolved';
+          const error = Object.assign(new Error(identityBlocked ? '无法确认当前 WhatsApp 聊天身份' : '翻译配置尚未就绪'), {
+            __geekStage: 'translation',
+            code: identityBlocked ? 'TRANSLATION_CHAT_IDENTITY_UNRESOLVED' : 'TRANSLATION_BRIDGE_UNAVAILABLE',
+            category: 'bridge',
+            retryable: true,
+          });
+          setPhase('translation-error', error);
+          notify(identityBlocked ? '无法确认当前聊天的翻译设置，原文未发送' : '翻译尚未就绪，原文未发送');
+          throw error;
+        }
+
         const translate = page.__geekTranslationRequest;
         if (typeof translate !== 'function') {
-          const error = Object.assign(new Error('翻译尚未就绪'), { __geekStage: 'translation', code: 'TRANSLATION_BRIDGE_UNAVAILABLE', category: 'bridge', retryable: true });
-          setPhase('translation-error', error); notify(typeof failureNotice === 'function' ? failureNotice(error) : '翻译尚未就绪，原文未发送'); throw error;
+          const error = Object.assign(new Error('翻译尚未就绪'), {
+            __geekStage: 'translation',
+            code: 'TRANSLATION_BRIDGE_UNAVAILABLE',
+            category: 'bridge',
+            retryable: true,
+          });
+          setPhase('translation-error', error);
+          notify(typeof failureNotice === 'function' ? failureNotice(error) : '翻译尚未就绪，原文未发送');
+          throw error;
         }
-        const activeBefore = chatIdOf(getActiveChat());
-        let stage = 'translation'; let failure = null;
+
+        let stage = 'translation';
+        let failure = null;
         try {
           setPhase('translating');
-          const translated = await translate({ text, source: resolved.setting.source || 'auto', target: resolved.setting.target, provider: resolved.setting.provider, route: resolved.setting.route, chatId: resolved.chatId });
-          if (!translated?.text) throw Object.assign(new Error('翻译返回为空'), { __geekStage: 'translation', code: 'TRANSLATION_EMPTY_RESULT', category: 'gateway', retryable: true, status: 502 });
+          const translated = await translate({
+            text,
+            source: resolved.setting.source || 'auto',
+            target: resolved.setting.target,
+            provider: resolved.setting.provider,
+            route: resolved.setting.route,
+            chatId: resolved.chatId,
+          });
+          if (!translated?.text) {
+            throw Object.assign(new Error('翻译返回为空'), {
+              __geekStage: 'translation',
+              code: 'TRANSLATION_EMPTY_RESULT',
+              category: 'gateway',
+              retryable: true,
+              status: 502,
+            });
+          }
+
           const activeAfter = chatIdOf(getActiveChat());
-          if (activeBefore && activeAfter && activeAfter !== activeBefore) throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
-          page.__geekRememberOutgoing?.(translated.text, text); args[0] = translated.text; diagnostics.translated += 1; stage = 'send'; setPhase('sending');
-          const sent = await original.call(thisArg, chat, ...args); diagnostics.sent += 1; setPhase('sent'); return sent;
+          const stillSame = await sameDirectIdentity(activeAfter, nativeId);
+          if (stillSame !== true) {
+            throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
+          }
+
+          page.__geekRememberOutgoing?.(translated.text, text);
+          args[0] = translated.text;
+          diagnostics.translated += 1;
+          stage = 'send';
+          setPhase('sending');
+          const sent = await original.call(thisArg, chat, ...args);
+          diagnostics.sent += 1;
+          setPhase('sent');
+          return sent;
         } catch (error) {
           const failedStage = error?.__geekStage || stage;
           if (failedStage === 'translation') {
-            failure = typeof parseFailure === 'function' ? parseFailure(error) : error; setPhase('translation-error', failure);
-            notify(/聊天已切换/.test(String(failure?.message || failure || '')) ? '聊天已切换，原文未发送' : (typeof failureNotice === 'function' ? failureNotice(failure, false) : '翻译失败（未分类），原文未发送'));
-          } else { failure = error; setPhase('send-error', error); notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120)); }
-          page.console?.error?.('[geek-whatsapp-translation-send]', String(failure?.message || failure || '').slice(0, 240)); throw failure;
+            failure = typeof parseFailure === 'function' ? parseFailure(error) : error;
+            setPhase('translation-error', failure);
+            notify(/聊天已切换/.test(String(failure?.message || failure || ''))
+              ? '聊天已切换，原文未发送'
+              : (typeof failureNotice === 'function' ? failureNotice(failure, false) : '翻译失败（未分类），原文未发送'));
+          } else {
+            failure = error;
+            setPhase('send-error', error);
+            notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120));
+          }
+          page.console?.error?.('[geek-whatsapp-translation-send]', String(failure?.message || failure || '').slice(0, 240));
+          throw failure;
         }
       };
-      const next = nativeQueue.then(run, run); nativeQueue = next.catch(() => {}); page.__geekWhatsAppDirectComposerLastTask = next; return next;
+
+      const next = nativeQueue.then(run, run);
+      nativeQueue = next.catch(() => {});
+      page.__geekWhatsAppDirectComposerLastTask = next;
+      return next;
     };
+
     const Abort = page.AbortController || globalThis.AbortController;
     const controller = typeof Abort === 'function' ? new Abort() : null;
-    page.__geekWhatsAppDirectComposerController = Object.freeze({ version, controller, diagnostics, handleNativeSend, resolveTranslationSetting });
+    page.__geekWhatsAppDirectComposerController = Object.freeze({ version, controller, diagnostics, handleNativeSend, resolveTranslationSetting, sameDirectIdentity });
     return 'READY';
   }
 
@@ -209,19 +353,45 @@
     if (!host?.document || host.__geekWhatsAppDirectComposerControllerShellInstalled) return false;
     host.__geekWhatsAppDirectComposerControllerShellInstalled = true;
     const observed = new WeakSet();
+
     async function inject(webview) {
       if (!webview || typeof webview.executeJavaScript !== 'function') return false;
       const partition = String(webview.partition || webview.getAttribute?.('partition') || '');
       if (!partition) return false;
-      let listed; try { listed = await host.api?.accounts?.list?.(); } catch { return false; }
+      let listed;
+      try { listed = await host.api?.accounts?.list?.(); } catch { return false; }
       const accounts = listed?.accounts || listed || [];
       if (!accountForPartition(accounts, partition)) return false;
-      try { const result = await webview.executeJavaScript(`(${installPageController.toString()})(window, ${CONTROLLER_VERSION}, ${parseTranslationFailure.toString()}, ${translationFailureNotice.toString()})`); return result === 'READY'; } catch { return false; }
+      try {
+        const result = await webview.executeJavaScript(`(${installPageController.toString()})(window, ${CONTROLLER_VERSION}, ${parseTranslationFailure.toString()}, ${translationFailureNotice.toString()})`);
+        return result === 'READY';
+      } catch {
+        return false;
+      }
     }
-    function observe(webview) { if (!webview || observed.has(webview)) return; observed.add(webview); webview.addEventListener?.('dom-ready', () => { void inject(webview); }); queueMicrotask(() => { void inject(webview); }); }
-    function scan() { host.document.querySelectorAll?.('webview').forEach(observe); }
-    function start() { scan(); const Observer = host.MutationObserver; if (typeof Observer !== 'function') return; const observer = new Observer(scan); observer.observe(host.document.documentElement || host.document.body, { childList: true, subtree: true }); host.__geekWhatsAppDirectComposerControllerObserver = observer; }
-    if (host.document.readyState === 'loading') host.document.addEventListener('DOMContentLoaded', start, { once: true }); else start();
+
+    function observe(webview) {
+      if (!webview || observed.has(webview)) return;
+      observed.add(webview);
+      webview.addEventListener?.('dom-ready', () => { void inject(webview); });
+      queueMicrotask(() => { void inject(webview); });
+    }
+
+    function scan() {
+      host.document.querySelectorAll?.('webview').forEach(observe);
+    }
+
+    function start() {
+      scan();
+      const Observer = host.MutationObserver;
+      if (typeof Observer !== 'function') return;
+      const observer = new Observer(scan);
+      observer.observe(host.document.documentElement || host.document.body, { childList: true, subtree: true });
+      host.__geekWhatsAppDirectComposerControllerObserver = observer;
+    }
+
+    if (host.document.readyState === 'loading') host.document.addEventListener('DOMContentLoaded', start, { once: true });
+    else start();
     return true;
   }
 
