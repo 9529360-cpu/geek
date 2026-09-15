@@ -13,6 +13,25 @@ vm.runInContext(source, context, { filename: 'translation-core.js' });
 const core = context.window.GeekTranslationCore;
 assert.ok(core, 'translation core must expose GeekTranslationCore');
 
+const fresh = core.normalizeConfig({}, {});
+assert.equal(fresh.translationMode, 'click', 'fresh accounts must default receive translation to on-demand');
+assert.equal(fresh.displayTranslation, true, 'fresh accounts must retain manual display translation capability');
+
+const explicitAuto = core.normalizeConfig({ translationMode: 'auto' }, {});
+assert.equal(explicitAuto.translationMode, 'auto', 'an explicit modern auto choice must remain enabled');
+
+const explicitClick = core.normalizeConfig({ translationMode: 'click' }, {});
+assert.equal(explicitClick.translationMode, 'click', 'an explicit modern click choice must remain on-demand');
+
+const legacyAuto = core.normalizeConfig({ message: true }, {});
+assert.equal(legacyAuto.translationMode, 'auto', 'legacy explicit receive-auto choice must remain compatible');
+
+const legacyClick = core.normalizeConfig({ message: false }, {});
+assert.equal(legacyClick.translationMode, 'click', 'legacy explicit receive-off choice must remain on-demand');
+
+const chatOverride = core.normalizeConfig({ translationMode: 'click' }, { translationMode: 'auto' });
+assert.equal(chatOverride.translationMode, 'auto', 'explicit per-chat receive-auto override must win over the global default');
+
 const legacy = core.normalizeConfig(
   { source: 'remote', server: 'legacy-route', send: true, sendTo: 'en' },
   { provider: 'stale-provider', route: 'stale-route' }
