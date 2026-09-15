@@ -6,7 +6,7 @@ const META_PREFIXES = [
   /^(?:翻译|译文|翻译结果)(?:成|为|至)?[^\n：:]{0,30}[：:]\s*/i,
   /^(?:here(?:'s| is)|below is|the following is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
   /^(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]\s*/i,
-  /^(?:sure|certainly|of course)[,!：:\s-]*(?:here(?:'s| is)\s+)?(?:the\s+)?(?:translation|translated text)?(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
+  /^(?:sure|certainly|of course)[,!：:\s-]+here(?:'s| is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
 ];
 
 function stripOuterFence(value) {
@@ -25,15 +25,7 @@ function sanitizeTranslationOutput(value) {
     for (const pattern of META_PREFIXES) text = text.replace(pattern, '').trim();
     if (text === before) break;
   }
-  text = stripOuterFence(text);
-  const quotePairs = [['“', '”'], ['‘', '’'], ['"', '"'], ["'", "'"]];
-  for (const [open, close] of quotePairs) {
-    if (text.startsWith(open) && text.endsWith(close) && text.length > open.length + close.length) {
-      text = text.slice(open.length, -close.length).trim();
-      break;
-    }
-  }
-  return text;
+  return stripOuterFence(text);
 }
 
 function comparable(value) {
