@@ -19,18 +19,33 @@ const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$
 
 assert.equal(normalizeLineEndings('a\r\nb\rc\n'), 'a\nb\nc\n');
 const helperSource = read('scripts/cloudflare-deploy-report.cjs');
+const websiteSmoke = read('scripts/website-production-smoke.cjs');
 const website = read('.github/workflows/deploy-website.yml');
 const validation = read('.github/workflows/cloudflare-worker-validation.yml');
 
 assert.match(website, /^name: deploy-website$/m);
+assert.match(website, /^  workflow_dispatch:$/m, 'website deployment control-plane changes must remain manually dispatchable');
 assert.match(website, /^  issues: write$/m);
 assert.match(website, /^      name: cloudflare-website-production$/m);
+assert.doesNotMatch(website, /- '\.github\/workflows\/deploy-website\.yml'/, 'workflow control-plane changes must not auto-deploy production');
+assert.doesNotMatch(website, /- 'scripts\/website-production-smoke\.cjs'/, 'verification tooling changes must not auto-deploy production');
 assert.match(website, /- name: Deploy website Worker\n        id: deploy/);
-assert.match(website, /- name: Verify public website\n        id: verify/);
-assert.match(website, /'https:\/\/geek\.bbnba\.com\/health'/);
+assert.match(website, /- name: Verify critical public website routes\n        id: verify\n        run: node scripts\/website-production-smoke\.cjs/);
+assert.match(website, /HTTP_CODE: \$\{\{ steps\.verify\.outputs\.health_http_code \}\}/);
+assert.match(website, /ROUTES_CHECKED: \$\{\{ steps\.verify\.outputs\.routes_checked \}\}/);
 assert.match(website, /if: always\(\)/);
 assert.match(website, /gh issue comment 21 --body-file "\$REPORT"/);
-assert.match(website, /--output \/dev\/null --write-out '%\{http_code\}'/);
+assert.doesNotMatch(website, /curl .*geek\.bbnba\.com\/health/, 'website production verification must stay in the tested smoke owner');
+
+assert.match(websiteSmoke, /const SITE_ORIGIN = 'https:\/\/geek\.bbnba\.com';/);
+assert.match(websiteSmoke, /const RELEASE_ORIGIN = 'https:\/\/geek-release\.9529360\.workers\.dev';/);
+for (const route of ['/health', '/guide', '/faq', '/sitemap.xml', '/download']) {
+  assert.ok(websiteSmoke.includes(route), `website production smoke missing ${route}`);
+}
+assert.match(websiteSmoke, /script-src 'none'/, 'website production smoke must verify the public CSP boundary');
+assert.match(websiteSmoke, /redirect: 'manual'/, 'website production smoke must inspect the release redirect without following it');
+assert.doesNotMatch(websiteSmoke, /process\.env\.(?:TARGET_URL|SITE_URL|ENDPOINT_URL|RELEASE_URL)/, 'website production targets must not be caller-controlled');
+assert.doesNotMatch(websiteSmoke, /Authorization|Cookie|CLOUDFLARE_API_TOKEN/, 'website production smoke must not receive credentials');
 
 assert.match(validation, /^name: cloudflare-worker-validation$/m);
 assert.match(validation, /- 'scripts\/\*\*'/, 'deployment reporter and smoke tooling changes must enter validation');
