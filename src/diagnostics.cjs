@@ -2,13 +2,15 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { sanitizeUrlForLog } = require('./log-url.cjs');
 
 const SENSITIVE_KEY_FRAGMENTS = [
   'authorization', 'cookie', 'apikey', 'token', 'secret', 'password',
   'credential', 'session', 'email', 'phone', 'login', 'username'
 ];
 const DROP_KEY_FRAGMENTS = ['chattext', 'chatbody', 'messagebody', 'messagetext', 'content'];
-const EMBEDDED_URL_PATTERN = /\b(?:https?|wss?):\/\/[^\s<>"']+/gi;
+const EMBEDDED_HIERARCHICAL_URL_PATTERN = /\b(?:https?|wss?|file):\/\/[^\s<>"']+/gi;
+const EMBEDDED_OPAQUE_URL_PATTERN = /\b(?:data|javascript):\S+/gi;
 const AUTHORIZATION_VALUE_PATTERN = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{4,}/gi;
 const JWT_VALUE_PATTERN = /\b(?:eyJ[A-Za-z0-9_-]{6,}|[A-Za-z0-9_-]{12,})\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g;
 const SENSITIVE_ASSIGNMENT_PATTERN = /\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret|password|passwd|pwd|session(?:id|token)?|cookie|set-cookie|credential)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
@@ -25,34 +27,19 @@ function isDropKey(key) {
   return DROP_KEY_FRAGMENTS.some(frag => lower.includes(frag));
 }
 
-function sanitizeUrl(value) {
-  try {
-    const url = new URL(value);
-    url.search = '';
-    url.hash = '';
-    url.username = '';
-    url.password = '';
-    return url.toString();
-  } catch {
-    // 即使 URL 不完整/非法，也不能因为解析失败而把 query/hash 原样写入日志。
-    // 同时尽力去掉 scheme 后的 userinfo，避免 malformed URL 泄露 user:password@host。
-    const withoutQuery = String(value).replace(/[?#].*$/, '');
-    return withoutQuery.replace(/^([a-z][a-z0-9+.-]*:\/\/)(?:[^/@]+@)/i, '$1[REDACTED]@');
-  }
-}
-
 function sanitizeEmbeddedUrl(value) {
   const source = String(value || '');
   const trailingMatch = source.match(/[),.;!?]+$/);
   const trailing = trailingMatch ? trailingMatch[0] : '';
   const core = trailing ? source.slice(0, -trailing.length) : source;
-  return `${sanitizeUrl(core)}${trailing}`;
+  return `${sanitizeUrlForLog(core)}${trailing}`;
 }
 
 function sanitizeDiagnosticText(value) {
   try {
     return String(value)
-      .replace(EMBEDDED_URL_PATTERN, sanitizeEmbeddedUrl)
+      .replace(EMBEDDED_OPAQUE_URL_PATTERN, sanitizeEmbeddedUrl)
+      .replace(EMBEDDED_HIERARCHICAL_URL_PATTERN, sanitizeEmbeddedUrl)
       .replace(AUTHORIZATION_VALUE_PATTERN, '$1 [REDACTED]')
       .replace(JWT_VALUE_PATTERN, '[REDACTED]')
       .replace(SENSITIVE_ASSIGNMENT_PATTERN, '$1$2[REDACTED]')
@@ -66,7 +53,7 @@ function sanitizeDiagnosticText(value) {
 function sanitizeValue(value, key) {
   if (typeof value === 'string') {
     if (key.toLowerCase() === 'url') {
-      return sanitizeUrl(value);
+      return sanitizeUrlForLog(value);
     }
     if (isSensitiveKey(key)) {
       return '[REDACTED]';
