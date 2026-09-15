@@ -252,7 +252,7 @@ const META_PREFIXES = [
   /^(?:翻译|译文|翻译结果)(?:成|为|至)?[^\n：:]{0,30}[：:]\s*/i,
   /^(?:here(?:'s| is)|below is|the following is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
   /^(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]\s*/i,
-  /^(?:sure|certainly|of course)[,!：:\s-]*(?:here(?:'s| is)\s+)?(?:the\s+)?(?:translation|translated text)?(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
+  /^(?:sure|certainly|of course)[,!：:\s-]+here(?:'s| is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
 ];
 
 function sanitizeTranslationOutput(value) {
@@ -270,12 +270,6 @@ function sanitizeTranslationOutput(value) {
   }
   const trailingFence = result.match(/^```(?:[a-z-]+)?\s*\n?([\s\S]*?)\n?```$/i);
   if (trailingFence) result = trailingFence[1].trim();
-  for (const [open, close] of [['“', '”'], ['‘', '’'], ['"', '"'], ["'", "'"]]) {
-    if (result.startsWith(open) && result.endsWith(close) && result.length > open.length + close.length) {
-      result = result.slice(open.length, -close.length).trim();
-      break;
-    }
-  }
   return result;
 }
 
