@@ -1,0 +1,193 @@
+name: tmp-fix-518
+
+on:
+  push:
+    branches:
+      - fix/518-bridge-terminal-overflow
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/518-bridge-terminal-overflow
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Patch bridge saturation terminal handling
+        shell: bash
+        run: |
+          node <<'NODE'
+          'use strict';
+          const fs = require('node:fs');
+
+          const appPath = 'ui/app.js';
+          let app = fs.readFileSync(appPath, 'utf8');
+
+          function replaceOnce(source, before, after, label) {
+            const first = source.indexOf(before);
+            if (first < 0) throw new Error(`missing ${label}`);
+            if (source.indexOf(before, first + before.length) >= 0) throw new Error(`non-unique ${label}`);
+            return source.slice(0, first) + after + source.slice(first + before.length);
+          }
+
+          const nativeBefore = `  async function processNativeInputRequest(wv, requestId, suppliedToken) {
+            const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+            if (!authorization.ok) return;
+            changeWebviewBridgeInflight(wv, 1);`;
+          const nativeAfter = `  const settleWebviewBridgeCapacityDenial = async (wv, requestId, authorization, kind) => {
+            if (authorization?.reason !== 'RATE_LIMIT') return false;
+            const id = JSON.stringify(String(requestId || ''));
+            try {
+              if (kind === 'native-input') {
+                await wv.executeJavaScript(\`window.__geekResolveNativeInput?.(\${id}, false, 'BRIDGE_BUSY')\`);
+              } else {
+                await wv.executeJavaScript(\`window.__geekResolveTranslation?.(\${id}, null, 'BRIDGE_BUSY')\`);
+              }
+            } catch {}
+            return true;
+          };
+
+          async function processNativeInputRequest(wv, requestId, suppliedToken) {
+            const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+            if (!authorization.ok) {
+              await settleWebviewBridgeCapacityDenial(wv, requestId, authorization, 'native-input');
+              return;
+            }
+            changeWebviewBridgeInflight(wv, 1);`;
+          app = replaceOnce(app, nativeBefore, nativeAfter, 'native-input admission');
+
+          const translationBefore = `  async function processTranslationRequest(wv, requestId, suppliedToken) {
+            const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+            if (!authorization.ok) return;
+            changeWebviewBridgeInflight(wv, 1);`;
+          const translationAfter = `  async function processTranslationRequest(wv, requestId, suppliedToken) {
+            const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+            if (!authorization.ok) {
+              await settleWebviewBridgeCapacityDenial(wv, requestId, authorization, 'translation');
+              return;
+            }
+            changeWebviewBridgeInflight(wv, 1);`;
+          app = replaceOnce(app, translationBefore, translationAfter, 'translation admission');
+
+          const lineBefore = `    if (message.type !== 'geek-translation-request') return;
+            const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+            if (!authorization.ok) return;
+            changeWebviewBridgeInflight(wv, 1);`;
+          const lineAfter = `    if (message.type !== 'geek-translation-request') return;
+            const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
+            if (!authorization.ok) {
+              await settleWebviewBridgeCapacityDenial(wv, requestId, authorization, 'translation');
+              return;
+            }
+            changeWebviewBridgeInflight(wv, 1);`;
+          app = replaceOnce(app, lineBefore, lineAfter, 'LINE translation admission');
+
+          if ((app.match(/settleWebviewBridgeCapacityDenial\(wv, requestId, authorization, 'translation'\)/g) || []).length !== 2) {
+            throw new Error('expected two translation capacity terminal paths');
+          }
+          if ((app.match(/settleWebviewBridgeCapacityDenial\(wv, requestId, authorization, 'native-input'\)/g) || []).length !== 1) {
+            throw new Error('expected one native-input capacity terminal path');
+          }
+          fs.writeFileSync(appPath, app);
+
+          const test = `'use strict';
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const vm = require('node:vm');
+          const security = require('../ui/webview-bridge-security.js');
+
+          const source = fs.readFileSync(path.resolve(__dirname, '../ui/app.js'), 'utf8');
+          const helperStart = source.indexOf('  const settleWebviewBridgeCapacityDenial = async');
+          const helperEnd = source.indexOf('  async function processNativeInputRequest', helperStart);
+          const processStart = source.indexOf('  async function processTranslationRequest');
+          const processEnd = source.indexOf('  // 新传输：', processStart);
+          assert.ok(helperStart >= 0 && helperEnd > helperStart, 'capacity terminal helper must exist before bridge processors');
+          assert.ok(processStart >= 0 && processEnd > processStart, 'translation processor must remain extractable');
+
+          const helperSource = source.slice(helperStart, helperEnd);
+          const processSource = source.slice(processStart, processEnd);
+          const token = '0123456789abcdef0123456789abcdef';
+          const requestId = 'busy_req_1234';
+          const denied = security.authorize({ expectedToken: token, suppliedToken: token, requestId, inflight: 20, limit: 20 });
+          assert.deepEqual(denied, { ok: false, reason: 'RATE_LIMIT' });
+
+          let translationRejected = null;
+          const translationGuest = {
+            window: {
+              __geekResolveTranslation(id, result, error) {
+                assert.equal(id, requestId);
+                assert.equal(result, null);
+                translationRejected = error;
+                return true;
+              },
+            },
+          };
+          const translationWv = {
+            async executeJavaScript(script) { return vm.runInNewContext(script, translationGuest); },
+          };
+          const context = {
+            authorizeWebviewBridge() { return denied; },
+            changeWebviewBridgeInflight() { throw new Error('capacity denial must not enter inflight work'); },
+          };
+          vm.runInNewContext(helperSource + '\\n' + processSource + '\\nthis.runTranslation = processTranslationRequest; this.settleCapacity = settleWebviewBridgeCapacityDenial;', context);
+          await context.runTranslation(translationWv, requestId, token);
+          assert.equal(translationRejected, 'BRIDGE_BUSY', 'saturated valid translation request must terminate immediately');
+
+          let nativeRejected = null;
+          const nativeGuest = {
+            window: {
+              __geekResolveNativeInput(id, ok, error) {
+                assert.equal(id, requestId);
+                assert.equal(ok, false);
+                nativeRejected = error;
+                return true;
+              },
+            },
+          };
+          await context.settleCapacity({
+            executeJavaScript: async script => vm.runInNewContext(script, nativeGuest),
+          }, requestId, denied, 'native-input');
+          assert.equal(nativeRejected, 'BRIDGE_BUSY', 'saturated native-input request must also terminate immediately');
+
+          let unauthorizedExecutions = 0;
+          const mismatch = security.authorize({ expectedToken: token, suppliedToken: 'bad', requestId, inflight: 20, limit: 20 });
+          assert.equal(await context.settleCapacity({ executeJavaScript: async () => { unauthorizedExecutions += 1; } }, requestId, mismatch, 'translation'), false);
+          assert.equal(unauthorizedExecutions, 0, 'token denial must remain fail-closed without resolving guest state');
+
+          assert.equal((source.match(/await settleWebviewBridgeCapacityDenial\\(wv, requestId, authorization, 'translation'\\);/g) || []).length, 2, 'both preload bridge and LINE send2Host translation ingress must terminate capacity denial');
+          assert.equal((source.match(/await settleWebviewBridgeCapacityDenial\\(wv, requestId, authorization, 'native-input'\\);/g) || []).length, 1, 'native-input ingress must terminate capacity denial');
+          assert.doesNotMatch(source.slice(processStart, processEnd), /if \\(!authorization\\.ok\\) return;/, 'translation processor must not silently orphan denied requests');
+
+          console.log('TRANSLATION_BRIDGE_SATURATION_CONTRACT_OK');
+          `;
+          fs.writeFileSync('test/translation-bridge-saturation-contract.cjs', test);
+          NODE
+      - name: Focused validation
+        shell: bash
+        run: |
+          node --check ui/app.js
+          node --check test/translation-bridge-saturation-contract.cjs
+          node test/webview-bridge-security.cjs
+          node test/translation-bridge-saturation-contract.cjs
+          node test/bridge-ipc-contract.cjs
+          node test/whatsapp-translation-hook-recovery-contract.cjs
+          git diff --check
+      - name: Commit focused fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ui/app.js test/translation-bridge-saturation-contract.cjs
+          git rm .github/workflows/tmp-fix-518.yml
+          git commit -m 'fix: terminate saturated translation bridge requests'
+          git push origin HEAD:fix/518-bridge-terminal-overflow
