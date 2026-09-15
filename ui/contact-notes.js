@@ -169,7 +169,7 @@
         popover.setAttribute('aria-hidden', 'false');
         button.setAttribute('aria-expanded', 'true');
         await refresh();
-        focusInitialControl();
+        if (!popover.classList.contains('hidden')) focusInitialControl();
       });
       close.addEventListener('click', () => hide());
       popover.addEventListener('keydown', event => {
