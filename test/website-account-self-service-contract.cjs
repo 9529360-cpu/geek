@@ -10,7 +10,7 @@ const router = fs.readFileSync(path.join(__dirname, '../scripts/geek-marketing-r
 // WEB-ONB-01: production account/auth navigation projects into the current product IA.
 // The legacy Worker may retain its old homepage as a direct-call rollback surface, but the
 // production router must not send account users back to retired homepage anchors.
-for (const href of ['/product', '/translation', '/broadcast', '/security', '/windows']) {
+for (const href of ['/product', '/translation', '/broadcast', '/security', '/guide', '/faq', '/windows']) {
   assert.ok(router.includes(`href="${href}"`), `账户页面统一导航必须提供 ${href}`);
 }
 assert.match(router, /function projectLegacyAccountHtml\(source\)/, '账户页面旧壳必须通过显式投影进入当前信息架构');
@@ -19,8 +19,8 @@ for (const retired of ['features', 'guide', 'pricing', 'download', 'faq']) {
   assert.ok(router.includes(`/#${retired}`), `兼容投影必须显式处理历史 #${retired} 链接`);
 }
 assert.match(router, /<a href="\/product">产品总览<\/a>/, '旧功能入口必须投影到产品总览');
-assert.match(router, /<a href="\/windows">安装与上手<\/a>/, '旧教程入口必须投影到 Windows 上手页');
-assert.match(router, /<a href="\/security">安全边界<\/a>/, '旧 FAQ 入口必须投影到当前安全说明');
+assert.match(router, /<a href="\/guide">安装与上手<\/a>/, '旧教程入口必须投影到独立上手页');
+assert.match(router, /<a href="\/faq">常见问题<\/a>/, '旧 FAQ 入口必须投影到独立 FAQ 页');
 
 // WEB-ACC-01/03: account data and orders have explicit refresh/recovery affordances.
 assert.match(worker, /id="member-since"/, '个人中心必须展示账户创建信息');
