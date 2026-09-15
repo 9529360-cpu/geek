@@ -4,12 +4,24 @@ const fs = require('node:fs');
 
 const SITE_ORIGIN = 'https://geek.bbnba.com';
 const RELEASE_ORIGIN = 'https://geek-release.9529360.workers.dev';
+const DEPLOY_PROBE_PARAM = '__geek_deploy';
 const DEFAULT_ATTEMPTS = 4;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_RETRY_DELAY_MS = 2_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeCacheBust(value) {
+  const normalized = String(value || '').trim().replace(/[^a-z0-9._-]/gi, '-').slice(0, 128);
+  return normalized || `${Date.now()}-${process.pid}`;
+}
+
+function deploymentProbeUrl(pathname, cacheBust) {
+  const url = new URL(pathname, SITE_ORIGIN);
+  url.searchParams.set(DEPLOY_PROBE_PARAM, normalizeCacheBust(cacheBust));
+  return url.toString();
 }
 
 async function fetchWithRetry(url, {
@@ -59,7 +71,7 @@ function assertHeaderContains(response, name, expected, label) {
 
 async function verifyHtml(pathname, markers, options) {
   const label = `website ${pathname}`;
-  const response = await fetchWithRetry(`${SITE_ORIGIN}${pathname}`, options);
+  const response = await fetchWithRetry(deploymentProbeUrl(pathname, options?.cacheBust), options);
   assertStatus(response, 200, label);
   assertHeaderContains(response, 'content-type', 'text/html', label);
   assertHeaderContains(response, 'content-security-policy', "script-src 'none'", label);
@@ -73,7 +85,7 @@ async function verifyHtml(pathname, markers, options) {
 }
 
 async function verifySitemap(options) {
-  const response = await fetchWithRetry(`${SITE_ORIGIN}/sitemap.xml`, options);
+  const response = await fetchWithRetry(deploymentProbeUrl('/sitemap.xml', options?.cacheBust), options);
   assertStatus(response, 200, 'website sitemap');
   assertHeaderContains(response, 'content-type', 'application/xml', 'website sitemap');
   const body = await response.text();
@@ -86,7 +98,7 @@ async function verifySitemap(options) {
 }
 
 async function verifyDownload(options) {
-  const response = await fetchWithRetry(`${SITE_ORIGIN}/download`, { ...options, redirect: 'manual' });
+  const response = await fetchWithRetry(deploymentProbeUrl('/download', options?.cacheBust), { ...options, redirect: 'manual' });
   if (response.status < 300 || response.status >= 400) {
     throw new Error(`website /download returned HTTP ${response.status}; expected redirect`);
   }
@@ -103,10 +115,17 @@ async function runSmoke({
   attempts = DEFAULT_ATTEMPTS,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   retryDelayMs = DEFAULT_RETRY_DELAY_MS,
+  cacheBust = process.env.GITHUB_SHA,
 } = {}) {
-  const options = { fetchImpl, attempts, timeoutMs, retryDelayMs };
+  const options = {
+    fetchImpl,
+    attempts,
+    timeoutMs,
+    retryDelayMs,
+    cacheBust: normalizeCacheBust(cacheBust),
+  };
 
-  const health = await fetchWithRetry(`${SITE_ORIGIN}/health`, options);
+  const health = await fetchWithRetry(deploymentProbeUrl('/health', options.cacheBust), options);
   if (health.status < 200 || health.status >= 400) {
     throw new Error(`website /health returned HTTP ${health.status}`);
   }
@@ -129,6 +148,8 @@ async function runSmoke({
 module.exports = {
   SITE_ORIGIN,
   RELEASE_ORIGIN,
+  DEPLOY_PROBE_PARAM,
+  deploymentProbeUrl,
   fetchWithRetry,
   verifyHtml,
   verifySitemap,
