@@ -37,6 +37,25 @@
         return true;
       };
     }
+    const translationSendErrorMessage = error => {
+      const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
+      const raw = String(error?.message || error || '');
+      if (!raw.startsWith(prefix)) return '翻译失败，原文未发送';
+      let detail;
+      try { detail = JSON.parse(raw.slice(prefix.length)); } catch { return '翻译失败，原文未发送'; }
+      if (!detail || typeof detail !== 'object') return '翻译失败，原文未发送';
+      const code = String(detail.code || '');
+      const category = String(detail.category || '');
+      const status = Number(detail.status) || 0;
+      if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) return '翻译额度已用完，请到个人中心开通；原文未发送';
+      if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') return '翻译需要重新登录，请到个人中心登录；原文未发送';
+      if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) return '翻译授权状态已变化，请重新登录后重试；原文未发送';
+      if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) return '翻译服务响应超时，请稍后重试；原文未发送';
+      if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') return '译文未通过质量校验，请修改原文后重试；原文未发送';
+      if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) return '翻译请求繁忙，请稍后重试；原文未发送';
+      if (category === 'gateway' || category === 'rate-limit' || status >= 500) return '翻译服务暂时不可用，请稍后重试；原文未发送';
+      return '翻译失败，原文未发送';
+    };
     const nativeInputEnvelopePrefix = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
     const encodeNativeInputRequest = (text, expectedChatId) => nativeInputEnvelopePrefix + JSON.stringify({
       token: String(window.__geekTranslationBridgeToken || ''),
@@ -203,7 +222,7 @@
       } catch (error) {
         console.error('[geek-telegram-translation-send]', error);
         const cancelled = /聊天已切换|输入框已变化/.test(String(error?.message || error));
-        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : '翻译失败，原文未发送');
+        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : translationSendErrorMessage(error));
         if (sendEditor() === editor && editor.isConnected !== false) { editor.setAttribute('contenteditable', 'true'); editor.focus(); }
       } finally { window.__geekTelegramSendLock = false; }
     };
@@ -249,6 +268,25 @@
       window.__geekTakeTranslationRequest = id => { const p = window.__geekTranslationPending.get(id); return p ? JSON.stringify(p.payload) : null; };
       window.__geekResolveTranslation = (id, result, error) => { const p = window.__geekTranslationPending.get(id); if (!p) return false; window.__geekTranslationPending.delete(id); if (error) p.reject(new Error(error)); else p.resolve(result); return true; };
     }
+    const translationSendErrorMessage = error => {
+      const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
+      const raw = String(error?.message || error || '');
+      if (!raw.startsWith(prefix)) return '翻译失败，原文未发送';
+      let detail;
+      try { detail = JSON.parse(raw.slice(prefix.length)); } catch { return '翻译失败，原文未发送'; }
+      if (!detail || typeof detail !== 'object') return '翻译失败，原文未发送';
+      const code = String(detail.code || '');
+      const category = String(detail.category || '');
+      const status = Number(detail.status) || 0;
+      if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) return '翻译额度已用完，请到个人中心开通；原文未发送';
+      if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') return '翻译需要重新登录，请到个人中心登录；原文未发送';
+      if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) return '翻译授权状态已变化，请重新登录后重试；原文未发送';
+      if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) return '翻译服务响应超时，请稍后重试；原文未发送';
+      if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') return '译文未通过质量校验，请修改原文后重试；原文未发送';
+      if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) return '翻译请求繁忙，请稍后重试；原文未发送';
+      if (category === 'gateway' || category === 'rate-limit' || status >= 500) return '翻译服务暂时不可用，请稍后重试；原文未发送';
+      return '翻译失败，原文未发送';
+    };
     const nativeInputEnvelopePrefix = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
     const encodeNativeInputRequest = (text, expectedChatId) => nativeInputEnvelopePrefix + JSON.stringify({
       token: String(window.__geekTranslationBridgeToken || ''),
@@ -375,7 +413,7 @@
       } catch (error) {
         console.error('[geek-line-translation-send]', error);
         const cancelled = /聊天已切换|输入框已变化/.test(String(error?.message || error));
-        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : '翻译失败，原文未发送');
+        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : translationSendErrorMessage(error));
       }
       finally { window.__geekLineSendLock = false; }
     };

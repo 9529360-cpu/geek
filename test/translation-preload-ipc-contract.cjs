@@ -63,8 +63,10 @@ vm.runInNewContext(source, {
       && error?.category === 'quota'
       && error?.retryable === false
       && error?.status === 402
+      && error?.userMessage === '翻译额度已用完，请前往个人中心开通'
+      && error?.message.startsWith('__GEEK_TRANSLATION_ERROR_V1__:')
       && /额度已用完/.test(error.message),
-    'preload must reconstruct typed main-process translation errors instead of losing metadata through Electron invoke',
+    'preload must preserve typed error metadata and carry a privacy-safe WebView envelope in the message',
   );
 
   translationResponse = { text: 'legacy-direct-result' };
