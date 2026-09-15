@@ -73,14 +73,14 @@ function installSubscriptionIpc(options = {}) {
     const status = Number(error?.status) || 0;
     let reason = 'authorization-unavailable';
     let retryable = true;
-    if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || status === 401 || status === 403) {
+    if (code === 'account_disabled') {
+      reason = 'account-disabled';
+      retryable = false;
+    } else if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || status === 401 || status === 403) {
       reason = 'authorization-required';
       retryable = false;
     } else if (code === 'SUBSCRIPTION_SESSION_CHANGED') {
       reason = 'session-changed';
-    } else if (code === 'account_disabled') {
-      reason = 'account-disabled';
-      retryable = false;
     } else if (
       code === 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED'
       || code === 'SECURE_STORAGE_UNAVAILABLE'
@@ -127,8 +127,8 @@ function installSubscriptionIpc(options = {}) {
     }
 
     try {
-      // This intentionally exercises the real short-lived translation authorization
-      // path in the main process, but the token itself never crosses this IPC boundary.
+      // Exercise the real short-lived translation authorization path in the main
+      // process, but never return the token or account identity to the renderer.
       const token = await store.getTranslationToken();
       if (typeof token !== 'string' || !token) {
         return safeReadinessResult({
