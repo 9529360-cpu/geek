@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin master
-          test "$(git merge-base HEAD origin/master)" = "c5099a31570149511793040a571ce332d096366f"
+          test "$(git merge-base HEAD origin/master)" = "a3add2886a5078553cdf318c65ce09aa2884c271"
           test "$(node -p "require('./package.json').version")" = "1.2.26"
           test "$(node -p "require('./package-lock.json').version")" = "1.2.26"
           test "$(node -p "require('./package-lock.json').packages[''].version")" = "1.2.26"
