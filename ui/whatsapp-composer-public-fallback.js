@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const FALLBACK_VERSION = 1;
+  const FALLBACK_VERSION = 2;
 
   function isWhatsAppType(type) {
     return type === 'whatsapp' || type === 'whatsapp-pure';
@@ -24,8 +24,8 @@
 
   // Runs inside the WhatsApp WebView. This is a degraded-path owner only: it
   // stays out of the way while the native send-module recovery is healthy, and
-  // takes over a trusted translated composer gesture only when that private
-  // owner cannot be resolved but the public WPP text API is available.
+  // takes over a trusted translated DIRECT-chat composer gesture only when that
+  // private owner cannot be resolved but the public WPP text API is available.
   function installPageFallback(page, version = FALLBACK_VERSION) {
     if (!page) return 'NO_PAGE';
 
@@ -90,6 +90,17 @@
       }
     };
 
+    const isDirectChat = function (chat, chatId) {
+      const id = String(chatId || '');
+      if (!id) return false;
+      if (chat?.isGroup === true || chat?.isNewsletter === true || chat?.isBroadcast === true) return false;
+      try {
+        if (typeof chat?.id?.isGroup === 'function' && chat.id.isGroup()) return false;
+      } catch {}
+      if (/@g\.us$/i.test(id) || /@broadcast$/i.test(id) || /@newsletter$/i.test(id)) return false;
+      return true;
+    };
+
     const translationSetting = function (chatId, text) {
       const setting = page.__geekGetTranslationSetting?.(chatId);
       if (!setting?.enabled || !setting?.autoSend || !text) return null;
@@ -143,7 +154,11 @@
       if (!text) return false;
       const chat = getActiveChat();
       const chatId = String(chat?.id?._serialized || chat?.id || '');
-      const setting = chatId ? translationSetting(chatId, text) : null;
+      // The live regression is direct-chat-only. Group/newsletter/broadcast
+      // composer behavior is already healthy and must remain under its existing
+      // native/public owners instead of being widened into this degraded path.
+      if (!isDirectChat(chat, chatId)) return false;
+      const setting = translationSetting(chatId, text);
       if (!setting) return false;
 
       // Keep the existing native-module recovery authoritative whenever it can
