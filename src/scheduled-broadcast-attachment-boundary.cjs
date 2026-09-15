@@ -34,6 +34,7 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparable = value => platform === 'win32' ? value.toLowerCase() : value;
   const materializedByTask = new Map();
+  const accountLifecycles = new Map();
   let store = null;
 
   function assertMainRenderer(event) {
@@ -62,6 +63,58 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
     return store;
   }
 
+  function accountKey(value) {
+    const account = String(value || '').trim();
+    if (!account) throw boundaryError('SCHEDULED_BROADCAST_ATTACHMENT_ACCOUNT_INVALID');
+    return account;
+  }
+
+  function lifecycleFor(accountId) {
+    const account = accountKey(accountId);
+    let lifecycle = accountLifecycles.get(account);
+    if (!lifecycle) {
+      lifecycle = { accountId: account, retired: false, inFlight: new Set() };
+      accountLifecycles.set(account, lifecycle);
+    }
+    return lifecycle;
+  }
+
+  function beginAccountOperation(accountId) {
+    const lifecycle = lifecycleFor(accountId);
+    if (lifecycle.retired) throw boundaryError('SCHEDULED_BROADCAST_ATTACHMENT_ACCOUNT_RETIRED');
+    let resolveCompletion;
+    const completion = new Promise(resolve => { resolveCompletion = resolve; });
+    lifecycle.inFlight.add(completion);
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      lifecycle.inFlight.delete(completion);
+      resolveCompletion();
+      if (!lifecycle.retired && lifecycle.inFlight.size === 0 && accountLifecycles.get(lifecycle.accountId) === lifecycle) {
+        accountLifecycles.delete(lifecycle.accountId);
+      }
+    };
+  }
+
+  async function runAccountOperation(accountId, operation) {
+    const finish = beginAccountOperation(accountId);
+    try {
+      return await operation();
+    } finally {
+      finish();
+    }
+  }
+
+  async function retireAccount(accountId) {
+    const lifecycle = lifecycleFor(accountId);
+    lifecycle.retired = true;
+    while (lifecycle.inFlight.size) {
+      await Promise.all([...lifecycle.inFlight]);
+    }
+    return lifecycle.accountId;
+  }
+
   function materializedKey(ownerId, accountId, taskId) {
     return `${String(ownerId || '')}\0${String(accountId || '')}\0${String(taskId || '')}`;
   }
@@ -87,38 +140,42 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
   ipcMain.handle(CHANNELS.persist, async (event, payload) => {
     const { ownerId } = assertMainRenderer(event);
     const source = payload && typeof payload === 'object' ? payload : {};
-    const accountId = String(source.accountId || '');
+    const accountId = accountKey(source.accountId);
     const taskId = String(source.taskId || '');
     const tokens = Array.isArray(source.fileTokens) ? source.fileTokens.map(value => String(value || '')) : [];
     if (!tokens.length || tokens.length > ephemeralRegistry.limits.maxFiles || new Set(tokens).size !== tokens.length) {
       throw boundaryError('SCHEDULED_BROADCAST_ATTACHMENT_REF_INVALID');
     }
-    const selected = [];
-    for (const token of tokens) selected.push(await ephemeralRegistry.resolve(token, ownerId));
-    const refs = await getStore().registerPaths({
-      accountId,
-      taskId,
-      filePaths: selected.map(file => file.filePath),
+    return runAccountOperation(accountId, async () => {
+      const selected = [];
+      for (const token of tokens) selected.push(await ephemeralRegistry.resolve(token, ownerId));
+      const refs = await getStore().registerPaths({
+        accountId,
+        taskId,
+        filePaths: selected.map(file => file.filePath),
+      });
+      return refs.map(ref => ({ ref: ref.ref, name: ref.name, size: ref.size, mime: ref.mime }));
     });
-    return refs.map(ref => ({ ref: ref.ref, name: ref.name, size: ref.size, mime: ref.mime }));
   });
 
   ipcMain.handle(CHANNELS.materialize, async (event, payload) => {
     const { ownerId } = assertMainRenderer(event);
     const source = payload && typeof payload === 'object' ? payload : {};
-    const accountId = String(source.accountId || '');
+    const accountId = accountKey(source.accountId);
     const taskId = String(source.taskId || '');
     const refs = Array.isArray(source.refs) ? source.refs.map(value => String(value || '')) : [];
-    const resolved = await getStore().resolveMany(refs, { accountId, taskId });
-    releaseMaterialized(ownerId, accountId, taskId);
-    const selected = await ephemeralRegistry.registerSelection(resolved.map(file => file.filePath), ownerId);
-    materializedByTask.set(materializedKey(ownerId, accountId, taskId), {
-      ownerId,
-      accountId,
-      taskId,
-      tokens: selected.map(file => String(file.token || '')),
+    return runAccountOperation(accountId, async () => {
+      const resolved = await getStore().resolveMany(refs, { accountId, taskId });
+      releaseMaterialized(ownerId, accountId, taskId);
+      const selected = await ephemeralRegistry.registerSelection(resolved.map(file => file.filePath), ownerId);
+      materializedByTask.set(materializedKey(ownerId, accountId, taskId), {
+        ownerId,
+        accountId,
+        taskId,
+        tokens: selected.map(file => String(file.token || '')),
+      });
+      return selected.map(file => ({ token: file.token, name: file.name, size: file.size, mime: file.mime }));
     });
-    return selected.map(file => ({ token: file.token, name: file.name, size: file.size, mime: file.mime }));
   });
 
   ipcMain.handle(CHANNELS.cleanup, async (event, payload) => {
@@ -133,13 +190,11 @@ function installScheduledBroadcastAttachmentBoundary(options = {}) {
   ipcMain.handle(CHANNELS.cleanupAccount, async (event, payload) => {
     assertMainRenderer(event);
     const source = payload && typeof payload === 'object' ? payload : {};
-    const accountId = String(source.accountId || '');
-    releaseMaterializedAccount(accountId);
-    return getStore().cleanupAccount(accountId);
+    return cleanupAccount(source.accountId);
   });
 
   async function cleanupAccount(accountId) {
-    const account = String(accountId || '');
+    const account = await retireAccount(accountId);
     releaseMaterializedAccount(account);
     return getStore().cleanupAccount(account);
   }
