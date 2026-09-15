@@ -38,7 +38,12 @@ for (const forbidden of [
 assert.match(runtime, /require\('\.\/translation-runtime-base\.cjs'\)/, 'public runtime must compose the proven base transaction layer');
 assert.match(runtime, /require\('\.\/translation-smart-queue\.cjs'\)/, 'public runtime must compose the bounded smart queue');
 assert.match(runtime, /const privateIpc = \{/, 'base runtime must register only against a private registrar');
-assert.match(runtime, /base\.createTranslationRuntime\(\{ \.\.\.options, ipcMain: privateIpc \}\)/, 'base runtime must never receive the real Electron IPC registrar');
+assert.match(
+  runtime,
+  /base\.createTranslationRuntime\(\{ \.\.\.options, ipcMain: privateIpc, fetchImpl: intentAwareFetch \}\)/,
+  'base runtime must receive only the private IPC registrar while the public owner decorates its outbound fetch boundary'
+);
+assert.match(runtime, /const intentAwareFetch = \(url, request = \{\}\) => \{/, 'public runtime must own request-local gateway metadata decoration');
 assert.match(runtime, /ipcMain\.handle\('translation:translate', translateIpc\)/, 'public Translation Runtime must own typed translate IPC');
 assert.match(runtime, /ipcMain\.handle\('translation:health', health\)/, 'public Translation Runtime must own health IPC');
 assert.match(runtime, /for \(const channel of base\.TRANSLATION_CHANNELS\) ipcMain\.removeHandler\(channel\)/, 'public Translation Runtime must own channel teardown');
