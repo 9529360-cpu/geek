@@ -7,6 +7,10 @@ const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const base = require('./translation-runtime-base.cjs');
 const {
+  TRANSLATION_LANGUAGE_CODES,
+  normalizeTranslationLanguage,
+} = require('./translation-language-contract.cjs');
+const {
   DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS,
   TRANSLATION_INTENTS,
   normalizeTranslationIntent,
@@ -161,6 +165,22 @@ function createTranslationRuntime(options = {}) {
 
   function normalizeScheduledPayload(payload) {
     const body = payload && typeof payload === 'object' ? payload : {};
+    const source = normalizeTranslationLanguage(body.source || 'auto', { allowAuto: true });
+    if (!source) {
+      throw base.createTranslationError(
+        'TRANSLATION_SOURCE_INVALID',
+        '源语言不合法',
+        { category: 'input', retryable: false },
+      );
+    }
+    const target = normalizeTranslationLanguage(body.target, { allowAuto: false });
+    if (!target) {
+      throw base.createTranslationError(
+        'TRANSLATION_TARGET_INVALID',
+        '目标语言不合法',
+        { category: 'input', retryable: false },
+      );
+    }
     const intent = normalizeTranslationIntent(body.intent);
     const deadlineAt = base.normalizeTranslationDeadline(
       body.deadlineAt,
@@ -171,7 +191,7 @@ function createTranslationRuntime(options = {}) {
     // display request with the same text/config. Cache identity remains shared;
     // only the live transaction identity is separated.
     const coalesce = intent === TRANSLATION_INTENTS.OUTGOING_SEND ? false : body.coalesce;
-    return { ...body, intent, deadlineAt, ...(coalesce === undefined ? {} : { coalesce }) };
+    return { ...body, source, target, intent, deadlineAt, ...(coalesce === undefined ? {} : { coalesce }) };
   }
 
   // Preserve the runtime's historical singleflight semantics *before* bounded
@@ -282,7 +302,12 @@ function createTranslationRuntime(options = {}) {
   async function translateIpc(event, payload) {
     // Keep sender security outside the application envelope and before queueing.
     assertTrustedSender(event);
-    const body = normalizeScheduledPayload(payload);
+    let body;
+    try {
+      body = normalizeScheduledPayload(payload);
+    } catch (error) {
+      return { ok: false, error: base.serializeTranslationIpcError(error) };
+    }
     const accountId = String(body.accountId || '');
     const account = accountState.findById(accountId);
     const partition = String(account?.partition || '');
@@ -388,6 +413,8 @@ function createTranslationRuntime(options = {}) {
 module.exports = {
   ...base,
   TRANSLATION_INTENT_HEADER,
+  TRANSLATION_LANGUAGE_CODES,
+  normalizeTranslationLanguage,
   DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS,
   TRANSLATION_INTENTS,
   normalizeTranslationIntent,
