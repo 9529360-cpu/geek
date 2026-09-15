@@ -16,8 +16,11 @@ function loadEntry(baseFetch) {
       'const baseWorker = this.__baseWorker;'
     )
     .replace(
-      "import { scopeTranslationRateLimitAuthority } from './translation-rate-limit-compat.mjs';",
-      'const scopeTranslationRateLimitAuthority = this.__scopeTranslationRateLimitAuthority;'
+      /import\s*\{[\s\S]*?\}\s*from '\.\/translation-rate-limit-compat\.mjs';/,
+      [
+        'const normalizeTranslationIntent = this.__normalizeTranslationIntent;',
+        'const scopeTranslationRateLimitAuthority = this.__scopeTranslationRateLimitAuthority;',
+      ].join('\n')
     )
     .replace(/^export default\s*/m, 'this.__export = ');
 
@@ -28,6 +31,7 @@ function loadEntry(baseFetch) {
     URL,
     console,
     __baseWorker: { fetch: baseFetch },
+    __normalizeTranslationIntent: value => value === 'outgoing-send' ? 'outgoing-send' : 'message-display',
     __scopeTranslationRateLimitAuthority: (db) => db,
   };
   vm.createContext(sandbox);
