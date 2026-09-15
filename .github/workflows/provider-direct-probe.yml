@@ -1,0 +1,39 @@
+name: provider-direct-probe
+
+on:
+  push:
+    branches:
+      - 'test/translation-live-smoke-*'
+    paths:
+      - '.github/workflows/provider-direct-probe.yml'
+      - 'scripts/provider-direct-probe-worker.js'
+      - 'wrangler-provider-probe.toml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: cloudflare-translation-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Upload undeployed preview version
+        run: npx --yes wrangler@4.44.0 versions upload --config wrangler-provider-probe.toml --preview-alias direct-provider-probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Call providers directly through preview version
+        run: |
+          node -e "fetch('https://direct-provider-probe-geek-translate.9529360.workers.dev/provider-direct-probe').then(async r => { const t = await r.text(); console.log(t); if(!r.ok) process.exit(1); }).catch(e => { console.error(e.message); process.exit(1); })"
