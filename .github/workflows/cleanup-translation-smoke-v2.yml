@@ -1,0 +1,27 @@
+name: cleanup-translation-smoke-v2
+
+on:
+  push:
+    branches:
+      - 'test/translation-live-smoke-*'
+    paths:
+      - '.github/workflows/cleanup-translation-smoke-v2.yml'
+      - 'scripts/cleanup-translation-smoke.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment:
+      name: cloudflare-subscription-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Cleanup transient smoke rows
+        env:
+          CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/cleanup-translation-smoke.mjs
