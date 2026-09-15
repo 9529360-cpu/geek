@@ -92,10 +92,24 @@ function payload(records) {
       `invalid checkpoint payload case ${index} must fail closed without echoing raw metadata`,
     );
   }
+  assert.throws(
+    () => checkpointApi.parsePayload('{bad}', { present: false }),
+    error => error?.code === checkpointApi.CORRUPT_CODE,
+    'a present raw payload cannot be disguised as absence by parser options',
+  );
 
   const parsed = checkpointApi.parsePayload(payload([valid]));
   assert.equal(parsed.size, 1);
   assert.deepEqual(parsed.get(valid.jobId), valid);
+
+  const presentUndefinedData = memoryAccountData();
+  presentUndefinedData.seed('account-undefined', undefined);
+  const presentUndefinedStore = checkpointApi.createStore({ accountData: presentUndefinedData });
+  await assert.rejects(
+    presentUndefinedStore.load('account-undefined'),
+    error => error?.code === checkpointApi.CORRUPT_CODE,
+    'an existing account-data key with an invalid value is not an absent checkpoint',
+  );
 
   // Account A starts valid so the store has a cache entry. A later forced restore
   // sees corrupt durable data and must poison/remove the stale cache instead of
