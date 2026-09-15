@@ -12,8 +12,14 @@ async function waitVisible(selector, timeout = STEP_TIMEOUT) {
   return element;
 }
 
+async function waitClickable(selector, timeout = STEP_TIMEOUT) {
+  const element = await waitVisible(selector, timeout);
+  await element.waitForClickable({ timeout });
+  return element;
+}
+
 async function setCollapsed(collapsed) {
-  const button = await waitVisible('#btn-collapse');
+  const button = await waitClickable('#btn-collapse');
   const isCollapsed = await browser.execute(() => document.getElementById('side-nav')?.classList.contains('collapsed') === true);
   if (isCollapsed !== collapsed) await button.click();
   await browser.waitUntil(async () => browser.execute((expected) => {
@@ -28,7 +34,7 @@ async function setCollapsed(collapsed) {
 }
 
 async function activateAccount(accountId) {
-  const main = await waitVisible(`.nav-account[data-id="${accountId}"] .nav-account-main`);
+  const main = await waitClickable(`.nav-account[data-id="${accountId}"] .nav-account-main`);
   await main.click();
   await browser.waitUntil(async () => browser.execute((id) =>
     document.querySelector('.nav-account.active[data-id]')?.dataset.id === id, accountId), {
