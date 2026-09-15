@@ -297,6 +297,7 @@ function trustedEnter(listeners, target) {
   }
 
   assert.match(bootstrapSource, /whatsapp-direct-composer-controller\.js/, 'shell bootstrap must load the direct composer controller');
+  assert.doesNotMatch(bootstrapSource, /whatsapp-translation-hook-recovery\.js/, 'legacy translation recovery must not bootstrap beside the direct composer owner');
   assert.doesNotMatch(bootstrapSource, /whatsapp-composer-public-fallback\.js/, 'superseded fallback must leave the startup chain');
   assert.match(controllerSource, /chat\.sendTextMessage\(chatId, translated\.text, options\)/, 'trusted DOM path must keep public WPP text send');
   assert.match(controllerSource, /handleNativeSend[\s\S]*original\.call\(thisArg, chat, \.\.\.args\)/, 'native fallback must preserve the native send transport behind the same controller owner');

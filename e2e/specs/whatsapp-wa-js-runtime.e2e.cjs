@@ -53,6 +53,7 @@ async function probeGuestRuntime() {
         directComposerVersion: Number(directComposer?.version || 0),
         directComposerReady: typeof directComposer?.handleGesture === 'function',
         directComposerNativeReady: typeof directComposer?.handleNativeSend === 'function',
+        recoveryAbsent: !recovery,
         recoveryInactive: !recovery?.controller || recovery.controller.signal?.aborted === true,
         legacyFallbackInactive: !legacyFallback?.controller || legacyFallback.controller.signal?.aborted === true,
       };
@@ -77,6 +78,7 @@ function injectionReady(state) {
     && state?.directComposerVersion === 4
     && state?.directComposerReady === true
     && state?.directComposerNativeReady === true
+    && state?.recoveryAbsent === true
     && state?.recoveryInactive === true
     && state?.legacyFallbackInactive === true;
 }
@@ -109,6 +111,7 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
     assert.equal(state.directComposerVersion, 4, 'direct composer controller must match the tested owner generation');
     assert.equal(state.directComposerReady, true, 'direct composer controller must be injected into the WhatsApp guest');
     assert.equal(state.directComposerNativeReady, true, 'native private-send fallback must delegate into the same controller owner');
+    assert.equal(state.recoveryAbsent, true, 'legacy recovery module must not bootstrap into a fresh WhatsApp guest');
     assert.equal(state.recoveryInactive, true, 'legacy recovery capture listener must be retired by the direct composer owner');
     assert.equal(state.legacyFallbackInactive, true, 'superseded composer fallback must not remain an active owner');
     for (const key of ['chatReady', 'lidGroupReady', 'storesReady', 'fallbackReady']) {
