@@ -6,6 +6,7 @@ const PARTITION = 'persist:webview-page-e2e-account-a';
 const GUEST_TIMEOUT_MS = 10_000;
 const RUNTIME_TIMEOUT_MS = 45_000;
 const RENDERER_PROBE_TIMEOUT_MS = 2_000;
+const COMPOSER_OWNER_VERSION = 3;
 
 async function probeGuestRuntime() {
   return browser.electron.execute(async (electron, partition, probeTimeoutMs) => {
@@ -47,6 +48,7 @@ async function probeGuestRuntime() {
           && typeof fallback?.group?.getParticipants === 'function'
           && !!fallback?.whatsapp?.ChatStore
           && !!fallback?.whatsapp?.UserPrefs,
+        composerOwnerVersion: Number(window.__geekWhatsAppPublicComposerFallback?.version || 0),
       };
     })()`, true).catch(() => ({ rendererProbeFailed: true }));
     const probeTimeout = new Promise((resolve) => {
@@ -68,7 +70,7 @@ function injectionReady(state) {
 }
 
 describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
-  it('settles WA-JS injection independently from authenticated capabilities and WAPLUS fallback', async () => {
+  it('settles WA-JS injection and installs the translated direct-composer public owner', async () => {
     let state = null;
     await browser.waitUntil(async () => {
       state = await probeGuestRuntime();
@@ -88,13 +90,23 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
       timeoutMsg: 'WA-JS 4.6 injection boundary did not become ready',
     });
 
+    await browser.waitUntil(async () => {
+      state = await probeGuestRuntime();
+      return state.composerOwnerVersion === COMPOSER_OWNER_VERSION;
+    }, {
+      timeout: RUNTIME_TIMEOUT_MS,
+      interval: 500,
+      timeoutMsg: 'translated direct-composer public owner was not injected into the WhatsApp guest',
+    });
+
     assert.equal(state.version, '4.6.0', 'injected WA-JS version must match the exact dependency pin');
     assert.equal(state.wppInjected, true, 'WA-JS bundle must report injected before the partition is owned');
     assert.equal(state.wppReady, true, 'WA-JS official readiness must settle');
-    assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by composer recovery is missing');
+    assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by compatibility recovery is missing');
+    assert.equal(state.composerOwnerVersion, COMPOSER_OWNER_VERSION, 'exact public composer owner generation must be live in the guest');
     for (const key of ['chatReady', 'lidGroupReady', 'storesReady', 'fallbackReady']) {
       assert.equal(typeof state[key], 'boolean', key + ' must remain bounded diagnostic evidence');
     }
-    console.log(`WA_JS_RUNTIME version=${state.version} injected=${state.wppInjected} ready=${state.wppReady} loader=${state.loaderReady} chat=${state.chatReady} lidGroup=${state.lidGroupReady} stores=${state.storesReady} fallback=${state.fallbackReady}`);
+    console.log(`WA_JS_RUNTIME version=${state.version} injected=${state.wppInjected} ready=${state.wppReady} loader=${state.loaderReady} composerOwner=${state.composerOwnerVersion} chat=${state.chatReady} lidGroup=${state.lidGroupReady} stores=${state.storesReady} fallback=${state.fallbackReady}`);
   });
 });
