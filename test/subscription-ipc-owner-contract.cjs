@@ -17,6 +17,7 @@ function createHarness({ trusted = true } = {}) {
       handlers.delete(channel);
     },
   };
+  const lease = Object.freeze({ token: 'must-never-cross-ipc', generation: 1, signal: null });
   const store = {
     getState: async () => { calls.push(['getState']); return { loggedIn: true }; },
     refresh: async () => { calls.push(['refresh']); return { refreshed: true }; },
@@ -31,7 +32,14 @@ function createHarness({ trusted = true } = {}) {
       ] };
     },
     getQuota: async (...args) => { calls.push(['getQuota', ...args]); return { remaining_chars: 1 }; },
-    getTranslationToken: async () => { calls.push(['getTranslationToken']); return 'must-never-cross-ipc'; },
+    getTranslationAuthorization: async () => {
+      calls.push(['getTranslationAuthorization']);
+      return lease;
+    },
+    assertTranslationAuthorizationCurrent: (candidate) => {
+      calls.push(['assertTranslationAuthorizationCurrent']);
+      assert.equal(candidate, lease, 'readiness must validate the exact authorization lease returned by Subscription owner');
+    },
     logout: async () => { calls.push(['logout']); return { ok: true }; },
   };
   const boundary = installSubscriptionIpc({
@@ -94,7 +102,9 @@ function createHarness({ trusted = true } = {}) {
     assert.equal(Object.hasOwn(paid, 'amount'), false, 'payment metadata must not cross the renderer boundary');
     assert.equal(Object.hasOwn(paid, 'tx_id'), false, 'transaction metadata must not cross the renderer boundary');
     assert.deepEqual(readiness, { ready: true, reason: 'ready', retryable: false, quota: 'unknown' });
-    assert.equal(Object.hasOwn(readiness, 'token'), false, 'translation authorization token must never cross readiness IPC');
+    for (const forbidden of ['token', 'generation', 'signal']) {
+      assert.equal(Object.hasOwn(readiness, forbidden), false, `${forbidden} must never cross readiness IPC`);
+    }
     await assert.rejects(handlers.get('subscription:get-order-status')({}, 0), /invalid_order_id/);
     await assert.rejects(handlers.get('subscription:get-order-status')({}, Number.MAX_SAFE_INTEGER + 1), /invalid_order_id/);
 
@@ -109,7 +119,11 @@ function createHarness({ trusted = true } = {}) {
       ['myOrders'],
       ['getQuota', false],
       ['getState'],
-      ['getTranslationToken'],
+      ['getTranslationAuthorization'],
+      ['assertTranslationAuthorizationCurrent'],
+      ['getState'],
+      ['assertTranslationAuthorizationCurrent'],
+      ['assertTranslationAuthorizationCurrent'],
       ['logout'],
       ['enterApp'],
       ['closeWindow'],
