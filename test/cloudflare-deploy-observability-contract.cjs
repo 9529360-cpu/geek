@@ -30,7 +30,11 @@ assert.match(website, /^      name: cloudflare-website-production$/m);
 assert.doesNotMatch(website, /- '\.github\/workflows\/deploy-website\.yml'/, 'workflow control-plane changes must not auto-deploy production');
 assert.doesNotMatch(website, /- 'scripts\/website-production-smoke\.cjs'/, 'verification tooling changes must not auto-deploy production');
 assert.match(website, /- name: Deploy website Worker\n        id: deploy/);
-assert.match(website, /WRANGLER_OUTPUT_FILE_PATH: \$\{\{ runner\.temp \}\}\/wrangler-website-deploy\.ndjson/, 'website deploy must request structured Wrangler output');
+assert.match(website, /FORCE_COLOR: '0'/, 'pinned Wrangler deploy output must be color-free before version parsing');
+assert.match(website, /set -o pipefail/, 'deployment logging must not let tee hide a failed Wrangler deploy');
+assert.match(website, /wrangler@4\.36\.0 deploy --config wrangler-website\.toml 2>&1 \| tee "\$DEPLOY_LOG"/, 'website deploy must preserve the pinned Wrangler and capture its exact output');
+assert.match(website, /Current Version ID:\[\[:space:\]\]\*/, 'website deploy must recover the version ID from the pinned Wrangler output contract');
+assert.match(website, /grep -Eq '\^\[0-9A-Fa-f\]\{8\}-/, 'captured Worker version must be UUID-validated before handoff');
 assert.match(website, /printf 'version_id=%s\\n' "\$VERSION_ID" >> "\$GITHUB_OUTPUT"/, 'website deploy must expose the exact deployed version ID to later steps');
 assert.match(
   website,
@@ -44,6 +48,7 @@ assert.match(website, /ROUTES_CHECKED: \$\{\{ steps\.verify\.outputs\.routes_che
 assert.match(website, /if: always\(\)/);
 assert.match(website, /gh issue comment 21 --body-file "\$REPORT"/);
 assert.doesNotMatch(website, /curl .*geek\.bbnba\.com\/health/, 'website production verification must stay in the tested smoke owner');
+assert.doesNotMatch(website, /WRANGLER_OUTPUT_FILE_PATH/, 'website deploy must not depend on structured Wrangler output newer than the pinned CLI');
 
 assert.match(websiteSmoke, /const SITE_ORIGIN = 'https:\/\/geek\.bbnba\.com';/);
 assert.match(websiteSmoke, /const RELEASE_ORIGIN = 'https:\/\/geek-release\.9529360\.workers\.dev';/);
