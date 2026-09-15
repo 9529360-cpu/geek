@@ -125,6 +125,8 @@ function makePage(options = {}) {
     controller.installPageController(env.page);
     const owner = env.page.__geekWhatsAppDirectComposerController;
     const pending = owner.handleNativeSend(env.nativeChat, ['hello'], env.original, null);
+    for (let i = 0; i < 3 && typeof resolveTranslation !== 'function'; i += 1) await Promise.resolve();
+    assert.equal(typeof resolveTranslation, 'function', 'queued native send must enter the shared translation request before the switch probe');
     env.setActiveChat(makeChat('other@c.us'));
     resolveTranslation({ text: 'translated:hello' });
     await assert.rejects(pending, /聊天已切换/);
