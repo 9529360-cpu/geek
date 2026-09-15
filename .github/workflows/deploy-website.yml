@@ -70,29 +70,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-website-deploy.ndjson
+          FORCE_COLOR: '0'
         run: |
+          set -o pipefail
           DEPLOY_LOG="$RUNNER_TEMP/wrangler-website-deploy.log"
-          npx --yes wrangler@4.36.0 deploy --config wrangler-website.toml | tee "$DEPLOY_LOG"
-          VERSION_ID="$(node - "$WRANGLER_OUTPUT_FILE_PATH" <<'NODE'
-          const fs = require('node:fs');
-          const file = process.argv[2];
-          let version = '';
-          if (file && fs.existsSync(file)) {
-            for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-              if (!line.trim()) continue;
-              try {
-                const event = JSON.parse(line);
-                if (event?.type === 'deploy' && event?.version_id) version = String(event.version_id).trim();
-              } catch (_) {}
-            }
-          }
-          process.stdout.write(version);
-          NODE
-          )"
-          if [ -z "$VERSION_ID" ]; then
-            VERSION_ID="$(sed -n 's/.*Current Version ID:[[:space:]]*//p' "$DEPLOY_LOG" | tail -n 1 | tr -d '\r')"
-          fi
+          npx --yes wrangler@4.36.0 deploy --config wrangler-website.toml 2>&1 | tee "$DEPLOY_LOG"
+          VERSION_ID="$(sed -n 's/.*Current Version ID:[[:space:]]*//p' "$DEPLOY_LOG" | tail -n 1 | tr -d '\r')"
           if ! printf '%s' "$VERSION_ID" | grep -Eq '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'; then
             echo 'Unable to recover the exact deployed Cloudflare Worker version ID.' >&2
             exit 1
