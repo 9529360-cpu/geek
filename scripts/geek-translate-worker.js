@@ -14,7 +14,7 @@ const LANG_NAMES = {
 const PROVIDERS = [
   { id: 'gemini', model: 'gemini-3.6-flash', base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
   { id: 'mistral', model: 'mistral-small-latest', base: 'https://api.mistral.ai/v1', keyEnv: 'MISTRAL_API_KEY' },
-  { id: 'glm', model: 'glm-4.7-flash', base: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY' },
+  { id: 'glm', model: 'glm-4.7-flash', base: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY', body: { thinking: { type: 'disabled' } } },
 ];
 
 const enc = new TextEncoder();
@@ -25,6 +25,10 @@ const COOLDOWN_MS = 30000;
 const PROVIDER_TIMEOUT_MS = 15000;
 const REQUEST_BUDGET_MS = 30000;
 const FINISH_RESERVE_MS = 500;
+const TRANSIENT_RETRY_MAX_MS = 5000;
+const TRANSIENT_RETRY_DELAY_MS = 150;
+const RATE_LIMIT_FALLBACK_MS = 30000;
+const RATE_LIMIT_MAX_MS = 300000;
 const OPERATION_HASH_VERSION = 'translation-op-v1';
 const OPERATION_HASH_DOMAIN = 'geek-translation:operation-hash:v1';
 const REPLAY_KEY_DOMAIN = 'geek-translation:replay-aes-gcm-key:v1';
@@ -60,8 +64,86 @@ function requestAbortedError(cause) {
   return error;
 }
 
+function parseRetryAfterMs(value, now = Date.now()) {
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(RATE_LIMIT_MAX_MS, Math.ceil(seconds * 1000));
+  const absolute = Date.parse(raw);
+  if (!Number.isFinite(absolute)) return 0;
+  return Math.min(RATE_LIMIT_MAX_MS, Math.max(0, absolute - now));
+}
+
+function providerHttpError(provider, response, rawBody) {
+  const error = new Error(`${provider.id}: ${response.status} ${String(rawBody || '').slice(0, 100)}`);
+  error.status = response.status;
+  if (response.status === 429) {
+    error.code = 'provider_rate_limited';
+    error.healthImpact = false;
+    error.retryAfterMs = parseRetryAfterMs(response.headers.get('Retry-After')) || RATE_LIMIT_FALLBACK_MS;
+    return error;
+  }
+  if (response.status === 408 || response.status >= 500) {
+    error.code = 'provider_transient_http';
+    error.retryable = true;
+    return error;
+  }
+  error.code = 'provider_http_error';
+  return error;
+}
+
+function providerTransportError(provider, cause) {
+  const error = new Error(`${provider.id}: transport failure`);
+  error.code = 'provider_transport';
+  error.retryable = true;
+  error.cause = cause;
+  return error;
+}
+
+function providerMalformedResponseError(provider, cause) {
+  const error = new Error(`${provider.id}: malformed response`);
+  error.code = 'provider_malformed_response';
+  error.retryable = true;
+  error.cause = cause;
+  return error;
+}
+
+function providerEmptyResponseError(provider, stage = 'response') {
+  const error = new Error(`${provider.id}: empty ${stage}`);
+  error.code = 'provider_empty_response';
+  error.retryable = true;
+  return error;
+}
+
+function shouldRetryProviderError(error) {
+  return error?.retryable === true;
+}
+
+function sleep(ms, signal = null) {
+  const delay = Math.max(0, Number(ms) || 0);
+  if (delay <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.reject(requestAbortedError(signal.reason));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
+      reject(requestAbortedError(signal?.reason));
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener?.('abort', onAbort);
+      resolve();
+    }, delay);
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+  });
+}
+
 function markProviderFail(id, errorMessage) {
-  const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0 };
+  const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0, rateLimitedUntil: 0 };
   st.failCount = (st.failCount || 0) + 1;
   st.lastError = String(errorMessage || '');
   st.lastFailAt = Date.now();
@@ -70,18 +152,29 @@ function markProviderFail(id, errorMessage) {
 }
 
 function markProviderOk(id) {
-  const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0 };
+  const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0, rateLimitedUntil: 0 };
   st.healthy = true;
   st.failCount = 0;
   st.lastError = '';
   st.lastOkAt = Date.now();
+  st.rateLimitedUntil = 0;
+  providerState.set(id, st);
+}
+
+function markProviderRateLimited(id, error) {
+  const st = providerState.get(id) || { healthy: true, failCount: 0, lastError: '', lastFailAt: 0, lastOkAt: 0, rateLimitedUntil: 0 };
+  const retryMs = Math.max(1000, Math.min(RATE_LIMIT_MAX_MS, Number(error?.retryAfterMs) || RATE_LIMIT_FALLBACK_MS));
+  st.rateLimitedUntil = Date.now() + retryMs;
+  st.lastError = String(error?.message || 'provider rate limited');
   providerState.set(id, st);
 }
 
 function providerUsable(provider) {
   const st = providerState.get(provider.id);
+  const now = Date.now();
+  if (st?.rateLimitedUntil && st.rateLimitedUntil > now) return false;
   if (!st || st.healthy) return true;
-  return Date.now() - (st.lastFailAt || 0) > COOLDOWN_MS;
+  return now - (st.lastFailAt || 0) > COOLDOWN_MS;
 }
 
 function bytesToB64Url(bytes) {
@@ -181,13 +274,14 @@ async function health(env, request) {
   const status = {};
   for (const p of PROVIDERS) {
     if (!env[p.keyEnv]) continue;
-    const st = providerState.get(p.id) || { healthy: true, lastError: '', failCount: 0, lastFailAt: 0, lastOkAt: 0 };
+    const st = providerState.get(p.id) || { healthy: true, lastError: '', failCount: 0, lastFailAt: 0, lastOkAt: 0, rateLimitedUntil: 0 };
     status[p.id] = {
       healthy: st.healthy,
       failCount: st.failCount,
       lastError: st.lastError.slice(0, 120),
       lastFailAt: st.lastFailAt ? new Date(st.lastFailAt).toISOString() : null,
       lastOkAt: st.lastOkAt ? new Date(st.lastOkAt).toISOString() : null,
+      rateLimitedUntil: st.rateLimitedUntil && st.rateLimitedUntil > Date.now() ? new Date(st.rateLimitedUntil).toISOString() : null,
     };
   }
   return json({ ok: configured, service: 'geek-translate', providers, models: status }, configured ? 200 : 503, request, env);
@@ -516,6 +610,7 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
       temperature: 0,
       max_tokens: 2000,
       messages: buildMessages(text, target),
+      ...(provider.body || {}),
     };
     const res = await fetch(`${provider.base}/chat/completions`, {
       method: 'POST',
@@ -525,16 +620,21 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
     });
     if (!res.ok) {
       const raw = await res.text().catch(() => '');
-      throw new Error(`${provider.id}: ${res.status} ${raw.slice(0, 100)}`);
+      throw providerHttpError(provider, res, raw);
     }
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (error) {
+      throw providerMalformedResponseError(provider, error);
+    }
     let result = ((data.choices || [])[0] || {}).message?.content?.trim();
     if (!result && data.choices?.[0]?.message?.reasoning) result = String(data.choices[0].message.reasoning).trim();
-    if (!result) throw new Error(`${provider.id}: empty response`);
+    if (!result) throw providerEmptyResponseError(provider);
     const thinkMatch = result.match(/^<think>[\s\S]*?<\/think>\s*/);
     if (thinkMatch) result = result.slice(thinkMatch[0].length).trim();
     result = result.replace(/^(Here's a thinking process|Let me think|I'll translate|以下是思考过程|让我思考)[：:\s]*/i, '');
-    if (!result) throw new Error(`${provider.id}: empty after strip`);
+    if (!result) throw providerEmptyResponseError(provider, 'response after strip');
     try {
       result = validateTranslationOutput(text, result, target);
     } catch (error) {
@@ -547,13 +647,38 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
       const timeout = new Error(`${provider.id}: timeout`);
       timeout.code = 'provider_timeout';
       timeout.timeoutMs = boundedTimeout;
+      timeout.retryable = true;
       throw timeout;
     }
-    throw error;
+    if (error?.code) throw error;
+    throw providerTransportError(provider, error);
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener?.('abort', abortFromCaller);
   }
+}
+
+async function callProviderWithRetry(provider, env, text, target, timeoutMs, callerSignal = null) {
+  const deadlineAt = Date.now() + Math.max(1, Math.floor(Number(timeoutMs) || 0));
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (callerSignal?.aborted) throw requestAbortedError(callerSignal.reason);
+    const remaining = Math.max(0, deadlineAt - Date.now());
+    if (remaining <= 0) throw lastError || new Error(`${provider.id}: retry budget exhausted`);
+    const attemptTimeout = attempt === 0 ? remaining : Math.min(TRANSIENT_RETRY_MAX_MS, remaining);
+    try {
+      return await callProvider(provider, env, text, target, attemptTimeout, callerSignal);
+    } catch (error) {
+      if (error?.code === 'request_aborted') throw error;
+      lastError = error;
+      if (attempt >= 1 || !shouldRetryProviderError(error)) throw error;
+      const remainingBeforeDelay = Math.max(0, deadlineAt - Date.now() - 1);
+      const delayMs = Math.min(TRANSIENT_RETRY_DELAY_MS, remainingBeforeDelay);
+      if (delayMs <= 0) throw error;
+      await sleep(delayMs, callerSignal);
+    }
+  }
+  throw lastError || new Error(`${provider.id}: provider retry exhausted`);
 }
 
 async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS, callerSignal = null) {
@@ -569,14 +694,15 @@ async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BU
     const attemptBudget = providerAttemptBudget(deadlineAt);
     if (attemptBudget <= 0) throw deadlineExceededError(lastError);
     try {
-      const result = await callProvider(provider, env, text, target, attemptBudget, callerSignal);
+      const result = await callProviderWithRetry(provider, env, text, target, attemptBudget, callerSignal);
       markProviderOk(provider.id);
       return result;
     } catch (error) {
       if (error?.code === 'request_aborted') throw error;
-      const deadlineLimitedTimeout = error?.code === 'provider_timeout' && attemptBudget < PROVIDER_TIMEOUT_MS;
+      const deadlineLimitedTimeout = error?.code === 'provider_timeout' && remainingBudgetMs(deadlineAt) <= FINISH_RESERVE_MS;
       if (deadlineLimitedTimeout) throw deadlineExceededError(error);
-      if (shouldAffectProviderHealth(error)) markProviderFail(provider.id, error.message);
+      if (error?.code === 'provider_rate_limited') markProviderRateLimited(provider.id, error);
+      else if (shouldAffectProviderHealth(error)) markProviderFail(provider.id, error.message);
       lastError = error;
       if (providerAttemptBudget(deadlineAt) <= 0) throw deadlineExceededError(error);
     }
