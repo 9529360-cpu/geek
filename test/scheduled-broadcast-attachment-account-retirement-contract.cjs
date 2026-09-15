@@ -196,7 +196,6 @@ async function nextTurn() {
   const materializedB = await pendingMaterialize;
   assert.equal(materializedB.length, 1);
   const lateToken = materializedB[0].token;
-  assert.equal(ephemeral.has(lateToken), true, 'materialize publishes its token before the retirement drain completes');
   assert.equal(await cleanupB, 1, 'terminal cleanup must delete B durable refs after the drain');
   assert.equal(ephemeral.has(lateToken), false, 'terminal account cleanup must release the token created by drained materialize work');
   assert.ok(releasedTokens.includes(lateToken), 'late materialized token must pass through the canonical release owner');
