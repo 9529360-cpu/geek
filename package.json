@@ -21,7 +21,8 @@
     "@wdio/local-runner": "9.31.5",
     "@wdio/mocha-framework": "9.31.5",
     "electron": "^43.4.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "puppeteer-core": "24.43.1"
   },
   "dependencies": {
     "@wppconnect/wa-js": "^4.3.0",
