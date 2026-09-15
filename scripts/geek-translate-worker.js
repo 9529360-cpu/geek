@@ -11,6 +11,10 @@ const LANG_NAMES = {
   nl: 'Dutch', sv: 'Swedish', el: 'Greek', th: 'Thai',
 };
 
+// 免费模型池（按顺序尝试；429/5xx/超时/空响应 → 自动切换下一个）
+// 2026-08-17 晚：Groq/Gemini 旧 key 失效、旧模型名下架 → 换新 key 和新模型名
+// 2026-08-17 深夜：Groq qwen 模型输出 <think> 思考过程污染翻译结果（几字变千字，扣光额度）
+//   → Groq 从池中移除；Gemini 优先（新 key 干净输出）；GLM 慢+易限流放最后备用
 const PROVIDERS = [
   { id: 'gemini', model: 'gemini-3.6-flash',       base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
   { id: 'mistral', model: 'mistral-small-latest',   base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
@@ -18,6 +22,9 @@ const PROVIDERS = [
 ];
 
 const enc = new TextEncoder();
+
+// 模型健康状态（内存态，进程重启重置；失败降级标记 + 成功自动恢复）
+// 规则：连续 2 次失败 → 标记不健康（跳过）；30 秒冷却后允许重试探测；任意成功 → 恢复健康
 const providerState = new Map();
 const FAIL_THRESHOLD = 2;
 const COOLDOWN_MS = 30000;
@@ -285,6 +292,18 @@ function validateTranslationOutput(source, output, target) {
   return result;
 }
 
+function providerQualityError(provider, error) {
+  const quality = new Error(`${provider.id}: ${String(error?.message || error || 'translation output rejected')}`);
+  quality.code = 'provider_quality_rejected';
+  quality.healthImpact = false;
+  quality.cause = error;
+  return quality;
+}
+
+function shouldAffectProviderHealth(error) {
+  return error?.healthImpact !== false;
+}
+
 async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS) {
   const boundedTimeout = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, Math.floor(Number(timeoutMs) || 0)));
   const controller = new AbortController();
@@ -315,7 +334,7 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
     result = result.replace(/^(Here's a thinking process|Let me think|I'll translate|以下是思考过程|让我思考)[：:\s]*/i, '');
     if (!result) throw new Error(`${provider.id}: empty after strip`);
     try { result = validateTranslationOutput(text, result, target); }
-    catch (error) { throw new Error(`${provider.id}: ${error.message}`); }
+    catch (error) { throw providerQualityError(provider, error); }
     return { text: result, engine: provider.id };
   } catch (error) {
     if (controller.signal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') {
@@ -345,7 +364,7 @@ async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BU
     } catch (error) {
       const deadlineLimitedTimeout = error?.code === 'provider_timeout' && attemptBudget < PROVIDER_TIMEOUT_MS;
       if (deadlineLimitedTimeout) throw deadlineExceededError(error);
-      markProviderFail(provider.id, error.message);
+      if (shouldAffectProviderHealth(error)) markProviderFail(provider.id, error.message);
       lastError = error;
       if (providerAttemptBudget(deadlineAt) <= 0) throw deadlineExceededError(error);
     }
