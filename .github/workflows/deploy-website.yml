@@ -12,6 +12,7 @@ on:
       - 'scripts/geek-marketing-styles-components.mjs'
       - 'scripts/geek-marketing-visuals.mjs'
       - 'scripts/geek-marketing-pages.mjs'
+      - 'scripts/geek-public-pricing.mjs'
       - 'scripts/geek-website-entry.js'
       - 'scripts/geek-website-worker.js'
       - 'scripts/website-payment-qr.mjs'
@@ -56,6 +57,7 @@ jobs:
           node --check scripts/geek-marketing-styles-components.mjs
           node --check scripts/geek-marketing-visuals.mjs
           node --check scripts/geek-marketing-pages.mjs
+          node --check scripts/geek-public-pricing.mjs
           node --check scripts/geek-website-entry.js
           node --check scripts/geek-website-worker.js
           node --check scripts/website-payment-qr.mjs
@@ -99,7 +101,7 @@ jobs:
             printf -- '- Wrangler deploy: `%s`\n' "$DEPLOY_OUTCOME"
             printf -- '- Public verification: `%s` (`%s` critical routes; health HTTP `%s`)\n' "$VERIFY_OUTCOME" "$ROUTES_CHECKED" "$HTTP_CODE"
             printf -- '- Commit: `%s`\n' "$SHORT_SHA"
-            printf -- '- Surface: `/health`, `/`, `/guide`, `/faq`, `/sitemap.xml`, `/download`\n\n'
+            printf -- '- Surface: `/health`, `/`, `/pricing`, `/guide`, `/faq`, `/sitemap.xml`, `/download`\n\n'
             printf 'No tokens, Authorization headers, cookies, DNS values, database contents, Cloudflare response bodies, or user data are included in this report.\n'
           } > "$REPORT"
           cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"

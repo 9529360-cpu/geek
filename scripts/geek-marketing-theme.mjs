@@ -1,4 +1,4 @@
-export const MARKETING_ROUTES = new Set(['/product', '/translation', '/broadcast', '/security', '/guide', '/faq', '/windows']);
+export const MARKETING_ROUTES = new Set(['/product', '/translation', '/broadcast', '/security', '/pricing', '/guide', '/faq', '/windows']);
 export const SITE_ORIGIN = 'https://geek.bbnba.com';
 
 export const PAGE_META = {
@@ -33,6 +33,14 @@ export const PAGE_META = {
     eyebrow: 'Isolation by default',
     headline: '多账号的第一要求，\n是边界真的存在。',
     lede: '真正的多账号工作台不能只在界面上“看起来分开”。账号身份、会话环境、工具数据、后台任务与附件能力都必须拥有明确归属。',
+  },
+  '/pricing': {
+    label: 'Pricing',
+    title: '字符包与翻译用量 · 极客 Geek',
+    description: '极客 Geek 当前按翻译字符余额计费：注册赠送 2 万字符，字符包一次购买、余额不限时，不按月收取席位费。',
+    eyebrow: 'Usage pricing',
+    headline: '按实际翻译用量付费，\n不按月养席位。',
+    lede: '极客当前采用字符余额模式：注册先获得免费字符，真正产生持续翻译需求后再购买字符包。字符余额不限时，用完再买，不把多账号工作台包装成三档功能订阅。',
   },
   '/guide': {
     label: 'Guide',

@@ -34,6 +34,7 @@ const WORKERS = Object.freeze({
       'scripts/geek-marketing-styles-components.mjs',
       'scripts/geek-marketing-visuals.mjs',
       'scripts/geek-marketing-pages.mjs',
+      'scripts/geek-public-pricing.mjs',
       'scripts/geek-website-entry.js',
       'scripts/geek-website-worker.js',
       'scripts/website-payment-qr.mjs',
