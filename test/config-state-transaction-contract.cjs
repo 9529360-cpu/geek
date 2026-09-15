@@ -61,9 +61,14 @@ async function normalLoadAndEncryptedRestart() {
   await withTemp(async dir => {
     const h = makeStore({ dir });
     assert.deepEqual(await h.store.load(), { ...DEFAULT_CONFIG, broadcastGroups: [] });
-    assert.match(await fs.readFile(h.commit, 'utf8'), /"sha256":"[0-9a-f]{64}"/);
+    await assert.rejects(
+      fs.readFile(h.commit, 'utf8'),
+      error => error?.code === 'ENOENT',
+      'missing config load must leave the migration retry seam unmaterialized',
+    );
     const updated = await h.store.update({ theme: 'dark', lockPassword: 'lock', password: 'proxy', broadcastGroups: [{ id: 'g', name: 'G' }] });
     assert.equal(updated.theme, 'dark');
+    assert.match(await fs.readFile(h.commit, 'utf8'), /"sha256":"[0-9a-f]{64}"/, 'first real mutation must create committed snapshot proof');
     const raw = await fs.readFile(h.file, 'utf8');
     assert.match(raw, /"lockPassword": "enc:/);
     assert.match(raw, /"password": "enc:/);
@@ -239,11 +244,10 @@ async function concurrentTransactionsSerializeWholeMutation() {
       },
     };
     const h = makeStore({ dir, adapter });
-    const boot = h.store.load();
-    gateResolve();
-    await boot;
+    await h.store.load();
     const one = h.store.update({ host: 'one' });
     const two = h.store.update({ port: 'two' });
+    gateResolve();
     await Promise.all([one, two]);
     const final = h.store.getSnapshot();
     assert.equal(final.host, 'one');
