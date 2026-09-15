@@ -783,9 +783,14 @@
   async function handleLineTranslationIpc(wv, event) {
     if (event?.channel !== 'send2Host') return;
     const message = event.args?.[0];
-    if (!message || message.type !== 'geek-translation-request') return;
+    if (!message || typeof message !== 'object') return;
     const requestId = String(message.id || '');
     const suppliedToken = String(message.token || '');
+    if (message.type === 'geek-native-input-request') {
+      await processNativeInputRequest(wv, requestId, suppliedToken);
+      return;
+    }
+    if (message.type !== 'geek-translation-request') return;
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
     if (!authorization.ok) return;
     changeWebviewBridgeInflight(wv, 1);
