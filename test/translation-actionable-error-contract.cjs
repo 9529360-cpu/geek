@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const recovery = require('../ui/whatsapp-translation-hook-recovery.js');
 
 const prefix = recovery.TRANSLATION_ERROR_ENVELOPE_PREFIX;
@@ -90,10 +91,40 @@ assert.equal(
 const malformed = recovery.parseTranslationFailure(new Error(prefix + '{not-json'));
 assert.equal(malformed.code, undefined, 'malformed envelope must fail closed to generic UI');
 
-const source = fs.readFileSync(path.resolve(__dirname, '../src/preload.cjs'), 'utf8');
-assert.match(source, /TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:'/);
-assert.match(source, /translationErrorEnvelope\(\{ \.\.\.detail, message: humanMessage \}\)/);
-assert.match(source, /error\.userMessage = humanMessage/);
-assert.doesNotMatch(source, /Authorization|Bearer|api[_-]?key/i, 'preload error envelope must not add secret-bearing fields');
+const preloadSource = fs.readFileSync(path.resolve(__dirname, '../src/preload.cjs'), 'utf8');
+assert.match(preloadSource, /TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:'/);
+assert.match(preloadSource, /translationErrorEnvelope\(\{ \.\.\.detail, message: humanMessage \}\)/);
+assert.match(preloadSource, /error\.userMessage = humanMessage/);
+assert.doesNotMatch(preloadSource, /Authorization|Bearer|api[_-]?key/i, 'preload error envelope must not add secret-bearing fields');
+
+const adapterSource = fs.readFileSync(path.resolve(__dirname, '../ui/translation-adapters.js'), 'utf8');
+function adapterFailureMapper(platform) {
+  const startMarker = platform === 'telegram' ? 'function installTelegramTranslation' : 'function installLineTranslation';
+  const endMarker = platform === 'telegram' ? 'function installLineTranslation' : 'window.GeekTranslationAdapters =';
+  const blockStart = adapterSource.indexOf(startMarker);
+  const blockEnd = adapterSource.indexOf(endMarker, blockStart + startMarker.length);
+  assert.ok(blockStart >= 0 && blockEnd > blockStart, `${platform} installer must remain extractable`);
+  const block = adapterSource.slice(blockStart, blockEnd);
+  const helperStart = block.indexOf('const translationSendErrorMessage = error => {');
+  const helperEnd = block.indexOf("const nativeInputEnvelopePrefix = '\\u001eGEEK_NATIVE_INPUT_V1\\u001e';", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, `${platform} actionable error mapper must stay self-contained inside the injected installer`);
+  const context = { Error, JSON, String, Number };
+  vm.createContext(context);
+  vm.runInContext(`${block.slice(helperStart, helperEnd)}\nthis.mapFailure = translationSendErrorMessage;`, context, { filename: `${platform}-translation-error-mapper.js` });
+  return { block, mapFailure: context.mapFailure };
+}
+
+for (const platform of ['telegram', 'line']) {
+  const { block, mapFailure } = adapterFailureMapper(platform);
+  assert.match(block, /__GEEK_TRANSLATION_ERROR_V1__:/, `${platform} must understand the versioned preload error envelope`);
+  assert.match(block, /translationSendErrorMessage\(error\)/, `${platform} send catch must render structured translation failures`);
+  assert.match(mapFailure(new Error(envelope({ code: 'QUOTA_EXHAUSTED', category: 'quota', status: 402 }))), /额度已用完.*个人中心.*原文未发送/);
+  assert.match(mapFailure(new Error(envelope({ code: 'SUBSCRIPTION_SESSION_CHANGED', category: 'auth', status: 401 }))), /授权状态已变化.*重新登录.*原文未发送/);
+  assert.match(mapFailure(new Error(envelope({ code: 'TRANSLATION_DEADLINE_EXCEEDED', category: 'deadline', status: 504 }))), /响应超时.*原文未发送/);
+  assert.match(mapFailure(new Error(envelope({ code: 'TRANSLATION_RATE_LIMITED', category: 'rate-limit', status: 429 }))), /繁忙.*原文未发送/);
+  assert.match(mapFailure(new Error(envelope({ code: 'TRANSLATION_GATEWAY_RETRYABLE', category: 'gateway', status: 502 }))), /服务暂时不可用.*原文未发送/);
+  assert.equal(mapFailure(new Error('QUOTA_EXHAUSTED')), '翻译失败，原文未发送', `${platform} must not infer machine authority from legacy human text`);
+  assert.equal(mapFailure(new Error(prefix + '{not-json')), '翻译失败，原文未发送', `${platform} malformed envelopes must fail closed to generic UI`);
+}
 
 console.log('TRANSLATION_ACTIONABLE_ERROR_CONTRACT_OK');
