@@ -50,6 +50,7 @@ function createStore({ dir, adapter = fs, crypto = cryptoHarness(), ids = [], er
   return {
     file,
     backup: `${file}.bak`,
+    commit: `${file}.commit`,
     crypto,
     errors,
     store: createAccountStateStore({
@@ -99,8 +100,10 @@ async function bootstrapAndValidCurrent() {
     assert.deepEqual(await h.store.load(), { activeAccountId: null, accounts: [] });
     assert.deepEqual(JSON.parse(await readText(h.file)), { activeAccountId: null, accounts: [] });
     assert.deepEqual(JSON.parse(await readText(h.backup)), { activeAccountId: null, accounts: [] });
+    assert.match(await readText(h.commit), /"sha256":"[0-9a-f]{64}"/);
     await h.store.add({ name: 'Alpha' });
     const before = h.store.getSnapshot();
+    assert.equal(await readText(h.file), await readText(h.backup), 'successful account mutation must mirror the committed snapshot');
     const restarted = createStore({ dir });
     assert.deepEqual(await restarted.store.load(), before);
   });
@@ -152,16 +155,17 @@ async function readFailuresDoNotOverwrite() {
 async function recoversValidatedBackup() {
   await withTemp(async dir => {
     const crypto = cryptoHarness();
-    const h = createStore({ dir, crypto, ids: ['C'] });
-    const backup = diskState(crypto, {
-      activeAccountId: 'B',
-      accounts: [
-        { id: 'A', type: 'website', name: 'Site A', partition: 'evil', customUrl: 'https://a.example/app', hpwd: crypto.encode('one'), createdAt: 'old-a' },
-        { id: 'B', type: 'telegram-z', name: 'Bee', partition: 'evil2', customUrl: '', hpwd: crypto.encode('two'), createdAt: 'old-b' },
-      ],
-    });
-    await fs.writeFile(h.file, '{broken', 'utf8');
-    await fs.writeFile(h.backup, backup, 'utf8');
+    const seed = createStore({ dir, crypto, ids: ['A', 'B'] });
+    await seed.store.load();
+    await seed.store.add({ id: 'ignored', type: 'website', name: 'Site A', customUrl: 'https://a.example/app' });
+    await seed.store.update('A', { hpwd: 'one' });
+    await seed.store.add({ type: 'telegram-z', name: 'Bee' });
+    await seed.store.update('B', { hpwd: 'two' });
+    await seed.store.activate('B');
+    await fs.writeFile(seed.file, '{broken', 'utf8');
+
+    const errors = [];
+    const h = createStore({ dir, crypto, ids: ['C'], errors });
     const recovered = await h.store.load();
     assert.equal(recovered.activeAccountId, 'B');
     assert.deepEqual(recovered.accounts.map(account => account.id), ['A', 'B']);
@@ -171,7 +175,7 @@ async function recoversValidatedBackup() {
     ]);
     assert.equal(recovered.accounts[0].customUrl, 'https://a.example/app');
     assert.deepEqual(recovered.accounts.map(account => account.hpwd), ['one', 'two']);
-    assert.ok(h.errors.some(item => item.phase === 'recovery' && item.recovered === true));
+    assert.ok(errors.some(item => item.phase === 'recovery' && item.recovered === true));
 
     const restart = createStore({ dir, crypto });
     assert.deepEqual(await restart.store.load(), recovered, 'restart after recovery changed state');
@@ -229,10 +233,13 @@ async function secureStorageUnavailableDuringMigrationPreservesPlaintext() {
 async function backupDecryptFailureIsNotAccepted() {
   await withTemp(async dir => {
     const crypto = cryptoHarness();
-    const h = createStore({ dir, crypto });
-    await fs.writeFile(h.file, '{broken', 'utf8');
-    await fs.writeFile(h.backup, diskState(crypto), 'utf8');
+    const seed = createStore({ dir, crypto, ids: ['A'] });
+    await seed.store.load();
+    await seed.store.add({ name: 'Alpha' });
+    await seed.store.update('A', { hpwd: 'top-secret' });
+    await fs.writeFile(seed.file, '{broken', 'utf8');
     crypto.failDecrypt();
+    const h = createStore({ dir, crypto });
     await assert.rejects(h.store.load(), error => error?.code === ACCOUNT_STATE_RECOVERY_REQUIRED);
     assert.equal(await readText(h.file), '{broken');
   });
@@ -252,7 +259,7 @@ async function durabilityUsesFileSync() {
     };
     const h = createStore({ dir, adapter });
     await h.store.load();
-    assert.ok(syncs >= 2, `expected synced temp/backup writes, got ${syncs}`);
+    assert.ok(syncs >= 3, `expected synced primary/backup/proof writes, got ${syncs}`);
   });
 }
 

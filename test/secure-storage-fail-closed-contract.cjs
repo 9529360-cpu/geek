@@ -33,11 +33,17 @@ const { runAccountDataStoreCases } = require('../test-support/account-data-store
 
   const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');
   const configState = fs.readFileSync(path.join(__dirname, '../src/config-state.cjs'), 'utf8');
+  const committedMirror = fs.readFileSync(path.join(__dirname, '../src/committed-state-mirror.cjs'), 'utf8');
   assert.doesNotMatch(main, /safeStorage\.encryptString[^\n]*catch\s*\{\s*return text/, '主进程敏感字段不得降级明文');
   assert.doesNotMatch(main, /lineTokenEncrypt[\s\S]{0,300}catch\s*\{\s*return text/, 'LINE token 不得降级明文');
   assert.match(configState, /SECURE_STORAGE_UNAVAILABLE/, 'Config State owner must fail closed when secure storage is unavailable');
   assert.match(configState, /report\(error, 'migration', false\)/, 'Config State migration failure must be reported without replacing canonical memory');
-  assert.match(configState, /await durableWrite\(state, \{ migration: true \}\)/, 'Config State owner must keep secure migration inside its durability boundary');
+  assert.match(configState, /async function migrateLoadedState\(\{ initializing = false \} = \{\}\)[\s\S]*await durableWrite\(state, \{ initializing \}\)/,
+    'Config State owner must keep secure migration inside its durable transaction boundary');
+  assert.match(configState, /function serialize\(candidate\)[\s\S]*lockPassword: encryptSecret\(candidate\.lockPassword\)[\s\S]*password: encryptSecret\(candidate\.password\)/,
+    'Config State must encrypt sensitive values before delegating raw snapshot durability');
+  assert.match(committedMirror, /await writeSynced\(temporaryFile, snapshot\)[\s\S]*await fs\.rename\(commitTemporaryFile, commitPath\)/,
+    'shared mirror may persist only the already-serialized snapshot and must retain the committed-proof boundary');
 
   const accountDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geek-account-secure-storage-'));
   const accountsFile = path.join(accountDir, 'accounts.json');

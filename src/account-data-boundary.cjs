@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 const { createAccountDataStore, createStoreError } = require('./account-data-store.cjs');
+const { createAccountRemovalCleanupJournal } = require('./account-removal-cleanup-journal.cjs');
 
 const ACCOUNT_DATA_CHANNELS = Object.freeze([
   'account-data:get-all',
@@ -63,9 +64,40 @@ function installAccountDataBoundary(options = {}) {
   // Compatibility option name retained; live caller performs irreversible scheduled-attachment cleanup.
   // It must therefore run only after authoritative account deletion is known to have committed.
   const committedAccountCleanup = options.beforeAccountRemove || (async () => {});
+  const cleanupJournal = options.cleanupJournal || (
+    options.fs && typeof options.getUserDataDir === 'function'
+      ? createAccountRemovalCleanupJournal({
+        fs: options.fs,
+        pathModule,
+        filePath: pathModule.join(options.getUserDataDir(), 'account-removal-cleanup.json'),
+      })
+      : null
+  );
+  const onCleanupRecoveryError = typeof options.onCleanupRecoveryError === 'function'
+    ? options.onCleanupRecoveryError
+    : () => {};
   const expectedUiPath = pathModule.resolve(uiEntryPath);
   const comparablePath = (value) => platform === 'win32' ? value.toLowerCase() : value;
   const registeredChannels = new Set();
+  let cleanupRecoveryTail = Promise.resolve();
+
+  function reconcileCommittedCleanup() {
+    if (!cleanupJournal) return Promise.resolve(Object.freeze({ recovered: [], cleared: [], failed: [] }));
+    const run = cleanupRecoveryTail.catch(() => {}).then(() => cleanupJournal.recover({
+      resolveAccountPartition,
+      cleanup: committedAccountCleanup,
+    }));
+    cleanupRecoveryTail = run.catch((error) => {
+      try { onCleanupRecoveryError(error); } catch {}
+    });
+    return run;
+  }
+
+  // Account State is loaded before this boundary is installed in production. A
+  // durable finalizer left by a hard termination can therefore be reconciled as
+  // soon as the boundary is composed, without waiting for renderer state.
+  reconcileCommittedCleanup().catch(() => {});
+
   const register = (channel, handler) => {
     ipcMain.handle(channel, handler);
     registeredChannels.add(channel);
@@ -107,12 +139,42 @@ function installAccountDataBoundary(options = {}) {
     return store.remove(partition, key);
   });
 
+  async function clearUncommittedCleanupDebt(accountId) {
+    if (!cleanupJournal) return;
+    try { await cleanupJournal.clear(accountId); }
+    catch (error) { try { onCleanupRecoveryError(error); } catch {} }
+  }
+
+  async function settleCommittedRemoval({ event, accountId, partition, response }) {
+    let cleanupPending = false;
+    try {
+      await committedAccountCleanup({ event, accountId, partition });
+      if (cleanupJournal) await cleanupJournal.clear(accountId);
+    } catch (error) {
+      cleanupPending = true;
+      try { onCleanupRecoveryError(error); } catch {}
+    }
+    store.finalizeDelete(partition);
+    return cleanupPending
+      ? Object.freeze({ ok: true, deleted: true, cleanupPending: true })
+      : response;
+  }
+
   async function runAccountRemoval(event, accountId, removeImplementation, ...rest) {
     if (typeof removeImplementation !== 'function') throw new TypeError('removeImplementation must be a function');
     assertMainRenderer(event);
     const id = assertAccountId(accountId);
     const partition = await resolveAccountPartition(id);
+    await reconcileCommittedCleanup();
     await store.beginDelete(partition);
+    if (cleanupJournal) {
+      try {
+        await cleanupJournal.markPending({ accountId: id, partition });
+      } catch (error) {
+        store.cancelDelete(partition);
+        throw error;
+      }
+    }
 
     let response;
     try {
@@ -129,28 +191,21 @@ function installAccountDataBoundary(options = {}) {
         }
       }
       if (!removalCommitted) {
+        await clearUncommittedCleanupDebt(id);
         store.cancelDelete(partition);
         throw error;
       }
-      try { await committedAccountCleanup({ event, accountId: id, partition }); } catch {}
-      store.finalizeDelete(partition);
-      return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
+      return settleCommittedRemoval({ event, accountId: id, partition, response: Object.freeze({ ok: true, deleted: true, cleanupPending: true }) });
     }
 
-    try {
-      await committedAccountCleanup({ event, accountId: id, partition });
-    } catch {
-      store.finalizeDelete(partition);
-      return Object.freeze({ ok: true, deleted: true, cleanupPending: true });
-    }
-    store.finalizeDelete(partition);
-    return response;
+    return settleCommittedRemoval({ event, accountId: id, partition, response });
   }
 
   return Object.freeze({
     store,
     resolveAccountPartition,
     runAccountRemoval,
+    reconcileCommittedCleanup,
     dispose() {
       if (typeof ipcMain.removeHandler !== 'function') return;
       for (const channel of registeredChannels) ipcMain.removeHandler(channel);
