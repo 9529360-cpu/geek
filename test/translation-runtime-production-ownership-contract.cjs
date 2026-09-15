@@ -40,10 +40,11 @@ assert.match(runtime, /require\('\.\/translation-smart-queue\.cjs'\)/, 'public r
 assert.match(runtime, /const privateIpc = \{/, 'base runtime must register only against a private registrar');
 assert.match(
   runtime,
-  /base\.createTranslationRuntime\(\{ \.\.\.options, ipcMain: privateIpc, fetchImpl: intentAwareFetch \}\)/,
-  'base runtime must receive only the private IPC registrar while the public owner decorates its outbound fetch boundary'
+  /base\.createTranslationRuntime\(\{\s*\.\.\.options,\s*ipcMain: privateIpc,\s*fetchImpl: intentAwareFetch,\s*getSubscriptionStore: baseSubscriptionStore,\s*\}\)/,
+  'base runtime must receive the private IPC registrar, request-local gateway metadata fetch, and admission-bound subscription lease owner',
 );
 assert.match(runtime, /const intentAwareFetch = \(url, request = \{\}\) => \{/, 'public runtime must own request-local gateway metadata decoration');
+assert.match(runtime, /getTranslationAuthorization'\) return async \(\) => capturedLease/, 'queued work must remain bound to the authorization lease captured before admission');
 assert.match(runtime, /ipcMain\.handle\('translation:translate', translateIpc\)/, 'public Translation Runtime must own typed translate IPC');
 assert.match(runtime, /ipcMain\.handle\('translation:health', health\)/, 'public Translation Runtime must own health IPC');
 assert.match(runtime, /for \(const channel of base\.TRANSLATION_CHANNELS\) ipcMain\.removeHandler\(channel\)/, 'public Translation Runtime must own channel teardown');
