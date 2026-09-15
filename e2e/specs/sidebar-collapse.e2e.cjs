@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const ACCOUNT_A = 'e2e-account-a';
 const ACCOUNT_B = 'e2e-account-b';
 const STEP_TIMEOUT = 3000;
+const W3C_ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf';
+const WEBDRIVER_ENTER = '\uE007';
 
 async function waitVisible(selector, timeout = STEP_TIMEOUT) {
   const element = await $(selector);
@@ -12,16 +14,36 @@ async function waitVisible(selector, timeout = STEP_TIMEOUT) {
   return element;
 }
 
-async function waitClickable(selector, timeout = STEP_TIMEOUT) {
-  const element = await waitVisible(selector, timeout);
-  await element.waitForClickable({ timeout });
-  return element;
+function webdriverElementId(element) {
+  return element?.elementId || element?.[W3C_ELEMENT_KEY] || element?.ELEMENT || '';
+}
+
+async function activateWithKeyboard(selector) {
+  await waitVisible(selector);
+  await browser.waitUntil(async () => browser.execute((targetSelector) => {
+    const target = document.querySelector(targetSelector);
+    return !!target && (target.matches('button') || target.getAttribute('role') === 'button');
+  }, selector), {
+    timeout: STEP_TIMEOUT,
+    timeoutMsg: `${selector} did not become keyboard-activatable`,
+  });
+  await browser.execute((targetSelector) => {
+    document.querySelector(targetSelector)?.focus({ preventScroll: true });
+  }, selector);
+  await browser.waitUntil(async () => browser.execute((targetSelector) =>
+    document.activeElement === document.querySelector(targetSelector), selector), {
+    timeout: STEP_TIMEOUT,
+    timeoutMsg: `${selector} did not receive focus`,
+  });
+  const activeElement = await browser.getActiveElement();
+  const elementId = webdriverElementId(activeElement);
+  assert.ok(elementId, `active WebDriver element is unavailable for ${selector}`);
+  await browser.elementSendKeys(elementId, WEBDRIVER_ENTER);
 }
 
 async function setCollapsed(collapsed) {
-  const button = await waitClickable('#btn-collapse');
   const isCollapsed = await browser.execute(() => document.getElementById('side-nav')?.classList.contains('collapsed') === true);
-  if (isCollapsed !== collapsed) await button.click();
+  if (isCollapsed !== collapsed) await activateWithKeyboard('#btn-collapse');
   await browser.waitUntil(async () => browser.execute((expected) => {
     const sideNav = document.getElementById('side-nav');
     const buttonNode = document.getElementById('btn-collapse');
@@ -34,8 +56,7 @@ async function setCollapsed(collapsed) {
 }
 
 async function activateAccount(accountId) {
-  const main = await waitClickable(`.nav-account[data-id="${accountId}"] .nav-account-main`);
-  await main.click();
+  await activateWithKeyboard(`.nav-account[data-id="${accountId}"] .nav-account-main`);
   await browser.waitUntil(async () => browser.execute((id) =>
     document.querySelector('.nav-account.active[data-id]')?.dataset.id === id, accountId), {
     timeout: STEP_TIMEOUT,
