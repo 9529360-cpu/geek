@@ -30,8 +30,13 @@ assert.equal(fileUrl, 'file:[REDACTED]');
 assert.doesNotMatch(fileUrl, /alice|private|customer-42/);
 
 const malformedUserinfo = sanitizeUrlForLog('https://alice:secret@example.com:bad/path-token?token=x#state');
-assert.equal(malformedUserinfo, 'https://example.com:bad/[REDACTED_PATH]');
-assert.doesNotMatch(malformedUserinfo, /alice|secret|path-token|token|state/, 'malformed URL fallback must not expose userinfo/path/query/hash secrets');
+assert.equal(malformedUserinfo, 'https:[REDACTED]');
+assert.doesNotMatch(malformedUserinfo, /alice|secret|example|path-token|token|state/, 'malformed URL fallback must retain only the recognized scheme');
+
+const malformedMultiUserinfo = sanitizeUrlForLog('https://alice:secret@internal-token@example.com:bad/path-token?token=x#state');
+assert.equal(malformedMultiUserinfo, 'https:[REDACTED]');
+assert.doesNotMatch(malformedMultiUserinfo, /alice|secret|internal-token|example|path-token|token|state/, 'multiple malformed userinfo delimiters must not leak credential-like authority data');
+
 assert.equal(
   sanitizeUrlForLog('not-a-valid-url/private/customer-42?token=secret#state'),
   '[INVALID_URL]',
