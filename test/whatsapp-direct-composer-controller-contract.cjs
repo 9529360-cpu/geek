@@ -52,6 +52,8 @@ function makePage(options = {}) {
 
   const recoveryAbort = makeAbort();
   const oldFallbackAbort = makeAbort();
+  const guardAbort = makeAbort();
+  const nativeSends = [];
   const page = {
     AbortController,
     console: { error() {} },
@@ -84,6 +86,7 @@ function makePage(options = {}) {
     __geekWhatsAppPublicComposerFallback: {
       controller: oldFallbackAbort,
     },
+    __geekWhatsAppGuardAbort: guardAbort,
     __geekWhatsAppWrappedSend() {},
     __geekGetTranslationSetting() {
       return options.translationDisabled
@@ -105,8 +108,8 @@ function makePage(options = {}) {
   };
 
   return {
-    page, chat, editor, listeners, notices, sends, remembered, clearedIntervals,
-    recoveryAbort, oldFallbackAbort,
+    page, chat, editor, listeners, notices, sends, remembered, clearedIntervals, nativeSends,
+    recoveryAbort, oldFallbackAbort, guardAbort,
     setActiveChat(next) { activeChat = next; },
     setEditorText(next) { editorText = next; },
     getTranslationCalls() { return translationCalls; },
@@ -125,7 +128,7 @@ function trustedEnter(listeners, target) {
 }
 
 (async () => {
-  assert.equal(controller.CONTROLLER_VERSION, 3);
+  assert.equal(controller.CONTROLLER_VERSION, 4);
   assert.equal(controller.isWhatsAppType('whatsapp'), true);
   assert.equal(controller.isWhatsAppType('whatsapp-pure'), true);
   assert.equal(controller.isWhatsAppType('telegram'), false);
@@ -136,6 +139,7 @@ function trustedEnter(listeners, target) {
     assert.equal(controller.installPageController(env.page), 'READY');
     assert.equal(env.recoveryAbort.signal.aborted, true, 'legacy recovery listener must be retired');
     assert.equal(env.oldFallbackAbort.signal.aborted, true, 'legacy fallback listener must be retired');
+    assert.equal(env.guardAbort.signal.aborted, true, 'legacy app.js raw-send guard must be retired');
     assert.deepEqual(env.clearedIntervals, [77], 'legacy recovery timer must be retired');
     const counters = trustedEnter(env.listeners, env.editor);
     assert.deepEqual(counters, { prevented: 1, stopped: 1 });
@@ -233,6 +237,57 @@ function trustedEnter(listeners, target) {
 
   {
     const env = makePage();
+    controller.installPageController(env.page);
+    const owner = env.page.__geekWhatsAppDirectComposerController;
+    const nativeOriginal = async (chat, ...args) => { env.nativeSends.push([chat, ...args]); return { id: 'native-1' }; };
+    const result = await owner.handleNativeSend(env.chat, ['hello', { preserve: true }], nativeOriginal, { native: true });
+    assert.deepEqual(result, { id: 'native-1' });
+    assert.equal(env.getTranslationCalls(), 1, 'native fallback must translate exactly once');
+    assert.equal(env.nativeSends.length, 1);
+    assert.equal(env.nativeSends[0][1], 'translated:hello', 'native fallback must never pass raw source when translation applies');
+    assert.deepEqual(env.nativeSends[0][2], { preserve: true }, 'native fallback must preserve original native send options');
+    assert.deepEqual(env.remembered, [['translated:hello', 'hello']]);
+    assert.equal(owner.diagnostics.phase, 'sent');
+  }
+
+  {
+    const env = makePage({ translationError: new Error('native translation failed') });
+    controller.installPageController(env.page);
+    const owner = env.page.__geekWhatsAppDirectComposerController;
+    const nativeOriginal = async (chat, ...args) => { env.nativeSends.push([chat, ...args]); return { id: 'native-should-not-send' }; };
+    await assert.rejects(
+      owner.handleNativeSend(env.chat, ['hello'], nativeOriginal, null),
+      /native translation failed/,
+    );
+    assert.equal(env.nativeSends.length, 0, 'native fallback must fail closed and never leak raw source');
+    assert.match(env.notices.at(-1) || '', /未分类.*原文未发送/);
+  }
+
+  {
+    const env = makePage({ translationDisabled: true });
+    controller.installPageController(env.page);
+    const owner = env.page.__geekWhatsAppDirectComposerController;
+    const nativeOriginal = async (chat, ...args) => { env.nativeSends.push([chat, ...args]); return { id: 'native-pass' }; };
+    await owner.handleNativeSend(env.chat, ['hello'], nativeOriginal, null);
+    assert.equal(env.getTranslationCalls(), 0);
+    assert.equal(env.nativeSends.length, 1);
+    assert.equal(env.nativeSends[0][1], 'hello', 'translation-off native send must remain raw/native pass-through');
+  }
+
+  {
+    const chat = makeChat('123@g.us');
+    chat.isGroup = true;
+    const env = makePage({ chat });
+    controller.installPageController(env.page);
+    const owner = env.page.__geekWhatsAppDirectComposerController;
+    const nativeOriginal = async (nativeChat, ...args) => { env.nativeSends.push([nativeChat, ...args]); return { id: 'group-pass' }; };
+    await owner.handleNativeSend(chat, ['group hello'], nativeOriginal, null);
+    assert.equal(env.getTranslationCalls(), 0);
+    assert.equal(env.nativeSends.length, 1, 'group native send must remain outside direct/private owner');
+  }
+
+  {
+    const env = makePage();
     assert.equal(controller.installPageController(env.page), 'READY');
     const lateRecovery = makeAbort();
     env.page.__geekWhatsAppSendRecovery = { controller: lateRecovery, timer: 88 };
@@ -243,8 +298,9 @@ function trustedEnter(listeners, target) {
 
   assert.match(bootstrapSource, /whatsapp-direct-composer-controller\.js/, 'shell bootstrap must load the direct composer controller');
   assert.doesNotMatch(bootstrapSource, /whatsapp-composer-public-fallback\.js/, 'superseded fallback must leave the startup chain');
-  assert.match(controllerSource, /chat\.sendTextMessage\(chatId, translated\.text, options\)/, 'direct composer owner must use public WPP text send');
-  assert.doesNotMatch(controllerSource, /WAWebSendTextMsgChatAction|sendTextMsgToChat/, 'direct composer owner must not depend on Meta private send modules');
+  assert.match(controllerSource, /chat\.sendTextMessage\(chatId, translated\.text, options\)/, 'trusted DOM path must keep public WPP text send');
+  assert.match(controllerSource, /handleNativeSend[\s\S]*original\.call\(thisArg, chat, \.\.\.args\)/, 'native fallback must preserve the native send transport behind the same controller owner');
+  assert.doesNotMatch(controllerSource, /WAWebSendTextMsgChatAction|sendTextMsgToChat/, 'controller policy must not hard-code Meta private module names');
 
   console.log('WHATSAPP_DIRECT_COMPOSER_CONTROLLER_CONTRACT_OK');
 })().catch(error => {

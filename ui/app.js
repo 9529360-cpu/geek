@@ -1046,6 +1046,10 @@
         // 发送串行队列：用户快速连发多条时，翻译+发送必须按输入顺序排队，防止乱序/合并
         window.__geekSendQueue = window.__geekSendQueue || Promise.resolve();
         const wrappedSendText = function (chat, ...args) {
+          const directOwner = window.__geekWhatsAppDirectComposerController;
+          if (Number(directOwner?.version || 0) >= 4 && typeof directOwner?.handleNativeSend === 'function') {
+            return directOwner.handleNativeSend(chat, args, original, this);
+          }
           const run = async () => {
             try {
               const id = chat?.id?._serialized;
