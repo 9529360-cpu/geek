@@ -783,9 +783,14 @@
   async function handleLineTranslationIpc(wv, event) {
     if (event?.channel !== 'send2Host') return;
     const message = event.args?.[0];
-    if (!message || message.type !== 'geek-translation-request') return;
+    if (!message || typeof message !== 'object') return;
     const requestId = String(message.id || '');
     const suppliedToken = String(message.token || '');
+    if (message.type === 'geek-native-input-request') {
+      await processNativeInputRequest(wv, requestId, suppliedToken);
+      return;
+    }
+    if (message.type !== 'geek-translation-request') return;
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
     if (!authorization.ok) return;
     changeWebviewBridgeInflight(wv, 1);
@@ -848,7 +853,7 @@
               const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
               const securedPayload = Object.assign({}, payload || {}, { bridgeToken: window.__geekTranslationBridgeToken });
               window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
-              if (document.documentElement.getAttribute('data-geek-bridge') === '1' || document.getAttribute('data-geek-bridge') === '1') {
+              if (document.documentElement?.getAttribute?.('data-geek-bridge') === '1') {
                 window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id: id, token: window.__geekTranslationBridgeToken } }, window.location.origin);
               } else {
                 console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);

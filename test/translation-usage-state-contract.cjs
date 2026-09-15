@@ -241,7 +241,7 @@ function deferred() {
     assert.equal(retried.status, 200, 'refunded request ID must be reusable for a safe retry');
     assert.equal(quota(sqlite), 91);
     assert.equal(usage(sqlite, requestId).status, 'complete');
-    assert.equal(upstreamCalls, 2);
+    assert.equal(upstreamCalls, 3, 'failed logical request gets one bounded transient retry, then the later user retry makes one successful provider call');
     sqlite.close();
   }
 

@@ -21,6 +21,11 @@ async function main() {
   const combined = [runner, config, restartConfig, spec, runtimeSpec, navigationRuntimeSpec, restartSpec, workflow, mainEntry].join('\n');
 
   assert.equal(pkg.scripts['test:e2e'], 'node e2e/run.cjs');
+  assert.match(
+    String(pkg.devDependencies?.['puppeteer-core'] || ''),
+    /^24\./,
+    'WebdriverIO requires a root-resolvable puppeteer-core version from its supported v24 range',
+  );
   assert.match(runner, /mkdtempSync\(path\.join\(os\.tmpdir\(\), 'geek-e2e-'\)\)/);
   assert.match(runner, /GEEK_E2E:\s*'1'/);
   assert.match(runner, /GEEK_USER_DATA_DIR:\s*tempDir/);

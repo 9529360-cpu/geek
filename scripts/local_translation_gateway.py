@@ -18,7 +18,7 @@ META_PREFIXES = [
     re.compile(r'^(?:翻译|译文|翻译结果)(?:成|为|至)?[^\n：:]{0,30}[：:]\s*', re.I),
     re.compile(r"^(?:here(?:'s| is)|below is|the following is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*", re.I),
     re.compile(r'^(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]\s*', re.I),
-    re.compile(r"^(?:sure|certainly|of course)[,!：:\s-]*(?:here(?:'s| is)\s+)?(?:the\s+)?(?:translation|translated text)?(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*", re.I),
+    re.compile(r"^(?:sure|certainly|of course)[,!：:\s-]+here(?:'s| is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*", re.I),
 ]
 
 
@@ -38,10 +38,6 @@ def sanitize_translation_output(value):
     trailing_fence = re.fullmatch(r'```(?:[a-z-]+)?\s*\n?([\s\S]*?)\n?```', result, re.I)
     if trailing_fence:
         result = trailing_fence.group(1).strip()
-    for opening, closing in [('“', '”'), ('‘', '’'), ('"', '"'), ("'", "'")]:
-        if result.startswith(opening) and result.endswith(closing) and len(result) > len(opening) + len(closing):
-            result = result[len(opening):-len(closing)].strip()
-            break
     return result
 
 
