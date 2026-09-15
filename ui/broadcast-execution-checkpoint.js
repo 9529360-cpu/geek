@@ -102,7 +102,7 @@
   }
 
   function parsePayload(raw, options = {}) {
-    const present = options.present == null ? raw !== undefined : options.present === true;
+    const present = raw !== undefined || options.present === true;
     if (!present) return new Map();
     let parsed;
     try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; }
