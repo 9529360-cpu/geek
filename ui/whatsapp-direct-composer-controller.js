@@ -29,9 +29,26 @@
       ? error
       : new Error(String(error || '翻译失败'));
     const rawMessage = String(tagged?.message || '');
-    if (!rawMessage.startsWith(prefix)) return tagged;
+    const markerIndex = rawMessage.indexOf(prefix);
+    if (markerIndex < 0) {
+      if (/翻译请求超时/.test(rawMessage)) {
+        try { tagged.code = 'TRANSLATION_DEADLINE_EXCEEDED'; } catch {}
+        try { tagged.category = 'deadline'; } catch {}
+        try { tagged.retryable = true; } catch {}
+        try { tagged.status = 504; } catch {}
+      } else if (/翻译请求令牌不匹配/.test(rawMessage)) {
+        try { tagged.code = 'TRANSLATION_BRIDGE_TOKEN_MISMATCH'; } catch {}
+        try { tagged.category = 'bridge'; } catch {}
+        try { tagged.retryable = true; } catch {}
+      } else if (/翻译账号沙箱不存在/.test(rawMessage)) {
+        try { tagged.code = 'TRANSLATION_BRIDGE_ACCOUNT_MISSING'; } catch {}
+        try { tagged.category = 'bridge'; } catch {}
+        try { tagged.retryable = true; } catch {}
+      }
+      return tagged;
+    }
     let detail;
-    try { detail = JSON.parse(rawMessage.slice(prefix.length)); }
+    try { detail = JSON.parse(rawMessage.slice(markerIndex + prefix.length)); }
     catch { return tagged; }
     if (!detail || typeof detail !== 'object') return tagged;
     try { tagged.message = String(detail.message || '翻译请求失败').slice(0, 300); } catch {}
@@ -68,6 +85,9 @@
     }
     if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) {
       return `翻译请求繁忙，请稍后重试；${tail}`;
+    }
+    if (category === 'bridge' || code.startsWith('TRANSLATION_BRIDGE_')) {
+      return `翻译连接状态异常，请刷新当前账号后重试；${tail}`;
     }
     if (category === 'gateway' || category === 'rate-limit' || status >= 500) {
       return `翻译服务暂时不可用，请稍后重试；${tail}`;
@@ -303,7 +323,15 @@
             route: setting.route,
             chatId,
           });
-          if (!translated?.text) throw Object.assign(new Error('翻译失败'), { __geekStage: 'translation' });
+          if (!translated?.text) {
+            throw Object.assign(new Error('翻译返回为空'), {
+              __geekStage: 'translation',
+              code: 'TRANSLATION_EMPTY_RESULT',
+              category: 'gateway',
+              retryable: true,
+              status: 502,
+            });
+          }
 
           const currentChat = getActiveChat();
           if (chatIdOf(currentChat) !== chatId) {
