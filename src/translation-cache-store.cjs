@@ -11,6 +11,7 @@ const DEFAULT_LIMITS = Object.freeze({
   appendsBeforeCompact: 256,
 });
 const WINDOWS_RENAME_RETRY_MS = Object.freeze([0, 20, 50, 100]);
+const SOURCE_LANGUAGE_CACHE_REVISION = 'source-language-v1';
 
 function normalizedLimits(value = {}) {
   const number = (key, fallback, minimum = 1) => {
@@ -43,6 +44,10 @@ function createTranslationCacheStore(options = {}) {
   if (typeof getUserDataDir !== 'function') throw new TypeError('getUserDataDir is required');
   if (!cacheVersion) throw new TypeError('cacheVersion is required');
 
+  // Source language used to be part of the cache key but was not authoritative at
+  // the model boundary. Reject those older persisted records once so an explicit
+  // source can never replay a translation produced under auto-detect semantics.
+  const effectiveCacheVersion = `${cacheVersion}:${SOURCE_LANGUAGE_CACHE_REVISION}`;
   const limits = normalizedLimits(rawLimits);
   const queues = new Map();
   const metadata = new Map();
@@ -87,7 +92,7 @@ function createTranslationCacheStore(options = {}) {
     if (!line || !line.trim()) return null;
     try {
       const record = JSON.parse(line);
-      if (record.version !== cacheVersion || typeof record.key !== 'string' || !record.key || typeof record.value !== 'string' || !record.value) return null;
+      if (record.version !== effectiveCacheVersion || typeof record.key !== 'string' || !record.key || typeof record.value !== 'string' || !record.value) return null;
       const text = safeStorage.decryptString(Buffer.from(record.value, 'base64'));
       return { key: record.key, item: { text, at: Number(record.at) || 0 } };
     } catch {
@@ -152,7 +157,7 @@ function createTranslationCacheStore(options = {}) {
 
   function serializedRecord(key, item) {
     const record = {
-      version: cacheVersion,
+      version: effectiveCacheVersion,
       key,
       at: Number(item?.at) || 0,
       value: safeStorage.encryptString(String(item?.text || '')).toString('base64'),
@@ -301,5 +306,6 @@ function createTranslationCacheStore(options = {}) {
 module.exports = {
   DEFAULT_LIMITS,
   WINDOWS_RENAME_RETRY_MS,
+  SOURCE_LANGUAGE_CACHE_REVISION,
   createTranslationCacheStore,
 };
