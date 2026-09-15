@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const { createTranslationCacheStore } = require('./translation-cache-store.cjs');
 
-const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
+const TRANSLATION_CACHE_VERSION = 'prompt-20260915-source-1';
 const TRANSLATION_REMOTE_LIMIT = 20;
 const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;
 const TRANSLATION_CHANNELS = Object.freeze([

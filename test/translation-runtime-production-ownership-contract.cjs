@@ -40,10 +40,11 @@ assert.match(runtime, /require\('\.\/translation-smart-queue\.cjs'\)/, 'public r
 assert.match(runtime, /const privateIpc = \{/, 'base runtime must register only against a private registrar');
 assert.match(
   runtime,
-  /base\.createTranslationRuntime\(\{\s*\.\.\.options,\s*ipcMain: privateIpc,\s*fetchImpl: intentAwareFetch,\s*getSubscriptionStore: baseSubscriptionStore,\s*\}\)/,
-  'base runtime must receive the private IPC registrar, request-local gateway metadata fetch, and admission-bound subscription lease owner',
+  /base\.createTranslationRuntime\(\{\s*\.\.\.options,\s*ipcMain: privateIpc,\s*fetchImpl: intentAwareFetch,\s*assertSafeTranslationOutput: sourceAwareOutputSafety,\s*getSubscriptionStore: baseSubscriptionStore,\s*\}\)/,
+  'base runtime must receive the private IPC registrar plus request-local gateway, source-language safety, and authorization owners',
 );
 assert.match(runtime, /const intentAwareFetch = \(url, request = \{\}\) => \{/, 'public runtime must own request-local gateway metadata decoration');
+assert.match(runtime, /sourceLanguage: sourceLanguageContext\.getStore\(\) \|\| 'auto'/, 'public runtime must bind final output safety to the request source language');
 assert.match(runtime, /getTranslationAuthorization'\) return async \(\) => capturedLease/, 'queued work must remain bound to the authorization lease captured before admission');
 assert.match(runtime, /ipcMain\.handle\('translation:translate', translateIpc\)/, 'public Translation Runtime must own typed translate IPC');
 assert.match(runtime, /ipcMain\.handle\('translation:health', health\)/, 'public Translation Runtime must own health IPC');
@@ -54,7 +55,7 @@ assert.match(runtime, /scheduler\.cancelPartition\(owner/, 'account deletion mus
 assert.match(scheduler, /outgoingReserve/, 'smart queue must reserve bounded interactive capacity');
 assert.match(scheduler, /dropOldestBackgroundAnywhere/, 'background overflow must be shed before rejecting interactive work');
 
-assert.match(base, /const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2'/, 'cache version remains owned by the base Translation Runtime transaction layer');
+assert.match(base, /const TRANSLATION_CACHE_VERSION = 'prompt-20260915-source-1'/, 'source-language semantic changes must advance the base Translation Runtime cache namespace');
 assert.match(base, /state\.deletedPartitions\.has\(partition\)/, 'cache writes must remain partition-scoped and deletion-aware');
 assert.match(base, /const workKey = `\$\{partition\}:\$\{key\}`/, 'translation work identity must remain partition-scoped');
 assert.match(base, /const inflightKey = callerRequestId \? `\$\{workKey\}:request:\$\{callerRequestId\}` : workKey/, 'base caller transaction identity must remain explicit');

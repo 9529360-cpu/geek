@@ -7,6 +7,10 @@ const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const base = require('./translation-runtime-base.cjs');
 const {
+  normalizeTranslationSourceLanguage,
+  normalizeTranslationTargetLanguage,
+} = require('./translation-language-contract.cjs');
+const {
   DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS,
   TRANSLATION_INTENTS,
   normalizeTranslationIntent,
@@ -23,6 +27,7 @@ function createTranslationRuntime(options = {}) {
     ipcMain,
     accountState,
     assertTrustedSender,
+    assertSafeTranslationOutput,
     getSubscriptionStore,
     now = Date.now,
     fetchImpl = globalThis.fetch,
@@ -34,6 +39,7 @@ function createTranslationRuntime(options = {}) {
   }
   if (!accountState || typeof accountState.findById !== 'function') throw new TypeError('accountState is required');
   if (typeof assertTrustedSender !== 'function') throw new TypeError('assertTrustedSender is required');
+  if (typeof assertSafeTranslationOutput !== 'function') throw new TypeError('assertSafeTranslationOutput is required');
   if (typeof getSubscriptionStore !== 'function') throw new TypeError('getSubscriptionStore is required');
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl is required');
 
@@ -56,11 +62,16 @@ function createTranslationRuntime(options = {}) {
   // context prevents concurrent account requests from contaminating each other.
   const intentContext = new AsyncLocalStorage();
   const authorizationLeaseContext = new AsyncLocalStorage();
+  const sourceLanguageContext = new AsyncLocalStorage();
   const intentAwareFetch = (url, request = {}) => {
     const intent = normalizeTranslationIntent(intentContext.getStore());
     const headers = { ...(request.headers || {}), [TRANSLATION_INTENT_HEADER]: intent };
     return fetchImpl(url, { ...request, headers });
   };
+  const sourceAwareOutputSafety = input => assertSafeTranslationOutput({
+    ...(input && typeof input === 'object' ? input : {}),
+    sourceLanguage: sourceLanguageContext.getStore() || 'auto',
+  });
 
   // A queued request must stay bound to the subscription generation that admitted
   // it. The base runtime asks for authorization later, after cache/quota work; this
@@ -83,6 +94,7 @@ function createTranslationRuntime(options = {}) {
     ...options,
     ipcMain: privateIpc,
     fetchImpl: intentAwareFetch,
+    assertSafeTranslationOutput: sourceAwareOutputSafety,
     getSubscriptionStore: baseSubscriptionStore,
   });
   const deletedPartitions = new Set();
@@ -161,6 +173,22 @@ function createTranslationRuntime(options = {}) {
 
   function normalizeScheduledPayload(payload) {
     const body = payload && typeof payload === 'object' ? payload : {};
+    const source = normalizeTranslationSourceLanguage(body.source);
+    if (!source) {
+      throw base.createTranslationError(
+        'TRANSLATION_SOURCE_INVALID',
+        '源语言不合法',
+        { category: 'input', retryable: false },
+      );
+    }
+    const target = normalizeTranslationTargetLanguage(body.target);
+    if (!target) {
+      throw base.createTranslationError(
+        'TRANSLATION_TARGET_INVALID',
+        '目标语言不合法',
+        { category: 'input', retryable: false },
+      );
+    }
     const intent = normalizeTranslationIntent(body.intent);
     const deadlineAt = base.normalizeTranslationDeadline(
       body.deadlineAt,
@@ -171,7 +199,7 @@ function createTranslationRuntime(options = {}) {
     // display request with the same text/config. Cache identity remains shared;
     // only the live transaction identity is separated.
     const coalesce = intent === TRANSLATION_INTENTS.OUTGOING_SEND ? false : body.coalesce;
-    return { ...body, intent, deadlineAt, ...(coalesce === undefined ? {} : { coalesce }) };
+    return { ...body, source, target, intent, deadlineAt, ...(coalesce === undefined ? {} : { coalesce }) };
   }
 
   // Preserve the runtime's historical singleflight semantics *before* bounded
@@ -272,17 +300,29 @@ function createTranslationRuntime(options = {}) {
     return lease;
   }
 
-  function scheduledTask(event, body, authorizationLease) {
-    return () => authorizationLeaseContext.run(
-      authorizationLease || null,
-      () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body)),
+  function runBaseTranslation(event, body, authorizationLease = null) {
+    return sourceLanguageContext.run(
+      body.source,
+      () => authorizationLeaseContext.run(
+        authorizationLease,
+        () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body)),
+      ),
     );
+  }
+
+  function scheduledTask(event, body, authorizationLease) {
+    return () => runBaseTranslation(event, body, authorizationLease || null);
   }
 
   async function translateIpc(event, payload) {
     // Keep sender security outside the application envelope and before queueing.
     assertTrustedSender(event);
-    const body = normalizeScheduledPayload(payload);
+    let body;
+    try {
+      body = normalizeScheduledPayload(payload);
+    } catch (error) {
+      return { ok: false, error: base.serializeTranslationIpcError(error) };
+    }
     const accountId = String(body.accountId || '');
     const account = accountState.findById(accountId);
     const partition = String(account?.partition || '');
@@ -290,7 +330,7 @@ function createTranslationRuntime(options = {}) {
     // Let the base runtime project canonical typed input/account failures. The
     // scheduler only owns requests that have a real account partition.
     if (!partition) {
-      return intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body));
+      return runBaseTranslation(event, body, null);
     }
 
     const singleflightKey = scheduledSingleflightKey(body, partition);
