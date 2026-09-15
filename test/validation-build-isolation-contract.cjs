@@ -31,6 +31,14 @@ assert.match(
   /startsWith\(github\.event\.pull_request\.head\.ref, 'release\/'\)/,
   'release candidate PRs must run the isolated Windows validation build instead of being silently skipped',
 );
+assert.ok(
+  validationWorkflow.includes('ref: ${{ github.event.pull_request.head.sha || github.sha }}'),
+  'validation builds must checkout the exact PR head rather than the synthetic merge ref',
+);
+assert.ok(
+  validationWorkflow.includes('name: geek-validation-${{ github.event.pull_request.head.sha || github.sha }}'),
+  'validation artifacts must expose the exact source SHA they were built from',
+);
 assert.ok(mainEntry.indexOf('configureRuntimeEnvironment({') >= 0);
 assert.ok(mainEntry.indexOf('configureRuntimeEnvironment({') < mainEntry.indexOf("require('./main.cjs')"), 'profile must be selected before main composition resolves userData');
 assert.match(main, /installScheduledBroadcastAttachmentBoundary\(/, 'scheduled attachment persistence remains installed by main composition');
