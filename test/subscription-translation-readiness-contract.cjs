@@ -2,12 +2,18 @@
 
 const assert = require('node:assert/strict');
 const { installSubscriptionIpc } = require('../src/subscription-ipc.cjs');
+const { MAIN_DOCUMENT_URL } = require('../src/subscription-window-boundary.cjs');
 
 function error(code, status = 0) {
   const value = new Error(code || 'failure');
   if (code) value.code = code;
   if (status) value.status = status;
   return value;
+}
+
+function trustedMainEvent() {
+  const mainFrame = { url: MAIN_DOCUMENT_URL };
+  return { sender: { id: 1, mainFrame }, senderFrame: mainFrame };
 }
 
 function createHarness({
@@ -69,7 +75,7 @@ function createHarness({
     closeWindow: async () => true,
   });
   return {
-    check: () => handlers.get('subscription:translation-readiness')({ sender: { id: 1 } }),
+    check: () => handlers.get('subscription:translation-readiness')(trustedMainEvent()),
     authorizationCalls: () => authorizationCalls,
     dispose: () => boundary.dispose(),
   };
