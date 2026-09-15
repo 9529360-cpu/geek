@@ -59,7 +59,7 @@ const cases = [
   },
 ];
 
-assert.equal(controller.CONTROLLER_VERSION, 2, 'actionable diagnostics must force a fresh direct-composer generation');
+assert.equal(controller.CONTROLLER_VERSION, 3, 'failure discriminator diagnostics must force a fresh direct-composer generation');
 assert.equal(controller.TRANSLATION_ERROR_ENVELOPE_PREFIX, PREFIX);
 
 for (const fixture of cases) {
@@ -76,6 +76,18 @@ for (const fixture of cases) {
   const recoveryNotice = recovery.translationFailureNotice(legacy, false);
   assert.match(directNotice, fixture.expected);
   assert.equal(directNotice, recoveryNotice, `direct composer failure semantics drifted for ${fixture.detail.code}`);
+}
+
+const discriminatorCases = [
+  { detail: { code: 'TRANSLATION_TARGET_INVALID', category: 'input', status: 400 }, expected: /目标语言配置无效.*原文未发送/ },
+  { detail: { code: 'invalid_route', category: 'input', status: 400 }, expected: /请求参数无效.*invalid_route.*原文未发送/ },
+  { detail: { code: 'TRANSLATION_ACCOUNT_MISSING', category: 'account' }, expected: /账号状态异常.*原文未发送/ },
+  { detail: { code: 'TRANSLATION_REQUEST_CONFLICT', category: 'conflict', status: 409 }, expected: /状态冲突.*原文未发送/ },
+  { detail: { code: 'FUTURE_TYPED_FAILURE', category: 'other' }, expected: /FUTURE_TYPED_FAILURE.*原文未发送/ },
+];
+for (const fixture of discriminatorCases) {
+  const direct = controller.parseTranslationFailure(envelopedError(fixture.detail));
+  assert.match(controller.translationFailureNotice(direct, false), fixture.expected);
 }
 
 {
@@ -121,13 +133,13 @@ for (const message of ['翻译请求令牌不匹配', '翻译账号沙箱不存�
 {
   const legacy = new Error('plain legacy failure');
   assert.equal(controller.parseTranslationFailure(legacy), legacy);
-  assert.equal(controller.translationFailureNotice(legacy, false), '翻译失败，原文未发送');
+  assert.equal(controller.translationFailureNotice(legacy, false), '翻译失败（未分类），原文未发送');
 }
 
 {
   const malformed = new Error(PREFIX + '{bad-json');
   assert.equal(controller.parseTranslationFailure(malformed), malformed);
-  assert.equal(controller.translationFailureNotice(malformed, false), '翻译失败，原文未发送');
+  assert.equal(controller.translationFailureNotice(malformed, false), '翻译失败（未分类），原文未发送');
 }
 
 assert.match(

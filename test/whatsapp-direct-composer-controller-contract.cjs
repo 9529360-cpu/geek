@@ -125,7 +125,7 @@ function trustedEnter(listeners, target) {
 }
 
 (async () => {
-  assert.equal(controller.CONTROLLER_VERSION, 2);
+  assert.equal(controller.CONTROLLER_VERSION, 3);
   assert.equal(controller.isWhatsAppType('whatsapp'), true);
   assert.equal(controller.isWhatsAppType('whatsapp-pure'), true);
   assert.equal(controller.isWhatsAppType('telegram'), false);
