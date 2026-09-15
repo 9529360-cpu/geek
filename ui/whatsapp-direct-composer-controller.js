@@ -1,0 +1,356 @@
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) {
+    root.GeekWhatsAppDirectComposerController = api;
+    if (root.document) api.installShell(root);
+  }
+})(typeof window !== 'undefined' ? window : globalThis, function () {
+  'use strict';
+
+  const CONTROLLER_VERSION = 1;
+
+  function isWhatsAppType(type) {
+    return type === 'whatsapp' || type === 'whatsapp-pure';
+  }
+
+  function accountForPartition(accounts, partition) {
+    const owner = String(partition || '');
+    if (!owner) return null;
+    return (Array.isArray(accounts) ? accounts : []).find(account =>
+      isWhatsAppType(account?.type) && String(account?.partition || '') === owner
+    ) || null;
+  }
+
+  function installPageController(page, version = CONTROLLER_VERSION) {
+    if (!page) return 'NO_PAGE';
+
+    try { page.__geekWhatsAppSendRecovery?.controller?.abort?.(); } catch {}
+    try {
+      const timer = page.__geekWhatsAppSendRecovery?.timer;
+      if (timer != null && typeof page.clearInterval === 'function') page.clearInterval(timer);
+    } catch {}
+    try { page.__geekWhatsAppPublicComposerFallback?.controller?.abort?.(); } catch {}
+
+    const current = page.__geekWhatsAppDirectComposerController;
+    if (current?.version === version && typeof current.handleGesture === 'function') return 'READY';
+    try { current?.controller?.abort?.(); } catch {}
+
+    const cleanText = value => String(value == null ? '' : value).replace(/\u200b/g, '').trim();
+    const composerSelector = [
+      '#main [data-testid="conversation-compose-box-input"]',
+      '#main footer [contenteditable="true"]',
+      '#main [contenteditable="true"][role="textbox"]',
+      '#main [contenteditable="true"]',
+      '[contenteditable="true"][data-tab="10"]',
+    ].join(',');
+
+    const diagnostics = {
+      phase: 'ready',
+      handled: 0,
+      sent: 0,
+      lastError: '',
+      lastAt: Date.now(),
+    };
+    let pending = null;
+
+    const setPhase = function (phase, error) {
+      diagnostics.phase = phase;
+      diagnostics.lastError = error ? String(error?.message || error).slice(0, 160) : '';
+      diagnostics.lastAt = Date.now();
+    };
+
+    const notify = function (message) {
+      try {
+        const doc = page.document;
+        if (!doc?.createElement || !doc?.body) return;
+        doc.getElementById?.('geek-translation-send-error')?.remove?.();
+        const notice = doc.createElement('div');
+        notice.id = 'geek-translation-send-error';
+        notice.textContent = message;
+        Object.assign(notice.style || {}, {
+          position: 'fixed', left: '50%', bottom: '82px', transform: 'translateX(-50%)',
+          zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318',
+          color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)'
+        });
+        doc.body.appendChild(notice);
+        page.setTimeout?.(() => notice.remove?.(), 3600);
+      } catch {}
+    };
+
+    const pickRuntime = function (requirements) {
+      try {
+        const picked = page.__geekPickWpp?.(requirements);
+        if (picked) return picked;
+      } catch {}
+      const paths = Array.isArray(requirements) ? requirements : [requirements];
+      const resolvePath = (candidate, path) => String(path || '')
+        .split('.')
+        .filter(Boolean)
+        .reduce((value, key) => value == null ? undefined : value[key], candidate);
+      return [page.WPP, page.WAPLUS_WPP]
+        .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index)
+        .find(candidate => paths.every(path => resolvePath(candidate, path) != null)) || null;
+    };
+
+    const getActiveChat = function () {
+      try {
+        const runtime = pickRuntime(['chat.getActiveChat']);
+        return runtime?.chat?.getActiveChat?.() || page.W?.chat?.getActive?.() || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const chatIdOf = function (chat) {
+      try {
+        return String(chat?.id?._serialized || chat?.id?.toString?.() || chat?.id || '');
+      } catch {
+        return '';
+      }
+    };
+
+    const isDirectChat = function (chat, chatId) {
+      const id = String(chatId || '');
+      if (!id) return false;
+      if (chat?.isGroup === true || chat?.isNewsletter === true || chat?.isBroadcast === true) return false;
+      try { if (typeof chat?.id?.isGroup === 'function' && chat.id.isGroup()) return false; } catch {}
+      return !/@g\.us$/i.test(id) && !/@broadcast$/i.test(id) && !/@newsletter$/i.test(id);
+    };
+
+    const translationSetting = function (chatId, text) {
+      const setting = page.__geekGetTranslationSetting?.(chatId);
+      if (!setting?.enabled || !setting?.autoSend || !text) return null;
+      if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) return null;
+      return setting;
+    };
+
+    const composerFromTarget = function (target) {
+      try {
+        if (target?.isContentEditable === true) return target;
+        return target?.closest?.('[contenteditable="true"], [data-testid="conversation-compose-box-input"]') || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const findComposer = function (event) {
+      const fromTarget = composerFromTarget(event?.target);
+      if (fromTarget) return fromTarget;
+      try { return page.document?.querySelector?.(composerSelector) || null; }
+      catch { return null; }
+    };
+
+    const composerText = function (event) {
+      const editor = findComposer(event);
+      return { editor, text: cleanText(editor?.innerText || editor?.textContent || '') };
+    };
+
+    const isSendButtonTarget = function (target) {
+      try {
+        if (target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],[data-testid="compose-btn-send"]')) return true;
+        return !!target?.closest?.('[data-icon="send"]')?.closest?.('button');
+      } catch {
+        return false;
+      }
+    };
+
+    const captureComposeSnapshot = function (chat, text) {
+      let snapshot = null;
+      try {
+        const currentContents = chat?.getComposeContents?.();
+        if (currentContents && typeof currentContents === 'object') snapshot = { ...currentContents };
+      } catch {}
+      if (!snapshot) snapshot = {};
+      if (!cleanText(snapshot.text)) snapshot.text = String(text || '');
+      if (!Number.isFinite(Number(snapshot.timestamp))) snapshot.timestamp = Math.floor(Date.now() / 1000);
+      return snapshot;
+    };
+
+    const setCompose = function (chat, contents) {
+      try {
+        if (typeof chat?.setComposeContents !== 'function') return false;
+        chat.setComposeContents(contents || {});
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const restoreCompose = function (chat, snapshot, text) {
+      const next = snapshot && typeof snapshot === 'object' ? { ...snapshot } : {};
+      if (!cleanText(next.text)) next.text = String(text || '');
+      return setCompose(chat, next);
+    };
+
+    const block = function (event) {
+      event?.preventDefault?.();
+      event?.stopImmediatePropagation?.();
+    };
+
+    const handleGesture = function (event) {
+      if (event?.isTrusted !== true) return false;
+
+      const chat = getActiveChat();
+      const chatId = chatIdOf(chat);
+      if (!isDirectChat(chat, chatId)) return false;
+
+      const composed = composerText(event);
+      const text = composed.text;
+      if (!text) return false;
+      const setting = translationSetting(chatId, text);
+      if (!setting) return false;
+
+      block(event);
+      diagnostics.handled += 1;
+
+      if (pending) {
+        setPhase('busy');
+        notify('翻译处理中，请稍候');
+        return true;
+      }
+
+      const translate = page.__geekTranslationRequest;
+      if (typeof translate !== 'function') {
+        setPhase('translation-unavailable');
+        notify('翻译尚未就绪，原文未发送');
+        return true;
+      }
+
+      const runtime = pickRuntime(['chat.sendTextMessage']);
+      if (!runtime || typeof runtime?.chat?.sendTextMessage !== 'function') {
+        setPhase('send-unavailable');
+        notify('WhatsApp发送通道尚未就绪，原文未发送');
+        return true;
+      }
+
+      const snapshot = captureComposeSnapshot(chat, text);
+      const quotedMsg = chat?.composeQuotedMsg || null;
+      const cleared = setCompose(chat, {});
+
+      const task = (async () => {
+        setPhase('translating');
+        try {
+          const translated = await translate({
+            text,
+            source: setting.source || 'auto',
+            target: setting.target,
+            provider: setting.provider,
+            route: setting.route,
+            chatId,
+          });
+          if (!translated?.text) throw Object.assign(new Error('翻译失败'), { __geekStage: 'translation' });
+
+          const currentChat = getActiveChat();
+          if (chatIdOf(currentChat) !== chatId) {
+            throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
+          }
+
+          page.__geekRememberOutgoing?.(translated.text, text);
+          setPhase('sending');
+          const options = quotedMsg ? { quotedMsg } : undefined;
+          const sent = await runtime.chat.sendTextMessage(chatId, translated.text, options);
+          if (sent == null) throw Object.assign(new Error('WhatsApp未确认消息发送'), { __geekStage: 'send' });
+          setCompose(chat, {});
+          diagnostics.sent += 1;
+          setPhase('sent');
+          return sent;
+        } catch (error) {
+          const stage = error?.__geekStage || (diagnostics.phase === 'sending' ? 'send' : 'translation');
+          if (stage === 'translation') {
+            const restored = cleared ? restoreCompose(chat, snapshot, text) : true;
+            setPhase('translation-error', error);
+            if (/聊天已切换/.test(String(error?.message || error))) {
+              notify(restored ? '聊天已切换，原文已恢复，请重试' : '聊天已切换，原文未发送');
+            } else {
+              notify(restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送');
+            }
+          } else {
+            setPhase('send-error', error);
+            notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120));
+          }
+          page.console?.error?.('[geek-whatsapp-direct-composer]', String(error?.message || error || '').slice(0, 240));
+          return null;
+        } finally {
+          pending = null;
+        }
+      })();
+
+      pending = task;
+      page.__geekWhatsAppDirectComposerLastTask = task;
+      return true;
+    };
+
+    const Abort = page.AbortController || globalThis.AbortController;
+    const controller = typeof Abort === 'function' ? new Abort() : null;
+    const listenerOptions = controller ? { capture: true, signal: controller.signal } : { capture: true };
+
+    page.addEventListener?.('keydown', event => {
+      if (event?.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+      if (!composerFromTarget(event?.target)) return;
+      handleGesture(event);
+    }, listenerOptions);
+    page.addEventListener?.('click', event => {
+      if (!isSendButtonTarget(event?.target)) return;
+      handleGesture(event);
+    }, listenerOptions);
+
+    const state = Object.freeze({ version, controller, diagnostics, handleGesture });
+    page.__geekWhatsAppDirectComposerController = state;
+    return 'READY';
+  }
+
+  function installShell(host = root) {
+    if (!host?.document || host.__geekWhatsAppDirectComposerControllerShellInstalled) return false;
+    host.__geekWhatsAppDirectComposerControllerShellInstalled = true;
+    const observed = new WeakSet();
+
+    async function inject(webview) {
+      if (!webview || typeof webview.executeJavaScript !== 'function') return false;
+      const partition = String(webview.partition || webview.getAttribute?.('partition') || '');
+      if (!partition) return false;
+      let listed;
+      try { listed = await host.api?.accounts?.list?.(); } catch { return false; }
+      const accounts = listed?.accounts || listed || [];
+      if (!accountForPartition(accounts, partition)) return false;
+      try {
+        const result = await webview.executeJavaScript(`(${installPageController.toString()})(window, ${CONTROLLER_VERSION})`);
+        return result === 'READY';
+      } catch {
+        return false;
+      }
+    }
+
+    function observe(webview) {
+      if (!webview || observed.has(webview)) return;
+      observed.add(webview);
+      webview.addEventListener?.('dom-ready', () => { void inject(webview); });
+      queueMicrotask(() => { void inject(webview); });
+    }
+
+    function scan() {
+      host.document.querySelectorAll?.('webview').forEach(observe);
+    }
+
+    function start() {
+      scan();
+      const Observer = host.MutationObserver;
+      if (typeof Observer !== 'function') return;
+      const observer = new Observer(scan);
+      observer.observe(host.document.documentElement || host.document.body, { childList: true, subtree: true });
+      host.__geekWhatsAppDirectComposerControllerObserver = observer;
+    }
+
+    if (host.document.readyState === 'loading') host.document.addEventListener('DOMContentLoaded', start, { once: true });
+    else start();
+    return true;
+  }
+
+  return Object.freeze({
+    CONTROLLER_VERSION,
+    isWhatsAppType,
+    accountForPartition,
+    installPageController,
+    installShell,
+  });
+});
