@@ -369,7 +369,7 @@
       if (healthPromise) return healthPromise;
       state.textContent = '检测中…';
       state.dataset.state = 'checking';
-      if (detail && force) detail.textContent = '正在检测翻译服务…';
+      if (detail && force) detail.textContent = '正在检测翻译网关…';
       healthPromise = Promise.resolve()
         .then(() => deps.health())
         .then(result => {
@@ -378,19 +378,19 @@
           const ok = result?.ok === true;
           const endpointCount = Math.max(0, Number(result?.endpointCount) || 0);
           const availableCount = Math.max(0, Number(result?.models) || 0);
-          state.textContent = ok ? '服务正常' : '服务异常';
+          state.textContent = ok ? '网关可达' : '网关异常';
           state.dataset.state = ok ? 'ok' : 'error';
           if (detail) {
             detail.textContent = ok
-              ? `翻译服务正常${endpointCount ? ` · ${availableCount}/${endpointCount} 条线路可用` : ''}`
-              : '翻译服务暂不可用，可稍后重试';
+              ? `翻译网关可达${endpointCount ? ` · ${availableCount}/${endpointCount} 条线路已配置` : ''} · 不代表当前账号授权、额度或上游供应商已验证`
+              : '翻译网关暂不可用，可稍后重试';
           }
         })
         .catch(() => {
           healthCheckedAt = Date.now();
-          state.textContent = '服务异常';
+          state.textContent = '网关异常';
           state.dataset.state = 'error';
-          if (detail) detail.textContent = '翻译服务暂不可用，可稍后重试';
+          if (detail) detail.textContent = '翻译网关暂不可用，可稍后重试';
         })
         .finally(() => { healthPromise = null; });
       return healthPromise;
