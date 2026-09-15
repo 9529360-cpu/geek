@@ -1,0 +1,31 @@
+name: cleanup-translation-smoke
+
+on:
+  push:
+    branches:
+      - 'test/translation-live-smoke-*'
+    paths:
+      - '.github/workflows/cleanup-translation-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment:
+      name: cloudflare-subscription-production
+    steps:
+      - name: Remove transient translation smoke rows
+        shell: bash
+        env:
+          CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          DB='1e78a93a-36de-43db-88aa-4551f9991200'
+          API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${DB}/query"
+          BODY='{"sql":"DELETE FROM translation_usage WHERE user_id IN (SELECT id FROM users WHERE email LIKE ?); DELETE FROM users WHERE email LIKE ?;","params":["translation-smoke-%@example.invalid","translation-smoke-%@example.invalid"]}'
+          RESPONSE="$(curl -fsS -X POST "$API" -H "Authorization: Bearer ${CLOUDFLARE_INFRA_API_TOKEN}" -H 'Content-Type: application/json' --data "$BODY")"
+          printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s); if(j.success===false || !Array.isArray(j.result) || j.result.some(x=>x.success===false)) process.exit(1); console.log('TRANSLATION_SMOKE_CLEANUP_OK')})"
