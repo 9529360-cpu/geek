@@ -122,7 +122,7 @@ async function runCase(name, options, expected, expectedTokenCalls) {
   await runCase(
     'disabled account',
     { state: { loggedIn: true, valid: true }, tokenError: error('account_disabled', 403) },
-    { ready: false, reason: 'authorization-required', retryable: false, quota: 'unknown' },
+    { ready: false, reason: 'account-disabled', retryable: false, quota: 'unknown' },
     1,
   );
 
