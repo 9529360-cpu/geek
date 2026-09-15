@@ -46,7 +46,7 @@ function loadDeadlineHelpers() {
 
   assert.match(workerSource, /X-Geek-Deadline-Ms/, 'Worker must accept the propagated desktop deadline header');
   assert.match(workerSource, /error:\s*'deadline_exceeded'[^\n]*504/, 'Worker must return a typed 504 deadline response rather than a generic provider failure');
-  assert.match(workerSource, /translate\(text, target, env, deadlineAt\)/, 'provider failover must share one absolute request deadline');
+  assert.match(workerSource, /translate\(text, source, target, env, deadlineAt\)/, 'provider failover must share one absolute request deadline while carrying source semantics');
 
   const classified = classifyGatewayResponse(504, { error: 'deadline_exceeded' });
   assert.equal(classified.code, 'TRANSLATION_DEADLINE_EXCEEDED');
