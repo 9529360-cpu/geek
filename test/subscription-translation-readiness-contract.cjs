@@ -10,18 +10,45 @@ function error(code, status = 0) {
   return value;
 }
 
-function createHarness({ state, token = 'secret-translation-token', tokenError = null, stateError = null }) {
+function createHarness({
+  state,
+  token = 'secret-translation-token',
+  tokenError = null,
+  stateError = null,
+  switchBeforeAuthorization = null,
+  switchOnSecondStateRead = null,
+}) {
   const handlers = new Map();
-  let tokenCalls = 0;
+  let authorizationCalls = 0;
+  let stateCalls = 0;
+  let generation = 1;
+  let currentState = { ...(state || {}) };
+
+  function sessionChangedError() {
+    return error('SUBSCRIPTION_SESSION_CHANGED');
+  }
+
   const store = {
     async getState() {
+      stateCalls += 1;
       if (stateError) throw stateError;
-      return { ...(state || {}) };
+      if (stateCalls === 2 && switchOnSecondStateRead) {
+        currentState = { ...switchOnSecondStateRead };
+        generation += 1;
+      }
+      return { ...currentState };
     },
-    async getTranslationToken() {
-      tokenCalls += 1;
+    async getTranslationAuthorization() {
+      authorizationCalls += 1;
+      if (switchBeforeAuthorization) {
+        currentState = { ...switchBeforeAuthorization };
+        generation += 1;
+      }
       if (tokenError) throw tokenError;
-      return token;
+      return Object.freeze({ token, generation, signal: null });
+    },
+    assertTranslationAuthorizationCurrent(lease) {
+      if (!lease || lease.generation !== generation) throw sessionChangedError();
     },
     async refresh() { return {}; },
     async login() { return {}; },
@@ -43,18 +70,18 @@ function createHarness({ state, token = 'secret-translation-token', tokenError =
   });
   return {
     check: () => handlers.get('subscription:translation-readiness')({ sender: { id: 1 } }),
-    tokenCalls: () => tokenCalls,
+    authorizationCalls: () => authorizationCalls,
     dispose: () => boundary.dispose(),
   };
 }
 
-async function runCase(name, options, expected, expectedTokenCalls) {
+async function runCase(name, options, expected, expectedAuthorizationCalls) {
   const h = createHarness(options);
   try {
     const result = await h.check();
     assert.deepEqual(result, expected, name);
-    assert.equal(h.tokenCalls(), expectedTokenCalls, `${name}: unexpected translation-token traffic`);
-    for (const forbidden of ['token', 'email', 'user_id', 'account_no', 'account_ref', 'message', 'stack', 'cause']) {
+    assert.equal(h.authorizationCalls(), expectedAuthorizationCalls, `${name}: unexpected translation-authorization traffic`);
+    for (const forbidden of ['token', 'email', 'user_id', 'account_no', 'account_ref', 'message', 'stack', 'cause', 'generation', 'signal']) {
       assert.equal(Object.hasOwn(result, forbidden), false, `${name}: ${forbidden} must not cross readiness IPC`);
     }
   } finally {
@@ -130,6 +157,26 @@ async function runCase(name, options, expected, expectedTokenCalls) {
     'empty translation token fails closed without projecting the preflight quota',
     { state: { loggedIn: true, remaining_chars: 66, valid: true }, token: '' },
     { ready: false, reason: 'authorization-unavailable', retryable: true, quota: 'unknown' },
+    1,
+  );
+
+  await runCase(
+    'account switch before authorization uses only the new account quota snapshot',
+    {
+      state: { loggedIn: true, remaining_chars: 99, valid: true },
+      switchBeforeAuthorization: { loggedIn: true, remaining_chars: 7, valid: true },
+    },
+    { ready: true, reason: 'ready', retryable: false, quota: 'positive', remaining_chars: 7 },
+    1,
+  );
+
+  await runCase(
+    'account switch after authorization invalidates the readiness result',
+    {
+      state: { loggedIn: true, remaining_chars: 99, valid: true },
+      switchOnSecondStateRead: { loggedIn: true, remaining_chars: 7, valid: true },
+    },
+    { ready: false, reason: 'session-changed', retryable: true, quota: 'unknown' },
     1,
   );
 
