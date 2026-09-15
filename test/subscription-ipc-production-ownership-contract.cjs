@@ -25,8 +25,10 @@ assert.match(owner, /subscription:get-order-status/, 'current-order status looku
 assert.match(owner, /getStore\(\)\.myOrders\(\)/, 'order status projection must reuse authenticated store order lookup');
 assert.doesNotMatch(owner, /return\s+order\s*;/, 'raw order rows must not cross the IPC boundary');
 assert.match(owner, /subscription:translation-readiness/, 'translation readiness must stay inside the trusted Subscription IPC owner');
-assert.match(owner, /getTranslationToken\(\)/, 'readiness must exercise the real short-lived translation authorization path');
-assert.doesNotMatch(owner, /token:\s*token/, 'translation authorization token must never be projected into readiness IPC output');
+assert.match(owner, /store\.getTranslationAuthorization\(\)/, 'readiness must use the generation-bound short-lived translation authorization lease');
+assert.match(owner, /store\.assertTranslationAuthorizationCurrent\(lease\)/, 'readiness must validate the authorization lease around current-state projection');
+assert.doesNotMatch(owner, /return\s+lease\s*;/, 'raw translation authorization lease must never cross readiness IPC');
+assert.doesNotMatch(owner, /token:\s*lease\.token/, 'translation authorization token must never be projected into readiness IPC output');
 
 const expectedChannels = [
   'subscription:get-state',
