@@ -7,23 +7,40 @@ const { sanitizeUrlForLog } = require('../src/log-url.cjs');
 
 assert.equal(
   sanitizeUrlForLog('https://web.telegram.org/k/?token=secret#state'),
-  'https://web.telegram.org/k/'
+  'https://web.telegram.org/[REDACTED_PATH]'
 );
 assert.equal(
   sanitizeUrlForLog('chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html?lw-key=secret#chat'),
-  'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html'
+  'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/[REDACTED_PATH]'
 );
 assert.equal(sanitizeUrlForLog('about:blank#secret'), 'about:blank');
-assert.equal(sanitizeUrlForLog('not-a-url?token=secret#state'), 'not-a-url');
-assert.doesNotMatch(sanitizeUrlForLog('https://example.com/path?token=secret#state'), /secret|token|state/);
+assert.equal(sanitizeUrlForLog('https://example.com/'), 'https://example.com/');
+assert.equal(sanitizeUrlForLog('not-a-url?token=secret#state'), '[INVALID_URL]');
 
-const malformedUserinfo = sanitizeUrlForLog('https://alice:secret@example.com:bad/path?token=x#state');
-assert.equal(malformedUserinfo, 'https://[REDACTED]@example.com:bad/path');
-assert.doesNotMatch(malformedUserinfo, /alice|secret|token|state/, 'malformed URL fallback must not expose userinfo/query/hash secrets');
+const sensitivePath = sanitizeUrlForLog('https://example.com/reset/session-token-123?token=secret#state');
+assert.equal(sensitivePath, 'https://example.com/[REDACTED_PATH]');
+assert.doesNotMatch(sensitivePath, /reset|session-token-123|secret|token|state/);
+
+const dataUrl = sanitizeUrlForLog('data:text/html,<script>secret-token</script>#state');
+assert.equal(dataUrl, 'data:[REDACTED]');
+assert.doesNotMatch(dataUrl, /script|secret-token|state/);
+
+const fileUrl = sanitizeUrlForLog('file:///Users/alice/private/customer-42.csv');
+assert.equal(fileUrl, 'file:[REDACTED]');
+assert.doesNotMatch(fileUrl, /alice|private|customer-42/);
+
+const malformedUserinfo = sanitizeUrlForLog('https://alice:secret@example.com:bad/path-token?token=x#state');
+assert.equal(malformedUserinfo, 'https:[REDACTED]');
+assert.doesNotMatch(malformedUserinfo, /alice|secret|example|path-token|token|state/, 'malformed URL fallback must retain only the recognized scheme');
+
+const malformedMultiUserinfo = sanitizeUrlForLog('https://alice:secret@internal-token@example.com:bad/path-token?token=x#state');
+assert.equal(malformedMultiUserinfo, 'https:[REDACTED]');
+assert.doesNotMatch(malformedMultiUserinfo, /alice|secret|internal-token|example|path-token|token|state/, 'multiple malformed userinfo delimiters must not leak credential-like authority data');
+
 assert.equal(
-  sanitizeUrlForLog('not-a-valid-url/path?token=secret#state'),
-  'not-a-valid-url/path',
-  'unrelated malformed fallback behavior must remain unchanged'
+  sanitizeUrlForLog('not-a-valid-url/private/customer-42?token=secret#state'),
+  '[INVALID_URL]',
+  'unparsed malformed input must fail closed instead of preserving arbitrary path data'
 );
 
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8');

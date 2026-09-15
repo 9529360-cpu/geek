@@ -1,19 +1,36 @@
 (() => {
   'use strict';
 
+  const REDACTED_PATH = '[REDACTED_PATH]';
+  const REDACTED_VALUE = '[REDACTED]';
+
+  function sanitizeParsedUrl(parsed) {
+    if (parsed.protocol === 'about:' && parsed.pathname === 'blank') return 'about:blank';
+
+    if (parsed.host) {
+      const authority = `${parsed.protocol}//${parsed.host}`;
+      return parsed.pathname && parsed.pathname !== '/'
+        ? `${authority}/${REDACTED_PATH}`
+        : `${authority}/`;
+    }
+
+    return `${parsed.protocol}${REDACTED_VALUE}`;
+  }
+
+  function sanitizeMalformedUrl(raw) {
+    const schemeMatch = raw.match(/^([a-z][a-z0-9+.-]*:)/i);
+    if (schemeMatch) return `${schemeMatch[1]}${REDACTED_VALUE}`;
+    return '[INVALID_URL]';
+  }
+
   function sanitizeUrlForLog(value) {
-    const raw = String(value ?? '');
+    const raw = String(value ?? '').trim();
     if (!raw) return '';
 
     try {
-      const parsed = new URL(raw);
-      const authority = parsed.host ? `//${parsed.host}` : '';
-      return `${parsed.protocol}${authority}${parsed.pathname}`;
+      return sanitizeParsedUrl(new URL(raw));
     } catch {
-      const withoutQuery = raw.split(/[?#]/, 1)[0];
-      return withoutQuery
-        .replace(/^([a-z][a-z0-9+.-]*:\/\/)(?:[^/@]+@)/i, '$1[REDACTED]@')
-        .slice(0, 512);
+      return sanitizeMalformedUrl(raw);
     }
   }
 

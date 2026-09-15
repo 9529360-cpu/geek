@@ -13,11 +13,14 @@ const rendererSanitizer = require('../ui/log-url.js');
 const mainSanitizer = require('../src/log-url.cjs');
 
 const cases = [
-  'https://user:pass@example.com/path?token=secret#state',
-  'https://alice:secret@example.com:bad/path?token=x#state',
+  'https://user:pass@example.com/private/session-token?token=secret#state',
+  'https://alice:secret@example.com:bad/path-token?token=x#state',
+  'https://alice:secret@internal-token@example.com:bad/path-token?token=x#state',
   'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html?lw-key=secret#chat',
   'about:blank#secret',
-  'not-a-valid-url/path?token=secret#state',
+  'data:text/html,<script>secret-token</script>#state',
+  'file:///Users/alice/private/customer-42.csv',
+  'not-a-valid-url/private/customer-42?token=secret#state',
   '',
   null,
 ];
@@ -28,35 +31,62 @@ for (const value of cases) {
     `renderer/main URL sanitizers must agree for ${String(value)}`
   );
 }
+
 assert.equal(
-  rendererSanitizer.sanitizeUrlForLog(`broken-${'x'.repeat(700)}?token=secret`).length,
-  512,
-  'malformed renderer URLs must remain bounded'
+  rendererSanitizer.sanitizeUrlForLog(`broken-${'x'.repeat(700)}?token=secret`),
+  '[INVALID_URL]',
+  'malformed renderer URLs must fail closed instead of retaining arbitrary input'
 );
+
+const validSensitiveUrl = rendererSanitizer.sanitizeUrlForLog('https://user:pass@example.com/private/session-token?token=secret#state');
+assert.equal(validSensitiveUrl, 'https://example.com/[REDACTED_PATH]');
 assert.doesNotMatch(
-  rendererSanitizer.sanitizeUrlForLog('https://user:pass@example.com/path?token=secret#state'),
-  /user|pass|token|secret|state/,
-  'renderer URL sanitizer must remove credentials, query and hash'
+  validSensitiveUrl,
+  /user|pass|private|session-token|token|secret|state/,
+  'renderer URL sanitizer must remove credentials, path, query and hash'
 );
-const malformedUserinfo = rendererSanitizer.sanitizeUrlForLog('https://alice:secret@example.com:bad/path?token=x#state');
-assert.equal(malformedUserinfo, 'https://[REDACTED]@example.com:bad/path');
+
+const malformedUserinfo = rendererSanitizer.sanitizeUrlForLog('https://alice:secret@example.com:bad/path-token?token=x#state');
+assert.equal(malformedUserinfo, 'https:[REDACTED]');
 assert.doesNotMatch(
   malformedUserinfo,
-  /alice|secret|token|state/,
-  'renderer malformed fallback must redact userinfo as well as query/hash secrets'
+  /alice|secret|example|path-token|token|state/,
+  'renderer malformed fallback must retain only the recognized scheme'
 );
+
+const malformedMultiUserinfo = rendererSanitizer.sanitizeUrlForLog('https://alice:secret@internal-token@example.com:bad/path-token?token=x#state');
+assert.equal(malformedMultiUserinfo, 'https:[REDACTED]');
+assert.doesNotMatch(
+  malformedMultiUserinfo,
+  /alice|secret|internal-token|example|path-token|token|state/,
+  'renderer malformed fallback must not infer an authority from ambiguous credential delimiters'
+);
+
+const dataUrl = rendererSanitizer.sanitizeUrlForLog('data:text/html,<script>secret-token</script>#state');
+assert.equal(dataUrl, 'data:[REDACTED]');
+assert.doesNotMatch(dataUrl, /script|secret-token|state/, 'opaque URL payloads must never survive renderer logging');
 
 const browser = vm.createContext({ window: {}, URL });
 vm.runInContext(rendererSource, browser, { filename: 'ui/log-url.js' });
 assert.equal(typeof browser.window.GeekLogUrl?.sanitizeUrlForLog, 'function', 'browser helper must expose GeekLogUrl');
 assert.equal(
-  browser.window.GeekLogUrl.sanitizeUrlForLog('https://example.com/a?secret=1#x'),
-  'https://example.com/a'
+  browser.window.GeekLogUrl.sanitizeUrlForLog('https://example.com/a/secret-id?secret=1#x'),
+  'https://example.com/[REDACTED_PATH]'
 );
 assert.equal(
-  browser.window.GeekLogUrl.sanitizeUrlForLog('https://alice:secret@example.com:bad/path?token=x#state'),
-  'https://[REDACTED]@example.com:bad/path',
-  'browser execution must use the same malformed-userinfo redaction'
+  browser.window.GeekLogUrl.sanitizeUrlForLog('https://alice:secret@example.com:bad/path-token?token=x#state'),
+  'https:[REDACTED]',
+  'browser execution must fail closed for malformed URL authority data'
+);
+assert.equal(
+  browser.window.GeekLogUrl.sanitizeUrlForLog('https://alice:secret@internal-token@example.com:bad/path-token?token=x#state'),
+  'https:[REDACTED]',
+  'browser execution must redact malformed multi-userinfo authority data'
+);
+assert.equal(
+  browser.window.GeekLogUrl.sanitizeUrlForLog('data:text/plain,customer-secret'),
+  'data:[REDACTED]',
+  'browser execution must redact opaque payload-bearing URLs'
 );
 
 const helperIndex = index.indexOf('<script src="log-url.js"></script>');
