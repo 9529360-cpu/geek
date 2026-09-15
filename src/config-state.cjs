@@ -200,11 +200,56 @@ function createConfigStateStore(options = {}) {
     return run;
   }
 
+  function mutateLegacyBroadcastGroups(selectGroups) {
+    const run = transactionTail.then(async () => {
+      const current = cloneConfig(state);
+      const groups = current.broadcastGroups;
+      const nextGroups = selectGroups(groups.map(group => ({ ...group })));
+      if (!Array.isArray(nextGroups)) throw new TypeError('Legacy broadcast group selector must return an array');
+      const removed = groups.length - nextGroups.length;
+      if (removed <= 0) {
+        return Object.freeze({ changed: false, removed: 0, snapshot: cloneConfig(state) });
+      }
+      const candidate = normalizeConfig({ ...current, broadcastGroups: nextGroups });
+      const initializing = needsInitialCommit;
+      await durableWrite(candidate, { initializing });
+      state = candidate;
+      needsInitialCommit = false;
+      return Object.freeze({ changed: true, removed, snapshot: cloneConfig(state) });
+    });
+    transactionTail = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  function removeLegacyBroadcastGroupsForAccount(accountId) {
+    const id = String(accountId || '').trim();
+    if (!id) throw new TypeError('accountId is required');
+    return mutateLegacyBroadcastGroups(groups => groups.filter((group) => {
+      const owner = typeof group?.accountId === 'string' ? group.accountId.trim() : '';
+      return owner !== id;
+    }));
+  }
+
+  function removeOrphanedLegacyBroadcastGroups(liveAccountIds) {
+    const live = new Set(Array.from(liveAccountIds || [], value => String(value || '').trim()).filter(Boolean));
+    return mutateLegacyBroadcastGroups(groups => groups.filter((group) => {
+      const owner = typeof group?.accountId === 'string' ? group.accountId.trim() : '';
+      return !owner || live.has(owner);
+    }));
+  }
+
   function whenIdle() {
     return transactionTail;
   }
 
-  return { load, getSnapshot, update, whenIdle };
+  return {
+    load,
+    getSnapshot,
+    update,
+    removeLegacyBroadcastGroupsForAccount,
+    removeOrphanedLegacyBroadcastGroups,
+    whenIdle,
+  };
 }
 
 module.exports = {
