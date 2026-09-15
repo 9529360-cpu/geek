@@ -31,6 +31,7 @@ function createHarness({ trusted = true } = {}) {
       ] };
     },
     getQuota: async (...args) => { calls.push(['getQuota', ...args]); return { remaining_chars: 1 }; },
+    getTranslationToken: async () => { calls.push(['getTranslationToken']); return 'must-never-cross-ipc'; },
     logout: async () => { calls.push(['logout']); return { ok: true }; },
   };
   const boundary = installSubscriptionIpc({
@@ -52,6 +53,7 @@ function createHarness({ trusted = true } = {}) {
     'subscription:create-order',
     'subscription:get-order-status',
     'subscription:get-quota',
+    'subscription:translation-readiness',
     'subscription:logout',
     'subscription:enter-app',
     'subscription:close-window',
@@ -81,6 +83,7 @@ function createHarness({ trusted = true } = {}) {
     const unknown = await handlers.get('subscription:get-order-status')({}, 8);
     const missing = await handlers.get('subscription:get-order-status')({}, 999);
     await handlers.get('subscription:get-quota')({}, 1);
+    const readiness = await handlers.get('subscription:translation-readiness')({});
     await handlers.get('subscription:logout')({});
     await handlers.get('subscription:enter-app')({});
     await handlers.get('subscription:close-window')({});
@@ -90,6 +93,8 @@ function createHarness({ trusted = true } = {}) {
     assert.deepEqual(missing, { id: 999, status: 'missing' }, 'missing order must not be inferred from account state');
     assert.equal(Object.hasOwn(paid, 'amount'), false, 'payment metadata must not cross the renderer boundary');
     assert.equal(Object.hasOwn(paid, 'tx_id'), false, 'transaction metadata must not cross the renderer boundary');
+    assert.deepEqual(readiness, { ready: true, reason: 'ready', retryable: false, quota: 'unknown' });
+    assert.equal(Object.hasOwn(readiness, 'token'), false, 'translation authorization token must never cross readiness IPC');
     await assert.rejects(handlers.get('subscription:get-order-status')({}, 0), /invalid_order_id/);
     await assert.rejects(handlers.get('subscription:get-order-status')({}, Number.MAX_SAFE_INTEGER + 1), /invalid_order_id/);
 
@@ -103,6 +108,8 @@ function createHarness({ trusted = true } = {}) {
       ['myOrders'],
       ['myOrders'],
       ['getQuota', false],
+      ['getState'],
+      ['getTranslationToken'],
       ['logout'],
       ['enterApp'],
       ['closeWindow'],
