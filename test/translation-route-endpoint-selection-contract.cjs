@@ -161,9 +161,10 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
   }
 
   // Settings UX must not present backup as usable until health confirms a second
-  // configured endpoint. This is a dynamic controller test, not a source regex.
+  // configured endpoint. Gateway health is deliberately not user/provider readiness.
   {
     const source = fs.readFileSync(path.join(__dirname, '..', 'ui', 'translation-settings.js'), 'utf8');
+    assert.doesNotMatch(source, /服务正常/, 'gateway-only health must never claim end-to-end translation readiness');
     const backupOption = { disabled: false, textContent: '备用线路' };
     const routeSelect = {
       value: 'backup',
@@ -201,7 +202,9 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     assert.equal(backupOption.textContent, '备用线路（未配置）');
     assert.equal(routeSelect.dataset.backupConfigured, '0');
     assert.match(elements['translation-global-status'].textContent, /未配置备用线路/);
-    assert.match(elements['translation-gateway-status'].textContent, /1\/1 条线路可用/);
+    assert.equal(elements['translation-service-state'].textContent, '网关可达');
+    assert.match(elements['translation-gateway-status'].textContent, /1\/1 条线路已配置/);
+    assert.match(elements['translation-gateway-status'].textContent, /不代表当前账号授权、额度或上游供应商已验证/);
 
     healthResult = { ok: true, models: 2, endpointCount: 2 };
     routeSelect.value = 'default';
@@ -209,7 +212,9 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     assert.equal(backupOption.disabled, false);
     assert.equal(backupOption.textContent, '备用线路');
     assert.equal(routeSelect.dataset.backupConfigured, '1');
-    assert.match(elements['translation-gateway-status'].textContent, /2\/2 条线路可用/);
+    assert.equal(elements['translation-service-state'].textContent, '网关可达');
+    assert.match(elements['translation-gateway-status'].textContent, /2\/2 条线路已配置/);
+    assert.match(elements['translation-gateway-status'].textContent, /不代表当前账号授权、额度或上游供应商已验证/);
   }
 
   console.log('TRANSLATION_ROUTE_ENDPOINT_SELECTION_CONTRACT_OK');
