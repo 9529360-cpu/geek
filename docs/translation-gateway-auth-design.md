@@ -12,7 +12,7 @@
 - 相同 request ID + 相同语义在已完成状态下直接返回加密回放结果，不再次调用 provider，也不再次扣费或退款。相同 request ID 搭配不同语义必须返回 `request_conflict`。
 - 相同 request ID 正由另一请求处理时返回 `request_in_progress`。桌面端必须把它当作“待协调的非终态”，在原有绝对 deadline 内做有界退避轮询；不得当作终态冲突，也不得因此污染网关健康状态。
 - Worker 启用 `Request.signal`，将调用方取消显式传播到 provider 子请求；同时保留每次 provider 尝试上限和整次翻译绝对 deadline。超时/取消不等于“服务端一定没有提交”，因此任何未知结果仍必须依赖 request ID 状态恢复，而不是盲目新建请求。
-- 用户每分钟 30 次、IP 每分钟 60 次；正文最多 10,000 个 JS 字符且 UTF-8 不超过 32 KiB。
+- admission 限流针对“新逻辑翻译操作”：用户每分钟 30 次、IP 每分钟 60 次。已存在 request ID 的 `request_in_progress` 协调轮询和已完成结果回放不再次占用新操作 admission 配额，也不得再次调用 provider；正文最多 10,000 个 JS 字符且 UTF-8 不超过 32 KiB。
 - 公开健康检查不得泄露 provider 原始错误、聊天内容、request hash 或回放密文；只允许暴露安全的 provider 状态和 stale reservation 聚合信息。
 - CORS 仅允许 `ALLOWED_ORIGIN` 显式列出的官网来源；Electron 主进程不依赖 CORS 作为鉴权。
 
