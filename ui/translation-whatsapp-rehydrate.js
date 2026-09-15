@@ -29,7 +29,9 @@
         let backgroundActive = 0;
         let pendingOutgoingIntent = null;
         const backgroundQueue = [];
-        const intentAbort = new AbortController();
+        const IntentAbort = window.AbortController || globalThis.AbortController;
+        const intentAbort = typeof IntentAbort === 'function' ? new IntentAbort() : null;
+        const intentListenerOptions = intentAbort ? { capture: true, signal: intentAbort.signal } : { capture: true };
 
         const activeChatId = () => {
           try {
@@ -54,13 +56,13 @@
           if (!chatId || !text) { pendingOutgoingIntent = null; return; }
           pendingOutgoingIntent = { chatId, text, expiresAt: Date.now() + OUTGOING_INTENT_TTL_MS };
         };
-        window.addEventListener('keydown', event => {
+        window.addEventListener?.('keydown', event => {
           if (event?.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing || !isComposerTarget(event.target)) return;
           recordOutgoingIntent(event);
-        }, { capture: true, signal: intentAbort.signal });
-        window.addEventListener('click', event => {
+        }, intentListenerOptions);
+        window.addEventListener?.('click', event => {
           if (isSendButtonTarget(event?.target)) recordOutgoingIntent(event);
-        }, { capture: true, signal: intentAbort.signal });
+        }, intentListenerOptions);
 
         const installTranslationIntentTransport = () => {
           const current = window.__geekTranslationRequest;
@@ -229,7 +231,7 @@
           if (admissionRetryTimer) clearTimeout(admissionRetryTimer);
           admissionRetryTimer = null;
           pendingOutgoingIntent = null;
-          intentAbort.abort();
+          intentAbort?.abort?.();
           clearQueuedBackground();
           rootObserver?.disconnect();
           bodyObserver?.disconnect();
