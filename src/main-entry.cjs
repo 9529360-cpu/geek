@@ -11,6 +11,7 @@ const { prepareUserDataPath } = require('./user-data-path.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
 const { installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
+const { installSubscriptionWindowNavigationBoundary } = require('./subscription-window-boundary.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 const { installAccountSessionPermissionBoundary } = require('./session-permission-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
@@ -82,6 +83,11 @@ if (primaryInstance) {
   // Electron documents Session.storagePath instead. Install a narrow read-only
   // compatibility getter before main.cjs can create or classify any account guest.
   const sessionPartitionCompat = installSessionPartitionCompat({ app, sessionModule: session });
+
+  // The login/subscription BrowserWindow carries a privileged preload. Bind its
+  // navigation/new-window authority before main.cjs can create it so that WebContents
+  // identity can never survive a navigation into untrusted content.
+  installSubscriptionWindowNavigationBoundary({ app });
 
   // Bind the sole account-guest post-attach navigation authority before any
   // BrowserWindow/WebView is created. Policy resolves from the authoritative account
