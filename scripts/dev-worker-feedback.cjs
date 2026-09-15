@@ -245,8 +245,8 @@ function createWorkerBundleFeedback(options = {}) {
     const record = current;
     if (!record || !childIsRunning(record.child)) return;
     record.cancelled = true;
-    terminateImpl(child, { force: true, platform });
-    const exited = await waitForExitImpl(child, STOP_WAIT_MS);
+    terminateImpl(record.child, { force: true, platform });
+    const exited = await waitForExitImpl(record.child, STOP_WAIT_MS);
     if (!exited) warn(`Affected Worker bundle process tree remained alive during shutdown: ${record.name}.`);
   }
 
