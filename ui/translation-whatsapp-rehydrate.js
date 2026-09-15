@@ -16,10 +16,12 @@
 
         const BACKGROUND_ACTIVE_LIMIT = 2;
         const BACKGROUND_QUEUE_LIMIT = 8;
+        const ADMISSION_RETRY_LIMIT = 20;
         const HISTORY_MARKER = 'geekTranslationInitialHistory';
         let lastChatId = '';
         let refreshTimer = null;
-        let admissionTimer = null;
+        let admissionRetryTimer = null;
+        let admissionRetryCount = 0;
         let rootObserver = null;
         let bodyObserver = null;
         let backgroundGeneration = 0;
@@ -116,17 +118,17 @@
 
         const scheduleAdmissionInstall = () => {
           if (installBackgroundAdmission()) {
-            if (admissionTimer) clearInterval(admissionTimer);
-            admissionTimer = null;
+            if (admissionRetryTimer) clearTimeout(admissionRetryTimer);
+            admissionRetryTimer = null;
+            admissionRetryCount = 0;
             return;
           }
-          if (!admissionTimer) {
-            admissionTimer = setInterval(() => {
-              if (!installBackgroundAdmission()) return;
-              clearInterval(admissionTimer);
-              admissionTimer = null;
-            }, 100);
-          }
+          if (admissionRetryTimer || admissionRetryCount >= ADMISSION_RETRY_LIMIT) return;
+          admissionRetryCount += 1;
+          admissionRetryTimer = setTimeout(() => {
+            admissionRetryTimer = null;
+            scheduleAdmissionInstall();
+          }, 100);
         };
 
         const scheduleRefresh = () => {
@@ -168,7 +170,8 @@
 
         window.__geekTranslationRehydrateDispose = () => {
           clearTimeout(refreshTimer);
-          if (admissionTimer) clearInterval(admissionTimer);
+          if (admissionRetryTimer) clearTimeout(admissionRetryTimer);
+          admissionRetryTimer = null;
           clearQueuedBackground();
           rootObserver?.disconnect();
           bodyObserver?.disconnect();
