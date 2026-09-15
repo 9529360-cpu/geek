@@ -1,0 +1,20 @@
+name: translation-health-probe
+
+on:
+  push:
+    branches:
+      - 'test/translation-live-smoke-*'
+    paths:
+      - '.github/workflows/translation-health-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Probe production translation health
+        run: |
+          node -e "fetch('https://geek-translate.9529360.workers.dev/health').then(async r => { const j = await r.json(); console.log(JSON.stringify({status:r.status,ok:j.ok,providers:j.providers,models:j.models}, null, 2)); if(!r.ok) process.exit(1); }).catch(e => { console.error(e.message); process.exit(1); })"
