@@ -141,7 +141,7 @@ function trustedEnter(listeners, target) {
 
   // Reproduce the live regression boundary: private composer owner is missing,
   // but the public WPP send surface used by broadcast is healthy. One trusted
-  // composer gesture must translate once and send once through the public API.
+  // direct-chat gesture must translate once and send once through the public API.
   {
     const env = makePage({ nativeRecoveryReady: false });
     env.chat.composeQuotedMsg = { id: { _serialized: 'quoted-1' } };
@@ -159,13 +159,26 @@ function trustedEnter(listeners, target) {
     assert.equal(env.chat.getTestContents().text, undefined, 'successful fallback send must leave the native compose draft cleared');
   }
 
-  // Translation-disabled chats remain pure native pass-through. The fallback is
-  // not a general replacement for WhatsApp's composer authority.
+  // Translation-disabled direct chats remain pure native pass-through. The
+  // fallback is not a general replacement for WhatsApp's composer authority.
   {
     const env = makePage({ nativeRecoveryReady: false, translationDisabled: true });
     fallback.installPageFallback(env.page);
     const counters = trustedEnter(env.listeners, env.editor);
     assert.deepEqual(counters, { prevented: 0, stopped: 0 });
+    assert.equal(env.getTranslationCalls(), 0);
+    assert.equal(env.sends.length, 0);
+  }
+
+  // The operator already validated group sending/mentioning as healthy. Even if
+  // the private send-module hook is unavailable, this direct-chat fallback must
+  // not widen itself into group composer behavior.
+  {
+    const env = makePage({ nativeRecoveryReady: false, chat: makeChat('123@g.us') });
+    env.chat.isGroup = true;
+    fallback.installPageFallback(env.page);
+    const counters = trustedEnter(env.listeners, env.editor);
+    assert.deepEqual(counters, { prevented: 0, stopped: 0 }, 'group composer must stay under its existing owner');
     assert.equal(env.getTranslationCalls(), 0);
     assert.equal(env.sends.length, 0);
   }
@@ -234,6 +247,7 @@ function trustedEnter(listeners, target) {
   assert.match(bootstrapSource, /whatsapp-composer-public-fallback\.js/, 'shell bootstrap must load the degraded composer owner');
   assert.match(fallbackSource, /__geekWhatsAppSendRecovery\?\.ensureHook/, 'public path must yield to the existing native recovery owner');
   assert.match(fallbackSource, /__geekPickWpp\?\.\(requirements\)/, 'fallback must use the shared capability selector when available');
+  assert.match(fallbackSource, /if \(!isDirectChat\(chat, chatId\)\) return false/, 'fallback must be scoped to direct chats only');
   assert.match(fallbackSource, /chat\.sendTextMessage\(chatId, translated\.text, options\)/, 'fallback must use the public WPP text send surface');
   assert.doesNotMatch(fallbackSource, /WAWebSendTextMsgChatAction/, 'degraded public path must not reintroduce the fragile private module name');
 
