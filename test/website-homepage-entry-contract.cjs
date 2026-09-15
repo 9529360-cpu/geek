@@ -21,10 +21,13 @@ assert.match(entry, /request\.method === 'GET' && url\.pathname === HOME_PATH/, 
 for (const marker of [
   '海外会话工作台',
   '一个桌面，',
-  'WhatsApp / Telegram / LINE',
+  'WhatsApp、Telegram 和 LINE',
+  '跨境销售跟进',
   '多账号独立会话',
   '翻译与群发同一工作台',
   '账号就是工作现场',
+  '先跑通一个账号',
+  '兼容性不是官方背书',
 ]) {
   assert.ok(router.includes(marker), `统一官网首页缺少核心产品表达: ${marker}`);
 }
@@ -32,6 +35,8 @@ assert.match(router, /stageProduct\(\)/, '首页必须复用产品工作台视�
 assert.match(router, /stageSecurity\(\)/, '首页必须复用安全边界视觉组件');
 assert.match(router, /href="\/download"/, '首页必须提供正式下载入口');
 assert.match(router, /href="\/product"/, '首页必须进入统一产品信息架构');
+assert.match(router, /href="\/guide"/, '首页必须进入独立上手路径');
+assert.match(router, /href="\/faq"/, '首页必须进入独立 FAQ / trust surface');
 assert.ok(router.includes('不同账号可以同时工作'), '群发说明必须表达多账号并行语义');
 assert.ok(router.includes('同一账号一次只执行一个群发任务'), '群发说明必须表达同账号串行边界');
 
