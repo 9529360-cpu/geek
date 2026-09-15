@@ -5,8 +5,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const subscriptionWorker = fs.readFileSync(path.join(root, 'scripts', 'geek-subscription-worker-core.js'), 'utf8');
-const translationWorker = fs.readFileSync(path.join(root, 'scripts', 'geek-translate-worker.js'), 'utf8');
+const normalizeLineEndings = (value) => String(value).replace(/\r\n?/g, '\n');
+const subscriptionWorker = normalizeLineEndings(fs.readFileSync(path.join(root, 'scripts', 'geek-subscription-worker-core.js'), 'utf8'));
+const translationWorker = normalizeLineEndings(fs.readFileSync(path.join(root, 'scripts', 'geek-translate-worker.js'), 'utf8'));
 
 const authoritativeBody = "for (const ch of String(text || '')) {\n    n += ch.codePointAt(0) > 255 ? 2 : 1;\n  }";
 assert.ok(subscriptionWorker.includes(authoritativeBody), '订阅 Worker 必须保留 >255 的计费规则');
