@@ -44,6 +44,17 @@ function group(accountId, id) {
       'read-only cleanup must not materialize a missing Config State',
     );
 
+    assert.throws(
+      () => store.removeOrphanedLegacyBroadcastGroups(),
+      /liveAccountIds iterable is required/,
+      'startup orphan cleanup must fail closed when authoritative Account State owners are missing',
+    );
+    assert.throws(
+      () => store.removeOrphanedLegacyBroadcastGroups('B'),
+      /liveAccountIds iterable is required/,
+      'a string must not be accepted as an accidental iterable owner set',
+    );
+
     await store.update({
       theme: 'light',
       lockPassword: 'screen-secret',
