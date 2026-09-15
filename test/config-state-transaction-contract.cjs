@@ -38,6 +38,7 @@ function makeStore({ dir, adapter = fs, crypto = cryptoHarness(), events = [] })
   return {
     file,
     backup: `${file}.bak`,
+    commit: `${file}.commit`,
     crypto,
     events,
     store: createConfigStateStore({
@@ -60,12 +61,14 @@ async function normalLoadAndEncryptedRestart() {
   await withTemp(async dir => {
     const h = makeStore({ dir });
     assert.deepEqual(await h.store.load(), { ...DEFAULT_CONFIG, broadcastGroups: [] });
+    assert.match(await fs.readFile(h.commit, 'utf8'), /"sha256":"[0-9a-f]{64}"/);
     const updated = await h.store.update({ theme: 'dark', lockPassword: 'lock', password: 'proxy', broadcastGroups: [{ id: 'g', name: 'G' }] });
     assert.equal(updated.theme, 'dark');
     const raw = await fs.readFile(h.file, 'utf8');
     assert.match(raw, /"lockPassword": "enc:/);
     assert.match(raw, /"password": "enc:/);
     assert.ok(!raw.includes('"lockPassword": "lock"'));
+    assert.equal(raw, await fs.readFile(h.backup, 'utf8'), 'successful Config mutation must mirror the committed snapshot');
     const restart = makeStore({ dir, crypto: h.crypto });
     assert.deepEqual(await restart.store.load(), updated);
   });
@@ -82,6 +85,8 @@ async function plaintextMigration() {
     const migrated = await fs.readFile(h.file, 'utf8');
     assert.match(migrated, /"lockPassword": "enc:/);
     assert.match(migrated, /"password": "enc:/);
+    assert.equal(migrated, await fs.readFile(h.backup, 'utf8'));
+    assert.match(await fs.readFile(h.commit, 'utf8'), /"sha256":"[0-9a-f]{64}"/);
   });
 }
 
@@ -175,14 +180,17 @@ async function malformedFailsClosedAndBackupRecovers() {
   });
   await withTemp(async dir => {
     const crypto = cryptoHarness();
-    const h = makeStore({ dir, crypto });
-    const backup = JSON.stringify({ ...DEFAULT_CONFIG, theme: 'dark', lockPassword: crypto.encode('secret') }, null, 2);
-    await fs.writeFile(h.file, '{broken', 'utf8');
-    await fs.writeFile(h.backup, backup, 'utf8');
+    const seed = makeStore({ dir, crypto });
+    await seed.store.load();
+    const expected = await seed.store.update({ theme: 'dark', lockPassword: 'secret' });
+    await fs.writeFile(seed.file, '{broken', 'utf8');
+    const events = [];
+    const h = makeStore({ dir, crypto, events });
     const recovered = await h.store.load();
     assert.equal(recovered.theme, 'dark');
     assert.equal(recovered.lockPassword, 'secret');
-    assert.ok(h.events.some(item => item.phase === 'recovery' && item.recovered === true));
+    assert.deepEqual(recovered, expected);
+    assert.ok(events.some(item => item.phase === 'recovery' && item.recovered === true));
     const restart = makeStore({ dir, crypto });
     assert.deepEqual(await restart.store.load(), recovered);
   });
