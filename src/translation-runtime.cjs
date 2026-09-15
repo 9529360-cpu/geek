@@ -3,6 +3,7 @@
 // Public Translation Runtime owner. The base module keeps the proven cache,
 // auth, failover and gateway transaction machinery; this owner adds the
 // explicit-intent admission layer before any request can reach that machinery.
+const { AsyncLocalStorage } = require('node:async_hooks');
 const base = require('./translation-runtime-base.cjs');
 const {
   DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS,
@@ -11,12 +12,15 @@ const {
   createTranslationSmartQueue,
 } = require('./translation-smart-queue.cjs');
 
+const TRANSLATION_INTENT_HEADER = 'X-Geek-Translation-Intent';
+
 function createTranslationRuntime(options = {}) {
   const {
     ipcMain,
     accountState,
     assertTrustedSender,
     now = Date.now,
+    fetchImpl = globalThis.fetch,
   } = options;
 
   if (!ipcMain || typeof ipcMain.handle !== 'function' || typeof ipcMain.removeHandler !== 'function') {
@@ -24,6 +28,7 @@ function createTranslationRuntime(options = {}) {
   }
   if (!accountState || typeof accountState.findById !== 'function') throw new TypeError('accountState is required');
   if (typeof assertTrustedSender !== 'function') throw new TypeError('assertTrustedSender is required');
+  if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl is required');
 
   // The base runtime registers against this private registrar. Only this public
   // owner registers real Electron IPC handlers, preserving the single-owner
@@ -38,7 +43,17 @@ function createTranslationRuntime(options = {}) {
       baseHandlers.delete(channel);
     },
   };
-  const baseRuntime = base.createTranslationRuntime({ ...options, ipcMain: privateIpc });
+
+  // Intent is QoS metadata only. Keep it out of the translation body/cache key
+  // and carry it over a bounded header at the final fetch boundary. Async-local
+  // context prevents concurrent account requests from contaminating each other.
+  const intentContext = new AsyncLocalStorage();
+  const intentAwareFetch = (url, request = {}) => {
+    const intent = normalizeTranslationIntent(intentContext.getStore());
+    const headers = { ...(request.headers || {}), [TRANSLATION_INTENT_HEADER]: intent };
+    return fetchImpl(url, { ...request, headers });
+  };
+  const baseRuntime = base.createTranslationRuntime({ ...options, ipcMain: privateIpc, fetchImpl: intentAwareFetch });
   const deletedPartitions = new Set();
   const scheduler = createTranslationSmartQueue({
     concurrency: base.TRANSLATION_REMOTE_LIMIT,
@@ -89,14 +104,16 @@ function createTranslationRuntime(options = {}) {
 
     // Let the base runtime project canonical typed input/account failures. The
     // scheduler only owns requests that have a real account partition.
-    if (!partition) return baseHandler('translation:translate')(event, body);
+    if (!partition) {
+      return intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body));
+    }
 
     try {
       return await scheduler.enqueue({
         partition,
         intent: body.intent,
         deadlineAt: body.deadlineAt,
-        task: () => baseHandler('translation:translate')(event, body),
+        task: () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body)),
       });
     } catch (error) {
       return { ok: false, error: base.serializeTranslationIpcError(error) };
@@ -147,6 +164,7 @@ function createTranslationRuntime(options = {}) {
 
 module.exports = {
   ...base,
+  TRANSLATION_INTENT_HEADER,
   DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS,
   TRANSLATION_INTENTS,
   normalizeTranslationIntent,
