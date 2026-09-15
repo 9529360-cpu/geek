@@ -35,6 +35,11 @@ assert.ok(
   validationWorkflow.includes('ref: ${{ github.event.pull_request.head.sha || github.sha }}'),
   'validation builds must checkout the exact PR head rather than the synthetic merge ref',
 );
+assert.match(
+  validationWorkflow,
+  /- name: Run repository tests on Windows\s+run: npm test/,
+  'release candidate validation must run the full repository contract suite on Windows before packaging',
+);
 assert.ok(
   validationWorkflow.includes('name: geek-validation-${{ github.event.pull_request.head.sha || github.sha }}'),
   'validation artifacts must expose the exact source SHA they were built from',

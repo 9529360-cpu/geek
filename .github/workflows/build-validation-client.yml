@@ -63,6 +63,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run repository tests on Windows
+        run: npm test
+
       - name: Verify validation isolation contract
         run: node test/validation-build-isolation-contract.cjs
 
