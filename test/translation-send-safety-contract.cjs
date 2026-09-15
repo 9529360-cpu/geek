@@ -22,8 +22,23 @@ assert.equal(
 assert.equal(
   sanitizeTranslationOutput('Sure, here is the translation in Italian:\n```\nBuonasera, hai già mangiato?\n```'),
   'Buonasera, hai già mangiato?',
-  '说明前缀后的 Markdown 包装也必须移除'
+  '有明确 translation 元数据证据时仍必须清洗模型前缀和 Markdown 包装'
 );
+for (const conversational of [
+  'Sure, I can help you.',
+  "Certainly, I'll send it today.",
+  'Of course, we can discuss this tomorrow.',
+  'Certo, posso aiutarti.',
+  'Buongiorno! Certamente, ne parliamo domani.',
+  '“Sure, I can help you.”',
+  '"Of course, we can discuss this tomorrow."',
+]) {
+  assert.equal(
+    sanitizeTranslationOutput(conversational),
+    conversational,
+    `正常会话内容和引号必须原样保留: ${conversational}`
+  );
+}
 assert.equal(
   assertSafeTranslationOutput({ source, output: 'Buonasera, hai già mangiato?', target: 'it' }),
   'Buonasera, hai già mangiato?',
@@ -48,7 +63,7 @@ assert.equal(
 const workerSandbox = { Response, Request, Headers, URL, TextEncoder, TextDecoder, crypto: globalThis.crypto, btoa, atob, console, setTimeout, clearTimeout };
 vm.createContext(workerSandbox);
 vm.runInContext(
-  `${workerSource.replace(/^export default\s*/m, 'this.__worker = ')}\nthis.__validateOutput = validateTranslationOutput;`,
+  `${workerSource.replace(/^export default\s*/m, 'this.__worker = ')}\nthis.__validateOutput = validateTranslationOutput; this.__sanitizeOutput = sanitizeTranslationOutput;`,
   workerSandbox,
   { filename: 'geek-translate-worker.js' }
 );
@@ -57,6 +72,18 @@ assert.equal(
   'Buonasera, hai già mangiato?',
   '云端 Worker 必须实际清洗模型说明前缀'
 );
+for (const conversational of [
+  'Sure, I can help you.',
+  "Certainly, I'll send it today.",
+  'Of course, we can discuss this tomorrow.',
+  '“Sure, I can help you.”',
+]) {
+  assert.equal(
+    workerSandbox.__sanitizeOutput(conversational),
+    conversational,
+    `Worker 与桌面必须一致保留正常会话内容: ${conversational}`
+  );
+}
 assert.throws(
   () => workerSandbox.__validateOutput(source, '以下是意大利语翻译：\n晚上好，你吃饭了吗？', 'it'),
   /repeated source text|target script mismatch/,
@@ -66,6 +93,8 @@ assert.throws(
 assert.match(workerSource, /You are a translation engine, not an assistant/, '云端网关必须使用严格翻译提示词');
 assert.match(workerSource, /validateTranslationOutput\(text, result, target\)/, '云端每个模型结果必须质量校验后才能返回');
 assert.match(localGatewaySource, /validate_translation_output\(text, result, target\)/, '本地网关也必须校验模型输出');
+assert.doesNotMatch(workerSource, /\(\?:sure\|certainly\|of course\)\[,!：:\\s-\]\*\(\?:here/, 'Worker 不得再用可吞掉普通会话词的宽泛前缀');
+assert.doesNotMatch(localGatewaySource, /\(\?:sure\|certainly\|of course\)\[,!：:\\s-\]\*\(\?:here/, '本地网关不得再用可吞掉普通会话词的宽泛前缀');
 assert.match(runtimeSource, /assertSafeTranslationOutput\(\{ source: text, output: cached\.text, target \}\)/, '历史缓存必须重新校验，禁止复用脏译文');
 assert.match(runtimeSource, /assertSafeTranslationOutput\(\{ source: text, output: result\.text, target \}\)/, 'Translation Runtime 必须对网关结果做最终校验');
 
