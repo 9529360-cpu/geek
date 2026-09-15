@@ -12,6 +12,7 @@ const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 const ACCOUNT_NO_PATTERN = /^GK-[0-9a-f]{32}$/;
 const TOKEN_DECRYPT_ERROR = 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED';
+const STATE_RECOVERY_ERROR = 'SUBSCRIPTION_STATE_RECOVERY_REQUIRED';
 
 // 敏感字段加密（safeStorage DPAPI）：token 等不落明文
 // 注入方式：main.cjs 里通过 initSubscriptionStore() 把 {encrypt, decrypt} 传进来
@@ -78,6 +79,34 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     ? Math.floor(parsedRequestTimeoutMs)
     : DEFAULT_REQUEST_TIMEOUT_MS;
   let diskWriteQueue = Promise.resolve();
+
+  function stateRecoveryError(cause) {
+    const error = new Error('订阅登录状态不可读取，请重试或重新登录');
+    error.code = STATE_RECOVERY_ERROR;
+    error.cause = cause;
+    return error;
+  }
+
+  async function readStateDisk() {
+    let raw;
+    try {
+      raw = await fs.readFile(stateFile(), 'utf-8');
+    } catch (cause) {
+      if (cause?.code === 'ENOENT') return null;
+      throw stateRecoveryError(cause);
+    }
+
+    let loaded;
+    try {
+      loaded = JSON.parse(raw);
+    } catch (cause) {
+      throw stateRecoveryError(cause);
+    }
+    if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) {
+      throw stateRecoveryError(new TypeError('subscription state must be a JSON object'));
+    }
+    return loaded;
+  }
 
   function writeStateDisk(disk, options = {}) {
     const expectedSessionGeneration = options.expectedSessionGeneration;
@@ -151,34 +180,32 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     if (cache) return cache;
     const generation = sessionGeneration;
     loadPromise = (async () => {
-      try {
-        const raw = await fs.readFile(stateFile(), 'utf-8');
-        const loaded = JSON.parse(raw || '{}');
-        // 兼容：解密加密的 token（enc: 前缀）。解密失败必须保留密文并允许后续重试，不能伪装成登出。
-        if (loaded.token && typeof loaded.token === 'string' && loaded.token.startsWith('enc:')) {
-          loaded.token = decryptField(loaded.token);
-        }
-        // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
-        const identity = normalizeUserIdentity(loaded);
-        loaded.account_no = identity.account_no;
-        loaded.account_ref = identity.account_ref;
-        if (generation !== sessionGeneration) return cache || {};
-        // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
-        if (loaded.token && !String(loaded.token).startsWith('enc:') && secureCrypto) {
-          try {
-            const disk = { ...loaded, token: encryptField(loaded.token) };
-            await writeStateDisk(disk, { expectedSessionGeneration: generation });
-          } catch (e) {
-            if (e.code === 'SUBSCRIPTION_SESSION_CHANGED') return cache || {};
-            // 兼容迁移失败不阻塞当前已存在的登录态。
-          }
-        }
-        if (generation !== sessionGeneration) return cache || {};
-        cache = loaded;
-      } catch (error) {
-        if (error?.code === 'SECURE_STORAGE_UNAVAILABLE' || error?.code === TOKEN_DECRYPT_ERROR) throw error;
+      const loaded = await readStateDisk();
+      if (loaded === null) {
         if (generation === sessionGeneration) cache = {};
+        return cache || {};
       }
+      // 兼容：解密加密的 token（enc: 前缀）。解密失败必须保留密文并允许后续重试，不能伪装成登出。
+      if (loaded.token && typeof loaded.token === 'string' && loaded.token.startsWith('enc:')) {
+        loaded.token = decryptField(loaded.token);
+      }
+      // 公开账号号只接受服务端 account_no。旧 account_ref（包括 GK-000xxx）不再由本地身份推导或迁移。
+      const identity = normalizeUserIdentity(loaded);
+      loaded.account_no = identity.account_no;
+      loaded.account_ref = identity.account_ref;
+      if (generation !== sessionGeneration) return cache || {};
+      // 安全迁移：发现明文 token 立即加密重写磁盘（防止旧数据长期明文滞留）
+      if (loaded.token && !String(loaded.token).startsWith('enc:') && secureCrypto) {
+        try {
+          const disk = { ...loaded, token: encryptField(loaded.token) };
+          await writeStateDisk(disk, { expectedSessionGeneration: generation });
+        } catch (e) {
+          if (e.code === 'SUBSCRIPTION_SESSION_CHANGED') return cache || {};
+          // 兼容迁移失败不阻塞当前已存在的登录态。
+        }
+      }
+      if (generation !== sessionGeneration) return cache || {};
+      cache = loaded;
       return cache || {};
     })();
     try {
