@@ -14,6 +14,7 @@ const {
 } = require('./translation-smart-queue.cjs');
 
 const TRANSLATION_INTENT_HEADER = 'X-Geek-Translation-Intent';
+const DEFAULT_TRANSLATION_GATEWAY_URL = 'https://geek-translate.9529360.workers.dev';
 const VALID_CALLER_REQUEST_ID = /^[A-Za-z0-9._:-]{8,128}$/;
 const SINGLEFLIGHT_IGNORED_FIELDS = new Set(['accountId', 'deadlineAt', 'intent', 'coalesce', 'requestId']);
 
@@ -22,8 +23,10 @@ function createTranslationRuntime(options = {}) {
     ipcMain,
     accountState,
     assertTrustedSender,
+    getSubscriptionStore,
     now = Date.now,
     fetchImpl = globalThis.fetch,
+    env = process.env,
   } = options;
 
   if (!ipcMain || typeof ipcMain.handle !== 'function' || typeof ipcMain.removeHandler !== 'function') {
@@ -31,6 +34,7 @@ function createTranslationRuntime(options = {}) {
   }
   if (!accountState || typeof accountState.findById !== 'function') throw new TypeError('accountState is required');
   if (typeof assertTrustedSender !== 'function') throw new TypeError('assertTrustedSender is required');
+  if (typeof getSubscriptionStore !== 'function') throw new TypeError('getSubscriptionStore is required');
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl is required');
 
   // The base runtime registers against this private registrar. Only this public
@@ -51,13 +55,84 @@ function createTranslationRuntime(options = {}) {
   // and carry it over a bounded header at the final fetch boundary. Async-local
   // context prevents concurrent account requests from contaminating each other.
   const intentContext = new AsyncLocalStorage();
+  const authorizationLeaseContext = new AsyncLocalStorage();
   const intentAwareFetch = (url, request = {}) => {
     const intent = normalizeTranslationIntent(intentContext.getStore());
     const headers = { ...(request.headers || {}), [TRANSLATION_INTENT_HEADER]: intent };
     return fetchImpl(url, { ...request, headers });
   };
-  const baseRuntime = base.createTranslationRuntime({ ...options, ipcMain: privateIpc, fetchImpl: intentAwareFetch });
+
+  // A queued request must stay bound to the subscription generation that admitted
+  // it. The base runtime asks for authorization later, after cache/quota work; this
+  // request-scoped proxy returns the already-captured lease so a logout/account
+  // switch cannot make old queued work silently adopt the new session.
+  function baseSubscriptionStore() {
+    const store = getSubscriptionStore();
+    const capturedLease = authorizationLeaseContext.getStore();
+    if (!capturedLease || !store || typeof store !== 'object') return store;
+    return new Proxy(store, {
+      get(target, property) {
+        if (property === 'getTranslationAuthorization') return async () => capturedLease;
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  }
+
+  const baseRuntime = base.createTranslationRuntime({
+    ...options,
+    ipcMain: privateIpc,
+    fetchImpl: intentAwareFetch,
+    getSubscriptionStore: baseSubscriptionStore,
+  });
   const deletedPartitions = new Set();
+
+  // The smart queue may hold many requests from one authorization generation.
+  // Fan them out behind one native AbortSignal listener instead of adding one
+  // listener per queued request. The base transaction layer separately fan-outs
+  // active gateway attempts, keeping the total listener count O(1), not O(requests).
+  const schedulerAbortFanouts = new WeakMap();
+  function subscribeSchedulerAbort(signal, subscriber) {
+    if (!signal || typeof signal.addEventListener !== 'function' || typeof subscriber !== 'function') return () => {};
+    if (signal.aborted) {
+      subscriber(signal.reason || base.createTranslationError(
+        'SUBSCRIPTION_SESSION_CHANGED',
+        '登录状态已变化，请重试',
+        { category: 'auth', retryable: true },
+      ));
+      return () => {};
+    }
+    let entry = schedulerAbortFanouts.get(signal);
+    if (!entry) {
+      const subscribers = new Set();
+      const onAbort = () => {
+        schedulerAbortFanouts.delete(signal);
+        const reason = signal.reason || base.createTranslationError(
+          'SUBSCRIPTION_SESSION_CHANGED',
+          '登录状态已变化，请重试',
+          { category: 'auth', retryable: true },
+        );
+        const callbacks = [...subscribers];
+        subscribers.clear();
+        for (const callback of callbacks) {
+          try { callback(reason); } catch {}
+        }
+      };
+      entry = { subscribers, onAbort };
+      schedulerAbortFanouts.set(signal, entry);
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    entry.subscribers.add(subscriber);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      const current = schedulerAbortFanouts.get(signal);
+      if (!current) return;
+      current.subscribers.delete(subscriber);
+    };
+  }
+
   const scheduler = createTranslationSmartQueue({
     concurrency: base.TRANSLATION_REMOTE_LIMIT,
     outgoingReserve: DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.outgoingReserve,
@@ -66,6 +141,7 @@ function createTranslationRuntime(options = {}) {
     partitionQueueLimit: DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.partitionQueueLimit,
     backgroundPartitionLimit: DEFAULT_TRANSLATION_SMART_QUEUE_OPTIONS.backgroundPartitionLimit,
     now,
+    subscribeAbort: subscribeSchedulerAbort,
     isPartitionDeleted: partition => deletedPartitions.has(String(partition || '')),
     deadlineError: base.deadlineExceededError,
     deletedError: () => base.createTranslationError(
@@ -148,8 +224,59 @@ function createTranslationRuntime(options = {}) {
     });
   }
 
-  function scheduledTask(event, body) {
-    return () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body));
+  function gatewayNeedsRemoteAuthorization() {
+    const configured = String(env?.GEEK_TRANSLATION_GATEWAY_URL || '').trim();
+    const endpoints = configured
+      ? configured.split(',').map(value => value.trim().replace(/\/$/, '')).filter(Boolean)
+      : [DEFAULT_TRANSLATION_GATEWAY_URL];
+    return endpoints.some(endpoint => {
+      try {
+        const parsed = new URL(endpoint);
+        return !(parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1');
+      } catch {
+        // The base runtime will project the configuration error. Treat malformed
+        // endpoints as remote here so admission never weakens authorization first.
+        return true;
+      }
+    });
+  }
+
+  function normalizeAdmissionAuthorizationError(error) {
+    if (error?.code === 'SUBSCRIPTION_SESSION_CHANGED') {
+      return base.createTranslationError(
+        'SUBSCRIPTION_SESSION_CHANGED',
+        error.message || '登录状态已变化，请重试',
+        { category: 'auth', retryable: true, cause: error },
+      );
+    }
+    if (error?.code === 'SUBSCRIPTION_LOGIN_REQUIRED') {
+      return base.createTranslationError(
+        'SUBSCRIPTION_LOGIN_REQUIRED',
+        error.message || '请先登录',
+        { category: 'auth', retryable: false, cause: error },
+      );
+    }
+    if (error?.code === 'SUBSCRIPTION_REQUEST_TIMEOUT') return base.deadlineExceededError(error);
+    return error;
+  }
+
+  async function captureAdmissionAuthorization(deadlineAt) {
+    if (!gatewayNeedsRemoteAuthorization()) return null;
+    const store = getSubscriptionStore();
+    if (!store || typeof store.getTranslationAuthorization !== 'function') return null;
+    if (typeof store.assertTranslationAuthorizationCurrent !== 'function') {
+      throw new TypeError('subscription authorization lease validator is required');
+    }
+    const lease = await awaitScheduledLeader(store.getTranslationAuthorization(), deadlineAt);
+    store.assertTranslationAuthorizationCurrent(lease);
+    return lease;
+  }
+
+  function scheduledTask(event, body, authorizationLease) {
+    return () => authorizationLeaseContext.run(
+      authorizationLease || null,
+      () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body)),
+    );
   }
 
   async function translateIpc(event, payload) {
@@ -178,12 +305,25 @@ function createTranslationRuntime(options = {}) {
       }
     }
 
-    const leader = scheduler.enqueue({
-      partition,
-      intent: body.intent,
-      deadlineAt: body.deadlineAt,
-      task: scheduledTask(event, body),
-    });
+    // Capture authorization before bounded admission so queued work is fenced to
+    // the session generation that created it. The promise is registered in
+    // scheduledInflight immediately, so duplicate display requests still share
+    // both the authorization preflight and the eventual translation transaction.
+    const leader = (async () => {
+      let authorizationLease = null;
+      try {
+        authorizationLease = await captureAdmissionAuthorization(body.deadlineAt);
+      } catch (error) {
+        throw normalizeAdmissionAuthorizationError(error);
+      }
+      return scheduler.enqueue({
+        partition,
+        intent: body.intent,
+        deadlineAt: body.deadlineAt,
+        signal: authorizationLease?.signal || null,
+        task: scheduledTask(event, body, authorizationLease),
+      });
+    })();
     if (singleflightKey) {
       scheduledInflight.set(singleflightKey, leader);
       const cleanup = () => {
