@@ -14,13 +14,14 @@ const read = relative => fs.readFileSync(path.join(root, relative), 'utf8').repl
 const workerSource = read('scripts/geek-translate-worker.js');
 const localGatewaySource = read('scripts/local_translation_gateway.py');
 const settingsSource = read('ui/translation-settings.js');
-const runtimeSource = read('src/translation-runtime-base.cjs');
+const publicRuntimeSource = read('src/translation-runtime.cjs');
+const runtimeBaseSource = read('src/translation-runtime-base.cjs');
 
 function mapKeys(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
   const end = source.indexOf(endMarker, start);
   assert.ok(start >= 0 && end > start, `missing language registry boundary: ${startMarker}`);
-  return [...source.slice(start, end).matchAll(/['"]([a-z]{2})['"]\s*:/g)].map(match => match[1]).sort();
+  return [...source.slice(start, end).matchAll(/(?:['"])?([a-z]{2})(?:['"])?\s*:/g)].map(match => match[1]).sort();
 }
 
 function uiLanguageCodes(source) {
@@ -54,8 +55,9 @@ function loadWorkerHelpers() {
   assert.equal(normalizeTranslationLanguage('xx', { allowAuto: true }), '', 'desktop must reject unknown explicit source language codes');
   assert.equal(normalizeTranslationLanguage('auto', { allowAuto: false }), '', 'target language must never accept auto');
   assert.equal(normalizeTranslationLanguage('IT', { allowAuto: false }), 'it');
-  assert.match(runtimeSource, /TRANSLATION_SOURCE_INVALID/, 'desktop runtime must surface invalid source as a typed input failure');
-  assert.match(runtimeSource, /source:\s*source,\s*target,/, 'desktop cache identity must use canonical source semantics');
+  assert.match(publicRuntimeSource, /TRANSLATION_SOURCE_INVALID/, 'desktop runtime must surface invalid source as a typed input failure');
+  assert.match(publicRuntimeSource, /return \{ \.\.\.body, source, target, intent, deadlineAt/, 'desktop runtime must pass canonical source and target to the base transaction owner');
+  assert.match(runtimeBaseSource, /source:\s*body\.source \|\| 'auto',[\s\S]*target,/, 'cache identity must remain source-sensitive after canonicalization');
 
   const helpers = loadWorkerHelpers();
   assert.equal(helpers.normalizeLanguageCode(' EN ', true), 'en');
@@ -75,15 +77,17 @@ function loadWorkerHelpers() {
   assert.notEqual(englishGift, germanGift, 'ambiguous text must carry different model instructions for different explicit source languages');
   assert.match(autoGift, /detect the source language automatically/i, 'auto must remain deliberate model auto-detection');
   assert.doesNotMatch(autoGift, /source language is auto/i, 'auto is behavior, not a fake language name');
+  assert.match(englishGift, /Preserve formatting, line breaks, emojis, names, numbers, dates, URLs, punctuation and terminology/, 'explicit source must retain the existing preservation contract');
 
   assert.match(workerSource, /const source = normalizeLanguageCode\(body\.source \|\| 'auto', true\)/, 'Worker request boundary must canonicalize source language');
   assert.match(workerSource, /if \(!source\) return json\(\{ error: 'invalid_source' \}, 400/, 'Worker must reject unsupported source codes before translation');
+  assert.ok(workerSource.indexOf("if (!source) return json({ error: 'invalid_source' }") < workerSource.indexOf('reserved = Math.max(1, countChars(text))'), 'invalid source must be rejected before quota reservation');
   assert.match(workerSource, /translate\(text, source, target, env, deadlineAt\)/, 'Worker provider chain must receive source language');
 
   assert.match(localGatewaySource, /def normalize_language_code\(value, allow_auto=False\):/, 'local gateway must own the same source-language normalization rule');
   assert.match(localGatewaySource, /def translate\(text, source, target, route='default'\):/, 'local gateway provider chain must receive source language');
   assert.match(localGatewaySource, /Detect the source language automatically/, 'local gateway auto mode must be explicit');
-  assert.match(localGatewaySource, /The source language is \{source_language\} \(\{source\}\)/, 'local gateway explicit source must reach the provider prompt');
+  assert.match(localGatewaySource, /The source language is \{LANG_NAMES\.get\(source, source\)\} \(\{source\}\)/, 'local gateway explicit source must reach the provider prompt');
   assert.match(localGatewaySource, /return reply\(self, 400, \{'error': 'invalid_source'\}\)/, 'local gateway must reject unsupported source codes');
 
   console.log('TRANSLATION_SOURCE_LANGUAGE_CONTRACT_OK');
