@@ -19,6 +19,12 @@
     return null;
   }
 
+  function receiveTranslationMode(config = {}) {
+    const value = config && typeof config === 'object' ? config : {};
+    if (value.translationMode === 'auto' || value.translationMode === 'click') return value.translationMode;
+    return value.message === true ? 'auto' : 'click';
+  }
+
   function normalizeConfig(globalConfig = {}, chatConfig = {}) {
     const g = globalConfig && typeof globalConfig === 'object' ? globalConfig : {};
     const c = chatConfig && typeof chatConfig === 'object' ? chatConfig : {};
@@ -31,7 +37,7 @@
       target: g.sendTo || 'en',
       messageAction: g.manual !== false,
       displayTranslation: g.displayTranslation !== false,
-      translationMode: g.translationMode || (g.message === false ? 'click' : 'auto'),
+      translationMode: receiveTranslationMode(g),
       messageTarget: g.messageTo || 'zh',
       messageFrom: g.messageFrom || 'auto',
       groupAuto: g.group === true,
@@ -88,6 +94,7 @@
   window.GeekTranslationCore = Object.freeze({
     PLATFORM_TYPES,
     platformOf,
+    receiveTranslationMode,
     normalizeConfig,
     registerAdapter,
     getAdapter,
