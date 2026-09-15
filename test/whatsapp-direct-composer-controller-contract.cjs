@@ -22,10 +22,19 @@ function makePage(options = {}) {
   let activeChat = options.activeChat || nativeChat;
   const globalSetting = { enabled: options.globalEnabled === true, autoSend: options.globalEnabled === true, includeZh: true, source: 'auto', target: 'it', provider: 'auto', route: 'default' };
   const chats = options.chats || {};
+  const lidMap = options.lidMap || {};
   const page = {
     AbortController,
     console: { error() {} },
-    WPP: { chat: { getActiveChat() { return activeChat; } } },
+    WPP: {
+      chat: { getActiveChat() { return activeChat; } },
+      contact: {
+        async getPnLidEntry(id) {
+          const pn = lidMap[String(id || '')];
+          return pn ? { phoneNumber: { _serialized: pn } } : null;
+        },
+      },
+    },
     document: {
       getElementById() { return null; },
       createElement() { return { style: {}, remove() {}, textContent: '', id: '' }; },
@@ -43,7 +52,11 @@ function makePage(options = {}) {
       return { text: `translated:${payload.text}` };
     },
     __geekRememberOutgoing(translated, original) { remembered.push([translated, original]); },
-    __geekPickWpp() { return page.WPP; },
+    __geekPickWpp(requirements) {
+      const paths = Array.isArray(requirements) ? requirements : [requirements];
+      if (paths.includes('contact.getPnLidEntry') && options.identityApiUnavailable) return null;
+      return page.WPP;
+    },
     __geekWhatsAppSendRecovery: { controller: makeAbort(), timer: 9 },
     __geekWhatsAppPublicComposerFallback: { controller: makeAbort() },
     __geekWhatsAppGuardAbort: makeAbort(),
@@ -53,7 +66,7 @@ function makePage(options = {}) {
 }
 
 (async () => {
-  assert.equal(controller.CONTROLLER_VERSION, 5);
+  assert.equal(controller.CONTROLLER_VERSION, 6);
   assert.equal(controller.isWhatsAppType('whatsapp'), true);
   assert.equal(controller.isWhatsAppType('whatsapp-pure'), true);
   assert.equal(controller.isWhatsAppType('telegram'), false);
@@ -74,12 +87,13 @@ function makePage(options = {}) {
     const env = makePage({
       globalEnabled: false,
       activeChat: active,
+      lidMap: { '987654321@lid': '15551234567@c.us' },
       chats: { '987654321@lid': { enabled: true, autoSend: true, source: 'auto', target: 'it', provider: 'auto', route: 'default' } },
     });
     controller.installPageController(env.page);
     const owner = env.page.__geekWhatsAppDirectComposerController;
-    const resolved = owner.resolveTranslationSetting(env.nativeChat, 'hello');
-    assert.equal(resolved.mode, 'translate', 'active LID override must win even when native send chat is PN/c.us');
+    const resolved = await owner.resolveTranslationSetting(env.nativeChat, 'hello');
+    assert.equal(resolved.mode, 'translate', 'proven active LID override must win when native send chat is the same PN/c.us contact');
     assert.equal(resolved.chatId, '987654321@lid');
     await owner.handleNativeSend(env.nativeChat, ['hello', { quoted: true }], env.original, null);
     assert.equal(env.translationCalls.length, 1);
@@ -88,6 +102,39 @@ function makePage(options = {}) {
     assert.equal(env.nativeSends[0][1], 'translated:hello', 'translation-on must never leak the raw source');
     assert.deepEqual(env.nativeSends[0][2], { quoted: true });
     assert.deepEqual(env.remembered, [['translated:hello', 'hello']]);
+  }
+
+  {
+    const unrelated = makeChat('447700900999@c.us');
+    const env = makePage({
+      globalEnabled: false,
+      activeChat: unrelated,
+      chats: { '447700900999@c.us': { enabled: true, autoSend: true, target: 'it' } },
+    });
+    controller.installPageController(env.page);
+    const owner = env.page.__geekWhatsAppDirectComposerController;
+    const resolved = await owner.resolveTranslationSetting(env.nativeChat, 'hello');
+    assert.equal(resolved.mode, 'passthrough', 'an override from a proven different active contact must never be applied to the native send chat');
+    await owner.handleNativeSend(env.nativeChat, ['hello'], env.original, null);
+    assert.equal(env.translationCalls.length, 0);
+    assert.equal(env.nativeSends[0][1], 'hello');
+  }
+
+  {
+    const active = makeChat('987654321@lid');
+    const env = makePage({
+      globalEnabled: false,
+      activeChat: active,
+      identityApiUnavailable: true,
+      chats: { '987654321@lid': { enabled: true, autoSend: true, target: 'it' } },
+    });
+    controller.installPageController(env.page);
+    const owner = env.page.__geekWhatsAppDirectComposerController;
+    const resolved = await owner.resolveTranslationSetting(env.nativeChat, 'secret raw');
+    assert.equal(resolved.mode, 'blocked', 'unresolved LID/PN identity with a local override must fail closed');
+    await assert.rejects(owner.handleNativeSend(env.nativeChat, ['secret raw'], env.original, null), /无法确认当前 WhatsApp 聊天身份/);
+    assert.equal(env.nativeSends.length, 0, 'identity uncertainty must never leak raw text');
+    assert.match(env.notices.at(-1) || '', /原文未发送/);
   }
 
   {
@@ -127,7 +174,7 @@ function makePage(options = {}) {
     const pending = owner.handleNativeSend(env.nativeChat, ['hello'], env.original, null);
     for (let i = 0; i < 3 && typeof resolveTranslation !== 'function'; i += 1) await Promise.resolve();
     assert.equal(typeof resolveTranslation, 'function', 'queued native send must enter the shared translation request before the switch probe');
-    env.setActiveChat(makeChat('other@c.us'));
+    env.setActiveChat(makeChat('447700900999@c.us'));
     resolveTranslation({ text: 'translated:hello' });
     await assert.rejects(pending, /聊天已切换/);
     assert.equal(env.nativeSends.length, 0);
@@ -139,8 +186,8 @@ function makePage(options = {}) {
     'thin adapter must not own DOM gestures or a second WhatsApp send transport');
   assert.match(source, /handleNativeSend[\s\S]*__geekTranslationRequest[\s\S]*original\.call\(thisArg, chat, \.\.\.args\)/,
     'WhatsApp adapter must translate through the shared bridge then use the native platform send');
-  assert.match(source, /activeId[\s\S]*hasOwn\(chats, activeId\)[\s\S]*nativeId[\s\S]*hasOwn\(chats, nativeId\)/,
-    'chat-scoped translation settings must resolve active LID before native PN fallback');
+  assert.match(source, /contact\.getPnLidEntry[\s\S]*phoneNumber[\s\S]*pair\?\.pn/,
+    'WhatsApp adapter must normalize LID through the established WA-JS PN mapping before reusing a chat override');
   assert.doesNotMatch(source, /WAWebSendTextMsgChatAction|sendTextMsgToChat/);
 
   console.log('WHATSAPP_DIRECT_COMPOSER_CONTROLLER_CONTRACT_OK');
