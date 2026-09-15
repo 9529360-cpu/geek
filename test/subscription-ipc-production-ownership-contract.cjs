@@ -24,6 +24,9 @@ assert.match(owner, /for \(const channel of SUBSCRIPTION_CHANNELS\) ipcMain\.rem
 assert.match(owner, /subscription:get-order-status/, 'current-order status lookup must stay inside the trusted Subscription IPC owner');
 assert.match(owner, /getStore\(\)\.myOrders\(\)/, 'order status projection must reuse authenticated store order lookup');
 assert.doesNotMatch(owner, /return\s+order\s*;/, 'raw order rows must not cross the IPC boundary');
+assert.match(owner, /subscription:translation-readiness/, 'translation readiness must stay inside the trusted Subscription IPC owner');
+assert.match(owner, /getTranslationToken\(\)/, 'readiness must exercise the real short-lived translation authorization path');
+assert.doesNotMatch(owner, /token:\s*token/, 'translation authorization token must never be projected into readiness IPC output');
 
 const expectedChannels = [
   'subscription:get-state',
@@ -33,6 +36,7 @@ const expectedChannels = [
   'subscription:create-order',
   'subscription:get-order-status',
   'subscription:get-quota',
+  'subscription:translation-readiness',
   'subscription:logout',
   'subscription:enter-app',
   'subscription:close-window',
