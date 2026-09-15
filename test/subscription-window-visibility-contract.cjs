@@ -50,6 +50,48 @@ class FakeWindow extends EventEmitter {
   main.webContents.emit('did-finish-load');
   assert.equal(main.shown, 0, '普通主窗口不应被恢复器额外显示');
 
+  const failedSubscription = new FakeWindow('about:blank');
+  app.emit('browser-window-created', {}, failedSubscription);
+  failedSubscription.webContents.emit(
+    'did-fail-load',
+    {},
+    -105,
+    'NAME_NOT_RESOLVED',
+    'file:///C:/app/ui/subscription.html?startup=1',
+    true,
+  );
+  assert.equal(failedSubscription.shown, 1, '主框架登录页加载失败时应使用 validatedURL 恢复窗口可见性');
+  assert.equal(failedSubscription.focused, 1, '加载失败后的登录窗口应获得焦点');
+  failedSubscription.webContents.url = 'file:///C:/app/ui/subscription.html';
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(failedSubscription.shown, 1, '加载失败恢复成功后必须取消超时 watchdog，避免重复显示');
+
+  const unrelatedFailure = new FakeWindow('about:blank');
+  app.emit('browser-window-created', {}, unrelatedFailure);
+  unrelatedFailure.webContents.emit(
+    'did-fail-load',
+    {},
+    -105,
+    'NAME_NOT_RESOLVED',
+    'file:///C:/app/ui/index.html',
+    true,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(unrelatedFailure.shown, 0, '非登录页主框架加载失败不得被恢复器显示');
+
+  const subframeFailure = new FakeWindow('about:blank');
+  app.emit('browser-window-created', {}, subframeFailure);
+  subframeFailure.webContents.emit(
+    'did-fail-load',
+    {},
+    -105,
+    'NAME_NOT_RESOLVED',
+    'file:///C:/app/ui/subscription.html',
+    false,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(subframeFailure.shown, 0, '子框架失败不得获得登录窗口恢复权限');
+
   const watchdog = new FakeWindow('file:///C:/app/ui/subscription.html?test=1');
   watchdog.minimized = true;
   app.emit('browser-window-created', {}, watchdog);
