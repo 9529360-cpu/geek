@@ -18,6 +18,12 @@ assert.doesNotMatch(preload, /subscription:report-usage/, 'renderer preload 不�
 assert.doesNotMatch(preload, /reportUsage\s*:/, 'window.api.subscription 不得暴露旧 reportUsage 方法');
 assert.doesNotMatch(accountUi + appUi, /subscription\.reportUsage\s*\(/, 'renderer 不得调用旧 reportUsage');
 
+// Translation readiness is a safe projection: the renderer may ask the trusted
+// Subscription IPC owner to exercise the short-lived authorization path, but the
+// token itself must never be exposed as a preload capability or result field.
+assert.match(preload, /translationReadiness:\s*\(\)\s*=>\s*invokeSubscription\('subscription:translation-readiness'\)/, 'renderer preload must expose the safe readiness projection');
+assert.doesNotMatch(preload, /getTranslationToken|translationToken\s*:/, 'preload must never expose the short-lived translation token capability');
+
 // The store method, retained for compatibility/internal use, has the new text-pair
 // contract. The authoritative charging path is the authenticated gateway.
 assert.match(subscription, /async function reportUsage\(sourceText, targetText\)/, '订阅存储层 usage 方法必须保持原文+译文契约');

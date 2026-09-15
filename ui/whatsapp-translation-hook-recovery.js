@@ -8,9 +8,10 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const RECOVERY_VERSION = 7;
+  const RECOVERY_VERSION = 8;
   const COMPOSER_INTENT_TTL_MS = 2000;
   const TRANSLATION_FAILURE_MARK = '__geekTranslationLayerFailure';
+  const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
     return type === 'whatsapp' || type === 'whatsapp-pure';
@@ -24,9 +25,66 @@
     ) || null;
   }
 
+  function parseTranslationFailure(error) {
+    const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
+    const tagged = error && (typeof error === 'object' || typeof error === 'function')
+      ? error
+      : new Error(String(error || '翻译失败'));
+    const rawMessage = String(tagged?.message || '');
+    if (!rawMessage.startsWith(prefix)) return tagged;
+    let detail;
+    try { detail = JSON.parse(rawMessage.slice(prefix.length)); }
+    catch { return tagged; }
+    if (!detail || typeof detail !== 'object') return tagged;
+    try { tagged.message = String(detail.message || '翻译请求失败').slice(0, 300); } catch {}
+    try { tagged.code = String(detail.code || 'TRANSLATION_FAILED').slice(0, 100); } catch {}
+    try { tagged.category = String(detail.category || 'gateway').slice(0, 64); } catch {}
+    try { tagged.retryable = detail.retryable === true; } catch {}
+    if (Number.isInteger(detail.status)) {
+      try { tagged.status = detail.status; } catch {}
+    }
+    return tagged;
+  }
+
+  function translationFailureNotice(error, restored = false) {
+    const source = error && typeof error === 'object' ? error : {};
+    const code = String(source.code || '');
+    const category = String(source.category || '');
+    const status = Number(source.status) || 0;
+    const tail = restored ? '原文已恢复，请处理后重试' : '原文未发送';
+
+    if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) {
+      return `翻译额度已用完，请到个人中心开通；${tail}`;
+    }
+    if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') {
+      return `翻译需要重新登录，请到个人中心登录；${tail}`;
+    }
+    if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) {
+      return `翻译授权状态已变化，请重新登录后重试；${tail}`;
+    }
+    if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) {
+      return `翻译服务响应超时，请稍后重试；${tail}`;
+    }
+    if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') {
+      return `译文未通过质量校验，请修改原文后重试；${tail}`;
+    }
+    if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) {
+      return `翻译请求繁忙，请稍后重试；${tail}`;
+    }
+    if (category === 'gateway' || category === 'rate-limit' || status >= 500) {
+      return `翻译服务暂时不可用，请稍后重试；${tail}`;
+    }
+    return restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送';
+  }
+
   // Runs inside the WhatsApp WebView page. Keep this function self-contained so
   // the host can inject it with executeJavaScript without sharing renderer state.
-  function installPageRecovery(page, version = RECOVERY_VERSION) {
+  function installPageRecovery(
+    page,
+    version = RECOVERY_VERSION,
+    parseFailure = parseTranslationFailure,
+    failureNotice = translationFailureNotice,
+  ) {
     if (!page) return 'NO_PAGE';
 
     const currentState = page.__geekWhatsAppSendRecovery;
@@ -181,9 +239,10 @@
     };
 
     const markTranslationFailure = function (error) {
-      const tagged = error && (typeof error === 'object' || typeof error === 'function')
-        ? error
-        : new Error(String(error || '翻译失败'));
+      const normalized = typeof parseFailure === 'function' ? parseFailure(error) : error;
+      const tagged = normalized && (typeof normalized === 'object' || typeof normalized === 'function')
+        ? normalized
+        : new Error(String(normalized || '翻译失败'));
       if (tagged?.[TRANSLATION_FAILURE_MARK] === true) return tagged;
       try { Object.defineProperty(tagged, TRANSLATION_FAILURE_MARK, { value: true }); }
       catch { try { tagged[TRANSLATION_FAILURE_MARK] = true; } catch {} }
@@ -326,7 +385,9 @@
         const handleFailure = error => {
           if (!attempt || !isTranslationFailure(error)) throw error;
           const restored = restoreComposeSnapshot(chat, snapshot, text);
-          notify(restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送');
+          notify(typeof failureNotice === 'function'
+            ? failureNotice(error, restored)
+            : (restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送'));
           return undefined;
         };
         let result;
@@ -387,7 +448,7 @@
           } catch (error) {
             const tagged = markTranslationFailure(error);
             page.console?.error?.('[geek-translation-recovery]', tagged);
-            notify('翻译失败，原文未发送');
+            notify(typeof failureNotice === 'function' ? failureNotice(tagged, false) : '翻译失败，原文未发送');
             throw tagged;
           }
           return original.call(receiver, chat, ...args);
@@ -510,7 +571,7 @@
       const accounts = listed?.accounts || listed || [];
       if (!accountForPartition(accounts, partition)) return false;
       try {
-        const result = await webview.executeJavaScript(`(${installPageRecovery.toString()})(window, ${RECOVERY_VERSION})`);
+        const result = await webview.executeJavaScript(`(${installPageRecovery.toString()})(window, ${RECOVERY_VERSION}, (${parseTranslationFailure.toString()}), (${translationFailureNotice.toString()}))`);
         return result === 'READY' || result === 'WAITING';
       } catch {
         return false;
@@ -550,8 +611,11 @@
     RECOVERY_VERSION,
     COMPOSER_INTENT_TTL_MS,
     TRANSLATION_FAILURE_MARK,
+    TRANSLATION_ERROR_ENVELOPE_PREFIX,
     isWhatsAppType,
     accountForPartition,
+    parseTranslationFailure,
+    translationFailureNotice,
     installPageRecovery,
     installShell,
   });
