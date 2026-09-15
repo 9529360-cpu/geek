@@ -1,6 +1,6 @@
 'use strict';
 
-const path = require('node:path');
+const { createCommittedStateMirror } = require('./committed-state-mirror.cjs');
 
 const CONFIG_STATE_RECOVERY_REQUIRED = 'CONFIG_STATE_RECOVERY_REQUIRED';
 const CONFIG_STATE_SECRET_DECRYPT_FAILED = 'CONFIG_STATE_SECRET_DECRYPT_FAILED';
@@ -40,8 +40,6 @@ function createConfigStateStore(options = {}) {
   const fs = options.fs;
   const filePath = options.filePath;
   const backupPath = options.backupPath || `${filePath}.bak`;
-  const temporaryFile = `${filePath}.tmp`;
-  const backupTemporaryFile = `${backupPath}.tmp`;
   const isEncryptionAvailable = options.isEncryptionAvailable;
   const encrypt = options.encrypt;
   const decrypt = options.decrypt;
@@ -57,10 +55,23 @@ function createConfigStateStore(options = {}) {
 
   let state = cloneConfig(DEFAULT_CONFIG);
   let transactionTail = Promise.resolve();
+  // Missing Config State is intentionally not materialized during load: the
+  // runtime-path migration may still copy a legacy project config afterwards.
+  // The first real mutation owns creation of the initial proof-backed snapshot.
+  let needsInitialCommit = false;
 
   function report(error, phase, recovered = false) {
     try { onRecoveryEvent(error, { phase, recovered: recovered === true }); } catch {}
   }
+
+  const mirror = createCommittedStateMirror({
+    fs,
+    filePath,
+    backupPath,
+    onPostCommitError(error, meta) {
+      report(error, meta?.phase || 'backup-mirror', false);
+    },
+  });
 
   function decodeSecret(value) {
     if (typeof value !== 'string') return '';
@@ -117,69 +128,8 @@ function createConfigStateStore(options = {}) {
     }, null, 2);
   }
 
-  async function safeRemove(file) {
-    if (typeof fs.rm !== 'function') return;
-    try { await fs.rm(file, { force: true }); } catch {}
-  }
-
-  async function writeSynced(file, content) {
-    if (typeof fs.open !== 'function') {
-      await fs.writeFile(file, content, 'utf8');
-      return;
-    }
-    let handle;
-    try {
-      handle = await fs.open(file, 'w');
-      await handle.writeFile(content, 'utf8');
-      if (typeof handle.sync === 'function') await handle.sync();
-    } finally {
-      if (handle) await handle.close().catch(() => {});
-    }
-  }
-
-  async function syncDirectory(directory) {
-    if (typeof fs.open !== 'function') return;
-    let handle;
-    try {
-      handle = await fs.open(directory, 'r');
-      if (typeof handle.sync === 'function') await handle.sync();
-    } catch {
-      // Best effort: some Windows/filesystem combinations do not support directory fsync.
-    } finally {
-      if (handle) await handle.close().catch(() => {});
-    }
-  }
-
-  async function readOptional(file) {
-    try {
-      return { exists: true, content: await fs.readFile(file, 'utf8') };
-    } catch (error) {
-      if (error?.code === 'ENOENT') return { exists: false, content: null };
-      throw error;
-    }
-  }
-
   function parseStored(content) {
     return normalizeConfig(JSON.parse(content));
-  }
-
-  async function loadBackup() {
-    const backup = await readOptional(backupPath);
-    if (!backup.exists) return null;
-    return { content: backup.content, state: parseStored(backup.content) };
-  }
-
-  async function restoreRawSnapshot(content) {
-    const directory = path.dirname(filePath);
-    await fs.mkdir(directory, { recursive: true });
-    try {
-      await writeSynced(temporaryFile, content);
-      await fs.rename(temporaryFile, filePath);
-      await syncDirectory(directory);
-    } catch (error) {
-      await safeRemove(temporaryFile);
-      throw error;
-    }
   }
 
   function recoveryRequired(primaryError, backupError) {
@@ -189,98 +139,46 @@ function createConfigStateStore(options = {}) {
     return error;
   }
 
-  async function recover(primaryError) {
-    let backup;
-    try {
-      backup = await loadBackup();
-    } catch (backupError) {
-      const error = recoveryRequired(primaryError, backupError);
-      report(error, 'recovery', false);
-      throw error;
-    }
-    if (!backup) {
-      const error = recoveryRequired(primaryError, null);
-      report(error, 'recovery', false);
-      throw error;
-    }
-    try {
-      await restoreRawSnapshot(backup.content);
-    } catch (restoreError) {
-      const error = recoveryRequired(primaryError, restoreError);
-      report(error, 'recovery', false);
-      throw error;
-    }
-    state = backup.state;
-    report(primaryError, 'recovery', true);
+  function wrapMirrorRecovery(error) {
+    if (error?.code === CONFIG_STATE_RECOVERY_REQUIRED) return error;
+    return recoveryRequired(error?.primaryError || error, error?.backupError || null);
   }
 
-  async function durableWrite(candidate, { migration = false } = {}) {
+  async function durableWrite(candidate, { initializing = false } = {}) {
     const snapshot = serialize(candidate);
-    const directory = path.dirname(filePath);
-    await fs.mkdir(directory, { recursive: true });
-    let current = null;
-    try {
-      if (!migration) current = await readOptional(filePath);
-      await writeSynced(temporaryFile, snapshot);
-      await writeSynced(backupTemporaryFile, migration || !current?.exists ? snapshot : current.content);
-      await fs.rename(backupTemporaryFile, backupPath);
-      await fs.rename(temporaryFile, filePath);
-      await syncDirectory(directory);
-    } catch (error) {
-      await safeRemove(temporaryFile);
-      await safeRemove(backupTemporaryFile);
-      throw error;
-    }
+    return mirror.commit(snapshot, { initializing });
   }
 
-  async function migrateLoadedState() {
+  async function migrateLoadedState({ initializing = false } = {}) {
     try {
-      await durableWrite(state, { migration: true });
+      await durableWrite(state, { initializing });
     } catch (error) {
       report(error, 'migration', false);
     }
   }
 
   async function load() {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    let target;
+    let loaded;
     try {
-      target = await readOptional(filePath);
+      loaded = await mirror.load(parseStored);
     } catch (error) {
-      await recover(error);
-      await migrateLoadedState();
-      return cloneConfig(state);
+      const recoveryError = wrapMirrorRecovery(error);
+      report(recoveryError, 'recovery', false);
+      throw recoveryError;
     }
 
-    if (!target.exists) {
-      let backup;
-      try {
-        backup = await loadBackup();
-      } catch (error) {
-        const recoveryError = recoveryRequired(Object.assign(new Error('config.json missing'), { code: 'ENOENT' }), error);
-        report(recoveryError, 'recovery', false);
-        throw recoveryError;
-      }
-      if (backup) {
-        await restoreRawSnapshot(backup.content);
-        state = backup.state;
-        report(Object.assign(new Error('config.json missing'), { code: 'ENOENT' }), 'recovery', true);
-        await migrateLoadedState();
-        return cloneConfig(state);
-      }
+    if (loaded.status === 'empty') {
       state = cloneConfig(DEFAULT_CONFIG);
+      needsInitialCommit = true;
       return cloneConfig(state);
     }
 
-    try {
-      state = parseStored(target.content);
-    } catch (error) {
-      await recover(error);
-      await migrateLoadedState();
-      return cloneConfig(state);
+    needsInitialCommit = false;
+    state = loaded.state;
+    if (loaded.status === 'recovered') {
+      report(loaded.primaryError || Object.assign(new Error('config state recovered'), { code: 'CONFIG_STATE_PRIMARY_RECOVERED' }), 'recovery', true);
     }
-
-    await migrateLoadedState();
+    await migrateLoadedState({ initializing: loaded.status === 'legacy' });
     return cloneConfig(state);
   }
 
@@ -292,8 +190,10 @@ function createConfigStateStore(options = {}) {
     const run = transactionTail.then(async () => {
       const raw = patchData && typeof patchData === 'object' ? patchData : {};
       const candidate = normalizeConfig({ ...cloneConfig(state), ...raw });
-      await durableWrite(candidate);
+      const initializing = needsInitialCommit;
+      await durableWrite(candidate, { initializing });
       state = candidate;
+      needsInitialCommit = false;
       return cloneConfig(state);
     });
     transactionTail = run.then(() => undefined, () => undefined);

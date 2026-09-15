@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8').replace(/\r\n?/g, '\n');
 const main = read('src/main.cjs');
 const owner = read('src/account-state.cjs');
+const committedMirror = read('src/committed-state-mirror.cjs');
 const accountData = read('src/account-data-boundary.cjs');
 const runtimePaths = read('src/runtime-paths.cjs');
 
@@ -23,15 +24,26 @@ assert.doesNotMatch(main, /\baccountsState\b/, 'main must not retain a second ac
 
 assert.match(owner, /let state = \{ activeAccountId: null, accounts: \[\] \}/, 'Account State owner must hold canonical state');
 assert.match(owner, /let transactionTail = Promise\.resolve\(\)/, 'Account State owner must serialize whole transitions');
+assert.match(owner, /createCommittedStateMirror\(/, 'Account State must delegate raw durable generation ownership to the shared committed-state mirror');
 const transaction = owner.match(/function enqueueTransition\(buildCandidate\) \{([\s\S]*?)\n  \}/)?.[1] || '';
 assert.ok(transaction.indexOf('const candidate = cloneState(state)') >= 0);
 assert.ok(transaction.indexOf('await durableWrite(candidate)') > transaction.indexOf('const candidate = cloneState(state)'));
 assert.ok(transaction.indexOf('state = candidate') > transaction.indexOf('await durableWrite(candidate)'), 'canonical memory commit must happen after durable write');
-assert.match(owner, /async function writeSynced\(file, content\)[\s\S]*handle\.writeFile\(content, 'utf8'\)[\s\S]*handle\.sync\(\)[\s\S]*handle\.close\(\)/,
-  'durable writes must sync and close the temp file before atomic replacement');
-assert.match(owner, /await writeSynced\(temporaryFile, snapshot\)[\s\S]*await fs\.rename\(temporaryFile, filePath\)/,
-  'durable write must remain synced temp-file then atomic rename');
-assert.match(owner, /await syncDirectory\(directory\)/, 'durable replacement must retain best-effort directory sync');
+
+assert.match(committedMirror, /async function writeSynced\(file, content\)[\s\S]*handle\.writeFile\(content, 'utf8'\)[\s\S]*handle\.sync\(\)[\s\S]*handle\.close\(\)/,
+  'shared durable writes must sync and close every temp file before atomic replacement');
+const commitBody = committedMirror.match(/async function commit\(content, \{ initializing = false \} = \{\}\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+const primaryStage = commitBody.indexOf('await writeSynced(temporaryFile, snapshot)');
+const backupStage = commitBody.indexOf('await writeSynced(backupTemporaryFile, snapshot)');
+const proofStage = commitBody.indexOf('await writeSynced(commitTemporaryFile, proofText(snapshot))');
+const primaryRename = commitBody.indexOf('await fs.rename(temporaryFile, filePath)');
+const proofRename = commitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)');
+assert.ok(primaryStage >= 0 && backupStage > primaryStage && proofStage > backupStage,
+  'primary candidate, recovery mirror, and commit proof must all be staged before the commit sequence');
+assert.ok(primaryRename > proofStage && proofRename > primaryRename,
+  'candidate primary may become visible before commit, but the proof rename must remain the authoritative commit point');
+assert.match(committedMirror, /async function syncDirectory\(\)[\s\S]*handle\.sync\(\)/, 'durable replacement must retain best-effort directory sync');
+assert.match(committedMirror, /hashSnapshot\(candidate\.content\) !== expectedHash/, 'recovery must reject backup generations that do not match the committed proof');
 assert.match(owner, /const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-'/, 'partition identity must remain stable');
 
 function functionBody(name, nextMarker) {

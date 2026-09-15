@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8').replace(/\r\n?/g, '\n');
 const main = read('src/main.cjs');
 const stateOwner = read('src/config-state.cjs');
+const committedMirror = read('src/committed-state-mirror.cjs');
 const ipcOwner = read('src/config-ipc.cjs');
 
 assert.match(main, /createConfigStateStore/);
@@ -27,16 +28,30 @@ assert.doesNotMatch(main, /ipcMain\.removeHandler\(['"]config:/, 'main must not 
 assert.match(stateOwner, /const DEFAULT_CONFIG = Object\.freeze\(/);
 assert.match(stateOwner, /let state = cloneConfig\(DEFAULT_CONFIG\)/);
 assert.match(stateOwner, /let transactionTail = Promise\.resolve\(\)/);
+assert.match(stateOwner, /createCommittedStateMirror\(/, 'Config State must delegate raw durable generation ownership to the shared committed-state mirror');
 const updateBody = stateOwner.match(/function update\(patchData = \{\}\) \{([\s\S]*?)\n  \}/)?.[1] || '';
 const candidateAt = updateBody.indexOf('const candidate = normalizeConfig');
-const durableAt = updateBody.indexOf('await durableWrite(candidate)');
+const durableMatch = updateBody.match(/await durableWrite\(candidate(?:,\s*\{\s*initializing\s*\})?\)/);
+const durableAt = durableMatch ? durableMatch.index : -1;
 const commitAt = updateBody.indexOf('state = candidate');
 assert.ok(candidateAt >= 0 && durableAt > candidateAt && commitAt > durableAt, 'config transaction must commit memory only after durable write');
 assert.match(stateOwner, /CONFIG_STATE_RECOVERY_REQUIRED/);
 assert.match(stateOwner, /CONFIG_STATE_SECRET_DECRYPT_FAILED/);
-assert.match(stateOwner, /await handle\.sync\(\)/, 'config durable writes must fsync temp files when supported');
-assert.match(stateOwner, /await fs\.rename\(temporaryFile, filePath\)/, 'config durable write must atomically replace target');
-assert.match(stateOwner, /await syncDirectory\(directory\)/, 'config durable write must best-effort sync directory');
+assert.match(stateOwner, /let needsInitialCommit = false/, 'missing Config State must retain an explicit first-mutation initialization seam');
+assert.match(stateOwner, /loaded\.status === 'empty'[\s\S]*needsInitialCommit = true[\s\S]*return cloneConfig\(state\)/,
+  'missing Config State load must stay unmaterialized until a real mutation commits it');
+
+assert.match(committedMirror, /async function writeSynced\(file, content\)[\s\S]*handle\.writeFile\(content, 'utf8'\)[\s\S]*handle\.sync\(\)[\s\S]*handle\.close\(\)/,
+  'shared Config/Account durable writes must fsync and close temp files when supported');
+const sharedCommitBody = committedMirror.match(/async function commit\(content, \{ initializing = false \} = \{\}\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+const primaryRename = sharedCommitBody.indexOf('await fs.rename(temporaryFile, filePath)');
+const proofRename = sharedCommitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)');
+assert.ok(primaryRename >= 0 && proofRename > primaryRename,
+  'shared persistence must make the proof rename the authoritative commit point after the candidate primary becomes visible');
+assert.match(committedMirror, /async function syncDirectory\(\)[\s\S]*handle\.sync\(\)/,
+  'shared durable replacement must retain best-effort directory sync');
+assert.match(committedMirror, /hashSnapshot\(candidate\.content\) !== expectedHash/,
+  'Config recovery must reject backup generations that do not match committed proof');
 
 assert.match(ipcOwner, /ipcMain\.handle\(CONFIG_GET_CHANNEL, getHandler\)/);
 assert.match(ipcOwner, /ipcMain\.handle\(CONFIG_SET_CHANNEL, setHandler\)/);
