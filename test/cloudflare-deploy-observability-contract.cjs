@@ -158,7 +158,7 @@ assert.doesNotMatch(helperSource, /process\.env\.(?:TARGET_URL|ENDPOINT_URL)/);
       commentPayload = JSON.parse(options.body);
       assert.equal(options.method, 'POST');
       assert.equal(options.headers.Authorization, 'Bearer test-token-not-a-secret');
-      return { status: 201, body: { cancel: async () => { commentBodyCancelled = true; } };
+      return { status: 201, body: { cancel: async () => { commentBodyCancelled = true; } } };
     }
   });
   assert.equal(commentUrl, 'https://api.github.com/repos/9529360-cpu/geek/issues/21/comments');
