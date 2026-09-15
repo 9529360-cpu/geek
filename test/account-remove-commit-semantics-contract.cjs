@@ -9,7 +9,7 @@ function missingError() {
   return Object.assign(new Error('账号沙箱不存在'), { code: 'ACCOUNT_DATA_ACCOUNT_MISSING' });
 }
 
-function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push(['cleanup']); }) {
+function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push(['cleanup']); }, journalOptions = {}) {
   const handlers = new Map();
   const ipcMain = { handle(channel, handler) { handlers.set(channel, handler); } };
   const uiEntryPath = path.resolve('ui/index.html');
@@ -18,6 +18,7 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
   const BrowserWindow = { fromWebContents(value) { return value === sender ? win : null; } };
   let accountExists = true;
   const calls = [];
+  const pending = new Set();
   const partition = 'persist:webview-page-A';
   const store = {
     async getAll() { return {}; },
@@ -27,11 +28,26 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
     cancelDelete(value) { calls.push(['cancel', value]); },
     finalizeDelete(value) { calls.push(['finalize', value]); },
   };
+  const cleanupJournal = {
+    async recover() { return { recovered: [], cleared: [], failed: [] }; },
+    async markPending(meta) {
+      calls.push(['finalizer-pending', meta.accountId]);
+      if (journalOptions.markError) throw journalOptions.markError;
+      pending.add(meta.accountId);
+    },
+    async clear(accountId) {
+      calls.push(['finalizer-clear', accountId]);
+      if (journalOptions.clearError) throw journalOptions.clearError;
+      pending.delete(accountId);
+      return true;
+    },
+  };
   const boundary = installAccountDataBoundary({
     ipcMain,
     BrowserWindow,
     uiEntryPath,
     store,
+    cleanupJournal,
     resolveAccountPartition: async accountId => {
       assert.equal(accountId, 'A');
       if (!accountExists) throw missingError();
@@ -48,7 +64,7 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
       args,
     }),
   ));
-  return { handlers, event: { sender }, calls, partition };
+  return { handlers, event: { sender }, calls, pending, partition };
 }
 
 (async () => {
@@ -62,11 +78,14 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
   assert.deepEqual(response, { ok: true, deleted: true, cleanupPending: true });
   assert.deepEqual(committedFailure.calls, [
     ['begin', committedFailure.partition],
+    ['finalizer-pending', 'A'],
     ['parent-start'],
     ['parent-committed'],
     ['cleanup'],
+    ['finalizer-clear', 'A'],
     ['finalize', committedFailure.partition],
-  ], 'post-commit failure must still cleanup committed child state exactly once before finalizing');
+  ], 'post-commit parent failure must still settle child cleanup and durable finalizer before in-memory finalization');
+  assert.equal(committedFailure.pending.size, 0);
 
   const uncommitted = configuredHarness(({ mark }) => {
     mark('parent-start');
@@ -78,9 +97,12 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
   );
   assert.deepEqual(uncommitted.calls, [
     ['begin', uncommitted.partition],
+    ['finalizer-pending', 'A'],
     ['parent-start'],
+    ['finalizer-clear', 'A'],
     ['cancel', uncommitted.partition],
-  ], 'a failure while the account still exists must never cleanup scheduled attachments');
+  ], 'a failure while the account still exists must clear the finalizer without irreversible child cleanup');
+  assert.equal(uncommitted.pending.size, 0);
 
   const committedSuccess = configuredHarness(({ commit, mark }) => {
     mark('parent-start');
@@ -94,11 +116,14 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
   );
   assert.deepEqual(committedSuccess.calls, [
     ['begin', committedSuccess.partition],
+    ['finalizer-pending', 'A'],
     ['parent-start'],
     ['parent-committed'],
     ['cleanup'],
+    ['finalizer-clear', 'A'],
     ['finalize', committedSuccess.partition],
-  ], 'successful parent deletion must run irreversible cleanup only after commit');
+  ], 'successful parent deletion must clear the durable finalizer only after committed child cleanup');
+  assert.equal(committedSuccess.pending.size, 0);
 
   let cleanupAttempts = 0;
   const cleanupFailure = configuredHarness(
@@ -119,13 +144,36 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
     { ok: true, deleted: true, cleanupPending: true },
     'child cleanup failure after parent commit must be reported as pending cleanup, not rollback',
   );
-  assert.equal(cleanupAttempts, 1, 'committed cleanup must not be retried inside the same removal call');
+  assert.equal(cleanupAttempts, 1, 'committed cleanup must not spin inside the same removal call');
   assert.deepEqual(cleanupFailure.calls, [
     ['begin', cleanupFailure.partition],
+    ['finalizer-pending', 'A'],
     ['parent-start'],
     ['parent-committed'],
     ['cleanup-failed'],
     ['finalize', cleanupFailure.partition],
+  ]);
+  assert.deepEqual([...cleanupFailure.pending], ['A'], 'failed child cleanup must leave a durable recovery marker');
+
+  let parentCalls = 0;
+  const finalizerWriteFailure = configuredHarness(
+    () => {
+      parentCalls += 1;
+      return { accounts: [] };
+    },
+    undefined,
+    { markError: Object.assign(new Error('disk full'), { code: 'ENOSPC' }) },
+  );
+  await assert.rejects(
+    finalizerWriteFailure.handlers.get('accounts:remove')(finalizerWriteFailure.event, 'A'),
+    error => error?.code === 'ENOSPC',
+    'parent delete must not start if durable cleanup authority cannot be recorded',
+  );
+  assert.equal(parentCalls, 0);
+  assert.deepEqual(finalizerWriteFailure.calls, [
+    ['begin', finalizerWriteFailure.partition],
+    ['finalizer-pending', 'A'],
+    ['cancel', finalizerWriteFailure.partition],
   ]);
 
   console.log('ACCOUNT_REMOVE_COMMIT_SEMANTICS_CONTRACT_OK');
