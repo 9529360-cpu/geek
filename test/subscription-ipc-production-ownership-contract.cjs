@@ -27,7 +27,7 @@ assert.doesNotMatch(owner, /return\s+order\s*;/, 'raw order rows must not cross 
 assert.match(owner, /subscription:translation-readiness/, 'translation readiness must stay inside the trusted Subscription IPC owner');
 assert.match(owner, /store\.getTranslationAuthorization\(\)/, 'readiness must use the generation-bound short-lived translation authorization lease');
 assert.match(owner, /store\.assertTranslationAuthorizationCurrent\(lease\)/, 'readiness must validate the authorization lease around current-state projection');
-assert.doesNotMatch(owner, /return\s+lease\s*;/, 'raw translation authorization lease must never cross readiness IPC');
+assert.match(owner, /return\s+safeReadinessResult\(\{[\s\S]*ready:\s*true,[\s\S]*quota:\s*currentQuota\.quota,[\s\S]*remaining_chars:\s*currentQuota\.remainingChars/, 'successful readiness must return only the bounded safe projection');
 assert.doesNotMatch(owner, /token:\s*lease\.token/, 'translation authorization token must never be projected into readiness IPC output');
 
 const expectedChannels = [
