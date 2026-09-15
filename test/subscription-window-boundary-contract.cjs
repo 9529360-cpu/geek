@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const {
   MAIN_DOCUMENT_URL,
@@ -88,5 +90,12 @@ boundary.dispose();
 const afterDispose = fakeWindow();
 app.emit('browser-window-created', {}, afterDispose);
 assert.equal(afterDispose.webContents.listenerCount('will-navigate'), 0, 'dispose removes future subscription-boundary installation');
+
+const mainEntry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
+const requireAt = mainEntry.indexOf("require('./subscription-window-boundary.cjs')");
+const installAt = mainEntry.indexOf('installSubscriptionWindowNavigationBoundary({ app })');
+const mainAt = mainEntry.indexOf("require('./main.cjs')");
+assert.ok(requireAt >= 0, 'main entry must import the subscription navigation boundary');
+assert.ok(installAt > requireAt && mainAt > installAt, 'subscription navigation boundary must be installed before main can create BrowserWindows');
 
 console.log('SUBSCRIPTION_WINDOW_BOUNDARY_CONTRACT_OK');
