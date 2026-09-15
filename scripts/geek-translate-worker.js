@@ -608,14 +608,19 @@ export default {
       if (!db) return json({ error: 'service_unavailable' }, 503, request, env);
       if (request.signal?.aborted) return json({ error: 'request_aborted' }, 499, request, env);
       if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
-      if (await rateLimited(db, `translate:user:${auth.uid}`, 30, 60) || await rateLimited(db, `translate:ip:${clientIp(request)}`, 60, 60)) {
-        return json({ error: 'rate_limited' }, 429, request, env);
-      }
 
       let reserved = 0;
       let reservationOwner = '';
       let replaySchema = false;
       try {
+        const existingUsage = await readUsage(db, requestId);
+        if (!existingUsage && (
+          await rateLimited(db, `translate:user:${auth.uid}`, 30, 60)
+          || await rateLimited(db, `translate:ip:${clientIp(request)}`, 60, 60)
+        )) {
+          return json({ error: 'rate_limited' }, 429, request, env);
+        }
+
         const contentLength = Number(request.headers.get('Content-Length') || 0);
         if (contentLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
         const body = await request.json();
@@ -646,6 +651,19 @@ export default {
           provider,
           operationRoute,
         });
+
+        if (existingUsage) {
+          const existing = await classifyExistingUsage(db, existingUsage, {
+            userId: auth.uid,
+            requestId,
+            chars: reserved,
+            requestHash,
+            replaySecret: env.JWT_SECRET,
+          });
+          if (!existing?.ok) return json({ error: existing?.error || 'duplicate_request' }, reservationErrorStatus(existing?.error), request, env);
+          if (existing.replayed) return json({ ...existing.payload, replayed: true }, 200, request, env);
+        }
+
         const reservation = await reserveUsage(db, auth.uid, requestId, reserved, requestHash, env.JWT_SECRET);
         if (!reservation.ok) return json({ error: reservation.error }, reservationErrorStatus(reservation.error), request, env);
         if (reservation.replayed) return json({ ...reservation.payload, replayed: true }, 200, request, env);
