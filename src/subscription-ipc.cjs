@@ -91,15 +91,37 @@ function installSubscriptionIpc(options = {}) {
     } else if (code === 'SUBSCRIPTION_REQUEST_TIMEOUT') {
       reason = 'authorization-unavailable';
     }
-    // Once translation authorization fails, the earlier local state snapshot is
-    // no longer proven to belong to the current login generation. Never project
-    // its cached quota across logout/account-switch/auth races.
     return safeReadinessResult({
       ready: false,
       reason,
       retryable,
       quota: 'unknown',
     });
+  }
+
+  function quotaProjection(state = {}) {
+    const rawRemaining = Number(state.remaining_chars);
+    const positiveRemaining = Number.isSafeInteger(rawRemaining) && rawRemaining > 0 ? rawRemaining : null;
+    const quota = state.valid === false ? 'exhausted' : (positiveRemaining != null ? 'positive' : 'unknown');
+    return {
+      quota,
+      remainingChars: quota === 'exhausted' ? 0 : positiveRemaining,
+    };
+  }
+
+  async function acquireTranslationAuthorization(store) {
+    if (
+      typeof store?.getTranslationAuthorization !== 'function'
+      || typeof store?.assertTranslationAuthorizationCurrent !== 'function'
+    ) {
+      const error = new Error('subscription translation authorization lease is unavailable');
+      error.code = 'TRANSLATION_AUTHORIZATION_LEASE_UNAVAILABLE';
+      throw error;
+    }
+    const lease = await store.getTranslationAuthorization();
+    store.assertTranslationAuthorizationCurrent(lease);
+    if (typeof lease?.token !== 'string' || !lease.token) return null;
+    return lease;
   }
 
   async function getTranslationReadiness() {
@@ -114,25 +136,25 @@ function installSubscriptionIpc(options = {}) {
       return safeReadinessResult({ ready: false, reason: 'login-required', retryable: false, quota: 'unknown' });
     }
 
-    const rawRemaining = Number(state.remaining_chars);
-    const positiveRemaining = Number.isSafeInteger(rawRemaining) && rawRemaining > 0 ? rawRemaining : null;
-    const quota = state.valid === false ? 'exhausted' : (positiveRemaining != null ? 'positive' : 'unknown');
-    const remainingChars = quota === 'exhausted' ? 0 : positiveRemaining;
-    if (quota === 'exhausted') {
+    const initialQuota = quotaProjection(state);
+    if (initialQuota.quota === 'exhausted') {
       return safeReadinessResult({
         ready: false,
         reason: 'quota-exhausted',
         retryable: false,
-        quota,
+        quota: 'exhausted',
         remaining_chars: 0,
       });
     }
 
+    let lease;
+    let currentState;
     try {
-      // Exercise the real short-lived translation authorization path in the main
-      // process, but never return the token or account identity to the renderer.
-      const token = await store.getTranslationToken();
-      if (typeof token !== 'string' || !token) {
+      // Bind the readiness probe to the same session-generation lease used by
+      // Translation Runtime. A successful token from a newly switched account
+      // must never be combined with quota read before that switch.
+      lease = await acquireTranslationAuthorization(store);
+      if (!lease) {
         return safeReadinessResult({
           ready: false,
           reason: 'authorization-unavailable',
@@ -140,6 +162,29 @@ function installSubscriptionIpc(options = {}) {
           quota: 'unknown',
         });
       }
+      currentState = await store.getState();
+      store.assertTranslationAuthorizationCurrent(lease);
+    } catch (error) {
+      return classifyTranslationReadinessError(error);
+    }
+
+    if (!currentState?.loggedIn) {
+      return safeReadinessResult({ ready: false, reason: 'login-required', retryable: false, quota: 'unknown' });
+    }
+
+    const currentQuota = quotaProjection(currentState);
+    if (currentQuota.quota === 'exhausted') {
+      return safeReadinessResult({
+        ready: false,
+        reason: 'quota-exhausted',
+        retryable: false,
+        quota: 'exhausted',
+        remaining_chars: 0,
+      });
+    }
+
+    try {
+      store.assertTranslationAuthorizationCurrent(lease);
     } catch (error) {
       return classifyTranslationReadinessError(error);
     }
@@ -148,8 +193,8 @@ function installSubscriptionIpc(options = {}) {
       ready: true,
       reason: 'ready',
       retryable: false,
-      quota,
-      remaining_chars: remainingChars,
+      quota: currentQuota.quota,
+      remaining_chars: currentQuota.remainingChars,
     });
   }
 
