@@ -18,6 +18,15 @@ function canonicalLocalDocumentUrl(value) {
   }
 }
 
+function navigationUrl(event, legacyUrl) {
+  return String(legacyUrl || event?.url || '');
+}
+
+function isMainFrameNavigation(event, legacyIsMainFrame) {
+  if (typeof event?.isMainFrame === 'boolean') return event.isMainFrame;
+  return legacyIsMainFrame === true;
+}
+
 const TRUSTED_SUBSCRIPTION_IPC_DOCUMENTS = new Set([
   canonicalLocalDocumentUrl(MAIN_DOCUMENT_URL),
   canonicalLocalDocumentUrl(SUBSCRIPTION_DOCUMENT_URL),
@@ -48,13 +57,29 @@ function installSubscriptionWindowNavigationBoundary({ app, subscriptionUrl = SU
       windowOpenGuardInstalled = true;
     };
 
+    const claimSubscriptionOwnership = () => {
+      if (subscriptionOwned) return;
+      subscriptionOwned = true;
+      installWindowOpenGuard();
+    };
+
     if (subscriptionOwned) installWindowOpenGuard();
 
+    // BrowserWindow.loadFile/loadURL starts a programmatic navigation, and Electron
+    // intentionally does not emit will-navigate for that path. Claim ownership from
+    // did-start-navigation so the privileged window is identified before its first
+    // document commits, while ignoring subframe navigation entirely.
+    contents.on('did-start-navigation', (navigationEvent, url, _isInPlace, legacyIsMainFrame) => {
+      if (!isMainFrameNavigation(navigationEvent, legacyIsMainFrame)) return;
+      if (canonicalLocalDocumentUrl(navigationUrl(navigationEvent, url)) === trustedSubscriptionUrl) {
+        claimSubscriptionOwnership();
+      }
+    });
+
     const guardNavigation = (navigationEvent, url) => {
-      const targetUrl = canonicalLocalDocumentUrl(url || navigationEvent?.url || '');
+      const targetUrl = canonicalLocalDocumentUrl(navigationUrl(navigationEvent, url));
       if (!subscriptionOwned && targetUrl === trustedSubscriptionUrl) {
-        subscriptionOwned = true;
-        installWindowOpenGuard();
+        claimSubscriptionOwnership();
         return;
       }
       if (subscriptionOwned && targetUrl !== trustedSubscriptionUrl) {
