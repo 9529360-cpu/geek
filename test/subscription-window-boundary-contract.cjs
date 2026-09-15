@@ -20,10 +20,11 @@ function ipcEvent(url, { subframe = false } = {}) {
   };
 }
 
-function navigationEvent() {
+function navigationEvent(extra = {}) {
   return {
     prevented: 0,
     preventDefault() { this.prevented += 1; },
+    ...extra,
   };
 }
 
@@ -57,14 +58,16 @@ const boundary = installSubscriptionWindowNavigationBoundary({ app });
 
 const subscription = fakeWindow();
 app.emit('browser-window-created', {}, subscription);
-const initialNavigation = navigationEvent();
-subscription.webContents.emit('will-navigate', initialNavigation, `${SUBSCRIPTION_DOCUMENT_URL}?startup=1`);
-assert.equal(initialNavigation.prevented, 0, 'initial packaged subscription navigation must be allowed');
-assert.equal(typeof subscription.webContents.windowOpenHandler, 'function', 'subscription window must deny renderer-created child windows');
+assert.equal(subscription.webContents.windowOpenHandler, null, 'about:blank creation alone must not claim subscription ownership');
+subscription.webContents.emit(
+  'did-start-navigation',
+  navigationEvent({ url: `${SUBSCRIPTION_DOCUMENT_URL}?startup=1`, isMainFrame: true }),
+);
+assert.equal(typeof subscription.webContents.windowOpenHandler, 'function', 'programmatic loadFile startup navigation must claim subscription ownership before commit');
 assert.deepEqual(subscription.webContents.windowOpenHandler({ url: 'https://example.invalid/' }), { action: 'deny' });
 
 const reloadNavigation = navigationEvent();
-subscription.webContents.emit('will-navigate', reloadNavigation, `${SUBSCRIPTION_DOCUMENT_URL}#reload`);
+subscription.webContents.emit('will-navigate', reloadNavigation, `${SUBSCRIPTION_DOCUMENT_URL}?reload=1`);
 assert.equal(reloadNavigation.prevented, 0, 'same packaged subscription document reload stays allowed');
 
 const remoteNavigation = navigationEvent();
@@ -79,6 +82,22 @@ const remoteRedirect = navigationEvent();
 subscription.webContents.emit('will-redirect', remoteRedirect, 'https://example.invalid/redirect');
 assert.equal(remoteRedirect.prevented, 1, 'subscription window must block redirects away from the packaged document');
 
+const subframeCandidate = fakeWindow();
+app.emit('browser-window-created', {}, subframeCandidate);
+subframeCandidate.webContents.emit(
+  'did-start-navigation',
+  navigationEvent({ url: SUBSCRIPTION_DOCUMENT_URL, isMainFrame: false }),
+);
+assert.equal(subframeCandidate.webContents.windowOpenHandler, null, 'subframe navigation to subscription URL must not claim BrowserWindow ownership');
+const subframeOwnerCheck = navigationEvent();
+subframeCandidate.webContents.emit('will-navigate', subframeOwnerCheck, 'https://example.invalid/unrelated');
+assert.equal(subframeOwnerCheck.prevented, 0, 'unclaimed window remains outside the subscription navigation owner');
+
+const legacyProgrammatic = fakeWindow();
+app.emit('browser-window-created', {}, legacyProgrammatic);
+legacyProgrammatic.webContents.emit('did-start-navigation', navigationEvent(), SUBSCRIPTION_DOCUMENT_URL, false, true);
+assert.equal(typeof legacyProgrammatic.webContents.windowOpenHandler, 'function', 'legacy positional Electron navigation metadata must still identify the main-frame subscription startup');
+
 const unrelated = fakeWindow(MAIN_DOCUMENT_URL);
 app.emit('browser-window-created', {}, unrelated);
 const unrelatedNavigation = navigationEvent();
@@ -90,6 +109,7 @@ boundary.dispose();
 const afterDispose = fakeWindow();
 app.emit('browser-window-created', {}, afterDispose);
 assert.equal(afterDispose.webContents.listenerCount('will-navigate'), 0, 'dispose removes future subscription-boundary installation');
+assert.equal(afterDispose.webContents.listenerCount('did-start-navigation'), 0, 'dispose removes future programmatic-start ownership installation');
 
 const mainEntry = fs.readFileSync(path.join(__dirname, '../src/main-entry.cjs'), 'utf8');
 const requireAt = mainEntry.indexOf("require('./subscription-window-boundary.cjs')");
