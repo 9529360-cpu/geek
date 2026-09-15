@@ -44,7 +44,17 @@ class FakeElement {
   focus() { this.focusCount += 1; }
 }
 
-function createHarness(context) {
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function createHarness(contextOrGetter) {
   const ids = [
     'btn-contact-notes', 'contact-notes-popover', 'contact-notes-close', 'contact-notes-chat',
     'contact-notes-name', 'contact-notes-country', 'contact-notes-source', 'contact-notes-follow-status',
@@ -73,7 +83,10 @@ function createHarness(context) {
   assert.ok(notes, 'Contact Notes module must load');
 
   const controller = notes.create({
-    getContext: async () => ({ ...context }),
+    getContext: async () => {
+      if (typeof contextOrGetter === 'function') return contextOrGetter();
+      return { ...contextOrGetter };
+    },
     getStorage: () => '',
     setStorage: async () => true,
     removeStorage: async () => true,
@@ -148,6 +161,26 @@ function createHarness(context) {
     assert.equal(button.focusCount, 0, 'outside-click dismissal must not steal focus from the newly clicked control');
   }
 
+  {
+    const context = deferred();
+    const harness = createHarness(() => context.promise);
+    const button = harness.elements['btn-contact-notes'];
+    const popover = harness.elements['contact-notes-popover'];
+    const close = harness.elements['contact-notes-close'];
+    const name = harness.elements['contact-notes-name'];
+
+    const opening = button.emit('click');
+    assert.equal(popover.classList.contains('hidden'), false, 'dialog becomes visible before async context refresh completes');
+    await close.emit('click');
+    context.resolve({ accountId: 'account-1', family: 'whatsapp', chatId: 'D@c.us' });
+    await opening;
+
+    assert.equal(popover.classList.contains('hidden'), true, 'close during refresh must remain closed after refresh resolves');
+    assert.equal(name.focusCount, 0, 'stale open completion must not focus a field inside the hidden dialog');
+    assert.equal(button.focusCount, 1, 'close during refresh must retain the explicit focus return');
+  }
+
+  assert.match(source, /await refresh\(\);\s*if \(!popover\.classList\.contains\('hidden'\)\) focusInitialControl\(\);/, 'async open completion must check current visibility before moving focus');
   assert.match(css, /max-height:\s*min\(720px,\s*calc\(100vh - 58px\)\)/, 'Contact Notes must be bounded to the visible window');
   assert.match(css, /overflow-y:\s*auto/, 'Contact Notes must own vertical overflow on short windows');
   assert.match(css, /\.contact-notes-head\s*\{[\s\S]*?position:\s*sticky;/, 'Contact Notes heading and close affordance must remain visible while scrolling');
