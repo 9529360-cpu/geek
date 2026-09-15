@@ -4,6 +4,12 @@ const assert = require('node:assert/strict');
 
 const STEP_TIMEOUT = 3000;
 const LOCK_PASSWORD = 'geek-e2e-lock';
+const WEBDRIVER_KEY = Object.freeze({
+  NULL: '\uE000',
+  TAB: '\uE004',
+  SHIFT: '\uE008',
+  ESCAPE: '\uE00C',
+});
 
 async function waitVisible(selector, timeout = STEP_TIMEOUT) {
   const element = await $(selector);
@@ -20,14 +26,19 @@ async function waitHidden(selector, timeout = STEP_TIMEOUT) {
 }
 
 async function keyOnFocused(key, extra = {}) {
-  await browser.execute((value, options) => {
-    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
-      key: value,
-      bubbles: true,
-      cancelable: true,
-      ...options,
-    }));
-  }, key, extra);
+  if (key === 'Tab') {
+    if (extra.shiftKey === true) {
+      await browser.keys([WEBDRIVER_KEY.SHIFT, WEBDRIVER_KEY.TAB, WEBDRIVER_KEY.NULL]);
+    } else {
+      await browser.keys(WEBDRIVER_KEY.TAB);
+    }
+    return;
+  }
+  if (key === 'Escape') {
+    await browser.keys(WEBDRIVER_KEY.ESCAPE);
+    return;
+  }
+  throw new Error(`unsupported lock-screen test key: ${key}`);
 }
 
 async function setLockPassword(value) {
