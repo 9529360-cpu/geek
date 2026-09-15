@@ -20,6 +20,14 @@ function envelopedError(detail) {
   }));
 }
 
+function wrappedEnvelopedError(detail) {
+  return new Error(`Error invoking remote method 'translation:translate': Error: ${PREFIX}${JSON.stringify({
+    message: 'safe diagnostic',
+    retryable: false,
+    ...detail,
+  })}`);
+}
+
 const cases = [
   {
     detail: { code: 'QUOTA_EXHAUSTED', category: 'quota', status: 402 },
@@ -71,10 +79,43 @@ for (const fixture of cases) {
 }
 
 {
+  const wrapped = controller.parseTranslationFailure(wrappedEnvelopedError({
+    code: 'SUBSCRIPTION_LOGIN_REQUIRED', category: 'auth', status: 401,
+  }));
+  assert.equal(wrapped.code, 'SUBSCRIPTION_LOGIN_REQUIRED');
+  assert.equal(wrapped.category, 'auth');
+  assert.equal(wrapped.status, 401);
+  assert.equal(wrapped.message, 'safe diagnostic');
+  assert.match(controller.translationFailureNotice(wrapped, false), /需要重新登录.*个人中心.*原文未发送/);
+}
+
+{
   const quota = controller.parseTranslationFailure(envelopedError({
     code: 'QUOTA_EXHAUSTED', category: 'quota', status: 402,
   }));
   assert.match(controller.translationFailureNotice(quota, true), /原文已恢复，请处理后重试/);
+}
+
+{
+  const timeout = controller.parseTranslationFailure(new Error('翻译请求超时'));
+  assert.equal(timeout.code, 'TRANSLATION_DEADLINE_EXCEEDED');
+  assert.equal(timeout.category, 'deadline');
+  assert.equal(timeout.status, 504);
+  assert.match(controller.translationFailureNotice(timeout, false), /响应超时.*原文未发送/);
+}
+
+for (const message of ['翻译请求令牌不匹配', '翻译账号沙箱不存在']) {
+  const bridge = controller.parseTranslationFailure(new Error(message));
+  assert.match(bridge.code, /^TRANSLATION_BRIDGE_/);
+  assert.equal(bridge.category, 'bridge');
+  assert.match(controller.translationFailureNotice(bridge, false), /翻译连接状态异常.*原文未发送/);
+}
+
+{
+  const empty = controller.translationFailureNotice({
+    code: 'TRANSLATION_EMPTY_RESULT', category: 'gateway', status: 502, retryable: true,
+  }, false);
+  assert.match(empty, /服务暂时不可用.*原文未发送/);
 }
 
 {
@@ -96,10 +137,16 @@ assert.match(
 );
 assert.match(
   controllerSource,
+  /rawMessage\.indexOf\(prefix\)/,
+  'wrapped Electron/contextBridge errors must recover an embedded translation envelope',
+);
+assert.match(
+  controllerSource,
   /installPageController\.toString\(\)[\s\S]*parseTranslationFailure\.toString\(\)[\s\S]*translationFailureNotice\.toString\(\)/,
   'shell injection must carry the pure error parser and notice mapper into the WhatsApp guest',
 );
 assert.match(controllerSource, /lastCode:\s*''[\s\S]*lastCategory:\s*''[\s\S]*lastStatus:\s*0/, 'bounded direct-composer diagnostics must retain typed failure class');
+assert.match(controllerSource, /TRANSLATION_EMPTY_RESULT/, 'empty translation results must become a typed gateway-class failure');
 assert.doesNotMatch(controllerSource, /diagnostics\.chatId|diagnostics\.text|diagnostics\.token|diagnostics\.authorization/i, 'diagnostics must not retain chat/message/auth secrets');
 
 console.log('WHATSAPP_DIRECT_COMPOSER_ACTIONABLE_ERRORS_CONTRACT_OK');
