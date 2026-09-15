@@ -34,7 +34,7 @@
   ensureScript('./first-run-onboarding.js', 'data-geek-first-run-onboarding');
   ensureScript('./webview-crash-feedback.js', 'data-geek-webview-crash-feedback');
   ensureScript('./whatsapp-translation-hook-recovery.js', 'data-geek-whatsapp-translation-hook-recovery');
-  ensureScript('./whatsapp-composer-public-fallback.js', 'data-geek-whatsapp-composer-public-fallback');
+  ensureScript('./whatsapp-direct-composer-controller.js', 'data-geek-whatsapp-direct-composer-controller');
 
   const label = document.getElementById('nav-version');
   if (!label) return;
