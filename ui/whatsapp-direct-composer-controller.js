@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const CONTROLLER_VERSION = 3;
+  const CONTROLLER_VERSION = 4;
   const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
@@ -124,6 +124,7 @@
       if (timer != null && typeof page.clearInterval === 'function') page.clearInterval(timer);
     } catch {}
     try { page.__geekWhatsAppPublicComposerFallback?.controller?.abort?.(); } catch {}
+    try { page.__geekWhatsAppGuardAbort?.abort?.(); } catch {}
 
     const current = page.__geekWhatsAppDirectComposerController;
     if (current?.version === version && typeof current.handleGesture === 'function') return 'READY';
@@ -149,6 +150,7 @@
       lastAt: Date.now(),
     };
     let pending = null;
+    let nativeQueue = Promise.resolve();
 
     const setPhase = function (phase, error) {
       diagnostics.phase = phase;
@@ -392,6 +394,96 @@
       return true;
     };
 
+    // Native WhatsApp composer fallback. app.js may still own the low-level hook
+    // for compatibility, but translated direct-send policy lives here only.
+    // This path is used when a real WhatsApp gesture bypasses the DOM owner.
+    const handleNativeSend = function (chat, rawArgs, original, thisArg) {
+      const args = Array.isArray(rawArgs) ? [...rawArgs] : [];
+      if (typeof original !== 'function') {
+        return Promise.reject(new TypeError('WhatsApp原生发送函数不可用'));
+      }
+
+      const chatId = chatIdOf(chat);
+      const text = args[0];
+      const setting = typeof text === 'string' && isDirectChat(chat, chatId)
+        ? translationSetting(chatId, text)
+        : null;
+      if (!setting) return original.call(thisArg, chat, ...args);
+
+      const run = async () => {
+        let stage = 'translation';
+        let failure = null;
+        try {
+          const translate = page.__geekTranslationRequest;
+          if (typeof translate !== 'function') {
+            throw Object.assign(new Error('翻译尚未就绪'), {
+              __geekStage: 'translation',
+              code: 'TRANSLATION_BRIDGE_UNAVAILABLE',
+              category: 'bridge',
+              retryable: true,
+            });
+          }
+
+          setPhase('native-translating');
+          const translated = await translate({
+            text,
+            source: setting.source || 'auto',
+            target: setting.target,
+            provider: setting.provider,
+            route: setting.route,
+            chatId,
+          });
+          if (!translated?.text) {
+            throw Object.assign(new Error('翻译返回为空'), {
+              __geekStage: 'translation',
+              code: 'TRANSLATION_EMPTY_RESULT',
+              category: 'gateway',
+              retryable: true,
+              status: 502,
+            });
+          }
+
+          const activeId = chatIdOf(getActiveChat());
+          if (activeId && activeId !== chatId) {
+            throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
+          }
+
+          page.__geekRememberOutgoing?.(translated.text, text);
+          args[0] = translated.text;
+          stage = 'send';
+          setPhase('native-sending');
+          const sent = await original.call(thisArg, chat, ...args);
+          diagnostics.sent += 1;
+          setPhase('sent');
+          return sent;
+        } catch (error) {
+          const failedStage = error?.__geekStage || stage;
+          if (failedStage === 'translation') {
+            failure = typeof parseFailure === 'function' ? parseFailure(error) : error;
+            setPhase('translation-error', failure);
+            if (/聊天已切换/.test(String(failure?.message || failure || ''))) {
+              notify('聊天已切换，原文未发送');
+            } else {
+              notify(typeof failureNotice === 'function'
+                ? failureNotice(failure, false)
+                : '翻译失败（未分类），原文未发送');
+            }
+          } else {
+            failure = error;
+            setPhase('send-error', error);
+            notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120));
+          }
+          page.console?.error?.('[geek-whatsapp-direct-composer/native]', String(failure?.message || failure || '').slice(0, 240));
+          throw failure;
+        }
+      };
+
+      const next = nativeQueue.then(run, run);
+      nativeQueue = next.catch(() => {});
+      page.__geekWhatsAppDirectComposerLastTask = next;
+      return next;
+    };
+
     const Abort = page.AbortController || globalThis.AbortController;
     const controller = typeof Abort === 'function' ? new Abort() : null;
     const listenerOptions = controller ? { capture: true, signal: controller.signal } : { capture: true };
@@ -406,7 +498,7 @@
       handleGesture(event);
     }, listenerOptions);
 
-    const state = Object.freeze({ version, controller, diagnostics, handleGesture });
+    const state = Object.freeze({ version, controller, diagnostics, handleGesture, handleNativeSend });
     page.__geekWhatsAppDirectComposerController = state;
     return 'READY';
   }

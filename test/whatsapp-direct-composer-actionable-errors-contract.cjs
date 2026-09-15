@@ -59,7 +59,7 @@ const cases = [
   },
 ];
 
-assert.equal(controller.CONTROLLER_VERSION, 3, 'failure discriminator diagnostics must force a fresh direct-composer generation');
+assert.equal(controller.CONTROLLER_VERSION, 4, 'native-send ownership cutover must force a fresh direct-composer generation');
 assert.equal(controller.TRANSLATION_ERROR_ENVELOPE_PREFIX, PREFIX);
 
 for (const fixture of cases) {
