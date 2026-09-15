@@ -24,10 +24,11 @@ const website = read('.github/workflows/deploy-website.yml');
 const validation = read('.github/workflows/cloudflare-worker-validation.yml');
 
 assert.match(website, /^name: deploy-website$/m);
+assert.match(website, /^  workflow_dispatch:$/m, 'website deployment control-plane changes must remain manually dispatchable');
 assert.match(website, /^  issues: write$/m);
 assert.match(website, /^      name: cloudflare-website-production$/m);
-assert.match(website, /- '\.github\/workflows\/deploy-website\.yml'/, 'website deploy workflow changes must self-verify in production');
-assert.match(website, /- 'scripts\/website-production-smoke\.cjs'/, 'website smoke owner changes must self-verify in production');
+assert.doesNotMatch(website, /- '\.github\/workflows\/deploy-website\.yml'/, 'workflow control-plane changes must not auto-deploy production');
+assert.doesNotMatch(website, /- 'scripts\/website-production-smoke\.cjs'/, 'verification tooling changes must not auto-deploy production');
 assert.match(website, /- name: Deploy website Worker\n        id: deploy/);
 assert.match(website, /- name: Verify critical public website routes\n        id: verify\n        run: node scripts\/website-production-smoke\.cjs/);
 assert.match(website, /HTTP_CODE: \$\{\{ steps\.verify\.outputs\.health_http_code \}\}/);
@@ -157,7 +158,7 @@ assert.doesNotMatch(helperSource, /process\.env\.(?:TARGET_URL|ENDPOINT_URL)/);
       commentPayload = JSON.parse(options.body);
       assert.equal(options.method, 'POST');
       assert.equal(options.headers.Authorization, 'Bearer test-token-not-a-secret');
-      return { status: 201, body: { cancel: async () => { commentBodyCancelled = true; } } };
+      return { status: 201, body: { cancel: async () => { commentBodyCancelled = true; } };
     }
   });
   assert.equal(commentUrl, 'https://api.github.com/repos/9529360-cpu/geek/issues/21/comments');
