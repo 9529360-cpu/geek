@@ -160,10 +160,12 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     h.runtime.dispose();
   }
 
-  // Settings UX must not present backup as usable until health confirms a second
-  // configured endpoint. This is a dynamic controller test, not a source regex.
+  // Settings UX must keep route configuration, gateway health and current-user
+  // translation readiness as three distinct facts. Gateway /health alone must
+  // never be presented as end-to-end translation readiness.
   {
     const source = fs.readFileSync(path.join(__dirname, '..', 'ui', 'translation-settings.js'), 'utf8');
+    assert.doesNotMatch(source, /服务正常|翻译服务正常/, 'gateway-only health must not claim end-to-end translation readiness');
     const backupOption = { disabled: false, textContent: '备用线路' };
     const routeSelect = {
       value: 'backup',
@@ -177,12 +179,15 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
       'translation-server': routeSelect,
     };
     let healthResult = { ok: true, models: 1, endpointCount: 1 };
+    let readinessResult = { ready: true, reason: 'ready', retryable: false, quota: 'positive', remaining_chars: 345 };
+    let readinessCalls = 0;
     const context = {
       window: {},
       document: { getElementById: id => elements[id] || null },
       setTimeout,
       clearTimeout,
       Promise,
+      Number,
     };
     vm.createContext(context);
     vm.runInContext(source, context, { filename: 'translation-settings.js' });
@@ -194,6 +199,7 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
       getCurrentChat: async () => '',
       sync() {},
       health: async () => healthResult,
+      readiness: async () => { readinessCalls += 1; return readinessResult; },
     });
 
     await controller.checkHealth(true);
@@ -201,15 +207,30 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     assert.equal(backupOption.textContent, '备用线路（未配置）');
     assert.equal(routeSelect.dataset.backupConfigured, '0');
     assert.match(elements['translation-global-status'].textContent, /未配置备用线路/);
-    assert.match(elements['translation-gateway-status'].textContent, /1\/1 条线路可用/);
+    assert.equal(elements['translation-service-state'].textContent, '基础检查通过');
+    assert.match(elements['translation-gateway-status'].textContent, /账号：授权可用/);
+    assert.match(elements['translation-gateway-status'].textContent, /本地余额 345 字符/);
+    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 1\/1 条网关健康/);
+    assert.match(elements['translation-gateway-status'].textContent, /不代表上游翻译供应商实时可用/);
+    assert.equal(readinessCalls, 1);
 
+    readinessResult = { ready: false, reason: 'quota-exhausted', retryable: false, quota: 'exhausted', remaining_chars: 0 };
     healthResult = { ok: true, models: 2, endpointCount: 2 };
     routeSelect.value = 'default';
     await controller.checkHealth(true);
     assert.equal(backupOption.disabled, false);
     assert.equal(backupOption.textContent, '备用线路');
     assert.equal(routeSelect.dataset.backupConfigured, '1');
-    assert.match(elements['translation-gateway-status'].textContent, /2\/2 条线路可用/);
+    assert.equal(elements['translation-service-state'].textContent, '额度不足');
+    assert.match(elements['translation-gateway-status'].textContent, /翻译额度已用完/);
+    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 2\/2 条网关健康/);
+
+    readinessResult = { ready: false, reason: 'login-required', retryable: false, quota: 'unknown' };
+    healthResult = { ok: false, models: 0, endpointCount: 2 };
+    await controller.checkHealth(true);
+    assert.equal(elements['translation-service-state'].textContent, '需登录', 'account action must outrank generic gateway failure in the header');
+    assert.match(elements['translation-gateway-status'].textContent, /未登录.*个人中心登录/);
+    assert.match(elements['translation-gateway-status'].textContent, /网关：暂不可用/);
   }
 
   console.log('TRANSLATION_ROUTE_ENDPOINT_SELECTION_CONTRACT_OK');

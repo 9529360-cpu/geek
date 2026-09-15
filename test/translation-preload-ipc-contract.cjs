@@ -35,6 +35,7 @@ vm.runInNewContext(source, {
   Object,
   String,
   Number,
+  Set,
   Error,
   Promise,
 }, { filename: 'preload.cjs' });
@@ -63,8 +64,46 @@ vm.runInNewContext(source, {
       && error?.category === 'quota'
       && error?.retryable === false
       && error?.status === 402
+      && error?.userMessage === '翻译额度已用完，请前往个人中心开通'
+      && error?.message.startsWith('__GEEK_TRANSLATION_ERROR_V1__:')
       && /额度已用完/.test(error.message),
-    'preload must reconstruct typed main-process translation errors instead of losing metadata through Electron invoke',
+    'preload must preserve typed error metadata and carry a privacy-safe WebView envelope in the message',
+  );
+
+  translationResponse = {
+    ok: false,
+    error: {
+      code: 'SECURE_STORAGE_UNAVAILABLE',
+      message: '登录状态安全存储暂不可用',
+      retryable: false,
+    },
+  };
+  await assert.rejects(
+    () => exposedApi.translation.translate({ text: 'hello', target: 'it' }),
+    error => error?.code === 'SECURE_STORAGE_UNAVAILABLE'
+      && error?.category === 'auth'
+      && error?.retryable === false
+      && error?.userMessage === '登录状态安全存储暂不可用'
+      && error?.message.startsWith('__GEEK_TRANSLATION_ERROR_V1__:')
+      && /"category":"auth"/.test(error.message),
+    'local credential recovery errors must stay in the auth domain instead of masquerading as gateway failures',
+  );
+
+  translationResponse = {
+    ok: false,
+    error: {
+      code: 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED',
+      message: '登录状态解密失败',
+      category: 'gateway',
+      retryable: false,
+    },
+  };
+  await assert.rejects(
+    () => exposedApi.translation.translate({ text: 'hello', target: 'it' }),
+    error => error?.code === 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED'
+      && error?.category === 'auth'
+      && /"category":"auth"/.test(error.message),
+    'known auth-recovery codes must override a generic/default gateway category',
   );
 
   translationResponse = { text: 'legacy-direct-result' };

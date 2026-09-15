@@ -24,9 +24,11 @@ assert.ok(telegramSubmit >= 0, 'Telegram 必须保留译文的程序化提交');
 assert.ok(telegramFinalGuard >= 0 && telegramFinalGuard < telegramSubmit && telegramSubmit - telegramFinalGuard < 420, 'Telegram 程序化提交前必须执行最终聊天上下文校验');
 assert.equal((telegram.match(/submitButton\.click\(\);/g) || []).length, 1, 'Telegram 每次译文流程只能保留一个最终程序化 click 提交点');
 
-const lineSubmit = line.indexOf("textarea.dispatchEvent(new KeyboardEvent('keydown'");
+const lineSubmit = line.indexOf('submitButton.click();');
 const lineFinalGuard = line.lastIndexOf('assertSendContext();', lineSubmit);
 assert.ok(lineSubmit >= 0, 'LINE 必须保留译文的程序化提交');
 assert.ok(lineFinalGuard >= 0 && lineFinalGuard < lineSubmit && lineSubmit - lineFinalGuard < 520, 'LINE 程序化提交前必须执行最终聊天上下文校验');
+assert.equal((line.match(/submitButton\.click\(\);/g) || []).length, 1, 'LINE 每次译文流程只能保留一个最终程序化 click 提交点');
+assert.doesNotMatch(line, /dispatchEvent\(new KeyboardEvent\(['"]keydown['"]/, 'LINE 译文提交不得回退到不受信任的 synthetic Enter');
 
 console.log('TRANSLATION_DOUBLE_ENTER_CONTRACT_OK');

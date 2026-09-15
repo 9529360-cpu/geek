@@ -30,7 +30,11 @@
     let bound = false;
     let currentChatId = '';
     let healthCheckedAt = 0;
+    let readinessCheckedAt = 0;
     let healthPromise = null;
+    let readinessPromise = null;
+    let lastHealth = null;
+    let lastReadiness = null;
     const statusTimers = new Map();
     const saveQueues = new Map();
     const saveRevisions = new Map();
@@ -41,6 +45,9 @@
     const setValue = (id, next) => { const node = el(id); if (node) node.value = String(next ?? ''); };
     const setChecked = (id, next) => { const node = el(id); if (node) node.checked = !!next; };
     const languageName = code => LANGUAGES.find(([item]) => item === code)?.[1] || code || '自动检测';
+    const readinessCheck = typeof deps.readiness === 'function'
+      ? deps.readiness
+      : () => window.api?.subscription?.translationReadiness?.();
 
     function setStatus(id, text, kind = '') {
       const node = el(id);
@@ -219,7 +226,7 @@
       const cfg = collectGlobal();
       setValue('translation-message', cfg.translationMode);
       syncDependencies(cfg);
-      return persistStorage({
+      const ok = await persistStorage({
         scope: 'global',
         statusId: 'translation-global-status',
         key: 'translationGlobal',
@@ -227,6 +234,8 @@
         onLatestFailure: () => { refreshGlobal(); },
         onLatestSuccess: () => refreshChat()
       });
+      if (ok && cfg.send === true) await checkReadiness(true);
+      return ok;
     }
 
     function setChatUi(effective, hasOverride) {
@@ -301,7 +310,9 @@
           messageTarget: effective.messageTarget || 'zh'
         };
       }
-      return persistChats(store, '已启用当前聊天单独设置 ✓');
+      const ok = await persistChats(store, '已启用当前聊天单独设置 ✓');
+      if (ok && store[chatId]?.enabled === true) await checkReadiness(true);
+      return ok;
     }
 
     async function saveChatField(fieldId) {
@@ -329,7 +340,9 @@
         next.messageAction = checked(fieldId);
       }
       store[chatId] = next;
-      return persistChats(store, '当前聊天已保存 ✓');
+      const ok = await persistChats(store, '当前聊天已保存 ✓');
+      if (ok && fieldId === 'translation-enabled' && next.enabled === true) await checkReadiness(true);
+      return ok;
     }
 
     function ensureGlobalResetButton() {
@@ -361,39 +374,126 @@
       });
     }
 
-    async function checkHealth(force = false) {
+    function readinessLabel(result) {
+      if (!result) return '账号：待检测';
+      if (result.ready === true) {
+        if (result.quota === 'positive' && Number.isSafeInteger(result.remaining_chars)) {
+          return `账号：授权可用 · 本地余额 ${result.remaining_chars.toLocaleString()} 字符`;
+        }
+        return '账号：授权可用 · 额度待服务端确认';
+      }
+      const labels = {
+        'login-required': '账号：未登录，请到个人中心登录',
+        'quota-exhausted': '账号：翻译额度已用完，请到个人中心开通',
+        'authorization-required': '账号：翻译授权已失效，请重新登录',
+        'session-changed': '账号：登录状态刚刚变化，请重试',
+        'account-disabled': '账号：当前账号已停用',
+        'authorization-recovery-required': '账号：登录状态需恢复，请重新登录',
+        'authorization-unavailable': '账号：暂时无法取得翻译授权，请稍后重试',
+      };
+      return labels[result.reason] || '账号：翻译授权暂不可用';
+    }
+
+    function gatewayLabel(result) {
+      if (!result) return '网关：待检测';
+      if (result.ok !== true) return '网关：暂不可用';
+      const endpointCount = Math.max(0, Number(result.endpointCount) || 0);
+      const availableCount = Math.max(0, Number(result.models) || 0);
+      return endpointCount
+        ? `网关：可达 · ${availableCount}/${endpointCount} 条网关健康`
+        : '网关：可达';
+    }
+
+    function renderServiceStatus() {
       const state = el('translation-service-state');
       const detail = el('translation-gateway-status');
-      if (!state || typeof deps.health !== 'function') return;
-      if (!force && Date.now() - healthCheckedAt < 60000) return;
+      if (!state) return;
+      if (lastReadiness && lastReadiness.ready !== true) {
+        const header = {
+          'login-required': '需登录',
+          'quota-exhausted': '额度不足',
+          'account-disabled': '账号停用',
+        }[lastReadiness.reason] || '授权异常';
+        state.textContent = header;
+        state.dataset.state = 'error';
+      } else if (lastHealth && lastHealth.ok !== true) {
+        state.textContent = '网关异常';
+        state.dataset.state = 'error';
+      } else if (lastReadiness?.ready === true && lastHealth?.ok === true) {
+        state.textContent = '基础检查通过';
+        state.dataset.state = 'ok';
+      } else if (lastReadiness?.ready === true) {
+        state.textContent = '账号就绪';
+        state.dataset.state = 'checking';
+      } else if (lastHealth?.ok === true) {
+        state.textContent = '网关可达';
+        state.dataset.state = 'checking';
+      } else {
+        state.textContent = '服务状态';
+        state.dataset.state = 'idle';
+      }
+      if (detail) {
+        detail.textContent = `${readinessLabel(lastReadiness)}；${gatewayLabel(lastHealth)}。基础检查不代表上游翻译供应商实时可用。`;
+      }
+    }
+
+    async function checkGatewayHealth(force = false) {
+      if (typeof deps.health !== 'function') return null;
+      if (!force && lastHealth && Date.now() - healthCheckedAt < 60000) return lastHealth;
       if (healthPromise) return healthPromise;
-      state.textContent = '检测中…';
-      state.dataset.state = 'checking';
-      if (detail && force) detail.textContent = '正在检测翻译服务…';
       healthPromise = Promise.resolve()
         .then(() => deps.health())
         .then(result => {
           healthCheckedAt = Date.now();
-          syncRouteAvailability(result);
-          const ok = result?.ok === true;
-          const endpointCount = Math.max(0, Number(result?.endpointCount) || 0);
-          const availableCount = Math.max(0, Number(result?.models) || 0);
-          state.textContent = ok ? '服务正常' : '服务异常';
-          state.dataset.state = ok ? 'ok' : 'error';
-          if (detail) {
-            detail.textContent = ok
-              ? `翻译服务正常${endpointCount ? ` · ${availableCount}/${endpointCount} 条线路可用` : ''}`
-              : '翻译服务暂不可用，可稍后重试';
-          }
+          lastHealth = result && typeof result === 'object' ? result : { ok: false };
+          syncRouteAvailability(lastHealth);
+          renderServiceStatus();
+          return lastHealth;
         })
         .catch(() => {
           healthCheckedAt = Date.now();
-          state.textContent = '服务异常';
-          state.dataset.state = 'error';
-          if (detail) detail.textContent = '翻译服务暂不可用，可稍后重试';
+          lastHealth = { ok: false };
+          syncRouteAvailability(lastHealth);
+          renderServiceStatus();
+          return lastHealth;
         })
         .finally(() => { healthPromise = null; });
       return healthPromise;
+    }
+
+    async function checkReadiness(force = false) {
+      if (typeof readinessCheck !== 'function') return null;
+      if (!force && lastReadiness && Date.now() - readinessCheckedAt < 60000) return lastReadiness;
+      if (readinessPromise) return readinessPromise;
+      readinessPromise = Promise.resolve()
+        .then(() => readinessCheck())
+        .then(result => {
+          readinessCheckedAt = Date.now();
+          lastReadiness = result && typeof result === 'object' ? result : { ready: false, reason: 'authorization-unavailable' };
+          renderServiceStatus();
+          return lastReadiness;
+        })
+        .catch(() => {
+          readinessCheckedAt = Date.now();
+          lastReadiness = { ready: false, reason: 'authorization-unavailable', retryable: true, quota: 'unknown' };
+          renderServiceStatus();
+          return lastReadiness;
+        })
+        .finally(() => { readinessPromise = null; });
+      return readinessPromise;
+    }
+
+    async function checkHealth(force = false) {
+      const state = el('translation-service-state');
+      const detail = el('translation-gateway-status');
+      if (state) {
+        state.textContent = '检测中…';
+        state.dataset.state = 'checking';
+      }
+      if (detail && force) detail.textContent = '正在分别检测当前账号授权与翻译网关…';
+      await Promise.allSettled([checkGatewayHealth(force), checkReadiness(force)]);
+      renderServiceStatus();
+      return { health: lastHealth, readiness: lastReadiness };
     }
 
     function panelVisible(id) {
@@ -476,7 +576,7 @@
       activateTab('global');
     }
 
-    return Object.freeze({ bind, refreshGlobal, refreshChat, checkHealth, resetGlobalDefaults });
+    return Object.freeze({ bind, refreshGlobal, refreshChat, checkHealth, checkReadiness, resetGlobalDefaults });
   }
 
   window.GeekTranslationSettings = Object.freeze({ LANGUAGES, DEFAULTS, create });

@@ -14,7 +14,7 @@
           const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
           const securedPayload = { ...(payload || {}), bridgeToken: window.__geekTranslationBridgeToken };
           window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
-          if (document.documentElement.getAttribute('data-geek-bridge') === '1' || document.getAttribute('data-geek-bridge') === '1') {
+          if (document.documentElement?.getAttribute?.('data-geek-bridge') === '1') {
             window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id, token: window.__geekTranslationBridgeToken } }, window.location.origin);
           } else {
             console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
@@ -37,6 +37,25 @@
         return true;
       };
     }
+    const translationSendErrorMessage = error => {
+      const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
+      const raw = String(error?.message || error || '');
+      if (!raw.startsWith(prefix)) return '翻译失败，原文未发送';
+      let detail;
+      try { detail = JSON.parse(raw.slice(prefix.length)); } catch { return '翻译失败，原文未发送'; }
+      if (!detail || typeof detail !== 'object') return '翻译失败，原文未发送';
+      const code = String(detail.code || '');
+      const category = String(detail.category || '');
+      const status = Number(detail.status) || 0;
+      if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) return '翻译额度已用完，请到个人中心开通；原文未发送';
+      if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') return '翻译需要重新登录，请到个人中心登录；原文未发送';
+      if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) return '翻译授权状态已变化，请重新登录后重试；原文未发送';
+      if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) return '翻译服务响应超时，请稍后重试；原文未发送';
+      if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') return '译文未通过质量校验，请修改原文后重试；原文未发送';
+      if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) return '翻译请求繁忙，请稍后重试；原文未发送';
+      if (category === 'gateway' || category === 'rate-limit' || status >= 500) return '翻译服务暂时不可用，请稍后重试；原文未发送';
+      return '翻译失败，原文未发送';
+    };
     const nativeInputEnvelopePrefix = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
     const encodeNativeInputRequest = (text, expectedChatId) => nativeInputEnvelopePrefix + JSON.stringify({
       token: String(window.__geekTranslationBridgeToken || ''),
@@ -61,7 +80,7 @@
       const wireText = encodeNativeInputRequest(text, expected);
       return new Promise((resolve, reject) => {
         window.__geekNativeInputPending.set(id, { resolve, reject, wireText, expectedChatId: expected });
-        if (document.documentElement.getAttribute('data-geek-bridge') === '1' || document.getAttribute('data-geek-bridge') === '1') {
+        if (document.documentElement?.getAttribute?.('data-geek-bridge') === '1') {
           window.postMessage({ __geekBridge: true, payload: { type: 'native-input-request', id, token: window.__geekTranslationBridgeToken } }, window.location.origin);
         } else {
           console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
@@ -203,7 +222,7 @@
       } catch (error) {
         console.error('[geek-telegram-translation-send]', error);
         const cancelled = /聊天已切换|输入框已变化/.test(String(error?.message || error));
-        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : '翻译失败，原文未发送');
+        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : translationSendErrorMessage(error));
         if (sendEditor() === editor && editor.isConnected !== false) { editor.setAttribute('contenteditable', 'true'); editor.focus(); }
       } finally { window.__geekTelegramSendLock = false; }
     };
@@ -249,6 +268,60 @@
       window.__geekTakeTranslationRequest = id => { const p = window.__geekTranslationPending.get(id); return p ? JSON.stringify(p.payload) : null; };
       window.__geekResolveTranslation = (id, result, error) => { const p = window.__geekTranslationPending.get(id); if (!p) return false; window.__geekTranslationPending.delete(id); if (error) p.reject(new Error(error)); else p.resolve(result); return true; };
     }
+    const translationSendErrorMessage = error => {
+      const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
+      const raw = String(error?.message || error || '');
+      if (!raw.startsWith(prefix)) return '翻译失败，原文未发送';
+      let detail;
+      try { detail = JSON.parse(raw.slice(prefix.length)); } catch { return '翻译失败，原文未发送'; }
+      if (!detail || typeof detail !== 'object') return '翻译失败，原文未发送';
+      const code = String(detail.code || '');
+      const category = String(detail.category || '');
+      const status = Number(detail.status) || 0;
+      if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) return '翻译额度已用完，请到个人中心开通；原文未发送';
+      if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') return '翻译需要重新登录，请到个人中心登录；原文未发送';
+      if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) return '翻译授权状态已变化，请重新登录后重试；原文未发送';
+      if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) return '翻译服务响应超时，请稍后重试；原文未发送';
+      if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') return '译文未通过质量校验，请修改原文后重试；原文未发送';
+      if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) return '翻译请求繁忙，请稍后重试；原文未发送';
+      if (category === 'gateway' || category === 'rate-limit' || status >= 500) return '翻译服务暂时不可用，请稍后重试；原文未发送';
+      return '翻译失败，原文未发送';
+    };
+    const nativeInputEnvelopePrefix = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
+    const encodeNativeInputRequest = (text, expectedChatId) => nativeInputEnvelopePrefix + JSON.stringify({
+      token: String(window.__geekTranslationBridgeToken || ''),
+      expectedChatId: String(expectedChatId || ''),
+      text: String(text ?? ''),
+    });
+    window.__geekNativeInputPending = window.__geekNativeInputPending || new Map();
+    window.__geekTakeNativeInputRequest = id => {
+      const p = window.__geekNativeInputPending.get(id);
+      return p ? JSON.stringify({ accountId: config.accountId, bridgeToken: window.__geekTranslationBridgeToken, text: p.wireText || '' }) : null;
+    };
+    window.__geekResolveNativeInput = (id, ok, error) => {
+      const p = window.__geekNativeInputPending.get(id);
+      if (!p) return false;
+      window.__geekNativeInputPending.delete(id);
+      if (ok) p.resolve(true); else p.reject(new Error(error || '原生输入失败'));
+      return true;
+    };
+    const nativeInsertText = (text, expectedChatId = '') => {
+      const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+      const expected = String(expectedChatId || '');
+      const wireText = encodeNativeInputRequest(text, expected);
+      return new Promise((resolve, reject) => {
+        window.__geekNativeInputPending.set(id, { resolve, reject, wireText, expectedChatId: expected });
+        if (window.$electron?.send2Host) window.$electron.send2Host({ type: 'geek-native-input-request', id, token: window.__geekTranslationBridgeToken });
+        else console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+        setTimeout(() => {
+          const p = window.__geekNativeInputPending.get(id);
+          if (p) {
+            window.__geekNativeInputPending.delete(id);
+            p.reject(new Error('原生输入请求超时'));
+          }
+        }, 10000);
+      });
+    };
     const generation = window.__geekLineTranslationGeneration = (window.__geekLineTranslationGeneration || 0) + 1;
     window.__geekLineTranslationObserver?.disconnect();
     document.querySelectorAll('.geek-translation-result[data-geek-platform="line"]').forEach(node => node.remove());
@@ -299,6 +372,7 @@
       return true;
     };
     const liveComposerHost = () => document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+    const sendButton = () => document.querySelector('button[aria-label="Send"],button[aria-label="发送"],button[type="submit"],[class*="chatroomEditor-module__editor_area__"] button[data-action="send"]');
     const composerHost = event => {
       const path = event.composedPath?.() || [];
       return path.find(node => node?.tagName === 'TEXTAREA-EX') || liveComposerHost();
@@ -324,20 +398,22 @@
         const result = await window.__geekTranslationRequest({ text: original, source: setting.sendFrom || 'auto', target: setting.target || setting.sendTo || 'en', provider: setting.provider, route: setting.route, chatId: cid });
         if (!result?.text) throw new Error('翻译失败');
         assertSendContext();
-        const textarea = host.shadowRoot?.querySelector('textarea'); if (!textarea || typeof host.insertValue !== 'function') throw new Error('LINE输入组件不可用');
-        textarea.focus(); document.execCommand('selectAll', false, null); host.insertValue([result.text]);
+        const textarea = host.shadowRoot?.querySelector('textarea'); if (!textarea) throw new Error('LINE输入组件不可用');
+        textarea.focus(); textarea.select();
+        await nativeInsertText(result.text, cid);
         await new Promise(resolve => setTimeout(resolve, 100));
         assertSendContext();
-        const after = (Array.isArray(host.value) ? host.value : [host.value]).filter(value => typeof value === 'string').join('').trim();
+        const after = String(textarea.value || '').trim();
         if (after !== result.text.trim()) throw new Error('LINE编辑器回填校验失败');
         if (!setting.includeZh && window.GeekTranslationCore?.isChinese(after)) throw new Error('译文仍包含中文，已阻止发送');
         assertSendContext();
-        if (button && button.isConnected !== false) button.click();
-        else textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
+        const submitButton = (button && button.isConnected !== false) ? button : sendButton();
+        if (!submitButton) throw new Error('LINE发送按钮不可用');
+        submitButton.click();
       } catch (error) {
         console.error('[geek-line-translation-send]', error);
         const cancelled = /聊天已切换|输入框已变化/.test(String(error?.message || error));
-        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : '翻译失败，原文未发送');
+        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : translationSendErrorMessage(error));
       }
       finally { window.__geekLineSendLock = false; }
     };
