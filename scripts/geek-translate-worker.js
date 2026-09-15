@@ -26,6 +26,8 @@ const PROVIDER_TIMEOUT_MS = 15000;
 const REQUEST_BUDGET_MS = 30000;
 const FINISH_RESERVE_MS = 500;
 const OPERATION_HASH_VERSION = 'translation-op-v1';
+const OPERATION_HASH_DOMAIN = 'geek-translation:operation-hash:v1';
+const REPLAY_KEY_DOMAIN = 'geek-translation:replay-aes-gcm-key:v1';
 const REPLAY_TTL_SQL = '+1 day';
 
 function requestDeadlineAt(request, now = Date.now()) {
@@ -46,6 +48,14 @@ function providerAttemptBudget(deadlineAt, now = Date.now()) {
 function deadlineExceededError(cause) {
   const error = new Error('translation request deadline exceeded');
   error.code = 'deadline_exceeded';
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function requestAbortedError(cause) {
+  const error = new Error('translation request aborted');
+  error.code = 'request_aborted';
+  error.healthImpact = false;
   if (cause) error.cause = cause;
   return error;
 }
@@ -84,6 +94,23 @@ function b64UrlToBytes(value) {
   const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
   const binary = atob(normalized + '='.repeat((4 - normalized.length % 4) % 4));
   return Uint8Array.from(binary, c => c.charCodeAt(0));
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function hmacSha256Bytes(secret, domain, context = '') {
+  if (!secret) throw new Error('translation_secret_missing');
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(String(secret)),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(`${domain}\0${context}`));
+  return new Uint8Array(signature);
 }
 
 async function verifyTranslationJwt(token, secret) {
@@ -185,25 +212,22 @@ function missingReplaySchema(error) {
   return /request_hash|replay_ciphertext|replay_expires_at|no such column|has no column named/i.test(message);
 }
 
-async function sha256Hex(value) {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(String(value))));
-  return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function translationOperationHash({ userId, text, source, target, provider, operationRoute }) {
-  return sha256Hex(JSON.stringify({
+async function translationOperationHash({ secret, requestId, userId, text, source, target, provider, operationRoute }) {
+  const canonical = JSON.stringify({
     version: OPERATION_HASH_VERSION,
+    requestId: String(requestId),
     userId: Number(userId),
     text: String(text),
     source: String(source || 'auto').toLowerCase(),
     target: String(target || '').toLowerCase(),
     provider: String(provider || 'auto').toLowerCase(),
     route: String(operationRoute || 'default').toLowerCase(),
-  }));
+  });
+  return bytesToHex(await hmacSha256Bytes(secret, OPERATION_HASH_DOMAIN, canonical));
 }
 
 async function replayKey(secret) {
-  const material = await crypto.subtle.digest('SHA-256', enc.encode(`geek-translation-replay:v1:${String(secret || '')}`));
+  const material = await hmacSha256Bytes(secret, REPLAY_KEY_DOMAIN, 'aes-256-gcm');
   return crypto.subtle.importKey('raw', material, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
@@ -463,9 +487,28 @@ function validateTranslationOutput(source, output, target) {
   return result;
 }
 
-async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS) {
+function providerQualityError(provider, error) {
+  const quality = new Error(`${provider.id}: ${String(error?.message || error || 'translation output rejected')}`);
+  quality.code = 'provider_quality_rejected';
+  quality.healthImpact = false;
+  quality.cause = error;
+  return quality;
+}
+
+function shouldAffectProviderHealth(error) {
+  return error?.healthImpact !== false;
+}
+
+async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS, callerSignal = null) {
   const boundedTimeout = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, Math.floor(Number(timeoutMs) || 0)));
   const controller = new AbortController();
+  let callerAborted = false;
+  const abortFromCaller = () => {
+    callerAborted = true;
+    controller.abort(callerSignal?.reason);
+  };
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener?.('abort', abortFromCaller, { once: true });
   const timer = setTimeout(() => controller.abort(), boundedTimeout);
   try {
     const body = {
@@ -495,10 +538,11 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
     try {
       result = validateTranslationOutput(text, result, target);
     } catch (error) {
-      throw new Error(`${provider.id}: ${error.message}`);
+      throw providerQualityError(provider, error);
     }
     return { text: result, engine: provider.id };
   } catch (error) {
+    if (callerAborted) throw requestAbortedError(error);
     if (controller.signal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') {
       const timeout = new Error(`${provider.id}: timeout`);
       timeout.code = 'provider_timeout';
@@ -508,14 +552,16 @@ async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TI
     throw error;
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener?.('abort', abortFromCaller);
   }
 }
 
-async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS) {
+async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS, callerSignal = null) {
   const pool = PROVIDERS.filter(p => Boolean(env[p.keyEnv]));
   if (!pool.length) throw new Error('no free provider configured');
   let lastError = null;
   for (const provider of pool) {
+    if (callerSignal?.aborted) throw requestAbortedError(callerSignal.reason);
     if (!providerUsable(provider)) {
       lastError = lastError || new Error(`${provider.id}: 模型暂不可用（冷却中）`);
       continue;
@@ -523,13 +569,14 @@ async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BU
     const attemptBudget = providerAttemptBudget(deadlineAt);
     if (attemptBudget <= 0) throw deadlineExceededError(lastError);
     try {
-      const result = await callProvider(provider, env, text, target, attemptBudget);
+      const result = await callProvider(provider, env, text, target, attemptBudget, callerSignal);
       markProviderOk(provider.id);
       return result;
     } catch (error) {
+      if (error?.code === 'request_aborted') throw error;
       const deadlineLimitedTimeout = error?.code === 'provider_timeout' && attemptBudget < PROVIDER_TIMEOUT_MS;
       if (deadlineLimitedTimeout) throw deadlineExceededError(error);
-      markProviderFail(provider.id, error.message);
+      if (shouldAffectProviderHealth(error)) markProviderFail(provider.id, error.message);
       lastError = error;
       if (providerAttemptBudget(deadlineAt) <= 0) throw deadlineExceededError(error);
     }
@@ -559,6 +606,7 @@ export default {
       if (!/^[0-9a-f-]{36}$/i.test(requestId)) return json({ error: 'invalid_request_id' }, 400, request, env);
       const db = env.geek_subscriptions;
       if (!db) return json({ error: 'service_unavailable' }, 503, request, env);
+      if (request.signal?.aborted) return json({ error: 'request_aborted' }, 499, request, env);
       if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
       if (await rateLimited(db, `translate:user:${auth.uid}`, 30, 60) || await rateLimited(db, `translate:ip:${clientIp(request)}`, 60, 60)) {
         return json({ error: 'rate_limited' }, 429, request, env);
@@ -584,10 +632,13 @@ export default {
         if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
         if (!LANG_NAMES[target] || target === 'auto') return json({ error: 'invalid_target' }, 400, request, env);
         if (!PROVIDERS.some(p => Boolean(env[p.keyEnv]))) return json({ error: 'service_unavailable' }, 503, request, env);
+        if (request.signal?.aborted) throw requestAbortedError(request.signal.reason);
         if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
 
         reserved = Math.max(1, countChars(text));
         const requestHash = await translationOperationHash({
+          secret: env.JWT_SECRET,
+          requestId,
           userId: auth.uid,
           text,
           source,
@@ -601,7 +652,8 @@ export default {
 
         reservationOwner = reservation.owner;
         replaySchema = reservation.replaySchema === true;
-        const { text: result, engine } = await translate(text, target, env, deadlineAt);
+        const { text: result, engine } = await translate(text, target, env, deadlineAt, request.signal);
+        if (request.signal?.aborted) throw requestAbortedError(request.signal.reason);
         const payload = { text: result, source, target, engine, route };
         const replayCiphertext = replaySchema
           ? await encryptReplayPayload(payload, env.JWT_SECRET, requestId, auth.uid, requestHash)
@@ -619,6 +671,7 @@ export default {
         return json(payload, 200, request, env);
       } catch (error) {
         if (reservationOwner) await refundUsage(db, auth.uid, requestId, reserved, reservationOwner).catch(() => {});
+        if (error?.code === 'request_aborted') return json({ error: 'request_aborted' }, 499, request, env);
         return json(
           { error: error?.code === 'deadline_exceeded' ? 'deadline_exceeded' : 'translation_failed' },
           error?.code === 'deadline_exceeded' ? 504 : 502,
