@@ -10,6 +10,7 @@ const SUBSCRIPTION_CHANNELS = Object.freeze([
   'subscription:create-order',
   'subscription:get-order-status',
   'subscription:get-quota',
+  'subscription:translation-readiness',
   'subscription:logout',
   'subscription:enter-app',
   'subscription:close-window',
@@ -54,6 +55,103 @@ function installSubscriptionIpc(options = {}) {
     return { id, status: ORDER_STATUSES.has(status) ? status : 'unknown' };
   }
 
+  function safeReadinessResult(value = {}) {
+    const result = {
+      ready: value.ready === true,
+      reason: String(value.reason || 'authorization-unavailable').slice(0, 64),
+      retryable: value.retryable === true,
+      quota: ['positive', 'exhausted', 'unknown'].includes(value.quota) ? value.quota : 'unknown',
+    };
+    if (Number.isSafeInteger(value.remaining_chars) && value.remaining_chars >= 0) {
+      result.remaining_chars = value.remaining_chars;
+    }
+    return Object.freeze(result);
+  }
+
+  function classifyTranslationReadinessError(error, quota = 'unknown', remainingChars = null) {
+    const code = String(error?.code || '');
+    const status = Number(error?.status) || 0;
+    let reason = 'authorization-unavailable';
+    let retryable = true;
+    if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || status === 401 || status === 403) {
+      reason = 'authorization-required';
+      retryable = false;
+    } else if (code === 'SUBSCRIPTION_SESSION_CHANGED') {
+      reason = 'session-changed';
+    } else if (code === 'account_disabled') {
+      reason = 'account-disabled';
+      retryable = false;
+    } else if (
+      code === 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED'
+      || code === 'SECURE_STORAGE_UNAVAILABLE'
+      || code === 'SUBSCRIPTION_STATE_RECOVERY_REQUIRED'
+    ) {
+      reason = 'authorization-recovery-required';
+      retryable = false;
+    } else if (code === 'SUBSCRIPTION_REQUEST_TIMEOUT') {
+      reason = 'authorization-unavailable';
+    }
+    return safeReadinessResult({
+      ready: false,
+      reason,
+      retryable,
+      quota,
+      remaining_chars: remainingChars,
+    });
+  }
+
+  async function getTranslationReadiness() {
+    const store = getStore();
+    let state;
+    try {
+      state = await store.getState();
+    } catch (error) {
+      return classifyTranslationReadinessError(error);
+    }
+    if (!state?.loggedIn) {
+      return safeReadinessResult({ ready: false, reason: 'login-required', retryable: false, quota: 'unknown' });
+    }
+
+    const rawRemaining = Number(state.remaining_chars);
+    const positiveRemaining = Number.isSafeInteger(rawRemaining) && rawRemaining > 0 ? rawRemaining : null;
+    const quota = state.valid === false ? 'exhausted' : (positiveRemaining != null ? 'positive' : 'unknown');
+    const remainingChars = quota === 'exhausted' ? 0 : positiveRemaining;
+    if (quota === 'exhausted') {
+      return safeReadinessResult({
+        ready: false,
+        reason: 'quota-exhausted',
+        retryable: false,
+        quota,
+        remaining_chars: 0,
+      });
+    }
+
+    try {
+      // This intentionally exercises the real short-lived translation authorization
+      // path in the main process, but the token itself never crosses this IPC boundary.
+      const token = await store.getTranslationToken();
+      if (typeof token !== 'string' || !token) {
+        return safeReadinessResult({
+          ready: false,
+          reason: 'authorization-unavailable',
+          retryable: true,
+          quota,
+          remaining_chars: remainingChars,
+        });
+      }
+    } catch (error) {
+      return classifyTranslationReadinessError(error, quota, remainingChars);
+    }
+
+    return safeReadinessResult({
+      ready: true,
+      reason: 'ready',
+      retryable: false,
+      quota,
+      remaining_chars: remainingChars,
+    });
+  }
+
   function install() {
     if (installed) return;
     installed = true;
@@ -65,6 +163,7 @@ function installSubscriptionIpc(options = {}) {
     register('subscription:create-order', plan => getStore().createOrder(String(plan || '')));
     register('subscription:get-order-status', orderId => getOrderStatus(orderId));
     register('subscription:get-quota', force => getStore().getQuota(force === true));
+    register('subscription:translation-readiness', () => getTranslationReadiness());
     register('subscription:logout', () => getStore().logout());
     register('subscription:enter-app', () => enterApp());
     register('subscription:close-window', () => closeWindow());
