@@ -17,7 +17,6 @@
         const BACKGROUND_ACTIVE_LIMIT = 2;
         const BACKGROUND_QUEUE_LIMIT = 8;
         const ADMISSION_RETRY_LIMIT = 20;
-        const OUTGOING_INTENT_TTL_MS = 2500;
         const HISTORY_MARKER = 'geekTranslationInitialHistory';
         let lastChatId = '';
         let refreshTimer = null;
@@ -27,11 +26,7 @@
         let bodyObserver = null;
         let backgroundGeneration = 0;
         let backgroundActive = 0;
-        let pendingOutgoingIntent = null;
         const backgroundQueue = [];
-        const IntentAbort = window.AbortController || globalThis.AbortController;
-        const intentAbort = typeof IntentAbort === 'function' ? new IntentAbort() : null;
-        const intentListenerOptions = intentAbort ? { capture: true, signal: intentAbort.signal } : { capture: true };
 
         const activeChatId = () => {
           try {
@@ -40,46 +35,13 @@
           } catch (_) { return ''; }
         };
 
-        const cleanText = value => String(value == null ? '' : value).replace(/\\u200b/g, '').trim();
-        const activeComposerText = () => {
-          try {
-            const editor = document.querySelector('#main footer [contenteditable="true"],#main [data-testid="conversation-compose-box-input"],[contenteditable="true"][data-tab="10"]');
-            return cleanText(editor?.innerText || editor?.textContent || '');
-          } catch (_) { return ''; }
-        };
-        const isComposerTarget = target => !!target?.closest?.('[contenteditable="true"], [data-testid="conversation-compose-box-input"]');
-        const isSendButtonTarget = target => !!target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],[data-testid="compose-btn-send"],button:has([data-icon="send"])');
-        const recordOutgoingIntent = event => {
-          if (event?.isTrusted !== true) return;
-          const chatId = activeChatId();
-          const text = activeComposerText();
-          if (!chatId || !text) { pendingOutgoingIntent = null; return; }
-          pendingOutgoingIntent = { chatId, text, expiresAt: Date.now() + OUTGOING_INTENT_TTL_MS };
-        };
-        window.addEventListener?.('keydown', event => {
-          if (event?.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing || !isComposerTarget(event.target)) return;
-          recordOutgoingIntent(event);
-        }, intentListenerOptions);
-        window.addEventListener?.('click', event => {
-          if (isSendButtonTarget(event?.target)) recordOutgoingIntent(event);
-        }, intentListenerOptions);
-
         const installTranslationIntentTransport = () => {
           const current = window.__geekTranslationRequest;
           if (typeof current !== 'function') return false;
           if (current.__geekTranslationIntentTransport === true) return true;
           const wrapped = function (payload) {
             const body = payload && typeof payload === 'object' ? payload : {};
-            let intent = body.intent === 'outgoing-send' ? 'outgoing-send' : 'message-display';
-            const pending = pendingOutgoingIntent;
-            if (intent !== 'outgoing-send' && pending) {
-              if (pending.expiresAt <= Date.now()) {
-                pendingOutgoingIntent = null;
-              } else if (String(body.chatId || '') === pending.chatId && cleanText(body.text) === pending.text) {
-                intent = 'outgoing-send';
-                pendingOutgoingIntent = null;
-              }
-            }
+            const intent = body.intent === 'outgoing-send' ? 'outgoing-send' : 'message-display';
             return current.call(this, Object.assign({}, body, { intent }));
           };
           try {
@@ -194,7 +156,6 @@
             scheduleAdmissionInstall();
             const next = activeChatId();
             if (!next || next === lastChatId) return;
-            pendingOutgoingIntent = null;
             clearQueuedBackground();
             lastChatId = next;
             markInitialHistoryRows();
@@ -230,8 +191,6 @@
           clearTimeout(refreshTimer);
           if (admissionRetryTimer) clearTimeout(admissionRetryTimer);
           admissionRetryTimer = null;
-          pendingOutgoingIntent = null;
-          intentAbort?.abort?.();
           clearQueuedBackground();
           rootObserver?.disconnect();
           bodyObserver?.disconnect();
