@@ -10,6 +10,7 @@ const root = path.join(__dirname, '..');
 const compatPath = path.join(root, 'scripts', 'translation-rate-limit-compat.mjs');
 const workerPath = path.join(root, 'scripts', 'geek-translate-worker.js');
 const entryPath = path.join(root, 'scripts', 'geek-translate-entry.js');
+const runtimePath = path.join(root, 'src', 'translation-runtime.cjs');
 const wranglerPath = path.join(root, 'wrangler-translate.toml');
 const deployPath = path.join(root, '.github', 'workflows', 'deploy-translate.yml');
 
@@ -59,6 +60,7 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
   const policy = await import(`${pathToFileURL(compatPath).href}?contract=${Date.now()}`);
   const worker = fs.readFileSync(workerPath, 'utf8');
   const entry = fs.readFileSync(entryPath, 'utf8');
+  const runtime = fs.readFileSync(runtimePath, 'utf8');
   const wrangler = fs.readFileSync(wranglerPath, 'utf8');
   const deploy = fs.readFileSync(deployPath, 'utf8');
 
@@ -68,16 +70,26 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
       `compatibility owner must match the live translation limiter SQL: ${sql}`
     );
   }
-  assert.match(worker, /rateLimited\(db, `translate:user:\$\{auth\.uid\}`, 30, 60\)/, 'user limit must remain 30 per 60 seconds');
-  assert.match(worker, /rateLimited\(db, `translate:ip:\$\{clientIp\(request\)\}`, 60, 60\)/, 'IP limit must remain 60 per 60 seconds');
+  assert.match(worker, /rateLimited\(db, `translate:user:\$\{auth\.uid\}`, 30, 60\)/, 'user total limit must remain 30 per 60 seconds');
+  assert.match(worker, /rateLimited\(db, `translate:ip:\$\{clientIp\(request\)\}`, 60, 60\)/, 'IP total limit must remain 60 per 60 seconds');
   assert.match(worker, /return json\(\{ error: 'rate_limited' \}, 429/, 'blocked translation requests must remain HTTP 429');
-
-  assert.match(entry, /scopeTranslationRateLimitAuthority\(db\)/, 'production entry must scope D1 through the atomic translation rate-limit authority');
-  assert.match(
-    entry,
-    /const workerEnv = db && typeof db\.prepare === 'function'\s*\? withTranslationDatabase\(env, scopeTranslationRateLimitAuthority\(db\)\)\s*:\s*env;/,
-    'entry must derive the base Worker environment from the atomic translation rate-limit scope'
+  assert.deepEqual(
+    policy.TRANSLATION_BACKGROUND_RULES.map(({ sourcePrefix, prefix, limit, windowSec }) => ({ sourcePrefix, prefix, limit, windowSec })),
+    [
+      { sourcePrefix: 'translate:user:', prefix: 'translate:bg:user:', limit: 20, windowSec: 60 },
+      { sourcePrefix: 'translate:ip:', prefix: 'translate:bg:ip:', limit: 40, windowSec: 60 },
+    ],
+    'background budgets must reserve 10 user requests and 20 shared-IP requests inside the unchanged total ceilings',
   );
+  assert.equal(policy.normalizeTranslationIntent('outgoing-send'), 'outgoing-send');
+  assert.equal(policy.normalizeTranslationIntent('message-display'), 'message-display');
+  assert.equal(policy.normalizeTranslationIntent(undefined), 'message-display', 'missing gateway intent must fail toward the lower-priority background class');
+
+  assert.match(runtime, /X-Geek-Translation-Intent/, 'desktop runtime must propagate explicit QoS intent to the translation gateway');
+  assert.match(runtime, /AsyncLocalStorage/, 'gateway intent propagation must remain request-local under concurrent accounts');
+  assert.match(entry, /X-Geek-Translation-Intent/, 'production entry must read the explicit translation intent header');
+  assert.match(entry, /normalizeTranslationIntent\(request\.headers\.get\(TRANSLATION_INTENT_HEADER\)\)/, 'entry must normalize untrusted intent before rate admission');
+  assert.match(entry, /scopeTranslationRateLimitAuthority\(db, \{ intent \}\)/, 'production entry must scope D1 through the intent-aware atomic translation rate-limit authority');
   assert.match(
     entry,
     /const response = await baseWorker\.fetch\(request, workerEnv, ctx\);/,
@@ -104,7 +116,7 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
   `);
   const rawDb = createD1Adapter(sqlite);
   let nowMs = Date.UTC(2026, 8, 13, 18, 10, 0);
-  const db = policy.scopeTranslationRateLimitAuthority(rawDb, { now: () => nowMs });
+  const db = policy.scopeTranslationRateLimitAuthority(rawDb, { now: () => nowMs, intent: 'outgoing-send' });
 
   for (let attempt = 1; attempt <= 30; attempt += 1) {
     nowMs += 500;
@@ -156,6 +168,61 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
     1,
     'expired bucket must restart from one'
   );
+
+  // Shared-NAT deterministic proof: background may consume only 40/60 IP slots.
+  // The remaining 20 are therefore still available to explicit outgoing sends.
+  nowMs += 61 * 1000;
+  const backgroundDb = policy.scopeTranslationRateLimitAuthority(rawDb, { now: () => nowMs, intent: 'message-display' });
+  for (let attempt = 1; attempt <= 40; attempt += 1) {
+    nowMs += 100;
+    assert.equal(
+      await legacyTranslationRateLimited(backgroundDb, policy, 'translate:ip:198.51.100.9', 60, 60, nowMs),
+      false,
+      `background shared-IP attempt ${attempt} must be allowed inside its 40-request budget`,
+    );
+  }
+  nowMs += 100;
+  assert.equal(
+    await legacyTranslationRateLimited(backgroundDb, policy, 'translate:ip:198.51.100.9', 60, 60, nowMs),
+    true,
+    'background request 41 must be rejected while total IP capacity still has reserved headroom',
+  );
+  assert.equal(sqlite.prepare('SELECT count FROM rate_limits WHERE bucket = ?').get('translate:bg:ip:198.51.100.9').count, 40);
+  assert.equal(sqlite.prepare('SELECT count FROM rate_limits WHERE bucket = ?').get('translate:ip:198.51.100.9').count, 40);
+
+  const outgoingDb = policy.scopeTranslationRateLimitAuthority(rawDb, { now: () => nowMs, intent: 'outgoing-send' });
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    nowMs += 100;
+    assert.equal(
+      await legacyTranslationRateLimited(outgoingDb, policy, 'translate:ip:198.51.100.9', 60, 60, nowMs),
+      false,
+      `reserved outgoing shared-IP attempt ${attempt} must remain available after background saturation`,
+    );
+  }
+  nowMs += 100;
+  assert.equal(
+    await legacyTranslationRateLimited(outgoingDb, policy, 'translate:ip:198.51.100.9', 60, 60, nowMs),
+    true,
+    'the unchanged total IP ceiling must still block request 61',
+  );
+
+  // Per-user headroom follows the same rule: background 20, total remains 30.
+  nowMs += 61 * 1000;
+  const userBackgroundDb = policy.scopeTranslationRateLimitAuthority(rawDb, { now: () => nowMs, intent: 'message-display' });
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    nowMs += 100;
+    assert.equal(await legacyTranslationRateLimited(userBackgroundDb, policy, 'translate:user:99', 30, 60, nowMs), false);
+  }
+  nowMs += 100;
+  assert.equal(await legacyTranslationRateLimited(userBackgroundDb, policy, 'translate:user:99', 30, 60, nowMs), true);
+  assert.equal(sqlite.prepare('SELECT count FROM rate_limits WHERE bucket = ?').get('translate:user:99').count, 20);
+  const userOutgoingDb = policy.scopeTranslationRateLimitAuthority(rawDb, { now: () => nowMs, intent: 'outgoing-send' });
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    nowMs += 100;
+    assert.equal(await legacyTranslationRateLimited(userOutgoingDb, policy, 'translate:user:99', 30, 60, nowMs), false);
+  }
+  nowMs += 100;
+  assert.equal(await legacyTranslationRateLimited(userOutgoingDb, policy, 'translate:user:99', 30, 60, nowMs), true);
 
   const passthroughInsert = await db.prepare('INSERT INTO rate_limits (bucket, count, updated_at) VALUES (?, ?, ?)')
     .bind('unrelated:test', 7, '2026-09-13 18:10:00')
