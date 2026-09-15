@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const FALLBACK_VERSION = 2;
+  const FALLBACK_VERSION = 3;
 
   function isWhatsAppType(type) {
     return type === 'whatsapp' || type === 'whatsapp-pure';
@@ -22,10 +22,10 @@
     ) || null;
   }
 
-  // Runs inside the WhatsApp WebView. This is a degraded-path owner only: it
-  // stays out of the way while the native send-module recovery is healthy, and
-  // takes over a trusted translated DIRECT-chat composer gesture only when that
-  // private owner cannot be resolved but the public WPP text API is available.
+  // Runs inside the WhatsApp WebView. For translated direct-chat composer gestures,
+  // this owner deliberately bypasses Meta's private sendTextMsgToChat module and
+  // sends through WA-JS's public addAndSendMsgToChat-backed text API. A resolvable
+  // private module is not evidence that the current WhatsApp composer still calls it.
   function installPageFallback(page, version = FALLBACK_VERSION) {
     if (!page) return 'NO_PAGE';
 
@@ -34,6 +34,14 @@
     try { current?.controller?.abort?.(); } catch {}
 
     let composerSendPending = false;
+    const diagnostics = {
+      version,
+      attempts: 0,
+      lastStage: 'installed',
+      lastChatId: '',
+      lastError: '',
+    };
+
     const cleanText = value => String(value == null ? '' : value).replace(/\u200b/g, '').trim();
     const composerSelector = '#main footer [contenteditable="true"],#main [data-testid="conversation-compose-box-input"],[contenteditable="true"][data-tab="10"]';
     const composerTarget = target => !!target?.closest?.('[contenteditable="true"], [data-testid="conversation-compose-box-input"]');
@@ -53,7 +61,7 @@
           color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)'
         });
         doc.body.appendChild(notice);
-        page.setTimeout?.(() => notice.remove?.(), 3200);
+        page.setTimeout?.(() => notice.remove?.(), 4200);
       } catch {}
     };
 
@@ -154,34 +162,36 @@
       if (!text) return false;
       const chat = getActiveChat();
       const chatId = String(chat?.id?._serialized || chat?.id || '');
-      // The live regression is direct-chat-only. Group/newsletter/broadcast
-      // composer behavior is already healthy and must remain under its existing
-      // native/public owners instead of being widened into this degraded path.
       if (!isDirectChat(chat, chatId)) return false;
       const setting = translationSetting(chatId, text);
       if (!setting) return false;
 
-      // Keep the existing native-module recovery authoritative whenever it can
-      // bind the live send owner for this generation.
-      try {
-        if (page.__geekWhatsAppSendRecovery?.ensureHook?.() === true) return false;
-      } catch {}
-
+      // The live product evidence disproved the old gate here. Meta can keep a
+      // resolvable sendTextMsgToChat export while the current composer no longer
+      // dispatches through it. Once translation applies to a direct-chat gesture,
+      // claim the gesture here and use the public WA-JS transport unconditionally.
       block(event);
+      diagnostics.attempts += 1;
+      diagnostics.lastChatId = chatId;
+      diagnostics.lastError = '';
+
       if (composerSendPending) {
+        diagnostics.lastStage = 'pending';
         notify('翻译处理中，请稍候');
         return true;
       }
 
       const translate = page.__geekTranslationRequest;
       if (typeof translate !== 'function') {
+        diagnostics.lastStage = 'translation-unavailable';
         notify('翻译尚未就绪，已阻止原文发送');
         return true;
       }
 
       const runtime = pickRuntime(['chat.sendTextMessage']);
       if (!runtime || typeof runtime?.chat?.sendTextMessage !== 'function') {
-        notify('WhatsApp发送通道尚未就绪，已阻止原文发送');
+        diagnostics.lastStage = 'public-send-unavailable';
+        notify('WhatsApp公开发送通道尚未就绪，已阻止原文发送');
         return true;
       }
 
@@ -193,6 +203,7 @@
       const task = (async () => {
         let stage = 'translation';
         try {
+          diagnostics.lastStage = 'translating';
           const translated = await translate({
             text,
             source: setting.source || 'auto',
@@ -202,29 +213,35 @@
             chatId,
           });
           if (!translated?.text) throw new Error('翻译失败');
+
           const currentChat = getActiveChat();
           const currentChatId = String(currentChat?.id?._serialized || currentChat?.id || '');
           if (currentChatId !== chatId) throw new Error('聊天已切换，翻译发送已取消');
 
           page.__geekRememberOutgoing?.(translated.text, text);
           stage = 'send';
+          diagnostics.lastStage = 'sending';
           const options = quotedMsg ? { quotedMsg } : undefined;
           const sent = await runtime.chat.sendTextMessage(chatId, translated.text, options);
           if (sent == null) throw new Error('WhatsApp未确认消息发送');
+          diagnostics.lastStage = 'sent';
           return sent;
         } catch (error) {
           const message = String(error?.message || error || '');
+          diagnostics.lastError = message.slice(0, 240);
           if (stage === 'translation') {
+            diagnostics.lastStage = 'translation-failed';
             const restored = restoreCompose(chat, snapshot, text);
             if (/聊天已切换/.test(message)) {
               notify(restored ? '聊天已切换，原文已恢复，请重试' : '聊天已切换，翻译发送已取消');
             } else {
-              notify(restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送');
+              notify(restored ? `翻译失败，原文已恢复：${message.slice(0, 120)}` : `翻译失败，原文未发送：${message.slice(0, 120)}`);
             }
           } else {
-            notify('WhatsApp发送失败，请检查当前会话后重试');
+            diagnostics.lastStage = 'send-failed';
+            notify(`WhatsApp公开发送失败：${message.slice(0, 140) || '未知错误'}`);
           }
-          page.console?.error?.('[geek-whatsapp-composer-fallback]', message.slice(0, 240));
+          page.console?.error?.('[geek-whatsapp-composer-public-owner]', message.slice(0, 240));
           return null;
         } finally {
           composerSendPending = false;
@@ -248,8 +265,9 @@
       handleGesture(event);
     }, signalOptions);
 
-    const state = Object.freeze({ version, controller, handleGesture });
+    const state = Object.freeze({ version, controller, diagnostics, handleGesture });
     page.__geekWhatsAppPublicComposerFallback = state;
+    page.__geekWhatsAppPublicComposerFallbackDiagnostics = diagnostics;
     return 'READY';
   }
 
