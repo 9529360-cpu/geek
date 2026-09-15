@@ -34,6 +34,7 @@ const WORKERS = Object.freeze({
       'scripts/geek-marketing-styles-components.mjs',
       'scripts/geek-marketing-visuals.mjs',
       'scripts/geek-marketing-pages.mjs',
+      'scripts/geek-public-pricing.mjs',
       'scripts/geek-website-entry.js',
       'scripts/geek-website-worker.js',
       'scripts/website-payment-qr.mjs',
@@ -244,8 +245,8 @@ function createWorkerBundleFeedback(options = {}) {
     const record = current;
     if (!record || !childIsRunning(record.child)) return;
     record.cancelled = true;
-    terminateImpl(record.child, { force: true, platform });
-    const exited = await waitForExitImpl(record.child, STOP_WAIT_MS);
+    terminateImpl(child, { force: true, platform });
+    const exited = await waitForExitImpl(child, STOP_WAIT_MS);
     if (!exited) warn(`Affected Worker bundle process tree remained alive during shutdown: ${record.name}.`);
   }
 
