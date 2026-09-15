@@ -104,6 +104,10 @@
     function isCurrentContext(token, generation) {
       return token === contextToken && generation === contextGeneration;
     }
+    function focusInitialControl() {
+      const firstEnabledField = Object.values(fields).find(element => !element.disabled);
+      (firstEnabledField || close).focus({ preventScroll: true });
+    }
     async function refresh() {
       const context = await options.getContext();
       identity = context && normalizeIdentity(context.family, context.chatId);
@@ -147,17 +151,38 @@
       renderForm(EMPTY_PROFILE);
       if (await saveProfile() && isCurrentContext(ownerToken, ownerGeneration)) setStatus('客户资料已删除', 'success');
     }
-    function hide() { popover.classList.add('hidden'); button.setAttribute('aria-expanded', 'false'); }
+    function hide({ restoreFocus = true } = {}) {
+      if (popover.classList.contains('hidden')) return;
+      popover.classList.add('hidden');
+      popover.setAttribute('aria-hidden', 'true');
+      button.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) button.focus({ preventScroll: true });
+    }
     function bind() {
+      button.setAttribute('aria-controls', 'contact-notes-popover');
+      button.setAttribute('aria-haspopup', 'dialog');
+      popover.setAttribute('aria-hidden', 'true');
       button.addEventListener('click', async event => {
         event.stopPropagation();
         if (!popover.classList.contains('hidden')) return hide();
-        popover.classList.remove('hidden'); button.setAttribute('aria-expanded', 'true'); await refresh(); fields.name.focus();
+        popover.classList.remove('hidden');
+        popover.setAttribute('aria-hidden', 'false');
+        button.setAttribute('aria-expanded', 'true');
+        await refresh();
+        focusInitialControl();
       });
-      close.addEventListener('click', hide);
+      close.addEventListener('click', () => hide());
+      popover.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        hide();
+      });
       for (const element of Object.values(fields)) element.addEventListener('input', () => { updateCount(); setStatus('', 'idle'); });
       save.addEventListener('click', saveProfile); remove.addEventListener('click', deleteProfile);
-      document.addEventListener('click', event => { if (!popover.contains(event.target) && !button.contains(event.target)) hide(); });
+      document.addEventListener('click', event => {
+        if (!popover.contains(event.target) && !button.contains(event.target)) hide({ restoreFocus: false });
+      });
       popover.addEventListener('click', event => event.stopPropagation());
       setInterval(() => { if (!popover.classList.contains('hidden')) void refresh(); }, 1000);
     }
