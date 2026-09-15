@@ -92,22 +92,22 @@ async function runCase(name, options, expected, expectedTokenCalls) {
   );
 
   await runCase(
-    'translation authorization rejected',
+    'translation authorization rejected drops the preflight quota snapshot',
     { state: { loggedIn: true, remaining_chars: 99, valid: true }, tokenError: error('SUBSCRIPTION_LOGIN_REQUIRED', 401) },
-    { ready: false, reason: 'authorization-required', retryable: false, quota: 'positive', remaining_chars: 99 },
+    { ready: false, reason: 'authorization-required', retryable: false, quota: 'unknown' },
     1,
   );
 
   await runCase(
-    'session changed while obtaining translation authorization',
+    'session changed while obtaining translation authorization drops the prior account quota',
     { state: { loggedIn: true, remaining_chars: 99, valid: true }, tokenError: error('SUBSCRIPTION_SESSION_CHANGED') },
-    { ready: false, reason: 'session-changed', retryable: true, quota: 'positive', remaining_chars: 99 },
+    { ready: false, reason: 'session-changed', retryable: true, quota: 'unknown' },
     1,
   );
 
   await runCase(
-    'translation authorization request timed out',
-    { state: { loggedIn: true, valid: true }, tokenError: error('SUBSCRIPTION_REQUEST_TIMEOUT') },
+    'translation authorization request timed out drops an unproven quota snapshot',
+    { state: { loggedIn: true, remaining_chars: 88, valid: true }, tokenError: error('SUBSCRIPTION_REQUEST_TIMEOUT') },
     { ready: false, reason: 'authorization-unavailable', retryable: true, quota: 'unknown' },
     1,
   );
@@ -121,14 +121,14 @@ async function runCase(name, options, expected, expectedTokenCalls) {
 
   await runCase(
     'disabled account',
-    { state: { loggedIn: true, valid: true }, tokenError: error('account_disabled', 403) },
+    { state: { loggedIn: true, remaining_chars: 77, valid: true }, tokenError: error('account_disabled', 403) },
     { ready: false, reason: 'account-disabled', retryable: false, quota: 'unknown' },
     1,
   );
 
   await runCase(
-    'empty translation token fails closed',
-    { state: { loggedIn: true, valid: true }, token: '' },
+    'empty translation token fails closed without projecting the preflight quota',
+    { state: { loggedIn: true, remaining_chars: 66, valid: true }, token: '' },
     { ready: false, reason: 'authorization-unavailable', retryable: true, quota: 'unknown' },
     1,
   );
