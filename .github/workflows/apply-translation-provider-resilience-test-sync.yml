@@ -1,0 +1,36 @@
+name: apply-translation-provider-resilience-test-sync
+
+on:
+  push:
+    branches:
+      - fix/translation-provider-resilience-20260915
+    paths:
+      - scripts/apply-translation-provider-resilience-test-sync.cjs
+      - .github/workflows/apply-translation-provider-resilience-test-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Apply test sync
+        run: node scripts/apply-translation-provider-resilience-test-sync.cjs
+      - name: Validate affected contracts
+        run: |
+          node test/translation-provider-resilience-contract.cjs
+          node test/translation-usage-state-contract.cjs
+          node test/translation-provider-health-isolation-contract.cjs
+          node test/translation-worker-deadline-contract.cjs
+      - name: Commit focused test sync
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test: align usage contract with bounded provider retry"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
