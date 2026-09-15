@@ -19,6 +19,10 @@ function loadEntry(baseFetch) {
       "import { scopeTranslationRateLimitAuthority } from './translation-rate-limit-compat.mjs';",
       'const scopeTranslationRateLimitAuthority = this.__scopeTranslationRateLimitAuthority;'
     )
+    .replace(
+      "import {\n  recoverStaleTranslationReservations,\n  staleTranslationReservationSummary,\n} from './translation-reservation-recovery.mjs';",
+      'const recoverStaleTranslationReservations = this.__recoverStaleTranslationReservations;\nconst staleTranslationReservationSummary = this.__staleTranslationReservationSummary;'
+    )
     .replace(/^export default\s*/m, 'this.__export = ');
 
   const sandbox = {
@@ -26,9 +30,15 @@ function loadEntry(baseFetch) {
     Request,
     Headers,
     URL,
+    TextEncoder,
+    TextDecoder,
+    crypto: globalThis.crypto,
+    atob,
     console,
     __baseWorker: { fetch: baseFetch },
     __scopeTranslationRateLimitAuthority: (db) => db,
+    __recoverStaleTranslationReservations: async () => ({ recovered: 0 }),
+    __staleTranslationReservationSummary: async () => ({ count: 0, oldestAgeSeconds: 0 }),
   };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, { filename: 'geek-translate-entry.js' });
@@ -98,6 +108,7 @@ function loadEntry(baseFetch) {
   assert.equal(payload.models.gemini.lastFailAt, '2026-09-13T18:30:00.000Z', '公开健康响应必须保留安全时间戳');
   assert.equal(payload.models.gemini.lastOkAt, null);
   assert.equal(Object.prototype.hasOwnProperty.call(payload.models.gemini, 'lastError'), false);
+  assert.deepEqual(payload.staleReservations, { count: 0, oldestAgeSeconds: 0 }, '公开健康响应只能增加非敏感 stale reservation 聚合');
 
   let nonHealthResponse;
   const passthrough = loadEntry(async () => {
