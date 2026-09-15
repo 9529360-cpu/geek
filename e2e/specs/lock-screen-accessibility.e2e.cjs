@@ -25,6 +25,16 @@ async function waitHidden(selector, timeout = STEP_TIMEOUT) {
   });
 }
 
+async function waitFocused(id, timeout = STEP_TIMEOUT) {
+  await browser.waitUntil(async () => browser.execute(
+    expectedId => document.activeElement?.id === expectedId,
+    id,
+  ), {
+    timeout,
+    timeoutMsg: `focus did not settle on #${id}`,
+  });
+}
+
 async function keyOnFocused(key, extra = {}) {
   if (key === 'Tab') {
     if (extra.shiftKey === true) {
@@ -157,15 +167,15 @@ describe('lock screen accessibility', () => {
     });
 
     await keyOnFocused('Tab');
-    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-unlock');
+    await waitFocused('lock-unlock');
     await keyOnFocused('Tab');
-    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-password');
+    await waitFocused('lock-password');
     await keyOnFocused('Tab', { shiftKey: true });
-    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-unlock');
+    await waitFocused('lock-unlock');
 
     await keyOnFocused('Escape');
     assert.equal(await browser.execute(() => document.getElementById('lock-overlay')?.classList.contains('hidden') === false), true, 'Escape must not bypass the lock');
-    assert.equal(await browser.execute(() => document.activeElement?.id || ''), 'lock-password');
+    await waitFocused('lock-password');
 
     const password = await waitVisible('#lock-password');
     await password.setValue('wrong-password');
