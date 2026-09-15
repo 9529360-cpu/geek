@@ -55,6 +55,10 @@ function createConfigStateStore(options = {}) {
 
   let state = cloneConfig(DEFAULT_CONFIG);
   let transactionTail = Promise.resolve();
+  // Missing Config State is intentionally not materialized during load: the
+  // runtime-path migration may still copy a legacy project config afterwards.
+  // The first real mutation owns creation of the initial proof-backed snapshot.
+  let needsInitialCommit = false;
 
   function report(error, phase, recovered = false) {
     try { onRecoveryEvent(error, { phase, recovered: recovered === true }); } catch {}
@@ -165,10 +169,11 @@ function createConfigStateStore(options = {}) {
 
     if (loaded.status === 'empty') {
       state = cloneConfig(DEFAULT_CONFIG);
-      await migrateLoadedState({ initializing: true });
+      needsInitialCommit = true;
       return cloneConfig(state);
     }
 
+    needsInitialCommit = false;
     state = loaded.state;
     if (loaded.status === 'recovered') {
       report(loaded.primaryError || Object.assign(new Error('config state recovered'), { code: 'CONFIG_STATE_PRIMARY_RECOVERED' }), 'recovery', true);
@@ -185,8 +190,10 @@ function createConfigStateStore(options = {}) {
     const run = transactionTail.then(async () => {
       const raw = patchData && typeof patchData === 'object' ? patchData : {};
       const candidate = normalizeConfig({ ...cloneConfig(state), ...raw });
-      await durableWrite(candidate);
+      const initializing = needsInitialCommit;
+      await durableWrite(candidate, { initializing });
       state = candidate;
+      needsInitialCommit = false;
       return cloneConfig(state);
     });
     transactionTail = run.then(() => undefined, () => undefined);
