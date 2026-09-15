@@ -16,14 +16,15 @@ function installSubscriptionWindowVisibilityRecovery({ app, delayMs = 1500, logg
       }
     };
 
-    const isSubscriptionWindow = () => {
-      const url = String(win.webContents.getURL?.() || '').replace(/\\/g, '/');
+    const isSubscriptionUrl = (value) => {
+      const url = String(value || '').replace(/\\/g, '/');
       return /\/subscription\.html(?:[?#]|$)/i.test(url);
     };
 
-    const showIfSubscription = () => {
+    const showIfSubscription = (candidateUrl = '') => {
       try {
-        if (closed || win.isDestroyed?.() || !isSubscriptionWindow()) return false;
+        const currentUrl = win.webContents.getURL?.() || '';
+        if (closed || win.isDestroyed?.() || (!isSubscriptionUrl(candidateUrl) && !isSubscriptionUrl(currentUrl))) return false;
         if (win.isMinimized?.()) win.restore?.();
         win.show?.();
         win.focus?.();
@@ -35,14 +36,14 @@ function installSubscriptionWindowVisibilityRecovery({ app, delayMs = 1500, logg
       }
     };
 
-    win.webContents.once?.('did-finish-load', showIfSubscription);
-    win.webContents.on?.('did-fail-load', (_loadEvent, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+    win.webContents.once?.('did-finish-load', () => showIfSubscription());
+    win.webContents.on?.('did-fail-load', (_loadEvent, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame) return;
       logger?.error?.('[window] 登录窗口页面加载失败:', errorCode, errorDescription);
-      showIfSubscription();
+      showIfSubscription(validatedURL);
     });
 
-    timer = setTimeout(showIfSubscription, Math.max(0, Number(delayMs) || 0));
+    timer = setTimeout(() => showIfSubscription(), Math.max(0, Number(delayMs) || 0));
     timer.unref?.();
     win.once?.('closed', () => {
       closed = true;
