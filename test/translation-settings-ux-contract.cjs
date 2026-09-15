@@ -25,8 +25,10 @@ assert.match(ux, /result !== false/, '设置持久化失败必须显式区分 fa
 assert.match(ux, /translationGlobal/, '必须继续复用既有 translationGlobal 数据键');
 assert.match(ux, /translationChats/, '必须继续复用既有 translationChats 数据键');
 assert.match(ux, /translationMode: receiveAuto \? 'auto' : 'click'/, '关闭自动接收翻译应退化为按需翻译而不是破坏手动能力');
-assert.match(ux, /async function ensureFreshAccountDefaults\(\)/, '新账号必须显式持久化安全的接收翻译默认值');
-assert.match(ux, /void ensureFreshAccountDefaults\(\)/, '设置控制器启动时必须初始化缺失的翻译默认值');
+assert.match(ux, /function ensureFreshAccountDefaults\(\)/, '新账号必须显式持久化安全的接收翻译默认值');
+assert.match(ux, /const accountId = String\(deps\.getActiveId\(\) \|\| ''\)/, '默认初始化必须绑定当前账号，而不是在未激活账号时写入');
+assert.match(ux, /const freshDefaultPromises = new Map\(\)/, '默认初始化必须按账号 single-flight，避免切换期间重复写入');
+assert.match(ux, /function refreshGlobal\(\) \{\s*void ensureFreshAccountDefaults\(\);/, '账号切换刷新时必须补齐缺失的安全默认值');
 assert.match(ux, /Object\.prototype\.hasOwnProperty\.call\(stored, 'translationMode'\)/, '兼容旧配置时必须区分缺失字段与显式选择');
 assert.match(ux, /translation-appearance-preview/, '译文外观必须提供固定示例预览');
 assert.match(ux, /不读取聊天内容/, '预览必须明确不读取真实聊天内容');
