@@ -4,7 +4,7 @@ export const PLATFORM_DISCLAIMER = 'WhatsApp、Telegram、LINE 及相关商标�
 
 export function nav(path) {
   const links = [
-    ['/product', '产品'], ['/translation', '翻译'], ['/broadcast', '群发'], ['/security', '隔离'], ['/guide', '上手'], ['/windows', 'Windows'],
+    ['/product', '产品'], ['/translation', '翻译'], ['/broadcast', '群发'], ['/security', '隔离'], ['/pricing', '价格'], ['/guide', '上手'], ['/windows', 'Windows'],
   ];
   return `<header class="header">
 <div class="shell nav">
@@ -25,6 +25,7 @@ export function footer() {
 <a href="/translation">翻译</a>
 <a href="/broadcast">群发</a>
 <a href="/security">安全边界</a>
+<a href="/pricing">价格</a>
 <a href="/guide">安装与上手</a>
 <a href="/faq">常见问题</a>
 <a href="/windows">Windows</a>
@@ -128,23 +129,28 @@ export function cta(path) {
   const windows = path === '/windows';
   const guide = path === '/guide';
   const faq = path === '/faq';
-  const kicker = windows ? 'Get Geek' : guide ? 'Ready when you are' : faq ? 'Know the boundaries' : 'Continue on desktop';
+  const pricing = path === '/pricing';
+  const kicker = windows ? 'Get Geek' : guide ? 'Ready when you are' : faq ? 'Know the boundaries' : pricing ? 'Start with free quota' : 'Continue on desktop';
   const title = windows
     ? '下载以后，直接从你的第一个账号开始。'
     : guide
       ? '先跑通一个账号，再把工作台扩起来。'
       : faq
         ? '边界清楚以后，再决定是否把它放进日常工作。'
-        : '把下一段海外沟通，放进真正属于它的账号里。';
+        : pricing
+          ? '先用赠送字符验证真实工作流，再决定是否购买。'
+          : '把下一段海外沟通，放进真正属于它的账号里。';
   const copy = windows
     ? '已有账户可以直接登录；第一次使用也可以先注册极客账户，再下载 Windows 客户端。'
     : guide
       ? '安装、登录、第一个真实账号和一次受控收发，就是最小可验证闭环。后续再按需要增加翻译与群发。'
       : faq
         ? '极客当前以 Windows 桌面多账号工作流为核心；第三方平台能力变化时，我们以兼容和安全边界为先。'
-        : 'Windows 客户端是极客完整工作流的运行现场。账户、翻译、群发和账号隔离在这里真正连接起来。';
-  const secondaryHref = windows ? '/login' : faq ? '/security' : '/faq';
-  const secondaryText = windows ? '免费注册 / 登录' : faq ? '查看安全边界' : '查看常见问题';
+        : pricing
+          ? '注册赠送的翻译字符没有到期时间。购买前先确认你的语言、平台和发送流程真的适合日常业务。'
+          : 'Windows 客户端是极客完整工作流的运行现场。账户、翻译、群发和账号隔离在这里真正连接起来。';
+  const secondaryHref = windows ? '/login' : pricing ? '/login' : faq ? '/security' : '/faq';
+  const secondaryText = windows ? '免费注册 / 登录' : pricing ? '登录账户 / 购买字符' : faq ? '查看安全边界' : '查看常见问题';
   return `<section class="section">
 <div class="shell"><div class="cta"><div class="cta-grid"><div><div class="kicker">${kicker}</div><h2>${title}</h2><p>${copy}</p></div><div class="cta-actions"><a class="btn primary" href="/download">立即下载 Windows 客户端 <span>↘</span></a><a class="btn secondary" href="${secondaryHref}">${secondaryText}</a></div></div></div></div>
 </section>`;
