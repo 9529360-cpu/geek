@@ -231,7 +231,10 @@ function createConfigStateStore(options = {}) {
   }
 
   function removeOrphanedLegacyBroadcastGroups(liveAccountIds) {
-    const live = new Set(Array.from(liveAccountIds || [], value => String(value || '').trim()).filter(Boolean));
+    if (!liveAccountIds || typeof liveAccountIds === 'string' || typeof liveAccountIds[Symbol.iterator] !== 'function') {
+      throw new TypeError('liveAccountIds iterable is required');
+    }
+    const live = new Set(Array.from(liveAccountIds, value => String(value || '').trim()).filter(Boolean));
     return mutateLegacyBroadcastGroups(groups => groups.filter((group) => {
       const owner = typeof group?.accountId === 'string' ? group.accountId.trim() : '';
       return !owner || live.has(owner);
