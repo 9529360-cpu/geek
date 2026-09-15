@@ -41,22 +41,22 @@ for (const conversational of [
   );
 }
 assert.equal(
-  assertSafeTranslationOutput({ source, output: 'Buonasera, hai già mangiato?', target: 'it' }),
+  assertSafeTranslationOutput({ source, output: 'Buonasera, hai già mangiato?', sourceLanguage: 'zh', target: 'it' }),
   'Buonasera, hai già mangiato?',
   '正常意大利语译文必须通过'
 );
 assert.equal(
-  assessTranslationOutput({ source, output: '以下是意大利语翻译：\n晚上好，你吃饭了吗？', target: 'it' }).ok,
+  assessTranslationOutput({ source, output: '以下是意大利语翻译：\n晚上好，你吃饭了吗？', sourceLanguage: 'zh', target: 'it' }).ok,
   false,
   '清洗说明后仍照抄中文原文必须拒绝'
 );
 assert.equal(
-  assessTranslationOutput({ source, output: source, target: 'it' }).reason,
+  assessTranslationOutput({ source, output: source, sourceLanguage: 'zh', target: 'it' }).reason,
   'UNCHANGED_SOURCE',
   '目标为外语时不得接受原文照抄'
 );
 assert.equal(
-  assessTranslationOutput({ source: 'Good evening', output: '晚上好', target: 'zh' }).ok,
+  assessTranslationOutput({ source: 'Good evening', output: '晚上好', sourceLanguage: 'en', target: 'zh' }).ok,
   true,
   '翻译成中文的正常结果必须通过'
 );
@@ -69,7 +69,7 @@ vm.runInContext(
   { filename: 'geek-translate-worker.js' }
 );
 assert.equal(
-  workerSandbox.__validateOutput(source, '以下是意大利语翻译：\nBuonasera, hai già mangiato?', 'it'),
+  workerSandbox.__validateOutput(source, '以下是意大利语翻译：\nBuonasera, hai già mangiato?', 'zh', 'it'),
   'Buonasera, hai già mangiato?',
   '云端 Worker 必须实际清洗模型说明前缀'
 );
@@ -86,17 +86,18 @@ for (const conversational of [
   );
 }
 assert.throws(
-  () => workerSandbox.__validateOutput(source, '以下是意大利语翻译：\n晚上好，你吃饭了吗？', 'it'),
+  () => workerSandbox.__validateOutput(source, '以下是意大利语翻译：\n晚上好，你吃饭了吗？', 'zh', 'it'),
   /repeated source text|target script mismatch/,
   '云端 Worker 必须实际拒绝伪译文'
 );
 
 assert.match(workerSource, /You are a translation engine, not an assistant/, '云端网关必须使用严格翻译提示词');
-assert.match(workerSource, /validateTranslationOutput\(text, result, target\)/, '云端每个模型结果必须质量校验后才能返回');
-assert.match(localGatewaySource, /validate_translation_output\(text, result, target\)/, '本地网关也必须校验模型输出');
+assert.match(workerSource, /validateTranslationOutput\(text, result, source, target\)/, '云端每个模型结果必须按源\/目标语言质量校验后才能返回');
+assert.match(localGatewaySource, /validate_translation_output\(text, result, source, target\)/, '本地网关也必须按源\/目标语言校验模型输出');
 assert.doesNotMatch(workerSource, /\(\?:sure\|certainly\|of course\)\[,!：:\\s-\]\*\(\?:here/, 'Worker 不得再用可吞掉普通会话词的宽泛前缀');
 assert.doesNotMatch(localGatewaySource, /\(\?:sure\|certainly\|of course\)\[,!：:\\s-\]\*\(\?:here/, '本地网关不得再用可吞掉普通会话词的宽泛前缀');
 assert.match(runtimeOwnerSource, /translation-runtime-base\.cjs/, '公共 Runtime 必须继续经过最终质量校验事务层');
+assert.match(runtimeOwnerSource, /sourceLanguageContext/, '公共 Runtime 必须把显式源语言带到最终质量校验');
 assert.match(runtimeBaseSource, /assertSafeTranslationOutput\(\{ source: text, output: cached\.text, target \}\)/, '历史缓存必须重新校验，禁止复用脏译文');
 assert.match(runtimeBaseSource, /assertSafeTranslationOutput\(\{ source: text, output: result\.text, target \}\)/, 'Translation Runtime 必须对网关结果做最终校验');
 
