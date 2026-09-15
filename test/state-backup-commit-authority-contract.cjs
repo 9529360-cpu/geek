@@ -12,6 +12,7 @@ const {
   createConfigStateStore,
   CONFIG_STATE_RECOVERY_REQUIRED,
 } = require('../src/config-state.cjs');
+const runtimePaths = require('../src/runtime-paths.cjs');
 
 const TYPES = {
   whatsapp: { name: 'WhatsApp', url: 'https://web.whatsapp.com/' },
@@ -87,7 +88,39 @@ function configStore(dir) {
     await recoveredAccount.remove('A');
     assert.equal((await recoveredAccount.load()).accounts.length, 0);
     assert.equal(await fs.readFile(accountFile, 'utf8'), await fs.readFile(accountBackup, 'utf8'), 'successful account deletion must mirror the committed empty snapshot');
+
+    // Startup legacy migration runs before Account State load. Once Account State has
+    // committed the empty deletion, a retained old project data/accounts.json must not
+    // be allowed to resurrect the removed account.
+    const migrationLegacyRoot = path.join(root, 'runtime-legacy-project');
+    await fs.mkdir(path.join(migrationLegacyRoot, 'data'), { recursive: true });
+    await fs.writeFile(
+      runtimePaths.legacyAccountsFile(migrationLegacyRoot),
+      JSON.stringify({ activeAccountId: 'OLD', accounts: [{ id: 'OLD', name: 'Deleted legacy account', type: 'whatsapp' }] }),
+      'utf8',
+    );
+    const committedEmptyMigration = await runtimePaths.migrateRuntimeFiles({
+      userDataDir: accountDir,
+      projectRoot: migrationLegacyRoot,
+    });
+    assert.equal(
+      committedEmptyMigration.find(entry => entry.file === accountFile)?.action,
+      'kept',
+      'legacy migration must defer to committed Account State authority',
+    );
+    assert.equal(JSON.parse(await fs.readFile(accountFile, 'utf8')).accounts.length, 0, 'legacy migration must not resurrect a committed account deletion');
+
     await fs.rm(accountFile);
+    const missingPrimaryMigration = await runtimePaths.migrateRuntimeFiles({
+      userDataDir: accountDir,
+      projectRoot: migrationLegacyRoot,
+    });
+    assert.equal(
+      missingPrimaryMigration.find(entry => entry.file === accountFile)?.action,
+      'kept',
+      'commit proof must keep migration away from a temporarily missing Account State primary',
+    );
+    await assert.rejects(() => fs.access(accountFile), error => error?.code === 'ENOENT');
     const afterDelete = accountStore(accountDir);
     assert.deepEqual(await afterDelete.load(), { activeAccountId: null, accounts: [] }, 'missing primary after committed delete must not resurrect the deleted account');
 

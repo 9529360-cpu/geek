@@ -55,7 +55,8 @@ async function fileExists(file) {
 }
 
 // 目标 accounts.json 是否“空账号”（空数组/缺失 accounts 键的空对象）。
-// 空目标是陈旧首启产物时会永久遮蔽旧源真实账号，因此视为不存在。
+// 空目标是陈旧首启产物时会永久遮蔽旧源真实账号，因此视为不存在；但一旦
+// Account State 已写出 commit proof，空状态就是已提交的权威结果，不能再回灌旧源。
 function isEmptyAccounts(value) {
   try {
     const data = JSON.parse(value);
@@ -72,6 +73,9 @@ function isEmptyAccounts(value) {
 
 // 首次运行安全迁移：accounts/config 从项目 data/ 迁到固定 userData 目录。
 // 规则：目标已存在则以目标为准；仅在目标缺失且旧源存在时复制（源文件保留）；
+// accounts 的历史空目标恢复只适用于尚未被 committed-state owner 接管的旧状态。
+// 一旦 accounts.json.commit 存在，主文件即使为空/暂缺也由 Account State 自己恢复或
+// fail closed，legacy migration 不得越权重写该状态面。
 // 只触碰这两个 JSON，绝不覆盖登录分区目录或 line-tokens 等凭据文件。
 async function migrateRuntimeFiles({ userDataDir, projectRoot }) {
   await fs.mkdir(userDataDir, { recursive: true });
@@ -81,6 +85,12 @@ async function migrateRuntimeFiles({ userDataDir, projectRoot }) {
   ];
   const results = [];
   for (const { dest, legacy, allowEmptyShadow } of pairs) {
+    const committedAuthority = allowEmptyShadow && await fileExists(`${dest}.commit`);
+    if (committedAuthority) {
+      results.push({ file: dest, action: 'kept' });
+      continue;
+    }
+
     const destExists = await fileExists(dest);
     const legacyExists = await fileExists(legacy);
     const destShadowEmpty = destExists && allowEmptyShadow
