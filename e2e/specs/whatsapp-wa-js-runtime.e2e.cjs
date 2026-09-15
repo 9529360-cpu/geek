@@ -66,12 +66,13 @@ async function probeGuestRuntime() {
 }
 
 function injectionReady(state) {
-  return state?.found === true
+  const waJsReady = state?.found === true
     && state?.rendererProbeOk === true
     && state?.version === '4.6.0'
     && state?.wppInjected === true
     && state?.wppReady === true
-    && state?.loaderReady === true
+    && state?.loaderReady === true;
+  return waJsReady
     && state?.directComposerVersion === 1
     && state?.directComposerReady === true
     && state?.recoveryInactive === true
