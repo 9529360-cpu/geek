@@ -29,6 +29,16 @@ const SUBSCRIPTION_ERROR_CODES = Object.freeze([
   'SECURE_STORAGE_ENCRYPT_FAILED',
 ]);
 const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
+const TRANSLATION_AUTH_ERROR_CODES = new Set([
+  'SUBSCRIPTION_LOGIN_REQUIRED',
+  'SUBSCRIPTION_SESSION_CHANGED',
+  'SUBSCRIPTION_TOKEN_DECRYPT_FAILED',
+  'SUBSCRIPTION_STATE_RECOVERY_REQUIRED',
+  'SECURE_STORAGE_UNAVAILABLE',
+  'SECURE_STORAGE_ENCRYPT_FAILED',
+  'account_disabled',
+  'TRANSLATION_AUTH_REQUIRED',
+]);
 
 function normalizeSubscriptionIpcError(error) {
   const message = String(error?.message || error || '');
@@ -50,11 +60,17 @@ async function invokeSubscription(channel, ...args) {
   }
 }
 
+function normalizeTranslationErrorCategory(detail = {}) {
+  const code = String(detail.code || '');
+  if (TRANSLATION_AUTH_ERROR_CODES.has(code)) return 'auth';
+  return String(detail.category || 'gateway').slice(0, 64);
+}
+
 function translationErrorEnvelope(detail = {}) {
   const payload = {
     code: String(detail.code || 'TRANSLATION_FAILED').slice(0, 100),
     message: String(detail.message || '翻译请求失败').slice(0, 300),
-    category: String(detail.category || 'gateway').slice(0, 64),
+    category: normalizeTranslationErrorCategory(detail),
     retryable: detail.retryable === true,
   };
   if (Number.isInteger(detail.status)) payload.status = detail.status;
@@ -75,7 +91,7 @@ function unwrapTranslationIpcResponse(response) {
   const error = new Error(translationErrorEnvelope({ ...detail, message: humanMessage }));
   error.userMessage = humanMessage;
   error.code = String(detail.code || 'TRANSLATION_FAILED');
-  error.category = String(detail.category || 'gateway');
+  error.category = normalizeTranslationErrorCategory(detail);
   error.retryable = detail.retryable === true;
   if (Number.isInteger(detail.status)) error.status = detail.status;
   throw error;
