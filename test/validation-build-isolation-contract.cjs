@@ -8,6 +8,7 @@ const root = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const validation = fs.readFileSync(path.join(root, 'electron-builder.validation.yml'), 'utf8');
 const production = fs.readFileSync(path.join(root, 'electron-builder.yml'), 'utf8');
+const validationWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'build-validation-client.yml'), 'utf8');
 const mainEntry = fs.readFileSync(path.join(root, 'src', 'main-entry.cjs'), 'utf8');
 const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
 
@@ -24,6 +25,12 @@ assert.match(production, /^appId:\s*com\.stardust\.geek\s*$/m);
 assert.match(production, /^productName:\s*极客\s*$/m);
 assert.match(production, /^publish:/m);
 assert.doesNotMatch(production, /geekRuntimeProfile:\s*validation/);
+assert.match(validationWorkflow, /- '\.github\/release-client-version'/, 'formal release marker changes must trigger validation-client-build');
+assert.match(
+  validationWorkflow,
+  /startsWith\(github\.event\.pull_request\.head\.ref, 'release\/'\)/,
+  'release candidate PRs must run the isolated Windows validation build instead of being silently skipped',
+);
 assert.ok(mainEntry.indexOf('configureRuntimeEnvironment({') >= 0);
 assert.ok(mainEntry.indexOf('configureRuntimeEnvironment({') < mainEntry.indexOf("require('./main.cjs')"), 'profile must be selected before main composition resolves userData');
 assert.match(main, /installScheduledBroadcastAttachmentBoundary\(/, 'scheduled attachment persistence remains installed by main composition');
