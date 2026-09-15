@@ -68,7 +68,7 @@ function installSubscriptionIpc(options = {}) {
     return Object.freeze(result);
   }
 
-  function classifyTranslationReadinessError(error, quota = 'unknown', remainingChars = null) {
+  function classifyTranslationReadinessError(error) {
     const code = String(error?.code || '');
     const status = Number(error?.status) || 0;
     let reason = 'authorization-unavailable';
@@ -91,12 +91,14 @@ function installSubscriptionIpc(options = {}) {
     } else if (code === 'SUBSCRIPTION_REQUEST_TIMEOUT') {
       reason = 'authorization-unavailable';
     }
+    // Once translation authorization fails, the earlier local state snapshot is
+    // no longer proven to belong to the current login generation. Never project
+    // its cached quota across logout/account-switch/auth races.
     return safeReadinessResult({
       ready: false,
       reason,
       retryable,
-      quota,
-      remaining_chars: remainingChars,
+      quota: 'unknown',
     });
   }
 
@@ -135,12 +137,11 @@ function installSubscriptionIpc(options = {}) {
           ready: false,
           reason: 'authorization-unavailable',
           retryable: true,
-          quota,
-          remaining_chars: remainingChars,
+          quota: 'unknown',
         });
       }
     } catch (error) {
-      return classifyTranslationReadinessError(error, quota, remainingChars);
+      return classifyTranslationReadinessError(error);
     }
 
     return safeReadinessResult({
