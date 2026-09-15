@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const adapters = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8');
 const whatsapp = fs.readFileSync(path.join(root, 'ui', 'translation-whatsapp-rehydrate.js'), 'utf8');
+const whatsappSend = fs.readFileSync(path.join(root, 'ui', 'whatsapp-translation-hook-recovery.js'), 'utf8');
 const runtime = fs.readFileSync(path.join(root, 'src', 'translation-runtime.cjs'), 'utf8');
 
 assert.match(
@@ -36,8 +37,18 @@ assert.match(
 );
 assert.match(
   whatsapp,
-  /intent = body\.intent === 'outgoing-send' \? 'outgoing-send' : 'message-display'/,
+  /const intent = body\.intent === 'outgoing-send' \? 'outgoing-send' : 'message-display'/,
   'WhatsApp bridge transport must fail unknown or missing intent toward background priority',
+);
+assert.match(
+  whatsappSend,
+  /route: setting\.route,[\s\S]{0,120}chatId,[\s\S]{0,120}intent: 'outgoing-send'/,
+  'WhatsApp native translated-send owner must carry explicit outgoing intent',
+);
+assert.doesNotMatch(
+  whatsapp,
+  /pendingOutgoingIntent|recordOutgoingIntent|activeComposerText|isComposerTarget|isSendButtonTarget|OUTGOING_INTENT_TTL_MS/,
+  'WhatsApp background adapter must never infer scheduling priority from DOM gestures, focus, or composer text',
 );
 assert.match(
   runtime,
