@@ -6,6 +6,8 @@ const { createTranslationCacheStore } = require('./translation-cache-store.cjs')
 const TRANSLATION_CACHE_VERSION = 'prompt-20260822-2';
 const TRANSLATION_REMOTE_LIMIT = 20;
 const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;
+const TRANSLATION_RECONCILE_BASE_DELAY_MS = 50;
+const TRANSLATION_RECONCILE_MAX_DELAY_MS = 400;
 const TRANSLATION_CHANNELS = Object.freeze([
   'translation:translate',
   'translation:health',
@@ -107,6 +109,13 @@ function classifyGatewayResponse(status, result = {}) {
       upstreamCode || 'QUOTA_EXHAUSTED',
       upstreamMessage || '翻译额度已用完，请前往个人中心开通',
       { category: 'quota', retryable: false, endpointFailure: false, status: httpStatus, upstreamCode }
+    );
+  }
+  if (httpStatus === 409 && upstreamCode === 'request_in_progress') {
+    return createTranslationError(
+      'TRANSLATION_REQUEST_IN_PROGRESS',
+      upstreamMessage || '翻译请求仍在处理中',
+      { category: 'reconcile', retryable: true, endpointFailure: false, status: httpStatus, upstreamCode }
     );
   }
   if (httpStatus === 409) {
@@ -590,6 +599,7 @@ function createTranslationRuntime(options = {}) {
           if (state.deletedPartitions.has(partition)) throw accountDeletedError();
           if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
           let lastError = null;
+          let reconciliationPolls = 0;
           const attempts = body.route === 'primary'
             ? 1
             : body.route === 'backup'
@@ -644,6 +654,20 @@ function createTranslationRuntime(options = {}) {
               try { result = JSON.parse(raw); } catch { result = {}; }
               if (!response.ok) {
                 const rejection = classifyGatewayResponse(response.status, result);
+                if (rejection.code === 'TRANSLATION_REQUEST_IN_PROGRESS') {
+                  lastError = rejection;
+                  const retryDelay = Math.min(
+                    TRANSLATION_RECONCILE_MAX_DELAY_MS,
+                    TRANSLATION_RECONCILE_BASE_DELAY_MS * (2 ** Math.min(reconciliationPolls, 3)),
+                    Math.max(0, remainingMs(deadlineAt))
+                  );
+                  reconciliationPolls += 1;
+                  if (retryDelay <= 0) throw deadlineExceededError(rejection);
+                  attempt -= 1;
+                  await new Promise(resolve => setTimeout(resolve, retryDelay));
+                  if (controller.signal.aborted) throw controller.signal.reason || deadlineExceededError(rejection);
+                  continue;
+                }
                 if (rejection.endpointFailure) {
                   pool.reportFailure(endpoint);
                   endpointOutcomeReported = true;
