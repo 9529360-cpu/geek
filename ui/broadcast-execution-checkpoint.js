@@ -7,9 +7,14 @@
 
   const STORAGE_KEY = 'broadcastExecutionCheckpoints';
   const VERSION = 1;
+  const CORRUPT_CODE = 'BROADCAST_EXECUTION_CHECKPOINT_CORRUPT';
   const PHASES = new Set(['dispatching', 'settled']);
   const TERMINAL = new Set(['completed', 'stopped', 'failed']);
   const FORBIDDEN_FIELDS = new Set(['message', 'text', 'target', 'targets', 'targetId', 'chatId', 'name', 'file', 'files', 'path', 'attachmentRefs', 'vcards']);
+  const RECORD_FIELDS = new Set([
+    'version', 'jobId', 'accountId', 'platformFamily', 'phase', 'index', 'total', 'current', 'ok', 'fail',
+    'createdAt', 'startedAt', 'updatedAt',
+  ]);
 
   function asId(value) {
     return String(value == null ? '' : value).trim();
@@ -23,6 +28,20 @@
   function finiteTime(value, fallback = Date.now()) {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? Math.floor(number) : Math.floor(Number(fallback) || Date.now());
+  }
+
+  function corruptionError() {
+    const error = new Error('broadcast execution checkpoint integrity is unknown');
+    error.code = CORRUPT_CODE;
+    return error;
+  }
+
+  function isNonNegativeInt(value) {
+    return Number.isSafeInteger(value) && value >= 0;
+  }
+
+  function isPositiveTime(value) {
+    return Number.isSafeInteger(value) && value > 0;
   }
 
   function checkpointRecord(job, phase, index, at = Date.now()) {
@@ -53,36 +72,52 @@
 
   function normalizeRecord(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    for (const key of FORBIDDEN_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(value, key)) return null;
+    for (const key of Object.keys(value)) {
+      if (!RECORD_FIELDS.has(key) || FORBIDDEN_FIELDS.has(key)) return null;
     }
-    const jobId = asId(value.jobId);
-    const accountId = asId(value.accountId);
-    const phase = String(value.phase || '');
-    if (!jobId || !accountId || !PHASES.has(phase)) return null;
-    return checkpointRecord({
-      id: jobId,
-      accountId,
-      platformFamily: String(value.platformFamily || ''),
+    if (value.version !== VERSION) return null;
+    if (typeof value.jobId !== 'string' || !value.jobId || value.jobId !== value.jobId.trim()) return null;
+    if (typeof value.accountId !== 'string' || !value.accountId || value.accountId !== value.accountId.trim()) return null;
+    if (typeof value.platformFamily !== 'string') return null;
+    if (typeof value.phase !== 'string' || !PHASES.has(value.phase)) return null;
+    if (!isNonNegativeInt(value.index) || !isNonNegativeInt(value.total) || !isNonNegativeInt(value.current)
+      || !isNonNegativeInt(value.ok) || !isNonNegativeInt(value.fail)) return null;
+    if (!isPositiveTime(value.createdAt) || !isPositiveTime(value.updatedAt)) return null;
+    if (value.startedAt !== null && !isPositiveTime(value.startedAt)) return null;
+    return Object.freeze({
+      version: VERSION,
+      jobId: value.jobId,
+      accountId: value.accountId,
+      platformFamily: value.platformFamily,
+      phase: value.phase,
+      index: value.index,
       total: value.total,
       current: value.current,
       ok: value.ok,
       fail: value.fail,
       createdAt: value.createdAt,
       startedAt: value.startedAt,
-    }, phase, value.index, value.updatedAt);
+      updatedAt: value.updatedAt,
+    });
   }
 
-  function parsePayload(raw) {
-    if (!raw) return new Map();
+  function parsePayload(raw, options = {}) {
+    const present = options.present == null ? raw !== undefined : options.present === true;
+    if (!present) return new Map();
     let parsed;
     try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; }
-    catch (_) { return new Map(); }
-    const records = Array.isArray(parsed?.records) ? parsed.records : [];
+    catch (_) { throw corruptionError(); }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || parsed.version !== VERSION || !Array.isArray(parsed.records)) {
+      throw corruptionError();
+    }
+    const expectedAccountId = asId(options.accountId);
     const result = new Map();
-    for (const candidate of records) {
+    for (const candidate of parsed.records) {
       const record = normalizeRecord(candidate);
-      if (record) result.set(record.jobId, record);
+      if (!record || result.has(record.jobId) || (expectedAccountId && record.accountId !== expectedAccountId)) {
+        throw corruptionError();
+      }
+      result.set(record.jobId, record);
     }
     return result;
   }
@@ -133,8 +168,17 @@
       const id = asId(accountId);
       if (!id) throw new TypeError('broadcast checkpoint requires account id');
       if (!force && cache.has(id)) return cache.get(id);
+      if (force) cache.delete(id);
       const all = await accountData.getAll(id);
-      const records = parsePayload(all?.[STORAGE_KEY]);
+      const present = !!all && typeof all === 'object' && !Array.isArray(all)
+        && Object.prototype.hasOwnProperty.call(all, STORAGE_KEY);
+      let records;
+      try {
+        records = parsePayload(present ? all[STORAGE_KEY] : undefined, { present, accountId: id });
+      } catch (error) {
+        cache.delete(id);
+        throw error;
+      }
       cache.set(id, records);
       return records;
     }
@@ -197,10 +241,6 @@
       const records = await serial(accountId, () => load(accountId, true));
       const restored = [];
       for (const record of records.values()) {
-        if (record.accountId !== accountId) {
-          try { await clear(accountId, record.jobId); } catch (_) {}
-          continue;
-        }
         const reason = recoveryReason(record);
         const message = recoveryMessage(record);
         const at = clock();
@@ -279,7 +319,7 @@
     return instance;
   }
 
-  return Object.freeze({ STORAGE_KEY, VERSION, checkpointRecord, normalizeRecord, parsePayload, serializeRecords, recoveryReason, recoveryMessage, createStore, install });
+  return Object.freeze({ STORAGE_KEY, VERSION, CORRUPT_CODE, checkpointRecord, normalizeRecord, parsePayload, serializeRecords, recoveryReason, recoveryMessage, createStore, install });
 });
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
