@@ -93,6 +93,7 @@
             const chatId = activeChatId();
             const generation = backgroundGeneration;
             const isHistory = row?.dataset?.[HISTORY_MARKER] === '1';
+            if (isHistory && row?.dataset) delete row.dataset[HISTORY_MARKER];
             return new Promise((resolve, reject) => {
               if (!chatId || generation !== backgroundGeneration) { resolve(false); return; }
               if (backgroundQueue.length >= BACKGROUND_QUEUE_LIMIT) {
