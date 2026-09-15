@@ -633,6 +633,7 @@ function createTranslationRuntime(options = {}) {
                   target,
                   provider: body.provider,
                   route: picked.route,
+                  operationRoute: body.route || 'default',
                 }),
                 signal: controller.signal,
               });
