@@ -29,34 +29,47 @@ jobs:
           package-manager-cache: false
 
       - name: Upload undeployed preview version
-        id: upload
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@4.44.0 versions upload --config wrangler-provider-probe.toml --preview-alias direct-provider-probe | tee /tmp/upload.txt
-          VERSION_ID="$(sed -n 's/.*Worker Version ID: \([0-9a-f-]\+\).*/\1/p' /tmp/upload.txt | tail -n 1)"
-          test -n "$VERSION_ID"
-          echo "version_id=$VERSION_ID" >> "$GITHUB_OUTPUT"
+        run: npx --yes wrangler@4.44.0 versions upload --config wrangler-provider-probe.toml --preview-alias direct-provider-probe
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Resolve preview URL
-        id: preview
+      - name: Direct-call Gemini Mistral and GLM, then restore preview setting
         shell: bash
-        run: |
-          set -euo pipefail
-          npx --yes wrangler@4.44.0 versions view "${{ steps.upload.outputs.version_id }}" --name geek-translate --json > /tmp/version.json
-          cat /tmp/version.json
-          PREVIEW_URL="$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('/tmp/version.json','utf8'));const urls=Array.isArray(j.urls)?j.urls:[];const u=urls.find(x=>String(x).includes('workers.dev'))||urls[0]||'';process.stdout.write(String(u));")"
-          test -n "$PREVIEW_URL"
-          echo "preview_url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Call providers directly through preview version
-        env:
-          PREVIEW_URL: ${{ steps.preview.outputs.preview_url }}
         run: |
-          node -e "const u=new URL('/provider-direct-probe',process.env.PREVIEW_URL); fetch(u).then(async r=>{const t=await r.text();console.log(t);if(!r.ok)process.exit(1)}).catch(e=>{console.error(e.message);process.exit(1)})"
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/geek-translate/subdomain"
+          AUTH="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          BEFORE="$(curl -fsS "$API" -H "$AUTH")"
+          ORIGINAL_ENABLED="$(printf '%s' "$BEFORE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(String(JSON.parse(s).result.enabled)))")"
+          ORIGINAL_PREVIEWS="$(printf '%s' "$BEFORE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(String(JSON.parse(s).result.previews_enabled)))")"
+
+          restore() {
+            curl -fsS -X POST "$API" -H "$AUTH" -H 'Content-Type: application/json' \
+              --data "{\"enabled\":${ORIGINAL_ENABLED},\"previews_enabled\":${ORIGINAL_PREVIEWS}}" >/dev/null || true
+          }
+          trap restore EXIT
+
+          if [ "$ORIGINAL_PREVIEWS" != "true" ]; then
+            curl -fsS -X POST "$API" -H "$AUTH" -H 'Content-Type: application/json' \
+              --data "{\"enabled\":${ORIGINAL_ENABLED},\"previews_enabled\":true}" >/dev/null
+          fi
+
+          node <<'NODE'
+          const url = 'https://direct-provider-probe-geek-translate.9529360.workers.dev/provider-direct-probe';
+          let last = '';
+          for (let i = 0; i < 8; i += 1) {
+            const response = await fetch(url);
+            last = await response.text();
+            if (response.ok && last.trim().startsWith('{')) {
+              console.log(last);
+              process.exit(0);
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          console.error(last.slice(0, 300));
+          process.exit(1);
+          NODE
