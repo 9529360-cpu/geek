@@ -280,7 +280,8 @@ function createCommittedStateMirror(options = {}) {
   async function prepareForMutation() {
     const loaded = await load(content => content);
     if (loaded.status === 'legacy') {
-      await sealLegacyPrimary(loaded.content);
+      const legacyHash = await sealLegacyPrimary(loaded.content);
+      await ensureStableBackup(legacyHash);
       return;
     }
     if (loaded.status === 'empty') {
