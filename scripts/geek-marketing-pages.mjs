@@ -1,4 +1,5 @@
 import { hero, stageBroadcast, stageProduct, stageSecurity, stageTranslation, stageWindows } from './geek-marketing-visuals.mjs';
+import { FREE_QUOTA_CHARS, PUBLIC_PRICING, formatCharacterAmount } from './geek-public-pricing.mjs';
 
 function productPage() {
   return `${hero('/product',stageProduct())}<div class="metric-strip">
@@ -57,6 +58,33 @@ function securityPage() {
 <section class="section border"><div class="shell split"><div class="copy"><div class="kicker">Fail closed</div><h2>边界不确定时，<br>宁可拒绝，也不猜归属。</h2><p>多账号产品最大的隐性风险来自“帮用户猜一下”。极客在账号、附件、导航和安全存储等关键边界更倾向于显式失败，而不是把不确定状态静默归到当前页面。</p><ul class="list"><li>renderer 不能自行提交 partition 或真实文件路径</li><li>跨账号或跨 Job 使用附件能力会被拒绝</li><li>翻译 provider 密钥不进入 renderer / WebView</li><li>账号删除前先排空账号数据写入队列</li></ul></div>${stageSecurity()}</div></section>`;
 }
 
+function pricingStage() {
+  const [basic, standard, pro] = PUBLIC_PRICING;
+  return `<div class="stage" aria-label="极客当前翻译字符包结构">
+<div class="stage-label"><i></i><i></i><i></i><span style="margin-left:auto">usage balance · no expiry</span></div>
+<div class="stage-body" style="padding:28px;display:grid;align-content:center;gap:10px">
+<div class="mini-title"><span>注册赠送 ${formatCharacterAmount(FREE_QUOTA_CHARS)}字符</span><span>余额不限时</span></div>
+<div class="task"><span class="task-icon">$</span><span><strong>${basic.name} · $${basic.priceUsd}</strong><small>${formatCharacterAmount(basic.chars)}字符</small></span><span class="state queue">充值档位</span></div>
+<div class="task"><span class="task-icon">$</span><span><strong>${standard.name} · $${standard.priceUsd}</strong><small>${formatCharacterAmount(standard.chars)}字符</small></span><span class="state queue">充值档位</span></div>
+<div class="task"><span class="task-icon">$</span><span><strong>${pro.name} · $${pro.priceUsd}</strong><small>${formatCharacterAmount(pro.chars)}字符</small></span><span class="state queue">充值档位</span></div>
+</div>
+</div>`;
+}
+
+function pricingPage() {
+  const cards = PUBLIC_PRICING.map((plan, index) => `<article class="card"><div class="card-top"><span>${String(index + 1).padStart(2, '0')} · ${plan.id.toUpperCase()}</span><span class="icon">$</span></div><h3>${plan.name} · $${plan.priceUsd}</h3><p>${formatCharacterAmount(plan.chars)}翻译字符。字符进入账户余额后不限时，用完再买；这是用量充值档位，不是功能等级。</p><div class="inline-actions"><a class="btn secondary" href="/login">登录账户购买</a></div></article>`).join('');
+  return `${hero('/pricing',pricingStage())}<div class="metric-strip">
+<div class="shell metrics">
+<div class="metric"><b>注册赠送 ${formatCharacterAmount(FREE_QUOTA_CHARS)}字符</b><span>先验证真实跨语言工作流</span></div>
+<div class="metric"><b>余额不限时</b><span>一次购买进入字符余额，不按月清零</span></div>
+<div class="metric"><b>按用量再买</b><span>没有为了保留席位而续费的月度套餐</span></div>
+<div class="metric"><b>订单金额以账户页为准</b><span>付款地址与精确金额只由订单接口返回</span></div>
+</div>
+</div>
+<section class="section"><div class="shell"><div class="section-head"><div><div class="kicker">Published character packs</div><h2>三档只是充值金额，<br>不是功能权限分层。</h2></div><p class="section-intro">当前计费只围绕翻译字符余额。多账号工作台、账号隔离和群发能力不会因为你选了哪个字符包而被包装成不同“版本”；请选择最符合实际翻译用量的充值档位。</p></div><div class="cards">${cards}</div></div></section>
+<section class="section border"><div class="shell split"><div class="copy"><div class="kicker">How billing works</div><h2>先试用，再购买；<br>支付与余额都有明确 owner。</h2><p>注册会获得 ${formatCharacterAmount(FREE_QUOTA_CHARS)}翻译字符。需要继续使用翻译时，在账户页创建订单；当前线上付款流程支持 USDT TRC20，付款地址、精确金额和到账状态以当前订单返回为准，营销页不会复制支付地址或自行计算应付金额。</p><ul class="list"><li>字符余额没有订阅到期时间</li><li>翻译成功后按实际字符用量扣减</li><li>订单与余额由账户服务维护，不由桌面 WebView 决定</li><li>营销页只发布套餐目录，不持有钱包地址、订单或付款凭据</li></ul><div class="inline-actions"><a class="btn primary" href="/login">登录账户 / 购买字符</a><a class="btn secondary" href="/translation">了解翻译工作流</a></div></div>${stageSecurity()}</div></section>`;
+}
+
 function guidePage() {
   return `${hero('/guide',stageWindows())}<section class="section">
 <div class="shell"><div class="section-head"><div><div class="kicker">First useful workflow</div><h2>先用一个真实账号，<br>完成第一条闭环。</h2></div><p class="section-intro">成熟的多账号工作台不靠“导入越多越好”。先验证登录、会话、翻译与发送都符合你的真实业务，再把同样的操作模型复制到更多账号。</p></div>
@@ -75,6 +103,7 @@ const FAQ_ITEMS = [
   ['极客是 WhatsApp、Telegram 或 LINE 的官方客户端吗？', '不是。极客是独立开发的跨平台多账号工作台；第三方平台名称仅用于说明兼容范围，不表示隶属、授权或背书。平台网页、接口或登录策略变化时，兼容能力也可能需要随之调整。'],
   ['多个账号会不会串登录或串工具数据？', '产品边界按账号建立独立 Session / partition，并把允许持久化的工具状态写入对应账号的数据边界。关键操作在归属不明确时倾向于拒绝，而不是猜当前账号。'],
   ['翻译服务的供应商密钥会进入聊天页面吗？', '不会。正式客户端通过统一翻译网关调用服务，供应商密钥属于服务端边界，不交给聊天 WebView。账号级工具数据使用受控 allowlist，安全存储不可用时不会降级为明文持久化。'],
+  ['翻译怎么收费，字符会过期吗？', `注册赠送 ${formatCharacterAmount(FREE_QUOTA_CHARS)}翻译字符；当前字符包按一次性余额充值，余额不限时。三个字符包只是充值档位，不代表不同功能权限。公开价格见价格页，订单精确金额以账户页为准。`],
   ['群发任务切换账号后会不会跑到别的账号？', '不会按“当前正在看的页面”重新归属。任务创建时固定账号和目标快照；不同账号可以各自执行任务，同一账号一次只执行一个任务，其余任务排队等待。'],
   ['客户端怎么更新？', '正式版本通过受控的 Windows 发布链路生成并校验安装包、blockmap 与更新元数据。客户端读取公开更新源；官网只提供当前公开下载入口，不自行维护另一套版本号。'],
   ['忘记密码或需要管理账户怎么办？', '官网登录页提供账户入口与密码找回流程。账户、订单和下载仍由现有业务 Worker 负责，营销页面不会复制或绕过这些权限边界。'],
@@ -104,6 +133,7 @@ export const PAGE_BODY = {
   '/translation': translationPage,
   '/broadcast': broadcastPage,
   '/security': securityPage,
+  '/pricing': pricingPage,
   '/guide': guidePage,
   '/faq': faqPage,
   '/windows': windowsPage,
