@@ -1,5 +1,7 @@
 'use strict';
 
+const { isTrustedSubscriptionIpcEvent } = require('./subscription-window-boundary.cjs');
+
 const ORDER_STATUSES = new Set(['pending', 'processing', 'paid', 'cancelled', 'expired']);
 
 const SUBSCRIPTION_CHANNELS = Object.freeze([
@@ -34,7 +36,9 @@ function installSubscriptionIpc(options = {}) {
   let installed = false;
 
   function assertTrustedSender(event) {
-    if (!isTrustedSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
+    if (!isTrustedSender(event) || !isTrustedSubscriptionIpcEvent(event)) {
+      throw new Error('拒绝来自未授权页面的 IPC 请求');
+    }
   }
 
   function register(channel, handler) {

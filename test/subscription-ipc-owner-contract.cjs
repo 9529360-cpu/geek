@@ -2,6 +2,15 @@
 
 const assert = require('node:assert/strict');
 const { SUBSCRIPTION_CHANNELS, installSubscriptionIpc } = require('../src/subscription-ipc.cjs');
+const { MAIN_DOCUMENT_URL, SUBSCRIPTION_DOCUMENT_URL } = require('../src/subscription-window-boundary.cjs');
+
+function senderEvent(url = SUBSCRIPTION_DOCUMENT_URL, { subframe = false } = {}) {
+  const mainFrame = { url };
+  return {
+    sender: { id: 7, mainFrame },
+    senderFrame: subframe ? { url } : mainFrame,
+  };
+}
 
 function createHarness({ trusted = true } = {}) {
   const handlers = new Map();
@@ -71,7 +80,7 @@ function createHarness({ trusted = true } = {}) {
     const { handlers, calls, boundary } = createHarness({ trusted: false });
     for (const channel of SUBSCRIPTION_CHANNELS) {
       await assert.rejects(
-        handlers.get(channel)({ sender: { id: 99 } }, 'x', 'y'),
+        handlers.get(channel)(senderEvent(), 'x', 'y'),
         /拒绝来自未授权页面的 IPC 请求/,
         `${channel} must reject an untrusted sender before any side effect`
       );
@@ -81,20 +90,42 @@ function createHarness({ trusted = true } = {}) {
   }
 
   {
+    const { handlers, calls, boundary } = createHarness({ trusted: true });
+    const deniedEvents = [
+      senderEvent('https://example.invalid/subscription'),
+      senderEvent('about:blank'),
+      senderEvent(MAIN_DOCUMENT_URL.replace('/index.html', '/other.html')),
+      senderEvent(SUBSCRIPTION_DOCUMENT_URL, { subframe: true }),
+      {},
+    ];
+    for (const event of deniedEvents) {
+      await assert.rejects(
+        handlers.get('subscription:get-state')(event),
+        /拒绝来自未授权页面的 IPC 请求/,
+        'trusted WebContents identity must not override local main-frame document validation',
+      );
+    }
+    assert.deepEqual(calls, [], 'denied document/frame identities must fail before subscription side effects');
+    boundary.dispose();
+  }
+
+  {
     const { handlers, removed, calls, boundary } = createHarness({ trusted: true });
-    await handlers.get('subscription:get-state')({});
-    await handlers.get('subscription:refresh')({});
-    await handlers.get('subscription:login')({}, 123, null);
-    await handlers.get('subscription:register')({}, 'a@example.test', 456);
-    await handlers.get('subscription:create-order')({}, null);
-    const paid = await handlers.get('subscription:get-order-status')({}, 7);
-    const unknown = await handlers.get('subscription:get-order-status')({}, 8);
-    const missing = await handlers.get('subscription:get-order-status')({}, 999);
-    await handlers.get('subscription:get-quota')({}, 1);
-    const readiness = await handlers.get('subscription:translation-readiness')({});
-    await handlers.get('subscription:logout')({});
-    await handlers.get('subscription:enter-app')({});
-    await handlers.get('subscription:close-window')({});
+    const subscriptionEvent = senderEvent(SUBSCRIPTION_DOCUMENT_URL);
+    const mainEvent = senderEvent(MAIN_DOCUMENT_URL);
+    await handlers.get('subscription:get-state')(subscriptionEvent);
+    await handlers.get('subscription:refresh')(subscriptionEvent);
+    await handlers.get('subscription:login')(subscriptionEvent, 123, null);
+    await handlers.get('subscription:register')(subscriptionEvent, 'a@example.test', 456);
+    await handlers.get('subscription:create-order')(subscriptionEvent, null);
+    const paid = await handlers.get('subscription:get-order-status')(subscriptionEvent, 7);
+    const unknown = await handlers.get('subscription:get-order-status')(subscriptionEvent, 8);
+    const missing = await handlers.get('subscription:get-order-status')(subscriptionEvent, 999);
+    await handlers.get('subscription:get-quota')(mainEvent, 1);
+    const readiness = await handlers.get('subscription:translation-readiness')(mainEvent);
+    await handlers.get('subscription:logout')(subscriptionEvent);
+    await handlers.get('subscription:enter-app')(subscriptionEvent);
+    await handlers.get('subscription:close-window')(subscriptionEvent);
 
     assert.deepEqual(paid, { id: 7, status: 'paid' }, 'order status IPC must expose only minimal current-order state');
     assert.deepEqual(unknown, { id: 8, status: 'unknown' }, 'unexpected server order states must fail closed');
@@ -105,8 +136,8 @@ function createHarness({ trusted = true } = {}) {
     for (const forbidden of ['token', 'generation', 'signal']) {
       assert.equal(Object.hasOwn(readiness, forbidden), false, `${forbidden} must never cross readiness IPC`);
     }
-    await assert.rejects(handlers.get('subscription:get-order-status')({}, 0), /invalid_order_id/);
-    await assert.rejects(handlers.get('subscription:get-order-status')({}, Number.MAX_SAFE_INTEGER + 1), /invalid_order_id/);
+    await assert.rejects(handlers.get('subscription:get-order-status')(subscriptionEvent, 0), /invalid_order_id/);
+    await assert.rejects(handlers.get('subscription:get-order-status')(subscriptionEvent, Number.MAX_SAFE_INTEGER + 1), /invalid_order_id/);
 
     assert.deepEqual(calls, [
       ['getState'],
