@@ -70,6 +70,46 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
   let initPromise = null;
   let mutationQueue = Promise.resolve();
 
+  function corruptStore() {
+    return policyError('SCHEDULED_BROADCAST_ATTACHMENT_STORE_CORRUPT');
+  }
+
+  function decodeStoredEntry(entry, loadedEntries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw corruptStore();
+    const ref = entry.ref;
+    const accountId = entry.accountId;
+    const taskId = entry.taskId;
+    const canonicalPath = entry.canonicalPath;
+    const size = entry.size;
+    const mtimeMs = entry.mtimeMs;
+    if (
+      typeof ref !== 'string' || !/^[a-f0-9]{48}$/.test(ref) || loadedEntries.has(ref)
+      || typeof accountId !== 'string' || !accountId.trim()
+      || typeof taskId !== 'string' || !taskId.trim()
+      || typeof canonicalPath !== 'string' || !canonicalPath
+      || !Number.isSafeInteger(size) || size < 0
+      || typeof mtimeMs !== 'number' || !Number.isFinite(mtimeMs)
+    ) throw corruptStore();
+
+    if (entry.name != null && typeof entry.name !== 'string') throw corruptStore();
+    if (entry.mime != null && typeof entry.mime !== 'string') throw corruptStore();
+    if (entry.createdAt != null && (typeof entry.createdAt !== 'number' || !Number.isFinite(entry.createdAt) || entry.createdAt < 0)) {
+      throw corruptStore();
+    }
+
+    return {
+      ref,
+      accountId,
+      taskId,
+      canonicalPath,
+      name: entry.name || pathModule.basename(canonicalPath),
+      size,
+      mtimeMs,
+      mime: entry.mime || guessMime(canonicalPath, pathModule),
+      createdAt: entry.createdAt || 0,
+    };
+  }
+
   function nextRef() {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const ref = randomBytes(24).toString('hex');
@@ -105,25 +145,19 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
         throw error;
       }
       let parsed;
-      try { parsed = JSON.parse(raw || '{}'); }
-      catch { throw policyError('SCHEDULED_BROADCAST_ATTACHMENT_STORE_CORRUPT'); }
-      const records = Array.isArray(parsed?.entries) ? parsed.entries : [];
-      for (const entry of records) {
-        const ref = String(entry?.ref || '');
-        const accountId = String(entry?.accountId || '');
-        const taskId = String(entry?.taskId || '');
-        const canonicalPath = String(entry?.canonicalPath || '');
-        const size = Number(entry?.size);
-        const mtimeMs = Number(entry?.mtimeMs);
-        if (!/^[a-f0-9]{48}$/.test(ref) || !accountId || !taskId || !canonicalPath || !Number.isSafeInteger(size) || size < 0 || !Number.isFinite(mtimeMs)) continue;
-        entries.set(ref, {
-          ref, accountId, taskId, canonicalPath,
-          name: String(entry?.name || pathModule.basename(canonicalPath)),
-          size, mtimeMs,
-          mime: String(entry?.mime || guessMime(canonicalPath, pathModule)),
-          createdAt: Number(entry?.createdAt) || 0,
-        });
+      try { parsed = JSON.parse(raw); }
+      catch { throw corruptStore(); }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || parsed.version !== 1 || !Array.isArray(parsed.entries)) {
+        throw corruptStore();
       }
+
+      const loadedEntries = new Map();
+      for (const entry of parsed.entries) {
+        const decoded = decodeStoredEntry(entry, loadedEntries);
+        loadedEntries.set(decoded.ref, decoded);
+      }
+      entries.clear();
+      for (const [ref, entry] of loadedEntries) entries.set(ref, entry);
     })();
     try {
       await initPromise;
