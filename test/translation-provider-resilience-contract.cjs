@@ -47,7 +47,7 @@ function loadWorker(fetchImpl) {
       if (calls === 1) return response(503, { error: 'temporary upstream failure' });
       return response(200, { choices: [{ message: { content: 'Ciao' } }] });
     });
-    const result = await hooks.translate('Hello', 'it', { GEMINI_API_KEY: 'gemini-key' }, Date.now() + 30_000);
+    const result = await hooks.translate('Hello', 'auto', 'it', { GEMINI_API_KEY: 'gemini-key' }, Date.now() + 30_000);
     assert.equal(result.engine, 'gemini');
     assert.equal(result.text, 'Ciao');
     assert.equal(calls, 2, 'one fast transient upstream failure must receive one bounded same-provider retry');
@@ -61,7 +61,7 @@ function loadWorker(fetchImpl) {
       return response(503, { error: 'still unavailable' });
     });
     await assert.rejects(
-      hooks.translate('Hello', 'it', { GEMINI_API_KEY: 'gemini-key' }, Date.now() + 30_000),
+      hooks.translate('Hello', 'auto', 'it', { GEMINI_API_KEY: 'gemini-key' }, Date.now() + 30_000),
       /503/
     );
     assert.equal(calls, 2, 'a transient provider error gets at most one retry');
@@ -77,7 +77,7 @@ function loadWorker(fetchImpl) {
       return response(429, { error: 'rate limited' }, { 'Retry-After': '45' });
     });
     await assert.rejects(
-      hooks.translate('Hello', 'it', { MISTRAL_API_KEY: 'mistral-key' }, Date.now() + 30_000),
+      hooks.translate('Hello', 'auto', 'it', { MISTRAL_API_KEY: 'mistral-key' }, Date.now() + 30_000),
       /429/
     );
     const state = hooks.providerState.get('mistral');
@@ -85,7 +85,7 @@ function loadWorker(fetchImpl) {
     assert.equal(state.healthy, true, '429 must not open the provider health circuit');
     assert.ok(state.rateLimitedUntil > Date.now() + 40_000, 'Retry-After must quarantine the provider for the advertised window');
     await assert.rejects(
-      hooks.translate('Hello', 'it', { MISTRAL_API_KEY: 'mistral-key' }, Date.now() + 30_000),
+      hooks.translate('Hello', 'auto', 'it', { MISTRAL_API_KEY: 'mistral-key' }, Date.now() + 30_000),
       /暂不可用|failed|rate/i
     );
     assert.equal(calls, 1, 'rate-limited provider must not be hammered again during quarantine');
@@ -98,7 +98,7 @@ function loadWorker(fetchImpl) {
       body = JSON.parse(init.body);
       return response(200, { choices: [{ message: { content: 'Ciao' } }] });
     });
-    const result = await hooks.translate('Hello', 'it', { ZAI_API_KEY: 'glm-key' }, Date.now() + 30_000);
+    const result = await hooks.translate('Hello', 'auto', 'it', { ZAI_API_KEY: 'glm-key' }, Date.now() + 30_000);
     assert.equal(result.engine, 'glm');
     assert.deepEqual(JSON.parse(JSON.stringify(body.thinking)), { type: 'disabled' },
       'GLM translation calls must disable reasoning so translated text arrives in message.content');
