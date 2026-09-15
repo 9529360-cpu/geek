@@ -63,6 +63,7 @@ async function verifyHtml(pathname, markers, options) {
   assertStatus(response, 200, label);
   assertHeaderContains(response, 'content-type', 'text/html', label);
   assertHeaderContains(response, 'content-security-policy', "script-src 'none'", label);
+  assertHeaderContains(response, 'cross-origin-opener-policy', 'same-origin', label);
   const body = await response.text();
   if (/<script\b/i.test(body)) throw new Error(`${label} unexpectedly contains a script element`);
   for (const marker of markers) {
