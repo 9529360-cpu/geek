@@ -15,6 +15,7 @@ const mainSanitizer = require('../src/log-url.cjs');
 const cases = [
   'https://user:pass@example.com/private/session-token?token=secret#state',
   'https://alice:secret@example.com:bad/path-token?token=x#state',
+  'https://alice:secret@internal-token@example.com:bad/path-token?token=x#state',
   'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html?lw-key=secret#chat',
   'about:blank#secret',
   'data:text/html,<script>secret-token</script>#state',
@@ -46,11 +47,19 @@ assert.doesNotMatch(
 );
 
 const malformedUserinfo = rendererSanitizer.sanitizeUrlForLog('https://alice:secret@example.com:bad/path-token?token=x#state');
-assert.equal(malformedUserinfo, 'https://example.com:bad/[REDACTED_PATH]');
+assert.equal(malformedUserinfo, 'https:[REDACTED]');
 assert.doesNotMatch(
   malformedUserinfo,
-  /alice|secret|path-token|token|state/,
-  'renderer malformed fallback must redact userinfo, path, query and hash secrets'
+  /alice|secret|example|path-token|token|state/,
+  'renderer malformed fallback must retain only the recognized scheme'
+);
+
+const malformedMultiUserinfo = rendererSanitizer.sanitizeUrlForLog('https://alice:secret@internal-token@example.com:bad/path-token?token=x#state');
+assert.equal(malformedMultiUserinfo, 'https:[REDACTED]');
+assert.doesNotMatch(
+  malformedMultiUserinfo,
+  /alice|secret|internal-token|example|path-token|token|state/,
+  'renderer malformed fallback must not infer an authority from ambiguous credential delimiters'
 );
 
 const dataUrl = rendererSanitizer.sanitizeUrlForLog('data:text/html,<script>secret-token</script>#state');
@@ -66,8 +75,13 @@ assert.equal(
 );
 assert.equal(
   browser.window.GeekLogUrl.sanitizeUrlForLog('https://alice:secret@example.com:bad/path-token?token=x#state'),
-  'https://example.com:bad/[REDACTED_PATH]',
-  'browser execution must use the same malformed URL redaction'
+  'https:[REDACTED]',
+  'browser execution must fail closed for malformed URL authority data'
+);
+assert.equal(
+  browser.window.GeekLogUrl.sanitizeUrlForLog('https://alice:secret@internal-token@example.com:bad/path-token?token=x#state'),
+  'https:[REDACTED]',
+  'browser execution must redact malformed multi-userinfo authority data'
 );
 assert.equal(
   browser.window.GeekLogUrl.sanitizeUrlForLog('data:text/plain,customer-secret'),
