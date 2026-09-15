@@ -40,10 +40,11 @@ assert.match(runtime, /require\('\.\/translation-smart-queue\.cjs'\)/, 'public r
 assert.match(runtime, /const privateIpc = \{/, 'base runtime must register only against a private registrar');
 assert.match(
   runtime,
-  /base\.createTranslationRuntime\(\{\s*\.\.\.options,\s*ipcMain: privateIpc,\s*fetchImpl: intentAwareFetch,\s*getSubscriptionStore: baseSubscriptionStore,\s*\}\)/,
-  'base runtime must receive the private IPC registrar, request-local gateway metadata fetch, and admission-bound subscription lease owner',
+  /base\.createTranslationRuntime\(\{\s*\.\.\.options,\s*ipcMain: privateIpc,\s*fetchImpl: intentAwareFetch,\s*assertSafeTranslationOutput: sourceAwareOutputSafety,\s*getSubscriptionStore: baseSubscriptionStore,\s*\}\)/,
+  'base runtime must receive the private IPC registrar plus request-local gateway, source-language safety, and authorization owners',
 );
 assert.match(runtime, /const intentAwareFetch = \(url, request = \{\}\) => \{/, 'public runtime must own request-local gateway metadata decoration');
+assert.match(runtime, /sourceLanguage: sourceLanguageContext\.getStore\(\) \|\| 'auto'/, 'public runtime must bind final output safety to the request source language');
 assert.match(runtime, /getTranslationAuthorization'\) return async \(\) => capturedLease/, 'queued work must remain bound to the authorization lease captured before admission');
 assert.match(runtime, /ipcMain\.handle\('translation:translate', translateIpc\)/, 'public Translation Runtime must own typed translate IPC');
 assert.match(runtime, /ipcMain\.handle\('translation:health', health\)/, 'public Translation Runtime must own health IPC');
