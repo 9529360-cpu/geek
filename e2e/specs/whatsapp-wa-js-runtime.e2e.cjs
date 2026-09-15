@@ -51,8 +51,10 @@ async function probeGuestRuntime() {
           && !!fallback?.whatsapp?.ChatStore
           && !!fallback?.whatsapp?.UserPrefs,
         directComposerVersion: Number(directComposer?.version || 0),
-        directComposerReady: typeof directComposer?.handleGesture === 'function',
         directComposerNativeReady: typeof directComposer?.handleNativeSend === 'function',
+        directComposerSettingReady: typeof directComposer?.resolveTranslationSetting === 'function',
+        directComposerIdentityReady: typeof directComposer?.sameDirectIdentity === 'function',
+        directComposerGestureOwner: typeof directComposer?.handleGesture === 'function',
         recoveryAbsent: !recovery,
         recoveryInactive: !recovery?.controller || recovery.controller.signal?.aborted === true,
         legacyFallbackInactive: !legacyFallback?.controller || legacyFallback.controller.signal?.aborted === true,
@@ -75,16 +77,18 @@ function injectionReady(state) {
     && state?.wppReady === true
     && state?.loaderReady === true;
   return waJsReady
-    && state?.directComposerVersion === 4
-    && state?.directComposerReady === true
+    && state?.directComposerVersion === 6
     && state?.directComposerNativeReady === true
+    && state?.directComposerSettingReady === true
+    && state?.directComposerIdentityReady === true
+    && state?.directComposerGestureOwner === false
     && state?.recoveryAbsent === true
     && state?.recoveryInactive === true
     && state?.legacyFallbackInactive === true;
 }
 
 describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
-  it('settles WA-JS injection with one direct-composer owner', async () => {
+  it('settles WA-JS injection with one thin identity-safe native translation adapter', async () => {
     let state = null;
     await browser.waitUntil(async () => {
       state = await probeGuestRuntime();
@@ -101,22 +105,24 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
     }, {
       timeout: RUNTIME_TIMEOUT_MS,
       interval: 500,
-      timeoutMsg: 'WA-JS 4.6 + direct composer ownership did not become ready',
+      timeoutMsg: 'WA-JS 4.6 + identity-safe native translation adapter did not become ready',
     });
 
     assert.equal(state.version, '4.6.0', 'injected WA-JS version must match the exact dependency pin');
     assert.equal(state.wppInjected, true, 'WA-JS bundle must report injected before the partition is owned');
     assert.equal(state.wppReady, true, 'WA-JS official readiness must settle');
     assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by compatibility paths is missing');
-    assert.equal(state.directComposerVersion, 4, 'direct composer controller must match the tested owner generation');
-    assert.equal(state.directComposerReady, true, 'direct composer controller must be injected into the WhatsApp guest');
-    assert.equal(state.directComposerNativeReady, true, 'native private-send fallback must delegate into the same controller owner');
+    assert.equal(state.directComposerVersion, 6, 'thin translation adapter must match the tested owner generation');
+    assert.equal(state.directComposerNativeReady, true, 'native private-send adapter must be injected into the WhatsApp guest');
+    assert.equal(state.directComposerSettingReady, true, 'chat-scoped translation configuration resolver must be injected');
+    assert.equal(state.directComposerIdentityReady, true, 'WhatsApp LID/PN identity verifier must be injected');
+    assert.equal(state.directComposerGestureOwner, false, 'WhatsApp translation adapter must not own a second DOM gesture path');
     assert.equal(state.recoveryAbsent, true, 'legacy recovery module must not bootstrap into a fresh WhatsApp guest');
-    assert.equal(state.recoveryInactive, true, 'legacy recovery capture listener must be retired by the direct composer owner');
+    assert.equal(state.recoveryInactive, true, 'legacy recovery capture listener must remain retired');
     assert.equal(state.legacyFallbackInactive, true, 'superseded composer fallback must not remain an active owner');
     for (const key of ['chatReady', 'lidGroupReady', 'storesReady', 'fallbackReady']) {
       assert.equal(typeof state[key], 'boolean', key + ' must remain bounded diagnostic evidence');
     }
-    console.log(`WA_JS_RUNTIME version=${state.version} injected=${state.wppInjected} ready=${state.wppReady} loader=${state.loaderReady} chat=${state.chatReady} lidGroup=${state.lidGroupReady} stores=${state.storesReady} fallback=${state.fallbackReady} directComposer=${state.directComposerVersion} recoveryInactive=${state.recoveryInactive}`);
+    console.log(`WA_JS_RUNTIME version=${state.version} injected=${state.wppInjected} ready=${state.wppReady} loader=${state.loaderReady} chat=${state.chatReady} lidGroup=${state.lidGroupReady} stores=${state.storesReady} fallback=${state.fallbackReady} directComposer=${state.directComposerVersion} native=${state.directComposerNativeReady} identity=${state.directComposerIdentityReady} gestureOwner=${state.directComposerGestureOwner} recoveryAbsent=${state.recoveryAbsent}`);
   });
 });

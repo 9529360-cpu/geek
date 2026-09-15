@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const CONTROLLER_VERSION = 4;
+  const CONTROLLER_VERSION = 6;
   const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
@@ -68,56 +68,28 @@
     const status = Number(source.status) || 0;
     const tail = restored ? '原文已恢复，请处理后重试' : '原文未发送';
 
-    if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) {
-      return `翻译额度已用完，请到个人中心开通；${tail}`;
-    }
-    if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') {
-      return `翻译需要重新登录，请到个人中心登录；${tail}`;
-    }
-    if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) {
-      return `翻译授权状态已变化，请重新登录后重试；${tail}`;
-    }
-    if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) {
-      return `翻译服务响应超时，请稍后重试；${tail}`;
-    }
-    if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') {
-      return `译文未通过质量校验，请修改原文后重试；${tail}`;
-    }
-    if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) {
-      return `翻译请求繁忙，请稍后重试；${tail}`;
-    }
-    if (category === 'bridge' || code.startsWith('TRANSLATION_BRIDGE_')) {
-      return `翻译连接状态异常，请刷新当前账号后重试；${tail}`;
-    }
+    if (code === 'QUOTA_EXHAUSTED' || category === 'quota' || status === 402) return `翻译额度已用完，请到个人中心开通；${tail}`;
+    if (code === 'SUBSCRIPTION_LOGIN_REQUIRED' || code === 'TRANSLATION_AUTH_REQUIRED') return `翻译需要重新登录，请到个人中心登录；${tail}`;
+    if (code === 'SUBSCRIPTION_SESSION_CHANGED' || category === 'auth' || status === 401 || status === 403) return `翻译授权状态已变化，请重新登录后重试；${tail}`;
+    if (code === 'TRANSLATION_DEADLINE_EXCEEDED' || category === 'deadline' || status === 504) return `翻译服务响应超时，请稍后重试；${tail}`;
+    if (code === 'TRANSLATION_QUALITY_REJECTED' || category === 'quality') return `译文未通过质量校验，请修改原文后重试；${tail}`;
+    if (code === 'BRIDGE_BUSY' || code === 'TRANSLATION_BUSY' || category === 'capacity' || status === 429) return `翻译请求繁忙，请稍后重试；${tail}`;
+    if (category === 'bridge' || code.startsWith('TRANSLATION_BRIDGE_')) return `翻译连接状态异常，请刷新当前账号后重试；${tail}`;
     if (category === 'input' || status === 400 || status === 404 || status === 413 || status === 422) {
-      if (code === 'TRANSLATION_TARGET_INVALID' || code === 'invalid_target') {
-        return `翻译目标语言配置无效，请重新选择目标语言；${tail}`;
-      }
+      if (code === 'TRANSLATION_TARGET_INVALID' || code === 'invalid_target') return `翻译目标语言配置无效，请重新选择目标语言；${tail}`;
       const safeCode = /^[A-Za-z0-9_.:-]{1,100}$/.test(code) ? code : 'TRANSLATION_INPUT';
       return `翻译请求参数无效（${safeCode}），请检查翻译设置；${tail}`;
     }
-    if (category === 'account' || code === 'TRANSLATION_ACCOUNT_MISSING' || code === 'TRANSLATION_ACCOUNT_DELETED') {
-      return `翻译账号状态异常，请刷新当前账号后重试；${tail}`;
-    }
-    if (category === 'conflict' || status === 409) {
-      return `翻译请求状态冲突，请重试；${tail}`;
-    }
-    if (category === 'gateway' || category === 'rate-limit' || status >= 500) {
-      return `翻译服务暂时不可用，请稍后重试；${tail}`;
-    }
+    if (category === 'account' || code === 'TRANSLATION_ACCOUNT_MISSING' || code === 'TRANSLATION_ACCOUNT_DELETED') return `翻译账号状态异常，请刷新当前账号后重试；${tail}`;
+    if (category === 'conflict' || status === 409) return `翻译请求状态冲突，请重试；${tail}`;
+    if (category === 'gateway' || category === 'rate-limit' || status >= 500) return `翻译服务暂时不可用，请稍后重试；${tail}`;
     const safeCode = /^[A-Za-z0-9_.:-]{1,100}$/.test(code) ? code : '';
     if (safeCode) return `翻译失败（${safeCode}）；${tail}`;
     return restored ? '翻译失败（未分类），原文已恢复，请重试' : '翻译失败（未分类），原文未发送';
   }
 
-  function installPageController(
-    page,
-    version = CONTROLLER_VERSION,
-    parseFailure = parseTranslationFailure,
-    failureNotice = translationFailureNotice,
-  ) {
+  function installPageController(page, version = CONTROLLER_VERSION, parseFailure = parseTranslationFailure, failureNotice = translationFailureNotice) {
     if (!page) return 'NO_PAGE';
-
     try { page.__geekWhatsAppSendRecovery?.controller?.abort?.(); } catch {}
     try {
       const timer = page.__geekWhatsAppSendRecovery?.timer;
@@ -127,32 +99,13 @@
     try { page.__geekWhatsAppGuardAbort?.abort?.(); } catch {}
 
     const current = page.__geekWhatsAppDirectComposerController;
-    if (current?.version === version && typeof current.handleGesture === 'function') return 'READY';
+    if (current?.version === version && typeof current.handleNativeSend === 'function') return 'READY';
     try { current?.controller?.abort?.(); } catch {}
 
-    const cleanText = value => String(value == null ? '' : value).replace(/\u200b/g, '').trim();
-    const composerSelector = [
-      '#main [data-testid="conversation-compose-box-input"]',
-      '#main footer [contenteditable="true"]',
-      '#main [contenteditable="true"][role="textbox"]',
-      '#main [contenteditable="true"]',
-      '[contenteditable="true"][data-tab="10"]',
-    ].join(',');
-
-    const diagnostics = {
-      phase: 'ready',
-      handled: 0,
-      sent: 0,
-      lastError: '',
-      lastCode: '',
-      lastCategory: '',
-      lastStatus: 0,
-      lastAt: Date.now(),
-    };
-    let pending = null;
+    const diagnostics = { phase: 'ready', handled: 0, translated: 0, sent: 0, passthrough: 0, lastError: '', lastCode: '', lastCategory: '', lastStatus: 0, lastAt: Date.now() };
     let nativeQueue = Promise.resolve();
 
-    const setPhase = function (phase, error) {
+    const setPhase = (phase, error) => {
       diagnostics.phase = phase;
       diagnostics.lastError = error ? String(error?.message || error).slice(0, 160) : '';
       diagnostics.lastCode = error ? String(error?.code || '').slice(0, 100) : '';
@@ -161,7 +114,7 @@
       diagnostics.lastAt = Date.now();
     };
 
-    const notify = function (message) {
+    const notify = message => {
       try {
         const doc = page.document;
         if (!doc?.createElement || !doc?.body) return;
@@ -169,32 +122,22 @@
         const notice = doc.createElement('div');
         notice.id = 'geek-translation-send-error';
         notice.textContent = message;
-        Object.assign(notice.style || {}, {
-          position: 'fixed', left: '50%', bottom: '82px', transform: 'translateX(-50%)',
-          zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318',
-          color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)'
-        });
+        Object.assign(notice.style || {}, { position: 'fixed', left: '50%', bottom: '82px', transform: 'translateX(-50%)', zIndex: '999999', padding: '8px 12px', borderRadius: '7px', background: '#b42318', color: '#fff', fontSize: '12px', boxShadow: '0 8px 24px rgba(0,0,0,.35)' });
         doc.body.appendChild(notice);
         page.setTimeout?.(() => notice.remove?.(), 3600);
       } catch {}
     };
 
-    const pickRuntime = function (requirements) {
-      try {
-        const picked = page.__geekPickWpp?.(requirements);
-        if (picked) return picked;
-      } catch {}
+    const pickRuntime = requirements => {
+      try { const picked = page.__geekPickWpp?.(requirements); if (picked) return picked; } catch {}
       const paths = Array.isArray(requirements) ? requirements : [requirements];
-      const resolvePath = (candidate, path) => String(path || '')
-        .split('.')
-        .filter(Boolean)
-        .reduce((value, key) => value == null ? undefined : value[key], candidate);
+      const resolvePath = (candidate, path) => String(path || '').split('.').filter(Boolean).reduce((value, key) => value == null ? undefined : value[key], candidate);
       return [page.WPP, page.WAPLUS_WPP]
         .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index)
         .find(candidate => paths.every(path => resolvePath(candidate, path) != null)) || null;
     };
 
-    const getActiveChat = function () {
+    const getActiveChat = () => {
       try {
         const runtime = pickRuntime(['chat.getActiveChat']);
         return runtime?.chat?.getActiveChat?.() || page.W?.chat?.getActive?.() || null;
@@ -203,15 +146,13 @@
       }
     };
 
-    const chatIdOf = function (chat) {
-      try {
-        return String(chat?.id?._serialized || chat?.id?.toString?.() || chat?.id || '');
-      } catch {
-        return '';
-      }
+    const idString = value => {
+      try { return String(value?._serialized || value?.id?._serialized || value?.toString?.() || value || ''); }
+      catch { return ''; }
     };
+    const chatIdOf = chat => idString(chat?.id || chat);
 
-    const isDirectChat = function (chat, chatId) {
+    const isDirectChat = (chat, chatId) => {
       const id = String(chatId || '');
       if (!id) return false;
       if (chat?.isGroup === true || chat?.isNewsletter === true || chat?.isBroadcast === true) return false;
@@ -219,219 +160,139 @@
       return !/@g\.us$/i.test(id) && !/@broadcast$/i.test(id) && !/@newsletter$/i.test(id);
     };
 
-    const translationSetting = function (chatId, text) {
-      const setting = page.__geekGetTranslationSetting?.(chatId);
-      if (!setting?.enabled || !setting?.autoSend || !text) return null;
-      if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) return null;
-      return setting;
+    const pnIdentity = value => {
+      const raw = idString(value).trim().toLowerCase();
+      const match = raw.match(/^([+0-9]+)@(?:c\.us|s\.whatsapp\.net)$/i);
+      const digits = match ? match[1].replace(/\D/g, '') : '';
+      return digits ? `pn:${digits}` : '';
     };
 
-    const composerFromTarget = function (target) {
-      try {
-        if (target?.isContentEditable === true) return target;
-        return target?.closest?.('[contenteditable="true"], [data-testid="conversation-compose-box-input"]') || null;
-      } catch {
-        return null;
-      }
-    };
-
-    const findComposer = function (event) {
-      const fromTarget = composerFromTarget(event?.target);
-      if (fromTarget) return fromTarget;
-      try { return page.document?.querySelector?.(composerSelector) || null; }
-      catch { return null; }
-    };
-
-    const composerText = function (event) {
-      const editor = findComposer(event);
-      return { editor, text: cleanText(editor?.innerText || editor?.textContent || '') };
-    };
-
-    const isSendButtonTarget = function (target) {
-      try {
-        if (target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],[data-testid="compose-btn-send"]')) return true;
-        return !!target?.closest?.('[data-icon="send"]')?.closest?.('button');
-      } catch {
-        return false;
-      }
-    };
-
-    const captureComposeSnapshot = function (chat, text) {
-      let snapshot = null;
-      try {
-        const currentContents = chat?.getComposeContents?.();
-        if (currentContents && typeof currentContents === 'object') snapshot = { ...currentContents };
-      } catch {}
-      if (!snapshot) snapshot = {};
-      if (!cleanText(snapshot.text)) snapshot.text = String(text || '');
-      if (!Number.isFinite(Number(snapshot.timestamp))) snapshot.timestamp = Math.floor(Date.now() / 1000);
-      return snapshot;
-    };
-
-    const setCompose = function (chat, contents) {
-      try {
-        if (typeof chat?.setComposeContents !== 'function') return false;
-        chat.setComposeContents(contents || {});
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    const restoreCompose = function (chat, snapshot, text) {
-      const next = snapshot && typeof snapshot === 'object' ? { ...snapshot } : {};
-      if (!cleanText(next.text)) next.text = String(text || '');
-      return setCompose(chat, next);
-    };
-
-    const block = function (event) {
-      event?.preventDefault?.();
-      event?.stopImmediatePropagation?.();
-    };
-
-    const handleGesture = function (event) {
-      if (event?.isTrusted !== true) return false;
-
-      const chat = getActiveChat();
-      const chatId = chatIdOf(chat);
-      if (!isDirectChat(chat, chatId)) return false;
-
-      const composed = composerText(event);
-      const text = composed.text;
-      if (!text) return false;
-      const setting = translationSetting(chatId, text);
-      if (!setting) return false;
-
-      block(event);
-      diagnostics.handled += 1;
-
-      if (pending) {
-        setPhase('busy');
-        notify('翻译处理中，请稍候');
-        return true;
-      }
-
-      const translate = page.__geekTranslationRequest;
-      if (typeof translate !== 'function') {
-        setPhase('translation-unavailable');
-        notify('翻译尚未就绪，原文未发送');
-        return true;
-      }
-
-      const runtime = pickRuntime(['chat.sendTextMessage']);
-      if (!runtime || typeof runtime?.chat?.sendTextMessage !== 'function') {
-        setPhase('send-unavailable');
-        notify('WhatsApp发送通道尚未就绪，原文未发送');
-        return true;
-      }
-
-      const snapshot = captureComposeSnapshot(chat, text);
-      const quotedMsg = chat?.composeQuotedMsg || null;
-      const cleared = setCompose(chat, {});
-
-      const task = (async () => {
-        setPhase('translating');
+    const canonicalDirectIdentity = async value => {
+      const raw = idString(value).trim();
+      if (!raw) return null;
+      const directPn = pnIdentity(raw);
+      if (directPn) return directPn;
+      if (/@lid$/i.test(raw)) {
         try {
-          const translated = await translate({
-            text,
-            source: setting.source || 'auto',
-            target: setting.target,
-            provider: setting.provider,
-            route: setting.route,
-            chatId,
-          });
-          if (!translated?.text) {
-            throw Object.assign(new Error('翻译返回为空'), {
-              __geekStage: 'translation',
-              code: 'TRANSLATION_EMPTY_RESULT',
-              category: 'gateway',
-              retryable: true,
-              status: 502,
-            });
-          }
-
-          const currentChat = getActiveChat();
-          if (chatIdOf(currentChat) !== chatId) {
-            throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
-          }
-
-          page.__geekRememberOutgoing?.(translated.text, text);
-          setPhase('sending');
-          const options = quotedMsg ? { quotedMsg } : undefined;
-          const sent = await runtime.chat.sendTextMessage(chatId, translated.text, options);
-          if (sent == null) throw Object.assign(new Error('WhatsApp未确认消息发送'), { __geekStage: 'send' });
-          setCompose(chat, {});
-          diagnostics.sent += 1;
-          setPhase('sent');
-          return sent;
-        } catch (error) {
-          const stage = error?.__geekStage || (diagnostics.phase === 'sending' ? 'send' : 'translation');
-          if (stage === 'translation') {
-            const normalized = typeof parseFailure === 'function' ? parseFailure(error) : error;
-            const restored = cleared ? restoreCompose(chat, snapshot, text) : true;
-            setPhase('translation-error', normalized);
-            if (/聊天已切换/.test(String(normalized?.message || normalized))) {
-              notify(restored ? '聊天已切换，原文已恢复，请重试' : '聊天已切换，原文未发送');
-            } else {
-              notify(typeof failureNotice === 'function'
-                ? failureNotice(normalized, restored)
-                : (restored ? '翻译失败，原文已恢复，请重试' : '翻译失败，原文未发送'));
-            }
-            page.console?.error?.('[geek-whatsapp-direct-composer]', String(normalized?.message || normalized || '').slice(0, 240));
-          } else {
-            setPhase('send-error', error);
-            notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120));
-            page.console?.error?.('[geek-whatsapp-direct-composer]', String(error?.message || error || '').slice(0, 240));
-          }
+          const runtime = pickRuntime(['contact.getPnLidEntry']);
+          const pair = await runtime?.contact?.getPnLidEntry?.(raw);
+          const phoneNumber = pair?.phoneNumber || pair?.pn;
+          return pnIdentity(phoneNumber) || null;
+        } catch {
           return null;
-        } finally {
-          pending = null;
         }
-      })();
-
-      pending = task;
-      page.__geekWhatsAppDirectComposerLastTask = task;
-      return true;
+      }
+      return `raw:${raw.toLowerCase()}`;
     };
 
-    // Native WhatsApp composer fallback. app.js may still own the low-level hook
-    // for compatibility, but translated direct-send policy lives here only.
-    // This path is used when a real WhatsApp gesture bypasses the DOM owner.
+    const sameDirectIdentity = async (left, right) => {
+      const a = idString(left).trim();
+      const b = idString(right).trim();
+      if (!a || !b) return null;
+      if (a === b) return true;
+      const canonicalA = await canonicalDirectIdentity(a);
+      const canonicalB = await canonicalDirectIdentity(b);
+      if (!canonicalA || !canonicalB) return null;
+      return canonicalA === canonicalB;
+    };
+
+    const hasOwn = (value, key) => !!value && Object.prototype.hasOwnProperty.call(value, key);
+
+    const resolveTranslationSetting = async (chat, text) => {
+      const nativeId = chatIdOf(chat);
+      if (!isDirectChat(chat, nativeId) || typeof text !== 'string' || !text.trim()) {
+        return { mode: 'passthrough', chatId: nativeId, setting: null };
+      }
+
+      const config = page.__geekTranslationConfig;
+      const getter = page.__geekGetTranslationSetting;
+      if (!config || typeof getter !== 'function') {
+        return { mode: 'blocked', chatId: nativeId, setting: null, reason: 'config-unavailable' };
+      }
+
+      const activeId = chatIdOf(getActiveChat());
+      const chats = config.chats || {};
+      let settingId = nativeId || activeId;
+
+      if (activeId && hasOwn(chats, activeId)) {
+        if (activeId === nativeId) {
+          settingId = activeId;
+        } else {
+          const same = await sameDirectIdentity(activeId, nativeId);
+          if (same === true) settingId = activeId;
+          else if (same === null) return { mode: 'blocked', chatId: nativeId, setting: null, reason: 'identity-unresolved' };
+          else if (nativeId && hasOwn(chats, nativeId)) settingId = nativeId;
+        }
+      } else if (nativeId && hasOwn(chats, nativeId)) {
+        settingId = nativeId;
+      }
+
+      const setting = getter(settingId);
+      if (!setting?.enabled || !setting?.autoSend) {
+        return { mode: 'passthrough', chatId: settingId || nativeId, setting };
+      }
+      if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) {
+        return { mode: 'passthrough', chatId: settingId || nativeId, setting };
+      }
+      return { mode: 'translate', chatId: settingId || nativeId, setting };
+    };
+
     const handleNativeSend = function (chat, rawArgs, original, thisArg) {
       const args = Array.isArray(rawArgs) ? [...rawArgs] : [];
-      if (typeof original !== 'function') {
-        return Promise.reject(new TypeError('WhatsApp原生发送函数不可用'));
+      if (typeof original !== 'function') return Promise.reject(new TypeError('WhatsApp原生发送函数不可用'));
+
+      const nativeId = chatIdOf(chat);
+      const text = args[0];
+      if (typeof text !== 'string' || !isDirectChat(chat, nativeId)) {
+        diagnostics.passthrough += 1;
+        return original.call(thisArg, chat, ...args);
       }
 
-      const chatId = chatIdOf(chat);
-      const text = args[0];
-      const setting = typeof text === 'string' && isDirectChat(chat, chatId)
-        ? translationSetting(chatId, text)
-        : null;
-      if (!setting) return original.call(thisArg, chat, ...args);
-
       const run = async () => {
+        diagnostics.handled += 1;
+        const resolved = await resolveTranslationSetting(chat, text);
+        if (resolved.mode === 'passthrough') {
+          diagnostics.passthrough += 1;
+          setPhase('passthrough');
+          return original.call(thisArg, chat, ...args);
+        }
+        if (resolved.mode === 'blocked') {
+          const identityBlocked = resolved.reason === 'identity-unresolved';
+          const error = Object.assign(new Error(identityBlocked ? '无法确认当前 WhatsApp 聊天身份' : '翻译配置尚未就绪'), {
+            __geekStage: 'translation',
+            code: identityBlocked ? 'TRANSLATION_CHAT_IDENTITY_UNRESOLVED' : 'TRANSLATION_BRIDGE_UNAVAILABLE',
+            category: 'bridge',
+            retryable: true,
+          });
+          setPhase('translation-error', error);
+          notify(identityBlocked ? '无法确认当前聊天的翻译设置，原文未发送' : '翻译尚未就绪，原文未发送');
+          throw error;
+        }
+
+        const translate = page.__geekTranslationRequest;
+        if (typeof translate !== 'function') {
+          const error = Object.assign(new Error('翻译尚未就绪'), {
+            __geekStage: 'translation',
+            code: 'TRANSLATION_BRIDGE_UNAVAILABLE',
+            category: 'bridge',
+            retryable: true,
+          });
+          setPhase('translation-error', error);
+          notify(typeof failureNotice === 'function' ? failureNotice(error) : '翻译尚未就绪，原文未发送');
+          throw error;
+        }
+
         let stage = 'translation';
         let failure = null;
         try {
-          const translate = page.__geekTranslationRequest;
-          if (typeof translate !== 'function') {
-            throw Object.assign(new Error('翻译尚未就绪'), {
-              __geekStage: 'translation',
-              code: 'TRANSLATION_BRIDGE_UNAVAILABLE',
-              category: 'bridge',
-              retryable: true,
-            });
-          }
-
-          setPhase('native-translating');
+          setPhase('translating');
           const translated = await translate({
             text,
-            source: setting.source || 'auto',
-            target: setting.target,
-            provider: setting.provider,
-            route: setting.route,
-            chatId,
+            source: resolved.setting.source || 'auto',
+            target: resolved.setting.target,
+            provider: resolved.setting.provider,
+            route: resolved.setting.route,
+            chatId: resolved.chatId,
           });
           if (!translated?.text) {
             throw Object.assign(new Error('翻译返回为空'), {
@@ -443,15 +304,17 @@
             });
           }
 
-          const activeId = chatIdOf(getActiveChat());
-          if (activeId && activeId !== chatId) {
+          const activeAfter = chatIdOf(getActiveChat());
+          const stillSame = await sameDirectIdentity(activeAfter, nativeId);
+          if (stillSame !== true) {
             throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
           }
 
           page.__geekRememberOutgoing?.(translated.text, text);
           args[0] = translated.text;
+          diagnostics.translated += 1;
           stage = 'send';
-          setPhase('native-sending');
+          setPhase('sending');
           const sent = await original.call(thisArg, chat, ...args);
           diagnostics.sent += 1;
           setPhase('sent');
@@ -461,19 +324,15 @@
           if (failedStage === 'translation') {
             failure = typeof parseFailure === 'function' ? parseFailure(error) : error;
             setPhase('translation-error', failure);
-            if (/聊天已切换/.test(String(failure?.message || failure || ''))) {
-              notify('聊天已切换，原文未发送');
-            } else {
-              notify(typeof failureNotice === 'function'
-                ? failureNotice(failure, false)
-                : '翻译失败（未分类），原文未发送');
-            }
+            notify(/聊天已切换/.test(String(failure?.message || failure || ''))
+              ? '聊天已切换，原文未发送'
+              : (typeof failureNotice === 'function' ? failureNotice(failure, false) : '翻译失败（未分类），原文未发送'));
           } else {
             failure = error;
             setPhase('send-error', error);
             notify('WhatsApp发送失败：' + String(error?.message || error || '未知错误').slice(0, 120));
           }
-          page.console?.error?.('[geek-whatsapp-direct-composer/native]', String(failure?.message || failure || '').slice(0, 240));
+          page.console?.error?.('[geek-whatsapp-translation-send]', String(failure?.message || failure || '').slice(0, 240));
           throw failure;
         }
       };
@@ -486,20 +345,7 @@
 
     const Abort = page.AbortController || globalThis.AbortController;
     const controller = typeof Abort === 'function' ? new Abort() : null;
-    const listenerOptions = controller ? { capture: true, signal: controller.signal } : { capture: true };
-
-    page.addEventListener?.('keydown', event => {
-      if (event?.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
-      if (!composerFromTarget(event?.target)) return;
-      handleGesture(event);
-    }, listenerOptions);
-    page.addEventListener?.('click', event => {
-      if (!isSendButtonTarget(event?.target)) return;
-      handleGesture(event);
-    }, listenerOptions);
-
-    const state = Object.freeze({ version, controller, diagnostics, handleGesture, handleNativeSend });
-    page.__geekWhatsAppDirectComposerController = state;
+    page.__geekWhatsAppDirectComposerController = Object.freeze({ version, controller, diagnostics, handleNativeSend, resolveTranslationSetting, sameDirectIdentity });
     return 'READY';
   }
 
@@ -549,14 +395,5 @@
     return true;
   }
 
-  return Object.freeze({
-    CONTROLLER_VERSION,
-    TRANSLATION_ERROR_ENVELOPE_PREFIX,
-    isWhatsAppType,
-    accountForPartition,
-    parseTranslationFailure,
-    translationFailureNotice,
-    installPageController,
-    installShell,
-  });
+  return Object.freeze({ CONTROLLER_VERSION, TRANSLATION_ERROR_ENVELOPE_PREFIX, isWhatsAppType, accountForPartition, parseTranslationFailure, translationFailureNotice, installPageController, installShell });
 });
