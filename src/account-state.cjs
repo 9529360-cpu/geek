@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const path = require('node:path');
+const { createCommittedStateMirror } = require('./committed-state-mirror.cjs');
 
 const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-';
 const ACCOUNT_ID_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
@@ -47,8 +47,6 @@ function createAccountStateStore(options = {}) {
   const fs = options.fs;
   const filePath = options.filePath;
   const backupPath = options.backupPath || `${filePath}.bak`;
-  const temporaryFile = `${filePath}.tmp`;
-  const backupTemporaryFile = `${backupPath}.tmp`;
   const resolveTypeConfig = options.resolveTypeConfig;
   const normalizeWebsiteUrl = options.normalizeWebsiteUrl;
   const idFactory = options.idFactory || (() => crypto.randomUUID());
@@ -74,6 +72,15 @@ function createAccountStateStore(options = {}) {
   function report(error, phase, recovered = false) {
     try { onMigrationError(error, { phase, recovered: recovered === true }); } catch {}
   }
+
+  const mirror = createCommittedStateMirror({
+    fs,
+    filePath,
+    backupPath,
+    onPostCommitError(error, meta) {
+      report(error, meta?.phase || 'backup-mirror', false);
+    },
+  });
 
   function decryptStoredPassword(value) {
     if (typeof value !== 'string') return '';
@@ -156,99 +163,6 @@ function createAccountStateStore(options = {}) {
     }, null, 2);
   }
 
-  async function safeRemove(file) {
-    if (typeof fs.rm !== 'function') return;
-    try { await fs.rm(file, { force: true }); } catch {}
-  }
-
-  async function writeSynced(file, content) {
-    if (typeof fs.open !== 'function') {
-      await fs.writeFile(file, content, 'utf8');
-      return;
-    }
-    let handle;
-    try {
-      handle = await fs.open(file, 'w');
-      await handle.writeFile(content, 'utf8');
-      if (typeof handle.sync === 'function') await handle.sync();
-    } finally {
-      if (handle) await handle.close().catch(() => {});
-    }
-  }
-
-  async function syncDirectory(directory) {
-    if (typeof fs.open !== 'function') return;
-    let handle;
-    try {
-      handle = await fs.open(directory, 'r');
-      if (typeof handle.sync === 'function') await handle.sync();
-    } catch {
-      // Directory fsync is not supported on every Windows/filesystem combination.
-    } finally {
-      if (handle) await handle.close().catch(() => {});
-    }
-  }
-
-  async function readOptional(file) {
-    try {
-      return { exists: true, content: await fs.readFile(file, 'utf8') };
-    } catch (error) {
-      if (error?.code === 'ENOENT') return { exists: false, content: null };
-      throw error;
-    }
-  }
-
-  async function writeSnapshot(file, temp, content) {
-    await writeSynced(temp, content);
-    await fs.rename(temp, file);
-  }
-
-  async function durableWrite(candidate, { migration = false } = {}) {
-    const snapshot = serialize(candidate);
-    const directory = path.dirname(filePath);
-    await fs.mkdir(directory, { recursive: true });
-    let current = null;
-    try {
-      if (!migration) {
-        current = await readOptional(filePath);
-      }
-      await writeSynced(temporaryFile, snapshot);
-      if (migration || !current?.exists) {
-        await writeSynced(backupTemporaryFile, snapshot);
-      } else {
-        await writeSynced(backupTemporaryFile, current.content);
-      }
-      await fs.rename(backupTemporaryFile, backupPath);
-      await fs.rename(temporaryFile, filePath);
-      await syncDirectory(directory);
-    } catch (error) {
-      await safeRemove(temporaryFile);
-      await safeRemove(backupTemporaryFile);
-      throw error;
-    }
-  }
-
-  async function restoreRawSnapshot(content) {
-    const directory = path.dirname(filePath);
-    await fs.mkdir(directory, { recursive: true });
-    try {
-      await writeSnapshot(filePath, temporaryFile, content);
-      await syncDirectory(directory);
-    } catch (error) {
-      await safeRemove(temporaryFile);
-      throw error;
-    }
-  }
-
-  async function loadBackup() {
-    const backup = await readOptional(backupPath);
-    if (!backup.exists) return null;
-    return {
-      content: backup.content,
-      state: parseStoredState(backup.content),
-    };
-  }
-
   function recoveryRequired(primaryError, backupError) {
     const error = createError('账号状态无法安全恢复', ACCOUNT_STATE_RECOVERY_REQUIRED, primaryError);
     const primaryCode = typeof primaryError?.code === 'string' ? primaryError.code : String(primaryError?.name || 'UNKNOWN');
@@ -258,35 +172,19 @@ function createAccountStateStore(options = {}) {
     return error;
   }
 
-  async function tryRecover(primaryError) {
-    let backup;
-    try {
-      backup = await loadBackup();
-    } catch (backupError) {
-      const error = recoveryRequired(primaryError, backupError);
-      report(error, 'recovery', false);
-      throw error;
-    }
-    if (!backup) {
-      const error = recoveryRequired(primaryError, null);
-      report(error, 'recovery', false);
-      throw error;
-    }
-    try {
-      await restoreRawSnapshot(backup.content);
-    } catch (restoreError) {
-      const error = recoveryRequired(primaryError, restoreError);
-      report(error, 'recovery', false);
-      throw error;
-    }
-    state = backup.state;
-    report(primaryError, 'recovery', true);
-    return true;
+  function wrapMirrorRecovery(error) {
+    if (error?.code === ACCOUNT_STATE_RECOVERY_REQUIRED) return error;
+    return recoveryRequired(error?.primaryError || error, error?.backupError || null);
   }
 
-  async function migrateLoadedState() {
+  async function durableWrite(candidate, { initializing = false } = {}) {
+    const snapshot = serialize(candidate);
+    return mirror.commit(snapshot, { initializing });
+  }
+
+  async function migrateLoadedState({ initializing = false } = {}) {
     try {
-      await durableWrite(state, { migration: true });
+      await durableWrite(state, { initializing });
     } catch (error) {
       report(error, 'migration', false);
     }
@@ -308,47 +206,27 @@ function createAccountStateStore(options = {}) {
   }
 
   async function load() {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    let target;
+    let loaded;
     try {
-      target = await readOptional(filePath);
+      loaded = await mirror.load(parseStoredState);
     } catch (error) {
-      await tryRecover(error);
-      await migrateLoadedState();
-      return cloneState(state);
+      const recoveryError = wrapMirrorRecovery(error);
+      report(recoveryError, 'recovery', false);
+      throw recoveryError;
     }
 
-    if (!target.exists) {
-      let backup;
-      try {
-        backup = await loadBackup();
-      } catch (error) {
-        const recoveryError = recoveryRequired(Object.assign(new Error('accounts.json missing'), { code: 'ENOENT' }), error);
-        report(recoveryError, 'recovery', false);
-        throw recoveryError;
-      }
-      if (backup) {
-        await restoreRawSnapshot(backup.content);
-        state = backup.state;
-        report(Object.assign(new Error('accounts.json missing'), { code: 'ENOENT' }), 'recovery', true);
-        await migrateLoadedState();
-        return cloneState(state);
-      }
+    if (loaded.status === 'empty') {
       const empty = { activeAccountId: null, accounts: [] };
-      await durableWrite(empty, { migration: true });
+      await durableWrite(empty, { initializing: true });
       state = empty;
       return cloneState(state);
     }
 
-    try {
-      state = parseStoredState(target.content);
-    } catch (error) {
-      await tryRecover(error);
-      await migrateLoadedState();
-      return cloneState(state);
+    state = loaded.state;
+    if (loaded.status === 'recovered') {
+      report(loaded.primaryError || Object.assign(new Error('account state recovered'), { code: 'ACCOUNT_STATE_PRIMARY_RECOVERED' }), 'recovery', true);
     }
-
-    await migrateLoadedState();
+    await migrateLoadedState({ initializing: loaded.status === 'legacy' });
     return cloneState(state);
   }
 

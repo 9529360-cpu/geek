@@ -57,8 +57,11 @@ assert.match(accountIpc, /dispose\(\)[\s\S]*ipcMain\.removeHandler/, 'Account IP
 assert.match(main, /const accountState = createAccountStateStore\(/, 'main composes but does not own account state');
 assert.match(main, /resolveAccountPartition:\s*accountId => accountState\.resolvePartition\(accountId\)/, 'Account Data production existence/partition resolution must come from Account State owner');
 assert.match(main, /removeAccount:\s*\(event, accountId\) => accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly cross the account-data deletion lifecycle');
-assert.match(accountData, /store\.beginDelete\(partition\)[\s\S]*removeImplementation[\s\S]*committedAccountCleanup[\s\S]*store\.finalizeDelete\(partition\)/, 'account removal lifecycle must be begin -> durable account delete -> committed child cleanup -> finalize');
-assert.match(accountData, /ACCOUNT_DATA_ACCOUNT_MISSING[\s\S]*cleanupPending:\s*true/, 'committed delete with later cleanup failure must preserve cleanupPending success');
+assert.match(accountData, /createAccountRemovalCleanupJournal/, 'account removal owner must compose durable post-commit cleanup authority');
+assert.match(accountData, /store\.beginDelete\(partition\)[\s\S]*cleanupJournal\.markPending\([\s\S]*removeImplementation\(/, 'durable cleanup finalizer must be persisted before authoritative account deletion starts');
+assert.match(accountData, /async function settleCommittedRemoval[\s\S]*committedAccountCleanup[\s\S]*cleanupJournal\.clear\(accountId\)[\s\S]*store\.finalizeDelete\(partition\)/, 'committed child cleanup must settle before clearing the finalizer and in-memory delete barrier');
+assert.match(accountData, /ACCOUNT_DATA_ACCOUNT_MISSING[\s\S]*settleCommittedRemoval/, 'a parent delete that committed before throwing must enter committed cleanup rather than rollback');
+assert.match(accountData, /cleanupPending:\s*true/, 'committed delete with later cleanup failure must preserve cleanupPending success');
 assert.match(accountState, /ACCOUNT_TYPE_UNSUPPORTED/, 'authoritative account mutation must reject unsupported account types');
 assert.match(accountState, /raw\.type === undefined \? 'whatsapp' : raw\.type/, 'historical default account type remains WhatsApp');
 assert.doesNotMatch(mainEntry, /installAccountTypeBoundary|installBroadcastFileBoundary|installAccountDataBoundary/, 'main-entry must not host deferred IPC registration shims');

@@ -251,12 +251,30 @@ async function activateAccount(accountId) {
   }
 }
 
-async function rightClick(element) {
-  await browser.action('pointer', { parameters: { pointerType: 'mouse' } })
-    .move({ origin: element })
-    .down({ button: 2 })
-    .up({ button: 2 })
-    .perform();
+function isStaleElementError(error) {
+  return /stale element reference/i.test(String(error?.message || error || ''));
+}
+
+async function rightClick(selector) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const element = await waitVisible(selector);
+    try {
+      await browser.action('pointer', { parameters: { pointerType: 'mouse' } })
+        .move({ origin: element })
+        .down({ button: 2 })
+        .up({ button: 2 })
+        .perform();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isStaleElementError(error) || attempt === 2) {
+        const detail = String(error?.message || error || 'pointer action failed').split('\n')[0].slice(0, 200);
+        throw new Error(`right click failed selector=${selector} stale=${isStaleElementError(error)} attempt=${attempt}: ${detail}`);
+      }
+    }
+  }
+  throw lastError || new Error(`right click failed selector=${selector}`);
 }
 
 async function createWebsiteAccountsThroughAppCenter() {
@@ -370,8 +388,8 @@ async function createWebsiteAccountsThroughAppCenter() {
 
 async function openAndCloseAccountSettings(iteration) {
   await activateAccount(ACCOUNT_A);
-  const target = await waitVisible(`.nav-account[data-id="${ACCOUNT_B}"]`);
-  await rightClick(target);
+  const targetSelector = `.nav-account[data-id="${ACCOUNT_B}"]`;
+  await rightClick(targetSelector);
   await waitVisible('#ctx-menu:not(.hidden)');
   const contextTarget = await browser.execute(() => document.getElementById('ctx-menu')?.dataset.accountId || '');
   assert.equal(contextTarget, ACCOUNT_B, `context menu iteration ${iteration} bound the wrong account`);

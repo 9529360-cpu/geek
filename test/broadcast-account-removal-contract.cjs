@@ -134,7 +134,25 @@ function createRemovalEvent() {
 
   assert.match(main, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.cleanupAccount\(accountId\)/, 'main composition must connect account deletion to scheduled attachment cleanup');
   assert.match(main, /accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly enter the account-data lifecycle');
-  assert.ok(accountBoundary.indexOf('await beforeAccountRemove') < accountBoundary.indexOf('await removeImplementation(event, id'), 'durable resources must be cleaned before authoritative account deletion');
+
+  const beginDeleteAt = accountBoundary.indexOf('await store.beginDelete(partition)');
+  const finalizerPendingAt = accountBoundary.indexOf('await cleanupJournal.markPending({ accountId: id, partition })');
+  const parentDeleteAt = accountBoundary.indexOf('response = await removeImplementation(event, id, ...rest)');
+  assert.ok(
+    beginDeleteAt >= 0 && finalizerPendingAt > beginDeleteAt && parentDeleteAt > finalizerPendingAt,
+    'durable child-cleanup finalizer must be recorded before authoritative account deletion can commit',
+  );
+
+  const settleAt = accountBoundary.indexOf('async function settleCommittedRemoval');
+  const childCleanupAt = accountBoundary.indexOf('await committedAccountCleanup({ event, accountId, partition })', settleAt);
+  const finalizerClearAt = accountBoundary.indexOf('await cleanupJournal.clear(accountId)', settleAt);
+  const finalizeDeleteAt = accountBoundary.indexOf('store.finalizeDelete(partition)', settleAt);
+  assert.ok(
+    settleAt >= 0 && childCleanupAt > settleAt && finalizerClearAt > childCleanupAt && finalizeDeleteAt > finalizerClearAt,
+    'after parent commit, scheduled child cleanup must complete before clearing durable debt and finalizing the in-memory delete barrier',
+  );
+  assert.match(accountBoundary, /reconcileCommittedCleanup\(\)\.catch/, 'startup composition must begin durable child-cleanup reconciliation');
+  assert.match(accountBoundary, /ACCOUNT_DATA_ACCOUNT_MISSING[\s\S]*settleCommittedRemoval/, 'a committed parent delete must enter post-commit cleanup instead of pretending rollback');
   assert.match(attachmentBoundary, /async function cleanupAccount\(accountId\)/);
   assert.match(attachmentStore, /async function cleanupAccount\(accountId\)/);
 

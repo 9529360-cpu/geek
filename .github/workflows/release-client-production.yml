@@ -20,15 +20,27 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_COUNT: '2'
       GIT_CONFIG_KEY_0: safe.directory
       GIT_CONFIG_VALUE_0: ${{ github.workspace }}
+      GIT_CONFIG_KEY_1: safe.directory
+      GIT_CONFIG_VALUE_1: ${{ github.workspace }}\candidate
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
     steps:
-      - name: Checkout
+      - name: Reject unsupported recovery ref
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/master') {
+            throw 'Manual release recovery is supported only from refs/heads/master'
+          }
+
+      - name: Checkout trusted release control plane
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -36,22 +48,67 @@ jobs:
           node-version: '22'
           package-manager-cache: false
 
-      - name: Install dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts
-
-      - name: Validate release trigger
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+      - name: Resolve authorized release candidate
+        env:
+          RELEASE_EVENT_BEFORE: ${{ github.event.before }}
         run: |
-          $pkg = Get-Content package.json -Raw -Encoding UTF8 | ConvertFrom-Json
-          $trigger = (Get-Content .github/release-client-version -Raw).Trim()
-          if ($trigger -ne $pkg.version) {
-            throw "Release trigger $trigger does not match package version $($pkg.version)"
+          $candidateArgs = @(
+            'scripts/release-candidate-authority.cjs',
+            'resolve',
+            '--event', $env:GITHUB_EVENT_NAME,
+            '--ref', $env:GITHUB_REF,
+            '--sha', $env:GITHUB_SHA,
+            '--github-env', $env:GITHUB_ENV
+          )
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $candidateArgs += @('--before', $env:RELEASE_EVENT_BEFORE)
           }
-          "RELEASE_VERSION=$trigger" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "release=$trigger"
+          & node @candidateArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to resolve the authorized release candidate'
+          }
+
+      - name: Materialize authorized candidate source
+        run: |
+          git worktree add --detach candidate $env:RELEASE_CANDIDATE_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to materialize the authorized release candidate'
+          }
+
+      - name: Validate authorized release candidate
+        run: |
+          node scripts/release-candidate-authority.cjs validate `
+            --control-dir '.' `
+            --candidate-dir 'candidate' `
+            --expected-sha $env:RELEASE_CANDIDATE_SHA `
+            --github-env $env:GITHUB_ENV
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Authorized release candidate failed source/version validation'
+          }
+
+      - name: Install candidate dependencies without lifecycle scripts
+        run: |
+          Push-Location 'candidate'
+          try {
+            npm ci --ignore-scripts
+            if ($LASTEXITCODE -ne 0) { throw 'Candidate dependency install failed' }
+          } finally {
+            Pop-Location
+          }
 
       - name: Build tested Windows release
-        run: npm run dist
+        run: |
+          Push-Location 'candidate'
+          try {
+            npm run dist
+            if ($LASTEXITCODE -ne 0) { throw 'Candidate release build failed' }
+          } finally {
+            Pop-Location
+          }
+          if (Test-Path 'dist-release') {
+            throw 'Refusing to overwrite an unexpected control-plane dist-release directory'
+          }
+          Move-Item 'candidate\dist-release' 'dist-release'
 
       - name: Validate release artifacts
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
@@ -85,7 +142,25 @@ jobs:
             throw 'Refusing promotion without a verified previous stable release'
           }
 
+      - name: Verify immutable same-version recovery
+        if: env.ROLLBACK_AVAILABLE == 'false'
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          node scripts/release-same-version-check.cjs `
+            --root 'https://geek-release.9529360.workers.dev' `
+            --version $env:RELEASE_VERSION `
+            --manifest 'dist-release\release-manifest.json' `
+            --attempts 3 `
+            --delay-ms 5000 `
+            --timeout-ms 120000
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Refusing same-version recovery because published immutable assets do not match this candidate'
+          }
+          "RELEASE_ALREADY_PUBLISHED=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Same-version public assets are byte-identical; production writes will be skipped."
+
       - name: Upload installer and blockmap to R2
+        if: env.RELEASE_ALREADY_PUBLISHED != 'true'
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -98,6 +173,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R2 blockmap upload failed' }
 
       - name: Snapshot rollback metadata
+        if: env.RELEASE_ALREADY_PUBLISHED != 'true'
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -114,6 +190,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R2 versioned rollback snapshot failed' }
 
       - name: Publish latest metadata last
+        if: env.RELEASE_ALREADY_PUBLISHED != 'true'
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -129,6 +206,22 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           $root = 'https://geek-release.9529360.workers.dev'
+
+          if ($env:RELEASE_ALREADY_PUBLISHED -eq 'true') {
+            node scripts/release-same-version-check.cjs `
+              --root $root `
+              --version $env:RELEASE_VERSION `
+              --manifest 'dist-release\release-manifest.json' `
+              --attempts 3 `
+              --delay-ms 5000 `
+              --timeout-ms 120000
+            if ($LASTEXITCODE -ne 0) {
+              throw "Already-published Geek $env:RELEASE_VERSION failed immutable-asset verification"
+            }
+            "Verified already-published Geek $env:RELEASE_VERSION without rewriting installer, blockmap, or latest.yml." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            exit 0
+          }
+
           node scripts/release-public-check.cjs verify `
             --root $root `
             --version $env:RELEASE_VERSION `

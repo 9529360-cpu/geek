@@ -8,17 +8,24 @@
 
 ## 触发边界
 
-`.github/workflows/release-client.yml` 有两个受控入口：
+`.github/workflows/release-client-production.yml` 有两个受控入口：
 
 - `master` 上 `.github/release-client-version` 发生变更时，通过 path-filtered `push` 启动正常的新版本发布；
 - 已授权发布失败后，通过显式 `workflow_dispatch` 启动同版本恢复重试。
 
-两个入口都会要求发布标记与 `package.json.version` 完全一致，并执行相同的测试、构建、回滚基线、上传顺序和公开验证；不一致或任一安全步骤失败时都会拒绝发布。
+正常发布把**本次单提交 `master` 推进本身**绑定为该版本唯一候选 SHA；若 marker 变化不是这次单提交推进的一部分，工作流会 fail closed。手动恢复只允许从 `refs/heads/master` 启动，并从完整 `master` 历史重新推导最近一次修改当前 release marker 的授权 commit；维护者不能通过输入任意 SHA 或选择其他 branch/tag 改变候选源码。
+
+发布工作流保留当前 `master` 作为 release control plane，并用独立 Git worktree 在精确候选 SHA 上安装依赖和构建。这样后续对发布安全脚本的加固不会因为恢复旧候选源码而一起回退。构建完成后仅把候选的 `dist-release` 产物移交给当前控制面的公网校验、同版本不可变性检查、上传、回滚和完整性验证步骤。
+
+两个入口都会在依赖安装前要求候选 SHA、发布标记、`package.json.version`、`package-lock.json` 顶层版本及根 package 版本一致，并执行相同的测试、构建、回滚基线、上传顺序和公开验证；不一致或任一安全步骤失败时都会拒绝发布。
+
+旧 `.github/workflows/release-client.yml` 已退役。迁移到新 workflow 路径不是命名整理：GitHub 的手动 workflow 可以选择 branch/tag，并使用该 ref 上的 workflow 版本；更换入口路径可阻止历史 ref 复用旧的、尚未具备候选 SHA 绑定的手动发布逻辑。
 
 因此：
 
 - 未修改发布标记的普通 `master` 提交不会自动发布客户端；
 - `workflow_dispatch` 不是日常构建按钮，只能用于已有独立发布授权、明确目标版本和失败证据的恢复重试；
+- 手动 dispatch 只能选择 `master`，且实际构建源码仍由仓库历史推导的授权候选 SHA 决定；
 - 手动 dispatch 不得绕过完整 contract、产物校验、上一稳定版本验证、`latest.yml` 最后发布或失败回滚；
 - 部署 `geek-release` Worker 不等于发布或重试客户端版本；
 - 仅修改 README、运维文档、网站、翻译、账号或订阅源码时，不得顺手修改发布标记或手动启动正式发布；
@@ -54,15 +61,16 @@ npm run pack
 
 正式工作流按以下安全顺序执行：
 
-1. 安装依赖并验证发布标记与包版本一致；
-2. 运行 `npm run dist`，完成 contract、完整性清单、Windows 构建和发布产物生成；
+1. 解析并验证唯一授权候选 SHA，在独立 worktree 中重新核对 marker/package/lock 版本；
+2. 仅在候选 worktree 中安装依赖并运行 `npm run dist`，完成 contract、完整性清单、Windows 构建和发布产物生成；
 3. 检查版本化安装包、blockmap、`latest.yml` 和 `release-manifest.json` 均存在且版本一致；
 4. 从公开更新源读取并验证上一稳定版本及其安装包/blockmap，建立可回滚基线；
-5. 先上传不可变的版本化安装包和 blockmap；
-6. 保存上一稳定版 `latest.yml` 的回滚快照；
-7. 最后上传新的 `latest.yml`，使客户端看到新版本；
-8. 从公开更新源反复验证新 `latest.yml`、安装包和 blockmap 均可访问；
-9. 若传播验证失败，恢复上一稳定版元数据并验证回滚结果。
+5. 若公网已是同版本，先要求公开安装包和 blockmap 与该候选产物逐字节 SHA-256 一致，并在一致时跳过所有生产写操作；
+6. 新版本推广时，先上传不可变的版本化安装包和 blockmap；
+7. 保存上一稳定版 `latest.yml` 的回滚快照；
+8. 最后上传新的 `latest.yml`，使客户端看到新版本；
+9. 从公开更新源反复验证新 `latest.yml`、安装包和 blockmap 均可访问且 SHA-256 与候选 manifest 一致；
+10. 若传播验证失败，恢复上一稳定版元数据并验证回滚结果。
 
 不得先发布 `latest.yml` 再补传安装包，也不得覆盖旧版本化安装包来模拟回滚。上一稳定元数据和旧版本产物应保留，供自动回滚和人工处置使用。
 
@@ -93,7 +101,7 @@ Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe`
 - 把 Authenticode 变成当前正式发布的 required gate；
 - 因为没有签名而关闭现有完整性、回滚或公开传播校验。
 
-当前 `scripts/release-build.cjs` 中对签名环境变量的兼容检测属于既有 dormant capability；在 owner 没有重新明确改变发布策略前，不应配置对应生产 signing secrets，也不应围绕该 dormant path 扩展发布流程。
+当前 `scripts/release-build.cjs` 中对签名环境变量的兼容检测属于既有 dormant capability；在 owner 没有重新明确改变这一决策前，不应配置对应生产 signing secrets，也不应围绕该 dormant path 扩展发布流程。
 
 如未来 owner 明确改变这一决策，应重新建立独立 focused Issue，重新评估证书/Provider、Secret ownership、publisher identity、renewal/revocation 以及候选产物验证；不得把旧 #445 当成仍然自动授权的待办。
 
@@ -104,7 +112,8 @@ Release Worker 只允许服务 updater 所需的 `latest.yml`、版本化 `.exe`
 - 已从实时仓库核对目标版本、`master` HEAD、包版本和发布标记，而不是依赖 HANDOFF/README 中的旧快照；
 - 发布版本、变更范围和用户影响已明确；
 - 同版本重试具有对应失败 run、根因记录和已有发布授权；
-- `package.json.version` 与发布标记一致；
+- 手动恢复是从 `master` 启动，且工作流解析出的候选 SHA 与原 marker 授权 commit 一致；
+- 候选 `package.json.version`、`package-lock.json` 顶层/根 package 版本与发布标记一致；
 - 完整 contract suite 通过；
 - Electron/LINE/WA/TG 等受影响平台完成必要的真实兼容回归；
 - 没有真实运行数据、凭据、临时日志或测试账号进入产物；
