@@ -81,7 +81,7 @@ function freshDir(prefix) {
     assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'kept'], 'accounts=kept, config=copied');
   }
 
-  // 2b) 目标 accounts.json 为空数组（陈旧空文件）-> 旧源有账号时必须迁移，空目标不能永久遮蔽真实账号
+  // 2b) 目标 accounts.json 为空数组且没有提交证明（陈旧空文件）-> 仍保留历史 P0 恢复行为
   {
     const ud = freshDir('geek-p0-ud-empty-shadow');
     fs.writeFileSync(path.join(ud, 'accounts.json'), JSON.stringify({ accounts: [] }), 'utf8');
@@ -89,13 +89,41 @@ function freshDir(prefix) {
     assert.equal(
       fs.readFileSync(path.join(ud, 'accounts.json'), 'utf8'),
       legacyAccounts,
-      '空数组目标必须被旧源账号覆盖（防止空文件遮蔽真实账号）'
+      '无 commit proof 的空数组目标必须继续被旧源覆盖（防止历史空文件遮蔽真实账号）'
     );
     assert.equal(fs.readFileSync(path.join(legacyRoot, 'data', 'accounts.json'), 'utf8'), legacyAccounts, '旧源文件必须保持原样');
-    assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'copied'], '空目标应标记为 copied');
+    assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'copied'], '无证明空目标应继续标记为 copied');
   }
 
-  // 2c) 目标 config.json 非空 -> config 仍目标优先（配置可能合法为空/含值，不按账号规则覆盖）
+  // 2c) 已提交的空 Account State 是合法用户状态（例如删除最后一个账号）-> 旧源绝不能让已删除账号复活
+  {
+    const ud = freshDir('geek-p0-ud-committed-empty');
+    const committedEmpty = JSON.stringify({ activeAccountId: null, accounts: [] }, null, 2);
+    const accountsPath = path.join(ud, 'accounts.json');
+    fs.writeFileSync(accountsPath, committedEmpty, 'utf8');
+    fs.writeFileSync(`${accountsPath}.commit`, `${JSON.stringify({ version: 1, sha256: '0'.repeat(64) })}\n`, 'utf8');
+    const results = await runtimePaths.migrateRuntimeFiles({ userDataDir: ud, projectRoot: legacyRoot });
+    assert.equal(
+      fs.readFileSync(accountsPath, 'utf8'),
+      committedEmpty,
+      '有 commit proof 的合法空账号状态必须保持权威，不能从 legacy 回灌账号'
+    );
+    assert.equal(fs.readFileSync(path.join(ud, 'config.json'), 'utf8'), legacyConfig, '账号提交证明不得阻止独立的 config 首次迁移');
+    assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'kept'], 'committed accounts=kept, config=copied');
+  }
+
+  // 2d) commit proof 存在但主文件暂缺 -> recovery/fail-closed 属于 Account State owner，legacy migration 不得抢写
+  {
+    const ud = freshDir('geek-p0-ud-committed-missing-primary');
+    const accountsPath = path.join(ud, 'accounts.json');
+    fs.writeFileSync(`${accountsPath}.commit`, `${JSON.stringify({ version: 1, sha256: '1'.repeat(64) })}\n`, 'utf8');
+    const results = await runtimePaths.migrateRuntimeFiles({ userDataDir: ud, projectRoot: legacyRoot });
+    assert.equal(fs.existsSync(accountsPath), false, '有 commit proof 时即使主文件缺失也必须留给 Account State 自己恢复');
+    assert.equal(fs.readFileSync(path.join(ud, 'config.json'), 'utf8'), legacyConfig, '账号恢复所有权不得阻止 config 迁移');
+    assert.deepEqual(results.map((r) => r.action).sort(), ['copied', 'kept'], 'proof-owned missing primary must remain migration-kept');
+  }
+
+  // 2e) 目标 config.json 非空 -> config 仍目标优先（配置可能合法为空/含值，不按账号规则覆盖）
   {
     const ud = freshDir('geek-p0-ud-config-wins');
     const destConfig = JSON.stringify({ theme: 'dark' });
