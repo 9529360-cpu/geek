@@ -63,8 +63,9 @@ body {
   padding: 14px 8px 6px;
 }
 
-/* 账号项：柔和胶囊 */
+/* 账号项：保持轻量表面，当前项使用单一强调指示条而不是整块染色。 */
 .nav-account {
+  position: relative;
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
@@ -72,12 +73,22 @@ body {
   margin-bottom: 2px;
 }
 .nav-account:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-bg);
   border-color: transparent;
 }
 .nav-account.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
+  background: var(--active-bg);
+  border-color: transparent;
+}
+.nav-account.active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 /* ---------- 顶栏：34px 高不透明（同样禁 backdrop-filter 防重影） ---------- */
@@ -96,40 +107,87 @@ body {
   font-size: 11.5px;
   font-weight: 500;
 }
-.tab-item.active { background: rgba(255, 255, 255, 0.12); }
+.tab-item.active { background: var(--active-bg); }
 
-/* 顶栏快捷按钮：毛玻璃圆角方块（图标化，隐藏文字防重叠） */
+/* 未读已经有红点，避免同时闪烁平台图标造成重复干扰。 */
+.tab-item.flash .p-icon {
+  animation: none;
+  opacity: 1;
+}
+.tab-item.flash .tab-dot {
+  box-shadow: 0 0 0 2px var(--bg-panel);
+}
+
+/* 顶栏快捷按钮：保留图标化，按高频产品动作 / 系统动作拉开层级。 */
+.top-quick { gap: 3px; }
 .quick-btn {
   width: 25px;
   height: 25px;
   padding: 0;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--btn-bg);
+  border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
-  transition: background 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
   justify-content: center;
 }
 .quick-btn span { display: none; }
 .quick-btn svg { flex-shrink: 0; }
 .quick-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--active-bg);
+  border-color: var(--border-standard);
   color: var(--text-primary);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
-.quick-btn:active { transform: translateY(0); }
+.quick-btn:active { background: var(--hover-strong); }
 
-/* 窗口控制：紧凑 */
+/* 应用中心是入口级动作，系统维护按钮退到次级层级。 */
+#btn-app-center {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+#btn-app-center:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+#btn-restart,
+#btn-lock,
+#btn-settings {
+  width: 23px;
+  height: 23px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-quaternary);
+}
+#btn-restart { margin-left: 4px; }
+#btn-contact-notes { margin-left: 4px; }
+
+/* 键盘用户应看到与 hover 同等明确的落点。 */
+.quick-btn:focus-visible,
+.nav-collapse:focus-visible,
+.tab-item:focus-visible,
+.nav-account:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 窗口控制：紧凑，并与产品工具形成明确分组。 */
+.win-controls {
+  margin-left: 4px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border-subtle);
+}
 .win-btn {
   width: 30px; height: 24px;
   border-radius: 6px;
   font-size: 11px;
   color: var(--text-quaternary);
 }
-.win-btn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); }
+.win-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
 
-/* ---------- 主按钮：系统蓝 ---------- */
+/* ---------- 主按钮 ---------- */
 .btn-add {
   background: var(--accent);
   color: #fff;
@@ -178,7 +236,7 @@ body {
 }
 .settings-tab.active {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-bg);
   border-bottom-color: transparent;
 }
 
@@ -194,8 +252,8 @@ body {
 .row-item select,
 .add-form input[type="text"],
 .add-form input[type="number"] {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--input-bg);
+  border: 1px solid var(--border-standard);
   border-radius: 8px;
   color: var(--text-primary);
   padding: 5px 10px;
@@ -212,7 +270,7 @@ body {
   background: var(--bg-surface);
   backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--border-standard);
   border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
@@ -222,16 +280,32 @@ body {
   padding: 7px 10px;
 }
 
-/* ---------- 空状态：柔和 ---------- */
-.empty-state { gap: 6px; }
+/* ---------- 空状态：柔和但有明确层级 ---------- */
+.empty-state {
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+}
 .empty-icon {
-  font-size: 34px;
-  color: var(--text-quaternary);
-  background: rgba(255, 255, 255, 0.05);
+  font-size: 30px;
+  color: var(--text-tertiary);
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 18px;
   width: 64px; height: 64px;
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+.empty-state p:first-of-type {
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 600;
+}
+.empty-state .muted {
+  max-width: 380px;
+  color: var(--text-tertiary);
+  line-height: 1.6;
 }
 
 /* ---------- 翻译弹窗 / 群发菜单：跟随毛玻璃 ---------- */
@@ -240,7 +314,7 @@ body {
   background: var(--bg-surface);
   backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--border-standard);
   border-radius: 14px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
