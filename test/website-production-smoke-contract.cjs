@@ -12,13 +12,16 @@ const {
 } = require('../scripts/website-production-smoke.cjs');
 
 const source = fs.readFileSync(path.join(__dirname, '../scripts/website-production-smoke.cjs'), 'utf8');
+const routerSource = fs.readFileSync(path.join(__dirname, '../scripts/geek-marketing-router.js'), 'utf8');
 
 assert.equal(SITE_ORIGIN, 'https://geek.bbnba.com');
 assert.equal(RELEASE_ORIGIN, 'https://geek-release.9529360.workers.dev');
 assert.doesNotMatch(source, /process\.env\.(?:TARGET_URL|SITE_URL|ENDPOINT_URL|RELEASE_URL)/, 'production smoke targets must not be caller-controlled');
 assert.doesNotMatch(source, /Authorization|Cookie|CLOUDFLARE_API_TOKEN/, 'production smoke must not attach credentials');
 assert.match(source, /script-src 'none'/, 'production smoke must verify the public CSP boundary');
+assert.match(source, /cross-origin-opener-policy/, 'production smoke must verify opener isolation');
 assert.match(source, /redirect: 'manual'/, 'download verification must inspect rather than follow the release handoff');
+assert.match(routerSource, /'Cross-Origin-Opener-Policy': 'same-origin'/, 'marketing pages must isolate cross-origin opener relationships');
 
 function html(body) {
   return new Response(body, {
@@ -26,6 +29,7 @@ function html(body) {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'",
+      'cross-origin-opener-policy': 'same-origin',
     },
   });
 }
@@ -104,11 +108,28 @@ function fakeProductionFetch(requests) {
 
     await assert.rejects(
       () => verifyHtml('/', ['one'], {
+        fetchImpl: async () => new Response('<main>one</main>', {
+          status: 200,
+          headers: {
+            'content-type': 'text/html',
+            'content-security-policy': "default-src 'none'; script-src 'none'",
+          },
+        }),
+        attempts: 1,
+        timeoutMs: 1000,
+        retryDelayMs: 0,
+      }),
+      /cross-origin-opener-policy/,
+    );
+
+    await assert.rejects(
+      () => verifyHtml('/', ['one'], {
         fetchImpl: async () => new Response('<script>alert(1)</script>one', {
           status: 200,
           headers: {
             'content-type': 'text/html',
             'content-security-policy': "default-src 'none'; script-src 'none'",
+            'cross-origin-opener-policy': 'same-origin',
           },
         }),
         attempts: 1,
