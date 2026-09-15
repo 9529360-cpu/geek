@@ -7,7 +7,7 @@
   ]);
   const DEFAULTS = Object.freeze({
     source: 'auto', server: 'default', send: false, sendFrom: 'auto', sendTo: 'en',
-    includeZh: true, displayTranslation: true, manual: true, translationMode: 'auto',
+    includeZh: true, displayTranslation: true, manual: true, translationMode: 'click',
     messageFrom: 'auto', messageTo: 'zh', group: false, fontSize: '13', fontColor: '#667eea'
   });
 
@@ -113,9 +113,28 @@
     function globalStore() { return parseJson(deps.getStorage('translationGlobal'), {}); }
     function chatStore() { return parseJson(deps.getStorage('translationChats'), {}); }
     function globalConfig() {
-      const cfg = { ...DEFAULTS, ...globalStore() };
+      const stored = globalStore();
+      const cfg = { ...DEFAULTS, ...stored };
+      if (!Object.prototype.hasOwnProperty.call(stored, 'translationMode')) {
+        cfg.translationMode = typeof core.receiveTranslationMode === 'function'
+          ? core.receiveTranslationMode(stored)
+          : (stored.message === true ? 'auto' : 'click');
+      }
       if (cfg.source === 'local' || cfg.source === 'remote') cfg.source = 'auto';
       return cfg;
+    }
+
+    async function ensureFreshAccountDefaults() {
+      const raw = deps.getStorage('translationGlobal');
+      if (raw !== null && raw !== undefined && String(raw).trim()) return false;
+      try {
+        const result = await deps.setStorage('translationGlobal', JSON.stringify(DEFAULTS));
+        if (result === false) return false;
+        deps.sync();
+        return true;
+      } catch {
+        return false;
+      }
     }
 
     function syncDependencies(cfg = globalConfig()) {
@@ -190,7 +209,7 @@
       setChecked('translation-display', cfg.displayTranslation !== false);
       setChecked('translation-manual', cfg.manual !== false);
       setChecked('translation-receive-auto', cfg.displayTranslation !== false && cfg.translationMode !== 'click');
-      setValue('translation-message', cfg.translationMode || 'auto');
+      setValue('translation-message', cfg.translationMode || 'click');
       setValue('translation-message-from', cfg.messageFrom || 'auto');
       setValue('translation-message-to', cfg.messageTo || 'zh');
       setChecked('translation-group', cfg.group === true);
@@ -306,7 +325,7 @@
           target: effective.target || 'en',
           messageAction: effective.messageAction !== false,
           displayTranslation: effective.displayTranslation !== false,
-          translationMode: effective.translationMode || 'auto',
+          translationMode: effective.translationMode || 'click',
           messageTarget: effective.messageTarget || 'zh'
         };
       }
@@ -531,6 +550,7 @@
       refreshAppearancePreview();
       ensureGlobalResetButton();
       try { localStorage.removeItem('geekTranslationGateway'); } catch {}
+      void ensureFreshAccountDefaults();
 
       const popover = el('translation-popover');
       const button = el('btn-translation');
