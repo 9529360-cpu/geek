@@ -28,6 +28,17 @@ const SUBSCRIPTION_ERROR_CODES = Object.freeze([
   'SECURE_STORAGE_UNAVAILABLE',
   'SECURE_STORAGE_ENCRYPT_FAILED',
 ]);
+const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
+const TRANSLATION_AUTH_ERROR_CODES = new Set([
+  'SUBSCRIPTION_LOGIN_REQUIRED',
+  'SUBSCRIPTION_SESSION_CHANGED',
+  'SUBSCRIPTION_TOKEN_DECRYPT_FAILED',
+  'SUBSCRIPTION_STATE_RECOVERY_REQUIRED',
+  'SECURE_STORAGE_UNAVAILABLE',
+  'SECURE_STORAGE_ENCRYPT_FAILED',
+  'account_disabled',
+  'TRANSLATION_AUTH_REQUIRED',
+]);
 
 function normalizeSubscriptionIpcError(error) {
   const message = String(error?.message || error || '');
@@ -49,15 +60,38 @@ async function invokeSubscription(channel, ...args) {
   }
 }
 
+function normalizeTranslationErrorCategory(detail = {}) {
+  const code = String(detail.code || '');
+  if (TRANSLATION_AUTH_ERROR_CODES.has(code)) return 'auth';
+  return String(detail.category || 'gateway').slice(0, 64);
+}
+
+function translationErrorEnvelope(detail = {}) {
+  const payload = {
+    code: String(detail.code || 'TRANSLATION_FAILED').slice(0, 100),
+    message: String(detail.message || '翻译请求失败').slice(0, 300),
+    category: normalizeTranslationErrorCategory(detail),
+    retryable: detail.retryable === true,
+  };
+  if (Number.isInteger(detail.status)) payload.status = detail.status;
+  return TRANSLATION_ERROR_ENVELOPE_PREFIX + JSON.stringify(payload);
+}
+
 function unwrapTranslationIpcResponse(response) {
   // Compatibility for a mixed old-main/new-preload process during restart or
   // development: old main returned the translation result directly.
   if (!response || typeof response !== 'object' || typeof response.ok !== 'boolean') return response;
   if (response.ok) return response.result;
   const detail = response.error && typeof response.error === 'object' ? response.error : {};
-  const error = new Error(String(detail.message || '翻译请求失败'));
+  const humanMessage = String(detail.message || '翻译请求失败').slice(0, 300);
+  // ui/app.js intentionally exposes only the Error message to an untrusted
+  // guest page. Carry a bounded, privacy-safe envelope in that message so the
+  // WebView can recover code/category/status without receiving tokens, headers,
+  // provider credentials or arbitrary main-process error objects.
+  const error = new Error(translationErrorEnvelope({ ...detail, message: humanMessage }));
+  error.userMessage = humanMessage;
   error.code = String(detail.code || 'TRANSLATION_FAILED');
-  error.category = String(detail.category || 'gateway');
+  error.category = normalizeTranslationErrorCategory(detail);
   error.retryable = detail.retryable === true;
   if (Number.isInteger(detail.status)) error.status = detail.status;
   throw error;
