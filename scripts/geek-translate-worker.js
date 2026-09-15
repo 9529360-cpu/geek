@@ -11,10 +11,6 @@ const LANG_NAMES = {
   nl: 'Dutch', sv: 'Swedish', el: 'Greek', th: 'Thai',
 };
 
-// 免费模型池（按顺序尝试；429/5xx/超时/空响应 → 自动切换下一个）
-// 2026-08-17 晚：Groq/Gemini 旧 key 失效、旧模型名下架 → 换新 key 和新模型名
-// 2026-08-17 深夜：Groq qwen 模型输出 <think> 思考过程污染翻译结果（几字变千字，扣光额度）
-//   → Groq 从池中移除；Gemini 优先（新 key 干净输出）；GLM 慢+易限流放最后备用
 const PROVIDERS = [
   { id: 'gemini', model: 'gemini-3.6-flash',       base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
   { id: 'mistral', model: 'mistral-small-latest',   base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
@@ -22,9 +18,6 @@ const PROVIDERS = [
 ];
 
 const enc = new TextEncoder();
-
-// 模型健康状态（内存态，进程重启重置；失败降级标记 + 成功自动恢复）
-// 规则：连续 2 次失败 → 标记不健康（跳过）；30 秒冷却后允许重试探测；任意成功 → 恢复健康
 const providerState = new Map();
 const FAIL_THRESHOLD = 2;
 const COOLDOWN_MS = 30000;
@@ -252,7 +245,7 @@ const META_PREFIXES = [
   /^(?:翻译|译文|翻译结果)(?:成|为|至)?[^\n：:]{0,30}[：:]\s*/i,
   /^(?:here(?:'s| is)|below is|the following is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
   /^(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]\s*/i,
-  /^(?:sure|certainly|of course)[,!：:\s-]*(?:here(?:'s| is)\s+)?(?:the\s+)?(?:translation|translated text)?(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
+  /^(?:sure|certainly|of course)[,!：:\s-]+here(?:'s| is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
 ];
 
 function sanitizeTranslationOutput(value) {
@@ -270,12 +263,6 @@ function sanitizeTranslationOutput(value) {
   }
   const trailingFence = result.match(/^```(?:[a-z-]+)?\s*\n?([\s\S]*?)\n?```$/i);
   if (trailingFence) result = trailingFence[1].trim();
-  for (const [open, close] of [['“', '”'], ['‘', '’'], ['"', '"'], ["'", "'"]]) {
-    if (result.startsWith(open) && result.endsWith(close) && result.length > open.length + close.length) {
-      result = result.slice(open.length, -close.length).trim();
-      break;
-    }
-  }
   return result;
 }
 
