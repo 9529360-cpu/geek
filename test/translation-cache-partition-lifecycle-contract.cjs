@@ -200,7 +200,7 @@ async function resolvesBeforeNextTurn(promise, message) {
     assert.equal(resultB.text, 'B-work-ok', 'an unrelated live account must keep translating normally');
     await liveAppendFinished.promise;
     assert.equal(await pathExists(dirB), true, 'live account partition must remain intact');
-    assert.match(await fsp.readFile(cacheB, 'utf8'), /"version":"prompt-20260822-2"/, 'live account cache should still persist when its partition already exists');
+    assert.match(await fsp.readFile(cacheB, 'utf8'), /"version":"prompt-20260822-2:source-language-v1"/, 'live cache must persist under the explicit-source semantic revision');
     assert.equal(mkdirCalls, 0, 'live cache writes must also respect Session ownership of the partition directory');
     assert.equal(appendCalls, 2, 'the live account should perform its own independent cache append');
     assert.equal(fetchCalls, 3, 'the write-behind path must not duplicate remote requests');
