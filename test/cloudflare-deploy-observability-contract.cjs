@@ -30,7 +30,15 @@ assert.match(website, /^      name: cloudflare-website-production$/m);
 assert.doesNotMatch(website, /- '\.github\/workflows\/deploy-website\.yml'/, 'workflow control-plane changes must not auto-deploy production');
 assert.doesNotMatch(website, /- 'scripts\/website-production-smoke\.cjs'/, 'verification tooling changes must not auto-deploy production');
 assert.match(website, /- name: Deploy website Worker\n        id: deploy/);
-assert.match(website, /- name: Verify critical public website routes\n        id: verify\n        run: node scripts\/website-production-smoke\.cjs/);
+assert.match(website, /WRANGLER_OUTPUT_FILE_PATH: \$\{\{ runner\.temp \}\}\/wrangler-website-deploy\.ndjson/, 'website deploy must request structured Wrangler output');
+assert.match(website, /printf 'version_id=%s\\n' "\$VERSION_ID" >> "\$GITHUB_OUTPUT"/, 'website deploy must expose the exact deployed version ID to later steps');
+assert.match(
+  website,
+  /- name: Verify critical public website routes\n        id: verify\n        env:\n          GEEK_EXPECTED_WORKER_VERSION: \$\{\{ steps\.deploy\.outputs\.version_id \}\}\n        run: node scripts\/website-production-smoke\.cjs/,
+  'production verification must receive the exact Worker version emitted by deploy',
+);
+assert.match(website, /DEPLOYED_WORKER_VERSION: \$\{\{ steps\.deploy\.outputs\.version_id \}\}/);
+assert.match(website, /VERIFIED_WORKER_VERSION: \$\{\{ steps\.verify\.outputs\.worker_version \}\}/);
 assert.match(website, /HTTP_CODE: \$\{\{ steps\.verify\.outputs\.health_http_code \}\}/);
 assert.match(website, /ROUTES_CHECKED: \$\{\{ steps\.verify\.outputs\.routes_checked \}\}/);
 assert.match(website, /if: always\(\)/);
@@ -39,7 +47,10 @@ assert.doesNotMatch(website, /curl .*geek\.bbnba\.com\/health/, 'website product
 
 assert.match(websiteSmoke, /const SITE_ORIGIN = 'https:\/\/geek\.bbnba\.com';/);
 assert.match(websiteSmoke, /const RELEASE_ORIGIN = 'https:\/\/geek-release\.9529360\.workers\.dev';/);
-for (const route of ['/health', '/guide', '/faq', '/sitemap.xml', '/download']) {
+assert.match(websiteSmoke, /const WORKER_VERSION_HEADER = 'X-Geek-Worker-Version';/);
+assert.match(websiteSmoke, /const VERSION_OVERRIDE_HEADER = 'Cloudflare-Workers-Version-Overrides';/);
+assert.match(websiteSmoke, /GEEK_EXPECTED_WORKER_VERSION/, 'production smoke must fail closed without deploy version identity');
+for (const route of ['/health', '/pricing', '/guide', '/faq', '/sitemap.xml', '/download']) {
   assert.ok(websiteSmoke.includes(route), `website production smoke missing ${route}`);
 }
 assert.match(websiteSmoke, /script-src 'none'/, 'website production smoke must verify the public CSP boundary');
