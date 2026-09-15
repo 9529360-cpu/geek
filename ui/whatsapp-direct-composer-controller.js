@@ -24,13 +24,14 @@
   }
 
   function parseTranslationFailure(error) {
+    const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
     const tagged = error && (typeof error === 'object' || typeof error === 'function')
       ? error
       : new Error(String(error || '翻译失败'));
     const rawMessage = String(tagged?.message || '');
-    if (!rawMessage.startsWith(TRANSLATION_ERROR_ENVELOPE_PREFIX)) return tagged;
+    if (!rawMessage.startsWith(prefix)) return tagged;
     let detail;
-    try { detail = JSON.parse(rawMessage.slice(TRANSLATION_ERROR_ENVELOPE_PREFIX.length)); }
+    try { detail = JSON.parse(rawMessage.slice(prefix.length)); }
     catch { return tagged; }
     if (!detail || typeof detail !== 'object') return tagged;
     try { tagged.message = String(detail.message || '翻译请求失败').slice(0, 300); } catch {}
