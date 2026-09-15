@@ -8,6 +8,7 @@ const root = path.join(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8').replace(/\r\n?/g, '\n');
 const main = read('src/main.cjs');
 const owner = read('src/subscription-ipc.cjs');
+const documentBoundary = read('src/subscription-window-boundary.cjs');
 
 assert.match(main, /const \{ installSubscriptionIpc \} = require\('\.\/subscription-ipc\.cjs'\)/, 'main must compose Subscription IPC owner');
 assert.match(main, /subscriptionIpcBoundary = installSubscriptionIpc\(\{/, 'main must install Subscription IPC owner');
@@ -17,10 +18,19 @@ assert.doesNotMatch(main, /registerSubscriptionIpcHandlers/, 'legacy direct subs
 assert.doesNotMatch(main, /ipcMain\.handle\('subscription:/, 'main must not directly register subscription IPC');
 assert.doesNotMatch(main, /ipcMain\.removeHandler\('subscription:/, 'main must not directly tear down subscription IPC');
 
+assert.match(owner, /require\('\.\/subscription-window-boundary\.cjs'\)/, 'Subscription IPC owner must reuse the canonical local-document sender boundary');
 assert.match(owner, /function assertTrustedSender\(event\)/, 'Subscription IPC owner must own the fail-closed sender gate');
-assert.match(owner, /if \(!isTrustedSender\(event\)\) throw new Error\('拒绝来自未授权页面的 IPC 请求'\)/, 'sender validation must reject untrusted pages');
+assert.match(
+  owner,
+  /if \(!isTrustedSender\(event\) \|\| !isTrustedSubscriptionIpcEvent\(event\)\) \{[\s\S]*throw new Error\('拒绝来自未授权页面的 IPC 请求'\)/,
+  'sender validation must require both trusted WebContents ownership and trusted local main-frame document identity',
+);
 assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{[\s\S]*assertTrustedSender\(event\);[\s\S]*return handler\(\.\.\.args\)/, 'every registered subscription handler must pass through sender validation before work');
 assert.match(owner, /for \(const channel of SUBSCRIPTION_CHANNELS\) ipcMain\.removeHandler\(channel\)/, 'owner must own complete teardown');
+assert.match(documentBoundary, /sender\.mainFrame !== frame/, 'document boundary must reject subscription IPC from subframes');
+assert.match(documentBoundary, /TRUSTED_SUBSCRIPTION_IPC_DOCUMENTS\.has\(canonicalLocalDocumentUrl\(frame\.url\)\)/, 'document boundary must authorize only exact packaged local UI documents');
+assert.match(documentBoundary, /MAIN_DOCUMENT_URL/, 'main local UI must remain an explicit trusted subscription IPC document');
+assert.match(documentBoundary, /SUBSCRIPTION_DOCUMENT_URL/, 'subscription local UI must remain an explicit trusted subscription IPC document');
 assert.match(owner, /subscription:get-order-status/, 'current-order status lookup must stay inside the trusted Subscription IPC owner');
 assert.match(owner, /getStore\(\)\.myOrders\(\)/, 'order status projection must reuse authenticated store order lookup');
 assert.doesNotMatch(owner, /return\s+order\s*;/, 'raw order rows must not cross the IPC boundary');
