@@ -44,9 +44,10 @@ function createFakeFs() {
 (async () => {
   const handlers = new Map();
   const ipcMain = { handle(channel, handler) { assert.equal(handlers.has(channel), false, `duplicate handler ${channel}`); handlers.set(channel, handler); } };
-  const sender = { id: 7 };
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
-  const mainWindow = { webContents: { id: 7, getURL: () => pathToFileURL(uiEntryPath).href }, isDestroyed: () => false };
+  const mainFrame = { url: pathToFileURL(uiEntryPath).href };
+  const sender = { id: 7, mainFrame };
+  const mainWindow = { webContents: { id: 7, getURL: () => mainFrame.url }, isDestroyed: () => false };
   const dialog = { async showOpenDialog() { return { canceled: false, filePaths: ['attachment.txt'] }; }, async showMessageBox() { throw new Error('unexpected warning'); } };
   const BrowserWindow = { fromWebContents: candidate => candidate === sender ? mainWindow : null };
   const forwarded = [];
@@ -58,7 +59,12 @@ function createFakeFs() {
     sendFile: transport('send'), attachFile: transport('attach'), dropFile: transport('drop'),
   });
 
-  const event = { sender };
+  const event = { sender, senderFrame: mainFrame };
+  await assert.rejects(
+    handlers.get(CHANNELS.pickToken)({ sender, senderFrame: { url: mainFrame.url } }),
+    { code: 'BROADCAST_FILE_OWNER_INVALID' },
+    'same-WebContents child frames must not inherit privileged file capabilities',
+  );
   const picked = await handlers.get(CHANNELS.pickToken)(event);
   assert.deepEqual(Object.keys(picked).sort(), ['mime', 'name', 'size', 'token']);
   assert.equal(handlers.has('file:pick'), false, 'legacy picker must never be registered');
