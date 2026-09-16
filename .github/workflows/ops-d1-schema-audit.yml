@@ -13,16 +13,22 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: cloudflare-translation-production
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Verify current Cloudflare control-plane access
+        shell: bash
+        env:
+          CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_INFRA_SUMMARY_PATH: infra-smoke-summary.md
+        run: node scripts/cloudflare-infra-smoke.mjs
+
       - name: Audit production D1 schema only
         shell: bash
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
