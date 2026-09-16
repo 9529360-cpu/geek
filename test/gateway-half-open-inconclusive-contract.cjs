@@ -9,6 +9,7 @@ const {
   createTranslationRuntime,
   unwrapTranslationIpcResponse,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 const PRIMARY = 'https://primary.example.test';
 const BACKUP = 'https://backup.example.test';
@@ -128,7 +129,8 @@ async function waitFor(predicate, label) {
 
   runtime.install();
   const rawTranslate = handlers.get('translation:translate');
-  const translate = async text => unwrapTranslationIpcResponse(await rawTranslate({ sender: { id: 1 } }, {
+  const event = mainFrameIpcEvent({ id: 1 });
+  const translate = async text => unwrapTranslationIpcResponse(await rawTranslate(event, {
     accountId: 'account-a',
     text,
     target: 'it',
