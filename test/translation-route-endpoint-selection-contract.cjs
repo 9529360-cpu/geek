@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { createGatewayPool, DEFAULT_RECOVERY_PROBE_MS } = require('../src/gateway-failover.cjs');
 const { createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 const PRIMARY = 'https://primary.example.test';
 const BACKUP = 'https://backup.example.test';
@@ -54,10 +55,11 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
   });
   runtime.install();
   const rawTranslate = handlers.get('translation:translate');
+  const event = mainFrameIpcEvent({ id: 1 });
   return {
     runtime,
     calls,
-    translate: payload => rawTranslate({ sender: { id: 1 } }, payload).then(unwrapTranslationIpcResponse),
+    translate: payload => rawTranslate(event, payload).then(unwrapTranslationIpcResponse),
   };
 }
 
