@@ -103,6 +103,7 @@ function createAccountDataStore(options = {}) {
         queue: Promise.resolve(),
         recordCount: 0,
         fileBytes: 0,
+        fileExists: false,
         needsCompaction: false,
         repairRequired: false,
         deleting: false,
@@ -243,6 +244,7 @@ function createAccountDataStore(options = {}) {
       throw createStoreError('ACCOUNT_DATA_TEMP_INVALID', '账号数据恢复文件损坏');
     }
     await fs.rename(temporary, target);
+    await syncDirectory(path.dirname(target));
   }
 
   async function loadState(state) {
@@ -261,6 +263,7 @@ function createAccountDataStore(options = {}) {
         state.cache = loaded.cache;
         state.recordCount = loaded.recordCount;
         state.fileBytes = Number(stat.size) || 0;
+        state.fileExists = true;
         state.needsCompaction = loaded.needsCompaction
           || state.recordCount >= limits.compactRecordCount
           || state.fileBytes >= limits.compactFileBytes;
@@ -270,6 +273,7 @@ function createAccountDataStore(options = {}) {
         state.cache = new Map();
         state.recordCount = 0;
         state.fileBytes = 0;
+        state.fileExists = false;
         state.needsCompaction = false;
         state.repairRequired = false;
       }
@@ -298,6 +302,7 @@ function createAccountDataStore(options = {}) {
 
   async function appendLine(state, line) {
     const file = fileFor(state.partition);
+    const establishesFile = state.fileExists !== true;
     await fs.mkdir(path.dirname(file), { recursive: true });
     let handle;
     try {
@@ -306,6 +311,13 @@ function createAccountDataStore(options = {}) {
       await handle.sync();
     } finally {
       if (handle) await handle.close();
+    }
+    if (establishesFile) {
+      // File fsync makes the first record durable, but a newly-created pathname
+      // also needs a parent-directory durability fence before we treat it as an
+      // established authority. Later appends avoid this extra directory sync.
+      await syncDirectory(path.dirname(file));
+      state.fileExists = true;
     }
     state.recordCount += 1;
     state.fileBytes += Buffer.byteLength(line, 'utf8');
@@ -348,6 +360,7 @@ function createAccountDataStore(options = {}) {
       await syncDirectory(path.dirname(target));
       state.recordCount = state.cache.size;
       state.fileBytes = Buffer.byteLength(snapshot, 'utf8');
+      state.fileExists = true;
       state.needsCompaction = false;
       state.repairRequired = false;
     } finally {
