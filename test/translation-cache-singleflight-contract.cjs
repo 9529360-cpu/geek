@@ -7,6 +7,7 @@ const {
   unwrapTranslationIpcResponse,
   createTranslationRuntime,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function deferred() {
   let resolve;
@@ -99,7 +100,7 @@ function createHarness({ accounts, readFile }) {
     runtime,
     translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
     fetchCount: () => fetchCount,
-    event: { sender: { id: 1 } },
+    event: mainFrameIpcEvent({ id: 1 }),
   };
 }
 
