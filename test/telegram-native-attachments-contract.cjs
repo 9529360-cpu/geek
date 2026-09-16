@@ -109,9 +109,10 @@ function createFakeFs() {
 async function testBatchOpaqueTokenBoundary() {
   const handlers = new Map();
   const ipcMain = { handle(channel, handler) { assert.equal(handlers.has(channel), false); handlers.set(channel, handler); } };
-  const sender = { id: 7 };
   const uiEntryPath = path.join(__dirname, '../ui/index.html');
-  const mainWindow = { webContents: { id: 7, getURL: () => pathToFileURL(uiEntryPath).href }, isDestroyed: () => false };
+  const mainFrame = { url: pathToFileURL(uiEntryPath).href };
+  const sender = { id: 7, mainFrame };
+  const mainWindow = { webContents: { id: 7, getURL: () => mainFrame.url }, isDestroyed: () => false };
   const dialog = { async showOpenDialog() { return { canceled: false, filePaths: ['one.jpg', 'two.png'] }; }, async showMessageBox() { throw new Error('unexpected warning'); } };
   const BrowserWindow = { fromWebContents: candidate => candidate === sender ? mainWindow : null };
   const routed = [];
@@ -127,8 +128,9 @@ async function testBatchOpaqueTokenBoundary() {
   for (const channel of ['file:pick', 'broadcast:send-file', 'broadcast:attach-file', 'broadcast:drop-file', 'file:pick-csv']) {
     assert.equal(handlers.has(channel), false, `legacy raw handler must not exist: ${channel}`);
   }
-  const picked = await handlers.get(CHANNELS.pickToken)({ sender });
-  const result = await handlers.get(CHANNELS.telegramFilesToken)({ sender }, {
+  const event = { sender, senderFrame: mainFrame };
+  const picked = await handlers.get(CHANNELS.pickToken)(event);
+  const result = await handlers.get(CHANNELS.telegramFilesToken)(event, {
     partition: 'persist:test', guestId: 22, targetChatId: 'chat-a', caption: 'caption',
     fileTokens: picked.map(file => file.token), filePaths: ['C:/renderer/must-not-win.jpg'],
   });
