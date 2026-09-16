@@ -1,0 +1,31 @@
+name: audit-translation-d1-schema
+
+on:
+  push:
+    branches:
+      - ops/539-d1-schema-audit-20260916
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: cloudflare-translation-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Audit production D1 schema only
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.36.0 d1 execute geek-subscriptions --remote --config wrangler-translate.toml --command "PRAGMA table_info(translation_usage)"
+          npx --yes wrangler@4.36.0 d1 execute geek-subscriptions --remote --config wrangler-translate.toml --command "SELECT name, type FROM sqlite_schema WHERE name IN ('idx_translation_usage_lease','trg_translation_usage_reservation_lease') ORDER BY name"
+          npx --yes wrangler@4.36.0 d1 execute geek-subscriptions --remote --config wrangler-translate.toml --command "SELECT name FROM d1_migrations ORDER BY id"
