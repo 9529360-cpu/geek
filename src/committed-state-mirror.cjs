@@ -290,6 +290,27 @@ function createCommittedStateMirror(options = {}) {
     await ensureStableBackup(loaded.sha256);
   }
 
+  async function publishInitializedPrimary(snapshot, expectedHash) {
+    try {
+      await fs.rename(temporaryFile, filePath);
+      await syncDirectory();
+      return;
+    } catch (error) {
+      onPostCommitError(error, { phase: 'primary-mirror', sha256: expectedHash });
+    }
+
+    // The proof is already the commit authority. Retry materializing the live
+    // primary once, but never report the committed transaction as rolled back if
+    // the mirror remains temporarily unavailable: the proof-matching recovery
+    // backup below is already fsynced and can restore it on the next load.
+    try {
+      await restorePrimary(snapshot);
+    } catch (error) {
+      onPostCommitError(error, { phase: 'primary-recovery', sha256: expectedHash });
+      await safeRemove(temporaryFile);
+    }
+  }
+
   async function commit(content, { initializing = false } = {}) {
     const snapshot = String(content);
     await fs.mkdir(directory, { recursive: true });
@@ -303,10 +324,24 @@ function createCommittedStateMirror(options = {}) {
       await writeSynced(commitTemporaryFile, proofText(snapshot));
       await syncDirectory();
 
-      await fs.rename(temporaryFile, filePath);
-      await fs.rename(commitTemporaryFile, commitPath);
-      committed = true;
-      await syncDirectory();
+      if (initializing) {
+        // Before the first proof exists, a visible candidate primary is
+        // indistinguishable from an authentic legacy file. Publish the proof
+        // first so an interruption before the commit point leaves the previous
+        // legacy primary (or true emptiness) authoritative; after the proof
+        // commits, the fsynced staged backup makes primary publication recoverable.
+        await fs.rename(commitTemporaryFile, commitPath);
+        committed = true;
+        await syncDirectory();
+        await publishInitializedPrimary(snapshot, expectedHash);
+      } else {
+        // Once an older proof exists, the candidate primary can safely be staged
+        // before the new proof: recovery will reject it unless the proof advances.
+        await fs.rename(temporaryFile, filePath);
+        await fs.rename(commitTemporaryFile, commitPath);
+        committed = true;
+        await syncDirectory();
+      }
 
       try {
         await fs.rename(backupTemporaryFile, backupPath);
