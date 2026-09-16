@@ -6,6 +6,7 @@ const path = require('node:path');
 const EXPECTED_MIGRATION = '005-translation-reservation-lease.sql';
 const MANAGED_DIR = 'scripts/d1-migrations';
 const MANAGED_TABLE = 'geek_d1_migrations';
+const BASELINE_FILE = 'scripts/d1-baselines/004-subscription-schema.sql';
 const DATABASE_NAME = 'geek-subscriptions';
 const DATABASE_ID = '1e78a93a-36de-43db-88aa-4551f9991200';
 const REQUIRED_BASE_COLUMNS = Object.freeze([
@@ -59,6 +60,23 @@ function validateRepo(root = path.resolve(__dirname, '..')) {
   if (!config.includes(`migrations_table = "${MANAGED_TABLE}"`)) fail('managed migrations table drifted');
   if (config.includes('scripts/migrations')) fail('legacy migration directory must never be managed by Wrangler');
   if (/^main\s*=/m.test(config)) fail('schema control-plane config must not become a Worker deployment config');
+
+  const baselinePath = path.join(root, BASELINE_FILE);
+  const baseline = fs.readFileSync(baselinePath, 'utf8');
+  const usageMatch = baseline.match(/CREATE TABLE IF NOT EXISTS translation_usage\s*\(([\s\S]*?)\n\);/i);
+  if (!usageMatch) fail('004 baseline translation_usage table missing');
+  for (const column of REQUIRED_BASE_COLUMNS) {
+    if (!new RegExp(`\\b${column}\\b`, 'i').test(usageMatch[1])) fail(`004 baseline is missing translation_usage.${column}`);
+  }
+  if (!/\baccount_no\b/i.test(baseline) || !/\btoken_version\b/i.test(baseline) || !/CREATE TABLE IF NOT EXISTS password_reset_requests/i.test(baseline)) {
+    fail('004 baseline does not include the proven legacy 002-004 schema effects');
+  }
+  if (/\blease_expires_at\b|idx_translation_usage_lease|trg_translation_usage_reservation_lease/i.test(baseline)) {
+    fail('004 baseline must remain strictly pre-005');
+  }
+  if (/\b(?:request_hash|replay_ciphertext|replay_expires_at)\b|idx_translation_usage_replay_expiry/i.test(baseline)) {
+    fail('004 baseline must remain strictly pre-006');
+  }
 
   const managedPath = path.join(root, MANAGED_DIR);
   const files = fs.readdirSync(managedPath, { withFileTypes: true })
@@ -166,6 +184,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  BASELINE_FILE,
   DATABASE_ID,
   DATABASE_NAME,
   EXPECTED_MIGRATION,
