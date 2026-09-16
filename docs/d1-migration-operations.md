@@ -17,6 +17,8 @@ Wrangler-managed production migrations start at migration 005 and use:
 
 Only one migration is admitted in the managed directory at a time. This prevents `wrangler d1 migrations apply` from crossing an unreviewed rollout boundary by applying multiple newly-added files in one run.
 
+Migration tests use immutable pre-migration schema fixtures under `scripts/d1-baselines/`. For migration 005, `004-subscription-schema.sql` is the frozen schema after the proven legacy 002–004 effects and before any 005 artifact. Do not replace a migration baseline with the moving `scripts/geek-subscription-schema.sql`: the canonical schema is expected to advance after a migration lands, while a migration's input state must remain reproducible.
+
 ## Production workflow boundary
 
 `.github/workflows/d1-migrations-production.yml` is manual-only. It has no push or pull-request mutation trigger, runs only when dispatched from `master`, uses the infrastructure D1 credential, and never deploys a Worker.
@@ -52,9 +54,9 @@ This one-at-a-time rule is deliberate: each schema boundary can be stopped, revi
 
 ## Local / PR validation
 
-`cloudflare-worker-validation` receives no production infrastructure secret. It creates an isolated local D1 database from `scripts/geek-subscription-schema.sql`, runs the admitted managed migration with the pinned Wrangler version, then verifies the resulting schema and managed ledger using `scripts/d1-migration-guard.cjs`.
+`cloudflare-worker-validation` receives no production infrastructure secret. It creates an isolated local D1 database from the immutable pre-005 fixture `scripts/d1-baselines/004-subscription-schema.sql`, runs the admitted managed migration with the pinned Wrangler version, then verifies the resulting schema and managed ledger using `scripts/d1-migration-guard.cjs`.
 
-This proves that the D1-only Wrangler config is accepted and that the migration executes against the repository's canonical prior schema, without treating local success as production evidence.
+This proves that the D1-only Wrangler config is accepted and that the migration executes against its actual prior schema, while allowing the current canonical schema to advance independently after rollout. Local success is not production evidence.
 
 ## Stop conditions
 
