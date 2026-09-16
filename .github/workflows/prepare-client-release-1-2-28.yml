@@ -1,0 +1,46 @@
+name: Prepare client release 1.2.28
+
+on:
+  push:
+    branches:
+      - release/1.2.28
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.event.head_commit.message == 'chore: bootstrap client release 1.2.28'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/1.2.28
+          fetch-depth: 0
+
+      - name: Bump release authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version 1.2.28 --no-git-tag-version --ignore-scripts
+          printf '%s\n' '1.2.28' > .github/release-client-version
+
+          test "$(node -p "require('./package.json').version")" = "1.2.28"
+          test "$(node -p "require('./package-lock.json').version")" = "1.2.28"
+          test "$(node -p "require('./package-lock.json').packages[''].version")" = "1.2.28"
+          test "$(cat .github/release-client-version)" = "1.2.28"
+
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' .github/release-client-version package-lock.json package.json | sort)"
+          test "$actual" = "$expected"
+
+      - name: Commit release authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/release-client-version package.json package-lock.json
+          git commit -m 'chore: prepare client release 1.2.28'
+          git push origin HEAD:release/1.2.28
