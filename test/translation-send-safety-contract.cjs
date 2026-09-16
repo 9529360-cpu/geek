@@ -13,6 +13,7 @@ const runtimeOwnerSource = fs.readFileSync(path.join(root, 'src', 'translation-r
 const runtimeBaseSource = fs.readFileSync(path.join(root, 'src', 'translation-runtime-base.cjs'), 'utf8');
 const adapterSource = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8');
 const appSource = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
+const directComposerSource = fs.readFileSync(path.join(root, 'ui', 'whatsapp-direct-composer-controller.js'), 'utf8');
 
 const source = '晚上好，你吃饭了吗？';
 assert.equal(
@@ -104,6 +105,7 @@ assert.match(runtimeBaseSource, /assertSafeTranslationOutput\(\{ source: text, o
 assert.match(appSource, /shouldGuardRawSend[\s\S]*翻译尚未就绪，已阻止原文发送/, 'WhatsApp 钩子未就绪时必须拦截原文');
 assert.match(appSource, /live\.sendTextMsgToChat !== window\.__geekWhatsAppWrappedSend/, 'WhatsApp 必须在发送时检查翻译钩子仍然存活');
 assert.match(appSource, /__geekWhatsAppDirectComposerController[\s\S]*handleNativeSend\(chat, args, original, this\)/, 'WhatsApp legacy text wrapper must delegate translated private sends to the single direct-composer owner');
+assert.match(directComposerSource, /const translated = await translate\(\{[\s\S]*intent: 'outgoing-send'/, 'WhatsApp translated private sends must enter the interactive Translation Runtime QoS class');
 assert.match(adapterSource, /geek-telegram-translation-send[\s\S]*翻译失败，原文未发送/, 'Telegram 翻译失败必须保留原文且提示');
 assert.match(adapterSource, /button\[aria-label="Send"\][\s\S]*translateAndSend\(event, composerHost\(event\), button\)/, 'LINE 必须覆盖发送按钮路径');
 
