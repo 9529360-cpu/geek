@@ -6,6 +6,7 @@
 const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const base = require('./translation-runtime-base.cjs');
+const { assertMainFrameIpcSender } = require('./main-frame-ipc-boundary.cjs');
 const {
   normalizeTranslationSourceLanguage,
   normalizeTranslationTargetLanguage,
@@ -316,6 +317,7 @@ function createTranslationRuntime(options = {}) {
 
   async function translateIpc(event, payload) {
     // Keep sender security outside the application envelope and before queueing.
+    assertMainFrameIpcSender(event);
     assertTrustedSender(event);
     let body;
     try {
@@ -380,6 +382,9 @@ function createTranslationRuntime(options = {}) {
   }
 
   async function health(event) {
+    // Health exposes runtime and scheduler state, so reject child frames before
+    // delegating to the base trusted-sender gate.
+    assertMainFrameIpcSender(event);
     const result = await baseHandler('translation:health')(event);
     return Object.freeze({ ...result, scheduler: scheduler.snapshot() });
   }
