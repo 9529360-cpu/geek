@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const CONTROLLER_VERSION = 6;
+  const CONTROLLER_VERSION = 7;
   const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
@@ -288,6 +288,7 @@
           setPhase('translating');
           const translated = await translate({
             text,
+            intent: 'outgoing-send',
             source: resolved.setting.source || 'auto',
             target: resolved.setting.target,
             provider: resolved.setting.provider,

@@ -67,7 +67,7 @@ function makePage(options = {}) {
 }
 
 (async () => {
-  assert.equal(controller.CONTROLLER_VERSION, 6);
+  assert.equal(controller.CONTROLLER_VERSION, 7);
   assert.equal(controller.isWhatsAppType('whatsapp'), true);
   assert.equal(controller.isWhatsAppType('whatsapp-pure'), true);
   assert.equal(controller.isWhatsAppType('telegram'), false);
@@ -98,6 +98,7 @@ function makePage(options = {}) {
     assert.equal(resolved.chatId, '987654321@lid');
     await owner.handleNativeSend(env.nativeChat, ['hello', { quoted: true }], env.original, null);
     assert.equal(env.translationCalls.length, 1);
+    assert.equal(env.translationCalls[0].intent, 'outgoing-send', 'ordinary translated sends must enter the interactive Translation Runtime QoS class');
     assert.equal(env.translationCalls[0].chatId, '987654321@lid');
     assert.equal(env.nativeSends.length, 1);
     assert.equal(env.nativeSends[0][1], 'translated:hello', 'translation-on must never leak the raw source');

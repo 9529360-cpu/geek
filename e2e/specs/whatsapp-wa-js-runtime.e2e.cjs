@@ -77,7 +77,7 @@ function injectionReady(state) {
     && state?.wppReady === true
     && state?.loaderReady === true;
   return waJsReady
-    && state?.directComposerVersion === 6
+    && state?.directComposerVersion === 7
     && state?.directComposerNativeReady === true
     && state?.directComposerSettingReady === true
     && state?.directComposerIdentityReady === true
@@ -112,7 +112,7 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
     assert.equal(state.wppInjected, true, 'WA-JS bundle must report injected before the partition is owned');
     assert.equal(state.wppReady, true, 'WA-JS official readiness must settle');
     assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by compatibility paths is missing');
-    assert.equal(state.directComposerVersion, 6, 'thin translation adapter must match the tested owner generation');
+    assert.equal(state.directComposerVersion, 7, 'thin translation adapter must match the tested owner generation');
     assert.equal(state.directComposerNativeReady, true, 'native private-send adapter must be injected into the WhatsApp guest');
     assert.equal(state.directComposerSettingReady, true, 'chat-scoped translation configuration resolver must be injected');
     assert.equal(state.directComposerIdentityReady, true, 'WhatsApp LID/PN identity verifier must be injected');

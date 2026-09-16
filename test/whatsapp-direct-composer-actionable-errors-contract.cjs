@@ -16,7 +16,7 @@ function wrappedEnvelopedError(detail) {
   return new Error(`Error invoking remote method 'translation:translate': Error: ${PREFIX}${JSON.stringify({ message: 'safe diagnostic', retryable: false, ...detail })}`);
 }
 
-assert.equal(controller.CONTROLLER_VERSION, 6, 'thin native-send adapter identity hardening must force a fresh guest generation');
+assert.equal(controller.CONTROLLER_VERSION, 7, 'outgoing-send intent integration must force a fresh guest generation');
 assert.equal(controller.TRANSLATION_ERROR_ENVELOPE_PREFIX, PREFIX);
 
 const cases = [
