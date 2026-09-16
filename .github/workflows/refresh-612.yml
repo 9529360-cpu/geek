@@ -29,7 +29,8 @@ jobs:
           TARGET_BRANCH='refresh/534-translation-outcome-recovery'
           EXPECTED_PARENT='c0ad0645731defe04ec46458106464d6f6be67ee'
 
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          git merge-base --is-ancestor "$EXPECTED_PARENT" HEAD
+          test "$(git diff --name-only "$EXPECTED_PARENT"...HEAD | sort -u)" = '.github/workflows/refresh-612.yml'
           git fetch --no-tags origin "$SOURCE_BRANCH"
           test "$(git rev-parse FETCH_HEAD)" = "$OLD_HEAD"
           git cat-file -e "$OLD_BASE^{commit}"
@@ -44,9 +45,8 @@ jobs:
             > /tmp/outcome.patch
           git apply --3way /tmp/outcome.patch
 
-          # The Worker conflict is deliberate: old #612 owns outcome replay while
-          # current master owns explicit source-language semantics. Start from the
-          # proven child Worker and then reapply the one newer semantic delta.
+          # Old #612 owns outcome replay. Current master has one later semantic
+          # Worker delta: explicit source-language prompt/quality handling.
           git checkout "$OLD_HEAD" -- scripts/geek-translate-worker.js test/translation-worker-deadline-contract.cjs
 
           node <<'NODE'
@@ -78,82 +78,35 @@ jobs:
             const validation = `function invariantOnly(value) {\n  const raw = String(value || '').trim();\n  if (!raw) return true;\n  const withoutLinks = raw.replace(URL_OR_EMAIL_RE, ' ');\n  const letters = withoutLinks.match(LETTER_RE) || [];\n  const wordChars = withoutLinks.match(WORD_CHAR_RE) || [];\n  if (!letters.length) return true;\n  const tokens = withoutLinks.split(/\\s+/u).filter(Boolean);\n  if (tokens.length <= 2 && wordChars.length <= 24 && tokens.every(token => /^[\\p{Lu}\\p{Lt}][\\p{L}\\p{M}'’-]*$/u.test(token))) return true;\n  if (/^[A-Z0-9._:/+-]{1,24}$/.test(raw)) return true;\n  return false;\n}\n\nfunction scriptCount(value, script) {\n  const text = String(value || '');\n  if (script === 'japanese') {\n    return (text.match(SCRIPT_PATTERNS.han) || []).length + (text.match(SCRIPT_PATTERNS.kana) || []).length;\n  }\n  const pattern = SCRIPT_PATTERNS[script];\n  return pattern ? (text.match(pattern) || []).length : 0;\n}\n\nfunction validateTranslationOutput(sourceText, output, sourceLanguage, target) {\n  const original = String(sourceText || '').trim();\n  const result = sanitizeTranslationOutput(output);\n  const sourceCode = String(sourceLanguage || 'auto').trim().toLowerCase();\n  if (!result) throw new Error('empty translation');\n  if (result.length > Math.max(800, original.length * 8 + 160)) throw new Error('translation output is suspiciously long');\n\n  const unchanged = comparableTranslation(original) === comparableTranslation(result);\n  if (sourceCode !== 'auto' && sourceCode !== target && unchanged && !invariantOnly(original)) {\n    throw new Error('translation repeated source text');\n  }\n\n  const sourceCjk = (original.match(/[\\u3400-\\u9fff]/g) || []).length;\n  const outputCjk = (result.match(/[\\u3400-\\u9fff]/g) || []).length;\n  if (sourceCode === 'auto' && target !== 'zh' && sourceCjk > 0 && unchanged) throw new Error('translation repeated source text');\n\n  const targetScript = LANGUAGE_SCRIPT[target];\n  const sourceScript = LANGUAGE_SCRIPT[sourceCode];\n  if (targetScript && sourceCode !== 'auto' && sourceCode !== target && sourceScript && sourceScript !== targetScript && !invariantOnly(original)) {\n    const targetChars = scriptCount(result, targetScript);\n    const letters = result.match(LETTER_RE) || [];\n    if (letters.length >= 2 && targetChars < 2) throw new Error('translation target script mismatch');\n  } else if (sourceCode === 'auto' && LATIN_TARGETS.has(target) && sourceCjk >= 2) {\n    const latinLetters = scriptCount(result, 'latin');\n    if (latinLetters < 2 && outputCjk >= Math.max(2, Math.ceil(sourceCjk * 0.5))) throw new Error('translation target script mismatch');\n  }\n  return result;\n}\n`;
             source = source.slice(0, validationStart) + validation + source.slice(validationEnd);
 
-            source = replaceOnce(source,
-              'async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS, callerSignal = null)',
-              'async function callProvider(provider, env, text, source, target, timeoutMs = PROVIDER_TIMEOUT_MS, callerSignal = null)',
-              'provider source signature');
+            source = replaceOnce(source, 'async function callProvider(provider, env, text, target, timeoutMs = PROVIDER_TIMEOUT_MS, callerSignal = null)', 'async function callProvider(provider, env, text, source, target, timeoutMs = PROVIDER_TIMEOUT_MS, callerSignal = null)', 'provider source signature');
             source = replaceOnce(source, 'messages: buildMessages(text, target),', 'messages: buildMessages(text, source, target),', 'provider source prompt');
             source = replaceOnce(source, 'result = validateTranslationOutput(text, result, target);', 'result = validateTranslationOutput(text, result, source, target);', 'provider source validation');
-            source = replaceOnce(source,
-              'async function callProviderWithRetry(provider, env, text, target, timeoutMs, callerSignal = null)',
-              'async function callProviderWithRetry(provider, env, text, source, target, timeoutMs, callerSignal = null)',
-              'retry source signature');
-            source = replaceOnce(source,
-              'return await callProvider(provider, env, text, target, attemptTimeout, callerSignal);',
-              'return await callProvider(provider, env, text, source, target, attemptTimeout, callerSignal);',
-              'retry source call');
-            source = replaceOnce(source,
-              'async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS, callerSignal = null)',
-              'async function translate(text, source, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS, callerSignal = null)',
-              'translate source signature');
-            source = replaceOnce(source,
-              'const result = await callProviderWithRetry(provider, env, text, target, attemptBudget, callerSignal);',
-              'const result = await callProviderWithRetry(provider, env, text, source, target, attemptBudget, callerSignal);',
-              'translate source call');
-            source = replaceOnce(source,
-              "const source = String(body.source || 'auto').toLowerCase();\n        const target = String(body.target || '').toLowerCase();",
-              "const source = String(body.source || 'auto').trim().toLowerCase();\n        const target = String(body.target || '').trim().toLowerCase();",
-              'normalized languages');
-            source = replaceOnce(source,
-              "if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);\n        if (!LANG_NAMES[target] || target === 'auto')",
-              "if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);\n        if (source !== 'auto' && !LANG_NAMES[source]) return json({ error: 'invalid_source' }, 400, request, env);\n        if (!LANG_NAMES[target] || target === 'auto')",
-              'source validation');
-            source = replaceOnce(source,
-              'const { text: result, engine } = await translate(text, target, env, deadlineAt, request.signal);',
-              'const { text: result, engine } = await translate(text, source, target, env, deadlineAt, request.signal);',
-              'source-aware translated call');
-
+            source = replaceOnce(source, 'async function callProviderWithRetry(provider, env, text, target, timeoutMs, callerSignal = null)', 'async function callProviderWithRetry(provider, env, text, source, target, timeoutMs, callerSignal = null)', 'retry source signature');
+            source = replaceOnce(source, 'return await callProvider(provider, env, text, target, attemptTimeout, callerSignal);', 'return await callProvider(provider, env, text, source, target, attemptTimeout, callerSignal);', 'retry source call');
+            source = replaceOnce(source, 'async function translate(text, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS, callerSignal = null)', 'async function translate(text, source, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS, callerSignal = null)', 'translate source signature');
+            source = replaceOnce(source, 'const result = await callProviderWithRetry(provider, env, text, target, attemptBudget, callerSignal);', 'const result = await callProviderWithRetry(provider, env, text, source, target, attemptBudget, callerSignal);', 'translate source call');
+            source = replaceOnce(source, "const source = String(body.source || 'auto').toLowerCase();\n        const target = String(body.target || '').toLowerCase();", "const source = String(body.source || 'auto').trim().toLowerCase();\n        const target = String(body.target || '').trim().toLowerCase();", 'normalized languages');
+            source = replaceOnce(source, "if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);\n        if (!LANG_NAMES[target] || target === 'auto')", "if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);\n        if (source !== 'auto' && !LANG_NAMES[source]) return json({ error: 'invalid_source' }, 400, request, env);\n        if (!LANG_NAMES[target] || target === 'auto')", 'source validation');
+            source = replaceOnce(source, 'const { text: result, engine } = await translate(text, target, env, deadlineAt, request.signal);', 'const { text: result, engine } = await translate(text, source, target, env, deadlineAt, request.signal);', 'source-aware translated call');
             fs.writeFileSync(path, source);
           }
 
           {
             const path = 'test/translation-worker-deadline-contract.cjs';
             let source = fs.readFileSync(path, 'utf8');
-            source = replaceOnce(
-              source,
-              "/translate\\(text, target, env, deadlineAt, request\\.signal\\)/,\n    'provider failover must share one absolute request deadline while also observing caller cancellation'",
-              "/translate\\(text, source, target, env, deadlineAt, request\\.signal\\)/,\n    'provider failover must share one absolute request deadline, preserve source-language semantics, and observe caller cancellation'",
-              'deadline source+signal contract');
+            source = replaceOnce(source, "/translate\\(text, target, env, deadlineAt, request\\.signal\\)/,\n    'provider failover must share one absolute request deadline while also observing caller cancellation'", "/translate\\(text, source, target, env, deadlineAt, request\\.signal\\)/,\n    'provider failover must share one absolute request deadline, preserve source-language semantics, and observe caller cancellation'", 'deadline source+signal contract');
             fs.writeFileSync(path, source);
           }
 
           {
             const path = 'src/translation-runtime-base.cjs';
             let source = fs.readFileSync(path, 'utf8');
-            source = replaceOnce(source,
-              "const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;\nconst TRANSLATION_CHANNELS = Object.freeze([",
-              "const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;\nconst TRANSLATION_RECONCILE_BASE_DELAY_MS = 50;\nconst TRANSLATION_RECONCILE_MAX_DELAY_MS = 400;\nconst TRANSLATION_CHANNELS = Object.freeze([",
-              'reconcile constants');
-            source = replaceOnce(source,
-              "  if (httpStatus === 409) {\n    return createTranslationError(",
-              "  if (httpStatus === 409 && upstreamCode === 'request_in_progress') {\n    return createTranslationError(\n      'TRANSLATION_REQUEST_IN_PROGRESS',\n      upstreamMessage || '翻译请求仍在处理中',\n      { category: 'reconcile', retryable: true, endpointFailure: false, status: httpStatus, upstreamCode }\n    );\n  }\n  if (httpStatus === 409) {\n    return createTranslationError(",
-              '409 classification');
-            source = replaceOnce(source,
-              "          let lastError = null;\n          const attempts = body.route === 'primary'",
-              "          let lastError = null;\n          let reconciliationPolls = 0;\n          const attempts = body.route === 'primary'",
-              'reconcile poll state');
-            source = replaceOnce(source,
-              "                  provider: body.provider,\n                  route: picked.route,\n                }),",
-              "                  provider: body.provider,\n                  route: picked.route,\n                  operationRoute: body.route || 'default',\n                }),",
-              'operation route payload');
-            source = replaceOnce(source,
-              "              if (!response.ok) {\n                const rejection = classifyGatewayResponse(response.status, result);\n                if (rejection.endpointFailure) {",
-              "              if (!response.ok) {\n                const rejection = classifyGatewayResponse(response.status, result);\n                if (rejection.code === 'TRANSLATION_REQUEST_IN_PROGRESS') {\n                  lastError = rejection;\n                  const retryDelay = Math.min(\n                    TRANSLATION_RECONCILE_MAX_DELAY_MS,\n                    TRANSLATION_RECONCILE_BASE_DELAY_MS * (2 ** Math.min(reconciliationPolls, 3)),\n                    Math.max(0, remainingMs(deadlineAt))\n                  );\n                  reconciliationPolls += 1;\n                  if (retryDelay <= 0) throw deadlineExceededError(rejection);\n                  attempt -= 1;\n                  await new Promise(resolve => setTimeout(resolve, retryDelay));\n                  if (controller.signal.aborted) throw controller.signal.reason || deadlineExceededError(rejection);\n                  continue;\n                }\n                if (rejection.endpointFailure) {",
-              'in-progress reconciliation');
-            source = replaceOnce(source,
-              "  TRANSLATION_REQUEST_TIMEOUT_MS,\n  TRANSLATION_CHANNELS,",
-              "  TRANSLATION_REQUEST_TIMEOUT_MS,\n  TRANSLATION_RECONCILE_BASE_DELAY_MS,\n  TRANSLATION_RECONCILE_MAX_DELAY_MS,\n  TRANSLATION_CHANNELS,",
-              'reconcile exports');
+            source = replaceOnce(source, "const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;\nconst TRANSLATION_CHANNELS = Object.freeze([", "const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;\nconst TRANSLATION_RECONCILE_BASE_DELAY_MS = 50;\nconst TRANSLATION_RECONCILE_MAX_DELAY_MS = 400;\nconst TRANSLATION_CHANNELS = Object.freeze([", 'reconcile constants');
+            source = replaceOnce(source, "  if (httpStatus === 409) {\n    return createTranslationError(", "  if (httpStatus === 409 && upstreamCode === 'request_in_progress') {\n    return createTranslationError(\n      'TRANSLATION_REQUEST_IN_PROGRESS',\n      upstreamMessage || '翻译请求仍在处理中',\n      { category: 'reconcile', retryable: true, endpointFailure: false, status: httpStatus, upstreamCode }\n    );\n  }\n  if (httpStatus === 409) {\n    return createTranslationError(", '409 classification');
+            source = replaceOnce(source, "          let lastError = null;\n          const attempts = body.route === 'primary'", "          let lastError = null;\n          let reconciliationPolls = 0;\n          const attempts = body.route === 'primary'", 'reconcile poll state');
+            source = replaceOnce(source, "                  provider: body.provider,\n                  route: picked.route,\n                }),", "                  provider: body.provider,\n                  route: picked.route,\n                  operationRoute: body.route || 'default',\n                }),", 'operation route payload');
+            source = replaceOnce(source, "              if (!response.ok) {\n                const rejection = classifyGatewayResponse(response.status, result);\n                if (rejection.endpointFailure) {", "              if (!response.ok) {\n                const rejection = classifyGatewayResponse(response.status, result);\n                if (rejection.code === 'TRANSLATION_REQUEST_IN_PROGRESS') {\n                  lastError = rejection;\n                  const retryDelay = Math.min(\n                    TRANSLATION_RECONCILE_MAX_DELAY_MS,\n                    TRANSLATION_RECONCILE_BASE_DELAY_MS * (2 ** Math.min(reconciliationPolls, 3)),\n                    Math.max(0, remainingMs(deadlineAt))\n                  );\n                  reconciliationPolls += 1;\n                  if (retryDelay <= 0) throw deadlineExceededError(rejection);\n                  attempt -= 1;\n                  await new Promise(resolve => setTimeout(resolve, retryDelay));\n                  if (controller.signal.aborted) throw controller.signal.reason || deadlineExceededError(rejection);\n                  continue;\n                }\n                if (rejection.endpointFailure) {", 'in-progress reconciliation');
+            source = replaceOnce(source, "  TRANSLATION_REQUEST_TIMEOUT_MS,\n  TRANSLATION_CHANNELS,", "  TRANSLATION_REQUEST_TIMEOUT_MS,\n  TRANSLATION_RECONCILE_BASE_DELAY_MS,\n  TRANSLATION_RECONCILE_MAX_DELAY_MS,\n  TRANSLATION_CHANNELS,", 'reconcile exports');
             fs.writeFileSync(path, source);
           }
           NODE
