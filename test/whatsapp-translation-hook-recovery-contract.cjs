@@ -295,8 +295,8 @@ function trustedEnter(listeners, target, counters = {}) {
   assert.match(source, /mod\.__geekOriginalSendText = original/, 'recovery must refresh the original for later app reinjection');
   assert.match(source, /String\(account\?\.partition \|\| ''\) === owner/, 'host recovery must use exact partition ownership');
   assert.doesNotMatch(source, /activeId|\.active\[data-id\]/, 'recovery ownership must never be inferred from active UI focus');
-  assert.match(bootstrap, /ensureScript\('\.\/whatsapp-translation-hook-recovery\.js', 'data-geek-whatsapp-translation-hook-recovery'\)/,
-    'lightweight shell bootstrap must load the recovery owner');
+  assert.doesNotMatch(bootstrap, /whatsapp-translation-hook-recovery\.js/,
+    'legacy recovery must remain available only as compatibility code and must not bootstrap beside the direct-composer owner');
 
   console.log('whatsapp translation hook recovery contract passed');
 })().catch(error => {
