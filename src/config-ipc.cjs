@@ -1,5 +1,7 @@
 'use strict';
 
+const { assertMainFrameIpcSender } = require('./main-frame-ipc-boundary.cjs');
+
 const CONFIG_GET_CHANNEL = 'config:get';
 const CONFIG_SET_CHANNEL = 'config:set';
 
@@ -13,12 +15,16 @@ function installConfigIpc(options = {}) {
   if (!store || typeof store.getSnapshot !== 'function' || typeof store.update !== 'function') throw new TypeError('config store is required');
 
   let disposed = false;
-  const getHandler = async event => {
+  const assertAuthorizedSender = (event) => {
+    assertMainFrameIpcSender(event);
     assertTrustedSender(event);
+  };
+  const getHandler = async event => {
+    assertAuthorizedSender(event);
     return store.getSnapshot();
   };
   const setHandler = async (event, patchData) => {
-    assertTrustedSender(event);
+    assertAuthorizedSender(event);
     const snapshot = await store.update(patchData);
     await onCommitted(snapshot);
     return snapshot;
