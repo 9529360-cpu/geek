@@ -298,13 +298,22 @@ function installBroadcastFileBoundary(options = {}) {
 
   function assertMainRenderer(event) {
     const sender = event && event.sender;
+    const frame = event && event.senderFrame;
     const win = sender ? BrowserWindow.fromWebContents(sender) : null;
-    if (!sender || !win || (typeof win.isDestroyed === 'function' && win.isDestroyed()) || !win.webContents || win.webContents.id !== sender.id) {
+    if (
+      !sender
+      || !frame
+      || sender.mainFrame !== frame
+      || !win
+      || (typeof win.isDestroyed === 'function' && win.isDestroyed())
+      || !win.webContents
+      || win.webContents.id !== sender.id
+    ) {
       throw createPolicyError('BROADCAST_FILE_OWNER_INVALID');
     }
     let senderPath = '';
     try {
-      senderPath = pathModule.resolve(fileURLToPathFn(new URL(win.webContents.getURL())));
+      senderPath = pathModule.resolve(fileURLToPathFn(new URL(frame.url)));
     } catch {
       throw createPolicyError('BROADCAST_FILE_OWNER_INVALID');
     }
