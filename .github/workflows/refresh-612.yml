@@ -1,0 +1,113 @@
+name: refresh-translation-outcome-recovery
+
+on:
+  push:
+    branches:
+      - refresh/534-translation-outcome-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fresh stacked branch
+        uses: actions/checkout@v7
+        with:
+          ref: refresh/534-translation-outcome-recovery
+          fetch-depth: 0
+
+      - name: Replay child outcome-recovery delta on current owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          OLD_BASE='205e6da37f4daea9a0028beaf00bee564056ec04'
+          OLD_HEAD='00c3d3e99d912b41a5846a56655dcb7f8ee182fa'
+          SOURCE_BRANCH='fix/534-translation-outcome-recovery'
+          TARGET_BRANCH='refresh/534-translation-outcome-recovery'
+          EXPECTED_PARENT='c0ad0645731defe04ec46458106464d6f6be67ee'
+
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          git fetch --no-tags origin "$SOURCE_BRANCH"
+          test "$(git rev-parse FETCH_HEAD)" = "$OLD_HEAD"
+          git cat-file -e "$OLD_BASE^{commit}"
+
+          git diff --binary "$OLD_BASE" "$OLD_HEAD" -- . ':!src/translation-runtime.cjs' > /tmp/outcome.patch
+          git apply --3way /tmp/outcome.patch
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'src/translation-runtime-base.cjs';
+          let source = fs.readFileSync(path, 'utf8');
+
+          function replaceOnce(before, after, label) {
+            if (!source.includes(before)) throw new Error(`missing ${label} anchor`);
+            source = source.replace(before, after);
+          }
+
+          replaceOnce(
+            "const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;\nconst TRANSLATION_CHANNELS = Object.freeze([",
+            "const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;\nconst TRANSLATION_RECONCILE_BASE_DELAY_MS = 50;\nconst TRANSLATION_RECONCILE_MAX_DELAY_MS = 400;\nconst TRANSLATION_CHANNELS = Object.freeze([",
+            'reconcile constants',
+          );
+
+          replaceOnce(
+            "  if (httpStatus === 409) {\n    return createTranslationError(",
+            "  if (httpStatus === 409 && upstreamCode === 'request_in_progress') {\n    return createTranslationError(\n      'TRANSLATION_REQUEST_IN_PROGRESS',\n      upstreamMessage || '翻译请求仍在处理中',\n      { category: 'reconcile', retryable: true, endpointFailure: false, status: httpStatus, upstreamCode }\n    );\n  }\n  if (httpStatus === 409) {\n    return createTranslationError(",
+            '409 classification',
+          );
+
+          replaceOnce(
+            "          let lastError = null;\n          const attempts = body.route === 'primary'",
+            "          let lastError = null;\n          let reconciliationPolls = 0;\n          const attempts = body.route === 'primary'",
+            'reconcile poll state',
+          );
+
+          replaceOnce(
+            "                  provider: body.provider,\n                  route: picked.route,\n                }),",
+            "                  provider: body.provider,\n                  route: picked.route,\n                  operationRoute: body.route || 'default',\n                }),",
+            'operation route payload',
+          );
+
+          replaceOnce(
+            "              if (!response.ok) {\n                const rejection = classifyGatewayResponse(response.status, result);\n                if (rejection.endpointFailure) {",
+            "              if (!response.ok) {\n                const rejection = classifyGatewayResponse(response.status, result);\n                if (rejection.code === 'TRANSLATION_REQUEST_IN_PROGRESS') {\n                  lastError = rejection;\n                  const retryDelay = Math.min(\n                    TRANSLATION_RECONCILE_MAX_DELAY_MS,\n                    TRANSLATION_RECONCILE_BASE_DELAY_MS * (2 ** Math.min(reconciliationPolls, 3)),\n                    Math.max(0, remainingMs(deadlineAt))\n                  );\n                  reconciliationPolls += 1;\n                  if (retryDelay <= 0) throw deadlineExceededError(rejection);\n                  attempt -= 1;\n                  await new Promise(resolve => setTimeout(resolve, retryDelay));\n                  if (controller.signal.aborted) throw controller.signal.reason || deadlineExceededError(rejection);\n                  continue;\n                }\n                if (rejection.endpointFailure) {",
+            'in-progress reconciliation',
+          );
+
+          replaceOnce(
+            "  TRANSLATION_REQUEST_TIMEOUT_MS,\n  TRANSLATION_CHANNELS,",
+            "  TRANSLATION_REQUEST_TIMEOUT_MS,\n  TRANSLATION_RECONCILE_BASE_DELAY_MS,\n  TRANSLATION_RECONCILE_MAX_DELAY_MS,\n  TRANSLATION_CHANNELS,",
+            'exports',
+          );
+
+          fs.writeFileSync(path, source);
+          NODE
+
+          node --check scripts/geek-translate-worker.js
+          node --check scripts/geek-translate-entry.js
+          node --check scripts/translation-reservation-recovery.mjs
+          node --check src/translation-runtime-base.cjs
+          for test_file in \
+            test/translation-character-accounting-contract.cjs \
+            test/translation-health-projection-contract.cjs \
+            test/translation-idempotent-rate-limit-contract.cjs \
+            test/translation-outcome-recovery-contract.cjs \
+            test/translation-request-signal-contract.cjs \
+            test/translation-route-endpoint-selection-contract.cjs \
+            test/translation-runtime-in-progress-reconciliation-contract.cjs \
+            test/translation-runtime-outcome-reconciliation-contract.cjs \
+            test/translation-usage-state-contract.cjs \
+            test/translation-worker-deadline-contract.cjs; do
+            node "$test_file"
+          done
+          git diff --check
+
+          git rm -- .github/workflows/refresh-612.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: refresh committed translation outcome recovery'
+          git push origin "HEAD:$TARGET_BRANCH"
