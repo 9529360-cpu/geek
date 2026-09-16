@@ -1,5 +1,7 @@
 'use strict';
 
+const { assertMainFrameIpcSender } = require('./main-frame-ipc-boundary.cjs');
+
 const ACCOUNT_IPC_CHANNELS = Object.freeze({
   list: 'accounts:list',
   add: 'accounts:add',
@@ -53,14 +55,18 @@ function installAccountIpc(options = {}) {
     ipcMain.handle(channel, handler);
     registeredChannels.add(channel);
   };
-  const guarded = (callback) => async (event, ...args) => {
+  const assertAuthorizedSender = (event) => {
+    assertMainFrameIpcSender(event);
     assertTrustedSender(event);
+  };
+  const guarded = (callback) => async (event, ...args) => {
+    assertAuthorizedSender(event);
     return callback(event, ...args);
   };
 
   register(ACCOUNT_IPC_CHANNELS.list, guarded(callbacks.list));
   register(ACCOUNT_IPC_CHANNELS.add, async (event, payload) => {
-    assertTrustedSender(event);
+    assertAuthorizedSender(event);
     const normalized = normalizeAccountAddPayload(payload);
     return callbacks.add(event, normalized);
   });

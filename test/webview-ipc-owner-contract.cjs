@@ -29,7 +29,12 @@ function createIpcMain() {
     async invoke(channel, sender, ...args) {
       const handler = handlers.get(channel);
       assert.equal(typeof handler, 'function', `missing handler: ${channel}`);
-      return handler({ sender }, ...args);
+      return handler({ sender, senderFrame: sender.mainFrame }, ...args);
+    },
+    async invokeFromFrame(channel, sender, senderFrame, ...args) {
+      const handler = handlers.get(channel);
+      assert.equal(typeof handler, 'function', `missing handler: ${channel}`);
+      return handler({ sender, senderFrame }, ...args);
     },
   };
 }
@@ -58,8 +63,10 @@ function createGuest({ id, host, session, url = TG_URL, focused = true, destroye
 
 function createHarness(overrides = {}) {
   const ipcMain = createIpcMain();
-  const trustedSender = { id: 101 };
-  const untrustedSender = { id: 202 };
+  const trustedMainFrame = {};
+  const untrustedMainFrame = {};
+  const trustedSender = { id: 101, mainFrame: trustedMainFrame };
+  const untrustedSender = { id: 202, mainFrame: untrustedMainFrame };
   const sessions = new Map([[PART_A, { partition: PART_A }], [PART_B, { partition: PART_B }]]);
   const accounts = new Map([
     ['acc-a', { id: 'acc-a', type: 'telegram', partition: PART_A }],
@@ -135,6 +142,21 @@ async function rejects(promise, pattern) {
     const beforeInsert = h.calls.length;
     await rejects(h.ipcMain.invoke('webview:insert-text', h.untrustedSender, 'acc-a', 7, 'x', TOKEN_A), /未授权/);
     assert.deepEqual(h.calls.slice(beforeInsert), [['sender.guard', h.untrustedSender.id]], 'untrusted insert-text must stop at sender guard');
+  }
+
+  {
+    const h = createHarness();
+    for (const [channel, args] of [
+      ['webview:register', ['acc-a', 7, TOKEN_A]],
+      ['webview:insert-text', ['acc-a', 7, 'x', TOKEN_A]],
+    ]) {
+      const before = h.calls.length;
+      await rejects(
+        h.ipcMain.invokeFromFrame(channel, h.trustedSender, {}, ...args),
+        error => error?.code === 'MAIN_FRAME_IPC_SENDER_INVALID',
+      );
+      assert.equal(h.calls.length, before, `${channel} child-frame denial must happen before sender/account/guest side effects`);
+    }
   }
 
   {

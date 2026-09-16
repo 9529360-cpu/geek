@@ -19,6 +19,8 @@ function createHarness(options = {}) {
   let saveResult = options.saveResult || { canceled: false, filePath: '/tmp/export.csv' };
   let maximized = false;
   let destroyed = options.destroyed === true;
+  const mainFrame = {};
+  const sender = { id: 1, mainFrame };
 
   const ipcMain = {
     handle(channel, handler) {
@@ -111,6 +113,7 @@ function createHarness(options = {}) {
     notificationOptions,
     notificationShows,
     notificationErrors,
+    sender,
     mainWindow,
     boundary,
     setBridgeAllowed: value => { bridgeAllowed = value; },
@@ -123,7 +126,11 @@ function createHarness(options = {}) {
 }
 
 async function invoke(harness, channel, ...args) {
-  return harness.handlers.get(channel)({ sender: { id: 1 } }, ...args);
+  return harness.handlers.get(channel)({ sender: harness.sender, senderFrame: harness.sender.mainFrame }, ...args);
+}
+
+async function invokeChildFrame(harness, channel, ...args) {
+  return harness.handlers.get(channel)({ sender: harness.sender, senderFrame: {} }, ...args);
 }
 
 (async () => {
@@ -187,6 +194,22 @@ async function invoke(harness, channel, ...args) {
     assert.deepEqual(harness.writes, [], 'untrusted file:save must not write');
     assert.deepEqual(harness.notificationOptions, [], 'untrusted notify:show must not construct a Notification');
     assert.deepEqual(harness.notificationShows, [], 'untrusted notify:show must not show a Notification');
+    harness.boundary.dispose();
+  }
+
+  {
+    const harness = createHarness();
+    for (const channel of DESKTOP_IPC_CHANNELS) {
+      await assert.rejects(
+        invokeChildFrame(harness, channel, { title: 'x', body: 'y', content: 'z' }),
+        error => error?.code === 'MAIN_FRAME_IPC_SENDER_INVALID',
+        `${channel} must reject a same-WebContents child frame before any side effect`,
+      );
+    }
+    assert.deepEqual(harness.calls, [], 'child-frame desktop IPC must not reach any side effect');
+    assert.deepEqual(harness.writes, [], 'child-frame file:save must not write');
+    assert.deepEqual(harness.notificationOptions, [], 'child-frame notify:show must not construct a Notification');
+    assert.deepEqual(harness.notificationShows, [], 'child-frame notify:show must not show a Notification');
     harness.boundary.dispose();
   }
 

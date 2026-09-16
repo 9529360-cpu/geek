@@ -7,6 +7,15 @@ const {
   normalizeAccountAddPayload,
 } = require('../src/account-ipc.cjs');
 
+function ipcEvent({ trusted = true, childFrame = false } = {}) {
+  const mainFrame = {};
+  return {
+    trusted,
+    sender: { id: 1, mainFrame },
+    senderFrame: childFrame ? {} : mainFrame,
+  };
+}
+
 function createHarness() {
   const handlers = new Map();
   const removed = [];
@@ -49,7 +58,7 @@ async function main() {
   assert.deepEqual([...harness.handlers.keys()].sort(), expectedChannels, 'Account IPC owner must directly register every Account channel');
 
   const add = harness.handlers.get(ACCOUNT_IPC_CHANNELS.add);
-  const trusted = { trusted: true };
+  const trusted = ipcEvent();
   const validCases = [
     [undefined, {}],
     ['账号名称', { name: '账号名称' }],
@@ -94,12 +103,25 @@ async function main() {
   for (const [key, channel] of Object.entries(ACCOUNT_IPC_CHANNELS)) {
     const beforeCalls = senderHarness.calls.length;
     await assert.rejects(
-      () => senderHarness.handlers.get(channel)({ trusted: false }, ...(key === 'add' ? [{ name: 'blocked' }] : [])),
+      () => senderHarness.handlers.get(channel)(ipcEvent({ trusted: false }), ...(key === 'add' ? [{ name: 'blocked' }] : [])),
       /SENDER_REJECTED/,
     );
     assert.equal(senderHarness.calls.length, beforeCalls, `${channel} must validate sender before callback/mutation`);
   }
   assert.equal(senderHarness.senderChecks(), expectedChannels.length, 'every Account IPC handler must cross the sender gate');
+
+  const frameHarness = createHarness();
+  for (const [key, channel] of Object.entries(ACCOUNT_IPC_CHANNELS)) {
+    const beforeCalls = frameHarness.calls.length;
+    const beforeSenderChecks = frameHarness.senderChecks();
+    await assert.rejects(
+      () => frameHarness.handlers.get(channel)(ipcEvent({ childFrame: true }), ...(key === 'add' ? [{ name: 'blocked' }] : [])),
+      error => error?.code === 'MAIN_FRAME_IPC_SENDER_INVALID',
+      `${channel} must reject a child frame from the trusted WebContents`,
+    );
+    assert.equal(frameHarness.calls.length, beforeCalls, `${channel} child-frame denial must happen before account mutation`);
+    assert.equal(frameHarness.senderChecks(), beforeSenderChecks, `${channel} frame identity must be checked before the broader sender guard`);
+  }
 
   harness.owner.dispose();
   assert.deepEqual(harness.removed.sort(), expectedChannels, 'dispose must remove every channel owned by Account IPC');

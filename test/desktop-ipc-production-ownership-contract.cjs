@@ -43,7 +43,8 @@ for (const channel of expectedChannels) {
 
 assert.doesNotMatch(owner, /require\(['\"]\.\/platform-catalog\.cjs['\"]\)/, 'Desktop IPC owner must not copy or import Platform Catalog authority');
 assert.doesNotMatch(owner, /new\s+BrowserWindow|require\(['\"]electron['\"]\).*BrowserWindow/, 'Desktop IPC owner must not create BrowserWindow authority');
-assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{\s*assertTrustedSender\(event\);\s*return handler\(\.\.\.args\);/s, 'every Desktop handler must pass through the common sender guard before work');
+assert.match(owner, /require\('\.\/main-frame-ipc-boundary\.cjs'\)/, 'Desktop IPC owner must use the shared frame-identity authority');
+assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{\s*assertMainFrameIpcSender\(event\);\s*assertTrustedSender\(event\);\s*return handler\(\.\.\.args\);/s, 'every Desktop handler must validate exact main-frame identity before the broader sender guard and work');
 assert.match(owner, /for \(const channel of registeredChannels\) ipcMain\.removeHandler\(channel\)/, 'Desktop IPC owner must own complete teardown');
 
 const strayDirectOwners = [];

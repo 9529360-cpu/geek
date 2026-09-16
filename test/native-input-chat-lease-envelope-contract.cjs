@@ -17,7 +17,8 @@ function envelope(payload) {
     handle(channel, handler) { handlers.set(channel, handler); },
     removeHandler(channel) { handlers.delete(channel); },
   };
-  const sender = { id: 91 };
+  const mainFrame = {};
+  const sender = { id: 91, mainFrame };
   const session = {};
   const scripts = [];
   const guest = Object.assign(new EventEmitter(), {
@@ -49,7 +50,7 @@ function envelope(payload) {
     getWebContentsById: id => id === 7 ? guest : null,
     getSessionForPartition: () => session,
   });
-  const invoke = (channel, ...args) => handlers.get(channel)({ sender }, ...args);
+  const invoke = (channel, ...args) => handlers.get(channel)({ sender, senderFrame: mainFrame }, ...args);
 
   assert.equal(await invoke('webview:register', 'acc-a', 7, TOKEN), true);
 

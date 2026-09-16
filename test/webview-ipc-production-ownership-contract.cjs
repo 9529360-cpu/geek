@@ -65,7 +65,8 @@ assert.match(navigation, /contents\.on\?\.\('will-navigate'/, 'navigation bounda
 assert.match(navigation, /contents\.on\?\.\('will-redirect'/, 'navigation boundary must retain redirect authority');
 assert.doesNotMatch(owner, /webview-navigation-boundary|will-navigate|will-redirect|setWindowOpenHandler/, 'FH-07 owner must not absorb WebView Navigation authority');
 
-assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{\s*assertTrustedSender\(event\);\s*return handler\(event, \.\.\.args\);/s, 'every WebView ingress must pass the common trusted sender guard before work');
+assert.match(owner, /require\('\.\/main-frame-ipc-boundary\.cjs'\)/, 'WebView IPC owner must use the shared frame-identity authority');
+assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{\s*assertMainFrameIpcSender\(event\);\s*assertTrustedSender\(event\);\s*return handler\(event, \.\.\.args\);/s, 'every WebView ingress must validate exact main-frame identity before the broader trusted sender guard and work');
 assert.match(owner, /String\(account\.partition \|\| ''\) !== partition/, 'account record partition must exactly match authoritative resolved partition');
 assert.match(owner, /guest\.hostWebContents !== event\.sender/, 'register must bind guest to trusted host WebContents');
 assert.match(owner, /guest\.session !== getSessionForPartition\(partition\)/, 'guest session must match account partition authority');

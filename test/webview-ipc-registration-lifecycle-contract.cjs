@@ -28,7 +28,8 @@ function createGuest(id, sender, session) {
     handle(channel, handler) { handlers.set(channel, handler); },
     removeHandler(channel) { handlers.delete(channel); },
   };
-  const sender = { id: 41 };
+  const mainFrame = {};
+  const sender = { id: 41, mainFrame };
   const session = { partition: PARTITION };
   const guests = new Map();
   const realOwnership = createOwnershipRegistry();
@@ -50,7 +51,7 @@ function createGuest(id, sender, session) {
     getSessionForPartition: partition => partition === PARTITION ? session : null,
   });
 
-  const invoke = (channel, ...args) => handlers.get(channel)({ sender }, ...args);
+  const invoke = (channel, ...args) => handlers.get(channel)({ sender, senderFrame: mainFrame }, ...args);
   const guest = createGuest(7, sender, session);
   guests.set(7, guest);
 
