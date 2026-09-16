@@ -122,11 +122,53 @@ function createScheduledBroadcastAttachmentStore(options = {}) {
     return JSON.stringify({ version: 1, entries: [...entries.values()] });
   }
 
+  async function safeRemove(file) {
+    if (typeof fs.rm !== 'function') return;
+    try { await fs.rm(file, { force: true }); } catch {}
+  }
+
+  async function writeSynced(file, content) {
+    if (typeof fs.open !== 'function') {
+      await fs.writeFile(file, content, { encoding: 'utf8', mode: 0o600 });
+      return;
+    }
+    let handle;
+    try {
+      handle = await fs.open(file, 'w', 0o600);
+      await handle.writeFile(content, 'utf8');
+      if (typeof handle.sync === 'function') await handle.sync();
+    } finally {
+      if (handle) await handle.close();
+    }
+  }
+
+  async function syncDirectory(directory) {
+    if (typeof fs.open !== 'function') return;
+    let handle;
+    try {
+      handle = await fs.open(directory, 'r');
+      if (typeof handle.sync === 'function') await handle.sync();
+    } catch {
+      // Directory fsync is unsupported on some Windows/filesystem combinations.
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+    }
+  }
+
   async function writeSnapshot(snapshot) {
-    await fs.mkdir(pathModule.dirname(storePath), { recursive: true });
+    const directory = pathModule.dirname(storePath);
     const tempPath = `${storePath}.tmp`;
-    await fs.writeFile(tempPath, snapshot, { encoding: 'utf8', mode: 0o600 });
-    await fs.rename(tempPath, storePath);
+    await fs.mkdir(directory, { recursive: true });
+    let published = false;
+    try {
+      await writeSynced(tempPath, snapshot);
+      await fs.rename(tempPath, storePath);
+      published = true;
+      await syncDirectory(directory);
+    } catch (error) {
+      if (!published) await safeRemove(tempPath);
+      throw error;
+    }
   }
 
   function enqueueMutation(operation) {
