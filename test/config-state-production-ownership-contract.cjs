@@ -44,10 +44,17 @@ assert.match(stateOwner, /loaded\.status === 'empty'[\s\S]*needsInitialCommit = 
 assert.match(committedMirror, /async function writeSynced\(file, content\)[\s\S]*handle\.writeFile\(content, 'utf8'\)[\s\S]*handle\.sync\(\)[\s\S]*handle\.close\(\)/,
   'shared Config/Account durable writes must fsync and close temp files when supported');
 const sharedCommitBody = committedMirror.match(/async function commit\(content, \{ initializing = false \} = \{\}\) \{([\s\S]*?)\n  \}/)?.[1] || '';
-const primaryRename = sharedCommitBody.indexOf('await fs.rename(temporaryFile, filePath)');
-const proofRename = sharedCommitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)');
-assert.ok(primaryRename >= 0 && proofRename > primaryRename,
-  'shared persistence must make the proof rename the authoritative commit point after the candidate primary becomes visible');
+const initializingBranch = sharedCommitBody.indexOf('if (initializing) {');
+const initialProofRename = sharedCommitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)', initializingBranch);
+const initialPrimaryPublish = sharedCommitBody.indexOf('await publishInitializedPrimary(snapshot, expectedHash)', initializingBranch);
+const laterPrimaryRename = sharedCommitBody.indexOf('await fs.rename(temporaryFile, filePath)', initialPrimaryPublish);
+const laterProofRename = sharedCommitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)', laterPrimaryRename);
+assert.ok(initializingBranch >= 0 && initialProofRename > initializingBranch && initialPrimaryPublish > initialProofRename,
+  'first Config/Account proof must commit before a candidate primary can look like legacy state');
+assert.ok(laterPrimaryRename > initialPrimaryPublish && laterProofRename > laterPrimaryRename,
+  'after initialization, candidate primary may stage first but proof rename must remain the authoritative commit point');
+assert.match(committedMirror, /async function publishInitializedPrimary\(snapshot, expectedHash\)[\s\S]*fs\.rename\(temporaryFile, filePath\)/,
+  'initial primary publication must stay post-proof and recoverable');
 assert.match(committedMirror, /async function syncDirectory\(\)[\s\S]*handle\.sync\(\)/,
   'shared durable replacement must retain best-effort directory sync');
 assert.match(committedMirror, /hashSnapshot\(candidate\.content\) !== expectedHash/,
