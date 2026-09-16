@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
+  BASELINE_FILE,
   EXPECTED_MIGRATION,
   MANAGED_TABLE,
   REQUIRED_BASE_COLUMNS,
@@ -16,6 +17,7 @@ const workflow = fs.readFileSync(path.join(root, '.github/workflows/d1-migration
 const validationWorkflow = fs.readFileSync(path.join(root, '.github/workflows/cloudflare-worker-validation.yml'), 'utf8');
 const config = fs.readFileSync(path.join(root, 'wrangler-d1-migrations.toml'), 'utf8');
 const migration = fs.readFileSync(path.join(root, 'scripts/d1-migrations', EXPECTED_MIGRATION), 'utf8');
+const baseline = fs.readFileSync(path.join(root, BASELINE_FILE), 'utf8');
 
 assert.equal(validateRepo(root), true, 'managed D1 repo admission must be internally consistent');
 
@@ -40,13 +42,22 @@ assert.match(config, /migrations_table = "geek_d1_migrations"/, 'managed epoch m
 assert.doesNotMatch(config, /scripts\/migrations/, 'legacy unledgered migrations must never be fed to Wrangler apply');
 assert.doesNotMatch(config, /^main\s*=/m, 'D1 schema control plane must not become a deployable Worker config');
 
+assert.match(baseline, /CREATE TABLE IF NOT EXISTS translation_usage/, '004 migration baseline must contain translation usage');
+assert.match(baseline, /\baccount_no\b/, '004 migration baseline must retain the account-number schema');
+assert.match(baseline, /\btoken_version\b/, '004 migration baseline must retain the password/session schema');
+assert.match(baseline, /CREATE TABLE IF NOT EXISTS password_reset_requests/, '004 migration baseline must retain password-reset schema');
+assert.doesNotMatch(baseline, /lease_expires_at|idx_translation_usage_lease|trg_translation_usage_reservation_lease/, '004 migration baseline must remain pre-005 even after canonical schema advances');
+assert.doesNotMatch(baseline, /request_hash|replay_ciphertext|replay_expires_at|idx_translation_usage_replay_expiry/, '004 migration baseline must remain pre-006');
+
 assert.match(migration, /ALTER TABLE translation_usage ADD COLUMN lease_expires_at TEXT;/, '005 must add only the reservation lease column');
 assert.match(migration, /CREATE INDEX IF NOT EXISTS idx_translation_usage_lease/, '005 must add its lease index');
 assert.match(migration, /CREATE TRIGGER IF NOT EXISTS trg_translation_usage_reservation_lease/, '005 must add its lease trigger');
 assert.doesNotMatch(migration, /request_hash|replay_ciphertext|replay_expires_at/, '006 replay schema must stay outside the 005 admission');
 assert.doesNotMatch(migration, /\bDROP\b|\bVACUUM\b|\bDELETE\b/i, '005 must remain additive/non-destructive');
 
-assert.match(validationWorkflow, /wrangler-d1-migrations\.toml/, 'PR validation must exercise the dedicated D1 config without production credentials');
+assert.match(validationWorkflow, /BASELINE='scripts\/d1-baselines\/004-subscription-schema\.sql'/, 'PR validation must pin migration 005 to the immutable 004 baseline');
+assert.match(validationWorkflow, /--file "\$BASELINE"/, 'PR validation must initialize local D1 from the immutable baseline');
+assert.doesNotMatch(validationWorkflow, /--file scripts\/geek-subscription-schema\.sql/, 'migration validation must not use the moving canonical schema as its precondition');
 assert.match(validationWorkflow, /d1 migrations apply "\$DB" --local/, 'PR validation must really apply admitted migrations to the shared local D1 baseline');
 assert.doesNotMatch(validationWorkflow, /CLOUDFLARE_INFRA_API_TOKEN/, 'PR validation must not receive infrastructure credentials');
 
