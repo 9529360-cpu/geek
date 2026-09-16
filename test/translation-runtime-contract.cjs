@@ -6,6 +6,7 @@ const {
   clearPartitionRuntimeState,
   createTranslationRuntime,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function createRuntimeState() {
   return {
@@ -104,9 +105,10 @@ function createRuntimeState() {
     assert.deepEqual([...TRANSLATION_CHANNELS], ['translation:translate', 'translation:health']);
     runtime.install();
     assert.deepEqual([...handlers.keys()].sort(), [...TRANSLATION_CHANNELS].sort());
+    const event = mainFrameIpcEvent({ id: 99 });
     for (const channel of TRANSLATION_CHANNELS) {
       await assert.rejects(
-        handlers.get(channel)({ sender: { id: 99 } }, {}),
+        handlers.get(channel)(event, {}),
         error => error === unauthorized,
         `${channel} must validate sender before doing work`
       );
