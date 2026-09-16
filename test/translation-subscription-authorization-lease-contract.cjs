@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createSubscriptionStore } = require('../src/subscription.cjs');
 const { createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function deferred() {
   let resolve;
@@ -170,7 +171,8 @@ function successResponse(text) {
       });
       runtime.install();
       const translateIpc = handlers.get('translation:translate');
-      const translate = async payload => unwrapTranslationIpcResponse(await translateIpc({ sender: { id: 1 } }, payload));
+      const event = mainFrameIpcEvent({ id: 1 });
+      const translate = async payload => unwrapTranslationIpcResponse(await translateIpc(event, payload));
 
       // This lease test intentionally saturates the entire 20-slot remote pool so
       // invalidation proves both active abort and queued ejection. Mark the load as
@@ -258,7 +260,8 @@ function successResponse(text) {
       });
       runtime.install();
       const translateIpc = handlers.get('translation:translate');
-      const request = (async () => unwrapTranslationIpcResponse(await translateIpc({ sender: { id: 1 } }, {
+      const event = mainFrameIpcEvent({ id: 2 });
+      const request = (async () => unwrapTranslationIpcResponse(await translateIpc(event, {
         accountId: 'account-a', text: 'late', target: 'en', refresh: true, skipQuota: true,
       })))();
       await fetchStarted.promise;
