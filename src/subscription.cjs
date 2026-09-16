@@ -108,6 +108,33 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     return loaded;
   }
 
+  async function safeRemove(file) {
+    try { await fs.rm(file, { force: true }); } catch {}
+  }
+
+  async function writeSynced(file, content) {
+    let handle;
+    try {
+      handle = await fs.open(file, 'w', 0o600);
+      await handle.writeFile(content, 'utf8');
+      if (typeof handle.sync === 'function') await handle.sync();
+    } finally {
+      if (handle) await handle.close();
+    }
+  }
+
+  async function syncDirectory(directory) {
+    let handle;
+    try {
+      handle = await fs.open(directory, 'r');
+      if (typeof handle.sync === 'function') await handle.sync();
+    } catch {
+      // Directory fsync is unsupported on some Windows/filesystem combinations.
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+    }
+  }
+
   function writeStateDisk(disk, options = {}) {
     const expectedSessionGeneration = options.expectedSessionGeneration;
     const queued = diskWriteQueue.then(async () => {
@@ -116,9 +143,21 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       assertSessionGeneration(expectedSessionGeneration);
       const target = stateFile();
       const temporary = `${target}.tmp`;
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.writeFile(temporary, JSON.stringify(disk, null, 2), { encoding: 'utf-8', mode: 0o600 });
-      await fs.rename(temporary, target);
+      const directory = path.dirname(target);
+      const snapshot = JSON.stringify(disk, null, 2);
+      await fs.mkdir(directory, { recursive: true });
+      let published = false;
+      try {
+        // Atomic rename protects readers from partial JSON; file + directory fsync
+        // additionally make a reported login/logout commit survive hard termination.
+        await writeSynced(temporary, snapshot);
+        await fs.rename(temporary, target);
+        published = true;
+        await syncDirectory(directory);
+      } catch (error) {
+        if (!published) await safeRemove(temporary);
+        throw error;
+      }
     });
     // Physical temp-file writes also have to recover after an individual rename/write failure.
     diskWriteQueue = queued.then(() => undefined, () => undefined);
