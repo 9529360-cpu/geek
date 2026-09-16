@@ -127,6 +127,12 @@ function createTimerHarness() {
   assert.equal(installCalls, 1, 'manual install must delegate to electron-updater exactly once');
   assert.equal(updater.isUpdateInstalling(), true, 'installing state must remain observable after manual install starts');
   assert.equal(timerHarness.activeTimers().length, 0, 'manual install must not revive update checks');
+  assert.equal(
+    updater.quitAndInstallForUpdate(),
+    false,
+    'repeated install requests must be ignored once installer handoff has started',
+  );
+  assert.equal(installCalls, 1, 'repeated install requests must not invoke quitAndInstall twice');
 
   console.log('UPDATER_PENDING_INSTALL_CONTRACT_OK');
 })().finally(() => {

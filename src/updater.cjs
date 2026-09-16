@@ -141,11 +141,18 @@ function initAutoUpdater() {
 
 // 用户点击“重启安装”后调用（主进程 updater:install IPC）
 function quitAndInstallForUpdate() {
+  if (isInstallingUpdate) {
+    console.log(`${LOG_PREFIX} 更新安装已启动，忽略重复安装请求`);
+    return false;
+  }
   if (!downloadedVersion) {
     console.error(`${LOG_PREFIX} 尚无已下载更新，拒绝安装`);
     return false;
   }
   try {
+    // quitAndInstall may take time to close every window and hand off to the
+    // installer. Claim installation authority before calling it so repeated
+    // renderer IPC requests cannot race a second installer handoff.
     isInstallingUpdate = true;
     if (checkTimer) {
       clearTimeout(checkTimer);
