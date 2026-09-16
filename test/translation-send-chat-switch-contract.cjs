@@ -317,7 +317,8 @@ async function verifyNativeInputOwnerUsesRequestScopedLease() {
     handle(channel, handler) { handlers.set(channel, handler); },
     removeHandler(channel) { handlers.delete(channel); },
   };
-  const sender = { id: 99 };
+  const mainFrame = {};
+  const sender = { id: 99, mainFrame };
   const session = {};
   const scripts = [];
   const guest = Object.assign(new EventEmitter(), {
@@ -349,7 +350,7 @@ async function verifyNativeInputOwnerUsesRequestScopedLease() {
     getWebContentsById: id => id === 7 ? guest : null,
     getSessionForPartition: () => session,
   });
-  const invoke = (channel, ...args) => handlers.get(channel)({ sender }, ...args);
+  const invoke = (channel, ...args) => handlers.get(channel)({ sender, senderFrame: mainFrame }, ...args);
   const token = 'a'.repeat(32);
   assert.equal(await invoke('webview:register', 'acc-a', 7, token), true);
   const leasedText = NATIVE_INPUT_ENVELOPE_PREFIX + JSON.stringify({ token, expectedChatId: 'chat-a', text: 'ciao' });
