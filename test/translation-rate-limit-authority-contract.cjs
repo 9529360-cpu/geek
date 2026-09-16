@@ -90,6 +90,8 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
   assert.match(entry, /X-Geek-Translation-Intent/, 'production entry must read the explicit translation intent header');
   assert.match(entry, /normalizeTranslationIntent\(request\.headers\.get\(TRANSLATION_INTENT_HEADER\)\)/, 'entry must normalize untrusted intent before rate admission');
   assert.match(entry, /scopeTranslationRateLimitAuthority\(db, \{ intent \}\)/, 'production entry must scope D1 through the intent-aware atomic translation rate-limit authority');
+  assert.match(entry, /const workerDb = db && typeof db\.prepare === 'function'[\s\S]*scopeTranslationRateLimitAuthority\(db, \{ intent \}\)/, 'recovery and translation must share the same intent-aware authoritative D1 handle');
+  assert.match(entry, /recoverStaleTranslationReservations\(workerDb, \{ userId, limit: 8 \}\)/, 'authenticated translation requests must opportunistically recover only their own stale reservations');
   assert.match(
     entry,
     /const response = await baseWorker\.fetch\(request, workerEnv, ctx\);/,
@@ -100,6 +102,7 @@ async function legacyTranslationRateLimited(db, policy, bucket, limit, windowSec
     "'scripts/geek-translate-entry.js'",
     "'scripts/geek-translate-worker.js'",
     "'scripts/translation-rate-limit-compat.mjs'",
+    "'scripts/translation-reservation-recovery.mjs'",
     "'scripts/atomic-rate-limit.mjs'",
     "'wrangler-translate.toml'",
   ]) {
