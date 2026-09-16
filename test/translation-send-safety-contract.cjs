@@ -103,6 +103,7 @@ assert.match(runtimeBaseSource, /assertSafeTranslationOutput\(\{ source: text, o
 
 assert.match(appSource, /shouldGuardRawSend[\s\S]*翻译尚未就绪，已阻止原文发送/, 'WhatsApp 钩子未就绪时必须拦截原文');
 assert.match(appSource, /live\.sendTextMsgToChat !== window\.__geekWhatsAppWrappedSend/, 'WhatsApp 必须在发送时检查翻译钩子仍然存活');
+assert.match(appSource, /__geekWhatsAppDirectComposerController[\s\S]*handleNativeSend\(chat, args, original, this\)/, 'WhatsApp legacy text wrapper must delegate translated private sends to the single direct-composer owner');
 assert.match(adapterSource, /geek-telegram-translation-send[\s\S]*翻译失败，原文未发送/, 'Telegram 翻译失败必须保留原文且提示');
 assert.match(adapterSource, /button\[aria-label="Send"\][\s\S]*translateAndSend\(event, composerHost\(event\), button\)/, 'LINE 必须覆盖发送按钮路径');
 
