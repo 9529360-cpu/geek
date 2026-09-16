@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { assertMainFrameIpcSender } = require('./main-frame-ipc-boundary.cjs');
 
 const DESKTOP_IPC_CHANNELS = Object.freeze([
   'app:get-version',
@@ -59,6 +60,7 @@ function installDesktopIpc(options = {}) {
 
   const register = (channel, handler) => {
     ipcMain.handle(channel, async (event, ...args) => {
+      assertMainFrameIpcSender(event);
       assertTrustedSender(event);
       return handler(...args);
     });
