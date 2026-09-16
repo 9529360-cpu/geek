@@ -1,0 +1,231 @@
+name: refresh-stale-reservation-recovery
+
+on:
+  push:
+    branches:
+      - refresh/539-stale-translation-reservation-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout refresh branch
+        uses: actions/checkout@v4
+        with:
+          ref: refresh/539-stale-translation-reservation-recovery
+          fetch-depth: 0
+
+      - name: Replay focused recovery change on current master
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_HEAD='205e6da37f4daea9a0028beaf00bee564056ec04'
+          SOURCE_BRANCH='fix/539-stale-translation-reservation-recovery'
+          TARGET_BRANCH='refresh/539-stale-translation-reservation-recovery'
+          EXPECTED_BASE='2805d0f499618b4aa41b4ee8b0e2aef9a7c0db03'
+
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          git fetch --no-tags origin "$SOURCE_BRANCH"
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+
+          git checkout "$SOURCE_HEAD" -- \
+            scripts/migrations/005-translation-reservation-lease.sql \
+            scripts/translation-reservation-recovery.mjs \
+            test/translation-reservation-recovery-contract.cjs
+
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function edit(path, mutate) {
+            const before = fs.readFileSync(path, 'utf8');
+            const after = mutate(before);
+            if (after === before) throw new Error(`expected change missing: ${path}`);
+            fs.writeFileSync(path, after);
+          }
+
+          edit('.github/workflows/deploy-translate.yml', source => {
+            let next = source;
+            next = next.replace(
+              "      - 'scripts/translation-rate-limit-compat.mjs'\n      - 'scripts/atomic-rate-limit.mjs'",
+              "      - 'scripts/translation-rate-limit-compat.mjs'\n      - 'scripts/translation-reservation-recovery.mjs'\n      - 'scripts/atomic-rate-limit.mjs'",
+            );
+            next = next.replace(
+              '          node --check scripts/translation-rate-limit-compat.mjs\n          node --check scripts/atomic-rate-limit.mjs',
+              '          node --check scripts/translation-rate-limit-compat.mjs\n          node --check scripts/translation-reservation-recovery.mjs\n          node --check scripts/atomic-rate-limit.mjs',
+            );
+            return next;
+          });
+
+          edit('scripts/dev-worker-feedback.cjs', source => source.replace(
+            "      'scripts/translation-rate-limit-compat.mjs',\n      'scripts/atomic-rate-limit.mjs',",
+            "      'scripts/translation-rate-limit-compat.mjs',\n      'scripts/translation-reservation-recovery.mjs',\n      'scripts/atomic-rate-limit.mjs',",
+          ));
+
+          edit('scripts/geek-subscription-schema.sql', source => {
+            const before = `  status TEXT NOT NULL DEFAULT 'reserved',\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  completed_at TEXT,\n  FOREIGN KEY (user_id) REFERENCES users(id)\n);\nCREATE INDEX IF NOT EXISTS idx_translation_usage_user_created ON translation_usage(user_id, created_at);`;
+            const after = `  status TEXT NOT NULL DEFAULT 'reserved',\n  created_at TEXT NOT NULL DEFAULT (datetime('now')),\n  completed_at TEXT,\n  lease_expires_at TEXT,\n  FOREIGN KEY (user_id) REFERENCES users(id)\n);\nCREATE INDEX IF NOT EXISTS idx_translation_usage_user_created ON translation_usage(user_id, created_at);\nCREATE INDEX IF NOT EXISTS idx_translation_usage_lease ON translation_usage(lease_expires_at);\nCREATE TRIGGER IF NOT EXISTS trg_translation_usage_reservation_lease\nAFTER INSERT ON translation_usage\nWHEN NEW.lease_expires_at IS NULL\n  AND (NEW.status = 'reserved' OR NEW.status LIKE 'reserved:%')\nBEGIN\n  UPDATE translation_usage\n  SET lease_expires_at = datetime('now', '+2 minutes')\n  WHERE request_id = NEW.request_id\n    AND lease_expires_at IS NULL;\nEND;`;
+            if (!source.includes(before)) throw new Error('translation_usage schema anchor missing');
+            return source.replace(before, after);
+          });
+
+          fs.writeFileSync('scripts/geek-translate-entry.js', `import baseWorker from './geek-translate-worker.js';
+          import {
+            normalizeTranslationIntent,
+            scopeTranslationRateLimitAuthority,
+          } from './translation-rate-limit-compat.mjs';
+          import {
+            recoverStaleTranslationReservations,
+            staleTranslationReservationSummary,
+          } from './translation-reservation-recovery.mjs';
+
+          const TRANSLATION_INTENT_HEADER = 'X-Geek-Translation-Intent';
+          const enc = new TextEncoder();
+
+          function withTranslationDatabase(env, db) {
+            return new Proxy(env, {
+              get(target, property, receiver) {
+                if (property === 'geek_subscriptions') return db;
+                return Reflect.get(target, property, receiver);
+              },
+            });
+          }
+
+          function b64UrlToBytes(value) {
+            const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+            const binary = atob(normalized + '='.repeat((4 - normalized.length % 4) % 4));
+            return Uint8Array.from(binary, char => char.charCodeAt(0));
+          }
+
+          async function verifiedTranslationUserId(request, secret) {
+            try {
+              if (!secret) return null;
+              const match = String(request?.headers?.get?.('Authorization') || '').match(/^Bearer\\s+(.+)$/i);
+              if (!match) return null;
+              const parts = match[1].split('.');
+              if (parts.length !== 3) return null;
+              const data = \`\${parts[0]}.\${parts[1]}\`;
+              const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+              const valid = await crypto.subtle.verify('HMAC', key, b64UrlToBytes(parts[2]), enc.encode(data));
+              if (!valid) return null;
+              const payload = JSON.parse(new TextDecoder().decode(b64UrlToBytes(parts[1])));
+              const now = Math.floor(Date.now() / 1000);
+              if (payload.exp <= now || payload.iat > now + 30 || payload.aud !== 'geek-translate' || payload.purpose !== 'translate' || !Number.isInteger(payload.uid)) return null;
+              return payload.uid;
+            } catch {
+              return null;
+            }
+          }
+
+          async function sanitizePublicHealthResponse(response, db) {
+            const payload = await response.clone().json().catch(() => null);
+            if (!payload || typeof payload !== 'object' || !payload.models || typeof payload.models !== 'object') {
+              return response;
+            }
+
+            const safeModels = {};
+            for (const [provider, state] of Object.entries(payload.models)) {
+              if (!state || typeof state !== 'object') {
+                safeModels[provider] = state;
+                continue;
+              }
+              const { lastError: _lastError, ...safeState } = state;
+              safeModels[provider] = safeState;
+            }
+            const staleReservations = await staleTranslationReservationSummary(db).catch(() => ({ count: 0, oldestAgeSeconds: 0 }));
+
+            return new Response(JSON.stringify({ ...payload, models: safeModels, staleReservations }), {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+            });
+          }
+
+          export default {
+            async fetch(request, env, ctx) {
+              const db = env.geek_subscriptions;
+              const intent = normalizeTranslationIntent(request.headers.get(TRANSLATION_INTENT_HEADER));
+              const workerDb = db && typeof db.prepare === 'function'
+                ? scopeTranslationRateLimitAuthority(db, { intent })
+                : db;
+              const workerEnv = workerDb ? withTranslationDatabase(env, workerDb) : env;
+              const url = new URL(request.url);
+
+              if (request.method === 'POST' && url.pathname === '/v1/translate' && workerDb) {
+                const userId = await verifiedTranslationUserId(request, env.JWT_SECRET);
+                if (userId) {
+                  await recoverStaleTranslationReservations(workerDb, { userId, limit: 8 }).catch(() => {});
+                }
+              }
+
+              const response = await baseWorker.fetch(request, workerEnv, ctx);
+              if (request.method === 'GET' && url.pathname === '/health') {
+                return sanitizePublicHealthResponse(response, workerDb);
+              }
+              return response;
+            },
+
+            async scheduled(controller, env, ctx) {
+              const db = env.geek_subscriptions;
+              const scopedEnv = db && typeof db.prepare === 'function'
+                ? withTranslationDatabase(env, scopeTranslationRateLimitAuthority(db))
+                : env;
+              if (db && typeof db.prepare === 'function') {
+                await recoverStaleTranslationReservations(scopedEnv.geek_subscriptions, { limit: 50 }).catch(() => {});
+              }
+              if (typeof baseWorker.scheduled === 'function') {
+                return baseWorker.scheduled(controller, scopedEnv, ctx);
+              }
+            },
+          };
+          `.split('\n').map(line => line.replace(/^          /, '')).join('\n'));
+
+          edit('test/translation-health-projection-contract.cjs', source => {
+            let next = source.replace(
+              "    .replace(/^export default\\s*/m, 'this.__export = ');",
+              `    .replace(\n      "import {\\n  recoverStaleTranslationReservations,\\n  staleTranslationReservationSummary,\\n} from './translation-reservation-recovery.mjs';",\n      'const recoverStaleTranslationReservations = this.__recoverStaleTranslationReservations;\\nconst staleTranslationReservationSummary = this.__staleTranslationReservationSummary;'\n    )\n    .replace(/^export default\\s*/m, 'this.__export = ');`,
+            );
+            next = next.replace(
+              '    URL,\n    console,',
+              '    URL,\n    TextEncoder,\n    TextDecoder,\n    crypto: globalThis.crypto,\n    atob,\n    console,',
+            );
+            next = next.replace(
+              '    __scopeTranslationRateLimitAuthority: (db) => db,',
+              '    __scopeTranslationRateLimitAuthority: (db) => db,\n    __recoverStaleTranslationReservations: async () => ({ recovered: 0 }),\n    __staleTranslationReservationSummary: async () => ({ count: 0, oldestAgeSeconds: 0 }),',
+            );
+            next = next.replace(
+              "  assert.equal(Object.prototype.hasOwnProperty.call(payload.models.gemini, 'lastError'), false);",
+              "  assert.equal(Object.prototype.hasOwnProperty.call(payload.models.gemini, 'lastError'), false);\n  assert.deepEqual(payload.staleReservations, { count: 0, oldestAgeSeconds: 0 }, '公开健康响应只能增加非敏感 stale reservation 聚合');",
+            );
+            return next;
+          });
+
+          edit('test/translation-rate-limit-authority-contract.cjs', source => {
+            let next = source.replace(
+              "  assert.match(entry, /scopeTranslationRateLimitAuthority\\(db, \\{ intent \\}\\)/, 'production entry must scope D1 through the intent-aware atomic translation rate-limit authority');",
+              "  assert.match(entry, /scopeTranslationRateLimitAuthority\\(db, \\{ intent \\}\\)/, 'production entry must scope D1 through the intent-aware atomic translation rate-limit authority');\n  assert.match(entry, /const workerDb = db && typeof db\\.prepare === 'function'[\\s\\S]*scopeTranslationRateLimitAuthority\\(db, \\{ intent \\}\\)/, 'recovery and translation must share the same intent-aware authoritative D1 handle');\n  assert.match(entry, /recoverStaleTranslationReservations\\(workerDb, \\{ userId, limit: 8 \\}\\)/, 'authenticated translation requests must opportunistically recover only their own stale reservations');",
+            );
+            next = next.replace(
+              '    "\'scripts/translation-rate-limit-compat.mjs\'",\n    "\'scripts/atomic-rate-limit.mjs\'",',
+              '    "\'scripts/translation-rate-limit-compat.mjs\'",\n    "\'scripts/translation-reservation-recovery.mjs\'",\n    "\'scripts/atomic-rate-limit.mjs\'",',
+            );
+            return next;
+          });
+          NODE
+
+          node --check scripts/geek-translate-entry.js
+          node --check scripts/translation-reservation-recovery.mjs
+          node test/translation-reservation-recovery-contract.cjs
+          node test/translation-health-projection-contract.cjs
+          node test/translation-rate-limit-authority-contract.cjs
+          git diff --check
+
+          git rm -- .github/workflows/refresh-611.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: refresh stale translation reservation recovery'
+          git push origin "HEAD:$TARGET_BRANCH"
