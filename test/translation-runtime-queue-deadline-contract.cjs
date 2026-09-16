@@ -6,6 +6,7 @@ const {
   createTranslationRuntime,
   unwrapTranslationIpcResponse,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function deferred() {
   let resolve;
@@ -87,7 +88,8 @@ function successResponse(text) {
 
   runtime.install();
   const rawTranslate = handlers.get('translation:translate');
-  const translate = async payload => unwrapTranslationIpcResponse(await rawTranslate({ sender: { id: 1 } }, payload));
+  const event = mainFrameIpcEvent({ id: 1 });
+  const translate = async payload => unwrapTranslationIpcResponse(await rawTranslate(event, payload));
 
   try {
     assert.equal(TRANSLATION_REMOTE_LIMIT, 20, 'contract assumes the current bounded remote pool size');

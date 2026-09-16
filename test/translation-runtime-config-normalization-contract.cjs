@@ -6,6 +6,7 @@ const {
   unwrapTranslationIpcResponse,
   createTranslationRuntime,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 assert.deepEqual(
   normalizeTranslationProviderRoute('remote', 'legacy-route'),
@@ -89,6 +90,7 @@ function createHarness() {
   return {
     runtime,
     translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
+    event: mainFrameIpcEvent({ id: 1 }),
     forwarded,
     pickedRoutes,
   };
@@ -108,7 +110,7 @@ function createHarness() {
     skipQuota: true,
     refresh: true,
   };
-  const legacyResult = await h.translate({}, legacyPayload);
+  const legacyResult = await h.translate(h.event, legacyPayload);
   assert.equal(legacyResult.text, 'translated:您好，最近怎么样？');
   assert.equal(h.forwarded[0].provider, 'auto', 'legacy WhatsApp provider must be contained before the Worker');
   assert.equal(h.pickedRoutes[0], 'default', 'legacy WhatsApp route must canonicalize to automatic endpoint admission');
@@ -127,7 +129,7 @@ function createHarness() {
     skipQuota: true,
     refresh: true,
   };
-  await h.translate({}, validPayload);
+  await h.translate(h.event, validPayload);
   assert.equal(h.pickedRoutes[1], 'backup', 'supported explicit backup must reach endpoint admission unchanged');
   assert.equal(h.forwarded[1].provider, 'local');
   assert.equal(h.forwarded[1].route, 'backup');

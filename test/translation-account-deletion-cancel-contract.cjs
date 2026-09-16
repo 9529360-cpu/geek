@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function successResponse(text) {
   return {
@@ -93,7 +94,7 @@ async function waitFor(predicate, label) {
   const translateIpc = handlers.get('translation:translate');
   assert.equal(typeof translateIpc, 'function');
   const translate = async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload));
-  const event = { sender: { id: 1 } };
+  const event = mainFrameIpcEvent({ id: 1 });
 
   // This contract is about account deletion cancellation, not background
   // reservation. Use explicit outgoing work so it may intentionally occupy all

@@ -6,6 +6,7 @@ const {
   unwrapTranslationIpcResponse,
   createTranslationRuntime,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function deferred() {
   let resolve, reject;
@@ -49,8 +50,9 @@ function baseRuntime(overrides = {}) {
   });
   runtime.install();
   const rawTranslate = handlers.get('translation:translate');
-  const translate = async (event, payload) => unwrapTranslationIpcResponse(await rawTranslate(event, payload));
-  return { runtime, rawTranslate, translate, tokenGate, tokenCalls: () => tokenCalls, fetchCalls: () => fetchCalls, reports };
+  const event = mainFrameIpcEvent({ id: 1 });
+  const translate = async (_event, payload) => unwrapTranslationIpcResponse(await rawTranslate(event, payload));
+  return { runtime, rawTranslate, translate, event, tokenGate, tokenCalls: () => tokenCalls, fetchCalls: () => fetchCalls, reports };
 }
 
 (async () => {
@@ -72,7 +74,7 @@ function baseRuntime(overrides = {}) {
     const unauthorized = new Error('UNTRUSTED_TRANSLATION_SENDER');
     const h = baseRuntime({ assertTrustedSender: () => { throw unauthorized; } });
     await assert.rejects(
-      h.rawTranslate({ sender: { id: 99 } }, { accountId: 'a', text: 'blocked', target: 'it', skipQuota: true }),
+      h.rawTranslate(mainFrameIpcEvent({ id: 99 }), { accountId: 'a', text: 'blocked', target: 'it', skipQuota: true }),
       error => error === unauthorized,
       'trusted-sender authorization must reject outside the application result envelope'
     );
@@ -83,8 +85,8 @@ function baseRuntime(overrides = {}) {
   {
     const h = baseRuntime();
     const payload = { accountId: 'a', text: 'hello', target: 'it', skipQuota: true };
-    const a = h.translate({}, payload);
-    const b = h.translate({}, payload);
+    const a = h.translate(h.event, payload);
+    const b = h.translate(h.event, payload);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.tokenCalls(), 1, 'legacy same-work request must coalesce before translation-token preflight');
     assert.equal(h.fetchCalls(), 0);
@@ -99,8 +101,8 @@ function baseRuntime(overrides = {}) {
   {
     const h = baseRuntime();
     const common = { accountId: 'a', text: 'same work, distinct send intents', target: 'it', skipQuota: true };
-    const a = h.translate({}, { ...common, requestId: 'send-intent-a' });
-    const b = h.translate({}, { ...common, requestId: 'send-intent-b' });
+    const a = h.translate(h.event, { ...common, requestId: 'send-intent-a' });
+    const b = h.translate(h.event, { ...common, requestId: 'send-intent-b' });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.tokenCalls(), 2, 'different explicit caller transaction ids must not silently share one runtime request');
     h.tokenGate.resolve('token');
@@ -113,8 +115,8 @@ function baseRuntime(overrides = {}) {
   {
     const h = baseRuntime();
     const shared = { accountId: 'a', text: 'same transaction retry', target: 'it', skipQuota: true, requestId: 'send-intent-same' };
-    const leader = h.translate({}, { ...shared, deadlineAt: Date.now() + 1000 });
-    const follower = h.translate({}, { ...shared, deadlineAt: Date.now() + 30 });
+    const leader = h.translate(h.event, { ...shared, deadlineAt: Date.now() + 1000 });
+    const follower = h.translate(h.event, { ...shared, deadlineAt: Date.now() + 30 });
     await assert.rejects(
       follower,
       error => error?.code === 'TRANSLATION_DEADLINE_EXCEEDED',
@@ -131,7 +133,7 @@ function baseRuntime(overrides = {}) {
     const h = baseRuntime();
     const started = Date.now();
     await assert.rejects(
-      h.translate({}, { accountId: 'a', text: 'slow', target: 'it', skipQuota: true, deadlineAt: Date.now() + 35 }),
+      h.translate(h.event, { accountId: 'a', text: 'slow', target: 'it', skipQuota: true, deadlineAt: Date.now() + 35 }),
       error => error?.code === 'TRANSLATION_DEADLINE_EXCEEDED' && error?.category === 'deadline'
     );
     assert.ok(Date.now() - started < 500, 'caller deadline must include auth/preflight wait');
@@ -148,7 +150,7 @@ function baseRuntime(overrides = {}) {
         return { ok: true, status: 200, text: async () => JSON.stringify({ text: 'should-not-run' }) };
       },
     });
-    const wire = await h.rawTranslate({}, { accountId: 'a', text: 'bad', target: 'it', skipQuota: true });
+    const wire = await h.rawTranslate(h.event, { accountId: 'a', text: 'bad', target: 'it', skipQuota: true });
     assert.deepEqual(
       wire,
       { ok: false, error: { code: 'invalid_route', message: 'invalid_route', category: 'input', retryable: false, status: 400 } },
@@ -171,7 +173,7 @@ function baseRuntime(overrides = {}) {
         ? { ok: false, status: 503, text: async () => JSON.stringify({ error: 'upstream_unavailable' }) }
         : { ok: true, status: 200, text: async () => JSON.stringify({ text: 'ciao', target: 'it' }) },
     });
-    const result = await h.translate({}, { accountId: 'a', text: 'retry', target: 'it', skipQuota: true });
+    const result = await h.translate(h.event, { accountId: 'a', text: 'retry', target: 'it', skipQuota: true });
     assert.equal(result.text, 'ciao');
     assert.equal(h.fetchCalls(), 2);
     assert.deepEqual(h.reports.failure, ['https://primary.test']);

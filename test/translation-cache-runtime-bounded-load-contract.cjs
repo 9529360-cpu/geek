@@ -11,6 +11,7 @@ const {
   createTranslationRuntime,
   unwrapTranslationIpcResponse,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function cacheKey(text, target = 'it') {
   return crypto.createHash('sha256').update(JSON.stringify({
@@ -122,7 +123,8 @@ function record(key, text, at) {
     runtime.install();
     const translateIpc = handlers.get('translation:translate');
     assert.equal(typeof translateIpc, 'function');
-    const result = unwrapTranslationIpcResponse(await translateIpc({ sender: { id: 1 } }, {
+    const event = mainFrameIpcEvent({ id: 1 });
+    const result = unwrapTranslationIpcResponse(await translateIpc(event, {
       accountId: 'account-a',
       text: sourceText,
       target: 'it',

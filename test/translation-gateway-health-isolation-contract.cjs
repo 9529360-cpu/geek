@@ -6,6 +6,7 @@ const {
   createTranslationRuntime,
   unwrapTranslationIpcResponse,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function response(status, body) {
   return {
@@ -100,7 +101,7 @@ function createHarness(fetchBehavior) {
     failures,
     successes,
     picks,
-    event: { sender: { id: 1 } },
+    event: mainFrameIpcEvent({ id: 1 }),
     translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
   };
 }

@@ -5,6 +5,7 @@ const {
   createTranslationRuntime,
   unwrapTranslationIpcResponse,
 } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function deferred() {
   let resolve;
@@ -78,7 +79,8 @@ function successResponse(text) {
 
   runtime.install();
   const rawTranslate = handlers.get('translation:translate');
-  const translate = async payload => unwrapTranslationIpcResponse(await rawTranslate({ sender: { id: 1 } }, payload));
+  const event = mainFrameIpcEvent({ id: 1 });
+  const translate = async payload => unwrapTranslationIpcResponse(await rawTranslate(event, payload));
 
   try {
     // Saturate the background class up to its permitted active capacity. Four
@@ -155,7 +157,8 @@ function successResponse(text) {
     });
     runtime2.install();
     const raw2 = handlers2.get('translation:translate');
-    const translate2 = async payload => unwrapTranslationIpcResponse(await raw2({ sender: { id: 1 } }, payload));
+    const event2 = mainFrameIpcEvent({ id: 2 });
+    const translate2 = async payload => unwrapTranslationIpcResponse(await raw2(event2, payload));
     const display = translate2({ accountId: 'account-a', text: 'same-text', target: 'it', intent: 'message-display', refresh: true, deadlineAt: Date.now() + 5000 });
     await waitFor(() => sameTextCalls === 1, 'background same-text gateway request');
     const send = translate2({ accountId: 'account-a', text: 'same-text', target: 'it', intent: 'outgoing-send', refresh: true, deadlineAt: Date.now() + 5000 });
