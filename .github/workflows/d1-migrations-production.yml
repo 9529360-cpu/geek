@@ -1,0 +1,161 @@
+name: d1-migrations-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only plan, or apply the one admitted migration
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      migration:
+        description: Exact admitted migration filename
+        required: true
+        default: 005-translation-reservation-lease.sql
+        type: string
+      confirmation:
+        description: Apply mode only; type APPLY 005-translation-reservation-lease.sql
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d1-schema-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact master candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run repository tests
+        run: npm test
+
+      - name: Validate admitted migration and operator intent
+        env:
+          MODE: ${{ inputs.mode }}
+          MIGRATION: ${{ inputs.migration }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/d1-migration-guard.cjs
+          node scripts/d1-migration-guard.cjs validate-repo
+          test "$MIGRATION" = '005-translation-reservation-lease.sql'
+          case "$MODE" in
+            plan) ;;
+            apply)
+              test "$CONFIRMATION" = 'APPLY 005-translation-reservation-lease.sql'
+              ;;
+            *)
+              echo 'Unsupported D1 migration mode' >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Verify current Cloudflare control-plane access
+        env:
+          CLOUDFLARE_INFRA_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_INFRA_SUMMARY_PATH: infra-smoke-summary.md
+        run: node scripts/cloudflare-infra-smoke.mjs
+
+      - name: Read-only production preflight
+        id: preflight
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          WRANGLER=(npx --yes wrangler@4.36.0)
+          DB='geek-subscriptions'
+          CONFIG='wrangler-d1-migrations.toml'
+          SCHEMA="$RUNNER_TEMP/d1-005-schema.json"
+          OBJECTS="$RUNNER_TEMP/d1-005-objects.json"
+          LEDGER_TABLE="$RUNNER_TEMP/d1-005-ledger-table.json"
+          LEDGER_ROWS="$RUNNER_TEMP/d1-005-ledger-rows.json"
+
+          "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "PRAGMA table_info(translation_usage)" --json > "$SCHEMA"
+          "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name IN ('idx_translation_usage_lease','trg_translation_usage_reservation_lease','idx_translation_usage_replay_expiry') ORDER BY name" --json > "$OBJECTS"
+          "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name = 'geek_d1_migrations'" --json > "$LEDGER_TABLE"
+
+          if test "$(node scripts/d1-migration-guard.cjs ledger-present "$LEDGER_TABLE")" = 'yes'; then
+            "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT id, name, applied_at FROM geek_d1_migrations ORDER BY id" --json > "$LEDGER_ROWS"
+          else
+            printf '[]\n' > "$LEDGER_ROWS"
+          fi
+
+          STATE="$(node scripts/d1-migration-guard.cjs inspect-005 "$SCHEMA" "$OBJECTS" "$LEDGER_TABLE" "$LEDGER_ROWS")"
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Production D1 migration preflight'
+            echo
+            echo "- admitted migration: \`005-translation-reservation-lease.sql\`"
+            echo "- preflight state: \`$STATE\`"
+            echo '- business/user rows were not selected'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Reject duplicate or out-of-band apply
+        if: inputs.mode == 'apply' && steps.preflight.outputs.state != 'ready'
+        shell: bash
+        run: |
+          echo 'Production schema is not in the exact pre-005 state; refusing to apply.' >&2
+          exit 1
+
+      - name: Apply admitted migration 005
+        if: inputs.mode == 'apply' && steps.preflight.outputs.state == 'ready'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.36.0 d1 migrations apply geek-subscriptions --remote --config wrangler-d1-migrations.toml
+
+      - name: Verify migration 005 postflight
+        if: inputs.mode == 'apply' && steps.preflight.outputs.state == 'ready'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          WRANGLER=(npx --yes wrangler@4.36.0)
+          DB='geek-subscriptions'
+          CONFIG='wrangler-d1-migrations.toml'
+          SCHEMA="$RUNNER_TEMP/d1-005-post-schema.json"
+          OBJECTS="$RUNNER_TEMP/d1-005-post-objects.json"
+          LEDGER_TABLE="$RUNNER_TEMP/d1-005-post-ledger-table.json"
+          LEDGER_ROWS="$RUNNER_TEMP/d1-005-post-ledger-rows.json"
+
+          "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "PRAGMA table_info(translation_usage)" --json > "$SCHEMA"
+          "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name IN ('idx_translation_usage_lease','trg_translation_usage_reservation_lease','idx_translation_usage_replay_expiry') ORDER BY name" --json > "$OBJECTS"
+          "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name = 'geek_d1_migrations'" --json > "$LEDGER_TABLE"
+          "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT id, name, applied_at FROM geek_d1_migrations ORDER BY id" --json > "$LEDGER_ROWS"
+
+          node scripts/d1-migration-guard.cjs verify-005 "$SCHEMA" "$OBJECTS" "$LEDGER_TABLE" "$LEDGER_ROWS"
+          {
+            echo '### Production D1 migration postflight'
+            echo
+            echo '- migration 005 schema artifacts: verified'
+            echo '- managed migration ledger: verified'
+            echo '- migration 006 replay schema: absent as required'
+          } >> "$GITHUB_STEP_SUMMARY"

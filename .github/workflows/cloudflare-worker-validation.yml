@@ -8,8 +8,10 @@ on:
       - 'test/**'
       - 'wrangler*.toml'
       - '.github/workflows/deploy-*.yml'
+      - '.github/workflows/d1-migrations-production.yml'
       - '.github/workflows/cloudflare-worker-validation.yml'
       - 'docs/github-control-plane.md'
+      - 'docs/d1-migration-operations.md'
       - '.agent/HANDOFF.md'
   push:
     branches:
@@ -19,8 +21,10 @@ on:
       - 'test/**'
       - 'wrangler*.toml'
       - '.github/workflows/deploy-*.yml'
+      - '.github/workflows/d1-migrations-production.yml'
       - '.github/workflows/cloudflare-worker-validation.yml'
       - 'docs/github-control-plane.md'
+      - 'docs/d1-migration-operations.md'
       - '.agent/HANDOFF.md'
 
 permissions:
@@ -78,7 +82,32 @@ jobs:
           node --check scripts/geek-release-worker.js
           node --check scripts/account-live-smoke.mjs
           node --check scripts/cloudflare-deploy-report.cjs
+          node --check scripts/d1-migration-guard.cjs
           node --check test/cloudflare-deployment-trigger-contract.cjs
+          node --check test/d1-migration-control-plane-contract.cjs
+
+      - name: Validate managed D1 migration locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          WRANGLER=(npx --yes wrangler@4.36.0)
+          DB='geek-subscriptions'
+          CONFIG='wrangler-d1-migrations.toml'
+          BASELINE='scripts/d1-baselines/004-subscription-schema.sql'
+          PERSIST="$RUNNER_TEMP/d1-migration-validation"
+          SCHEMA="$RUNNER_TEMP/d1-local-schema.json"
+          OBJECTS="$RUNNER_TEMP/d1-local-objects.json"
+          LEDGER_TABLE="$RUNNER_TEMP/d1-local-ledger-table.json"
+          LEDGER_ROWS="$RUNNER_TEMP/d1-local-ledger-rows.json"
+
+          node scripts/d1-migration-guard.cjs validate-repo
+          "${WRANGLER[@]}" d1 execute "$DB" --local --persist-to "$PERSIST" --config "$CONFIG" --file "$BASELINE"
+          "${WRANGLER[@]}" d1 migrations apply "$DB" --local --persist-to "$PERSIST" --config "$CONFIG"
+          "${WRANGLER[@]}" d1 execute "$DB" --local --persist-to "$PERSIST" --config "$CONFIG" --command "PRAGMA table_info(translation_usage)" --json > "$SCHEMA"
+          "${WRANGLER[@]}" d1 execute "$DB" --local --persist-to "$PERSIST" --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name IN ('idx_translation_usage_lease','trg_translation_usage_reservation_lease','idx_translation_usage_replay_expiry') ORDER BY name" --json > "$OBJECTS"
+          "${WRANGLER[@]}" d1 execute "$DB" --local --persist-to "$PERSIST" --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name = 'geek_d1_migrations'" --json > "$LEDGER_TABLE"
+          "${WRANGLER[@]}" d1 execute "$DB" --local --persist-to "$PERSIST" --config "$CONFIG" --command "SELECT id, name, applied_at FROM geek_d1_migrations ORDER BY id" --json > "$LEDGER_ROWS"
+          node scripts/d1-migration-guard.cjs verify-005 "$SCHEMA" "$OBJECTS" "$LEDGER_TABLE" "$LEDGER_ROWS"
 
       - name: Dry-run website Worker bundle
         run: npx --yes wrangler@4.36.0 deploy --dry-run --outdir "$RUNNER_TEMP/wrangler-dry-run/website" --config wrangler-website.toml

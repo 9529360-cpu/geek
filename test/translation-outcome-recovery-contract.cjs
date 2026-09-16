@@ -314,9 +314,11 @@ function successResponse() {
     sqlite.close();
   }
 
-  const migration = fs.readFileSync(path.join(root, 'scripts', 'migrations', '006-translation-outcome-replay.sql'), 'utf8');
-  assert.match(migration, /ADD COLUMN request_hash TEXT/);
-  assert.match(migration, /ADD COLUMN replay_ciphertext TEXT/);
+  const schema = fs.readFileSync(path.join(root, 'scripts', 'geek-subscription-schema.sql'), 'utf8');
+  assert.match(schema, /\brequest_hash\s+TEXT\b/);
+  assert.match(schema, /\breplay_ciphertext\s+TEXT\b/);
+  assert.match(schema, /\breplay_expires_at\s+TEXT\b/);
+  assert.match(schema, /idx_translation_usage_replay_expiry/);
   assert.match(workerSource, /AES-GCM/, 'replay data must be encrypted before D1 persistence');
   assert.match(workerSource, /OPERATION_HASH_DOMAIN/, 'operation identity must use a purpose-separated keyed domain');
   assert.match(workerSource, /REPLAY_KEY_DOMAIN/, 'replay encryption key derivation must use a distinct purpose domain');

@@ -137,7 +137,7 @@ function addReservation(sqlite, { requestId, userId = 42, chars = 5, status = 'r
     sqlite.close();
   }
 
-  const migration = fs.readFileSync(path.join(root, 'scripts', 'migrations', '005-translation-reservation-lease.sql'), 'utf8');
+  const migration = fs.readFileSync(path.join(root, 'scripts', 'd1-migrations', '005-translation-reservation-lease.sql'), 'utf8');
   const schema = fs.readFileSync(path.join(root, 'scripts', 'geek-subscription-schema.sql'), 'utf8');
   const entry = fs.readFileSync(path.join(root, 'scripts', 'geek-translate-entry.js'), 'utf8');
   assert.match(migration, /ALTER TABLE translation_usage ADD COLUMN lease_expires_at TEXT/);
