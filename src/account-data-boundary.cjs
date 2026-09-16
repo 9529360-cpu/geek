@@ -105,13 +105,22 @@ function installAccountDataBoundary(options = {}) {
 
   function assertMainRenderer(event) {
     const sender = event && event.sender;
+    const frame = event && event.senderFrame;
     const win = sender ? BrowserWindow.fromWebContents(sender) : null;
-    if (!sender || !win || (typeof win.isDestroyed === 'function' && win.isDestroyed()) || !win.webContents || win.webContents.id !== sender.id) {
+    if (
+      !sender
+      || !frame
+      || sender.mainFrame !== frame
+      || !win
+      || (typeof win.isDestroyed === 'function' && win.isDestroyed())
+      || !win.webContents
+      || win.webContents.id !== sender.id
+    ) {
       throw createStoreError('ACCOUNT_DATA_SENDER_INVALID', '拒绝来自未授权页面的 IPC 请求');
     }
     let senderPath = '';
     try {
-      senderPath = pathModule.resolve(fileURLToPathFn(new URL(win.webContents.getURL())));
+      senderPath = pathModule.resolve(fileURLToPathFn(new URL(frame.url)));
     } catch {
       throw createStoreError('ACCOUNT_DATA_SENDER_INVALID', '拒绝来自未授权页面的 IPC 请求');
     }
