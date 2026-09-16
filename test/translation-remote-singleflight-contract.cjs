@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
+const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function deferred() {
   let resolve;
@@ -97,7 +98,7 @@ function createHarness(options = {}) {
   return {
     runtime,
     translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
-    event: { sender: { id: 1 } },
+    event: mainFrameIpcEvent({ id: 1 }),
     calls,
   };
 }
