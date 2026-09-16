@@ -52,7 +52,8 @@ for (const channel of ['accounts:list','accounts:add','accounts:remove','account
   assert.equal(main.includes(`ipcMain.handle('${channel}'`), false, `main must not directly register Account channel ${channel}`);
 }
 assert.match(accountIpc, /normalizeAccountAddPayload\(payload\)/, 'accounts:add must cross the ingress payload gate before mutation');
-assert.match(accountIpc, /assertTrustedSender\(event\)[\s\S]*normalizeAccountAddPayload/, 'sender validation must precede accounts:add payload processing');
+assert.match(accountIpc, /assertAuthorizedSender\(event\)[\s\S]*normalizeAccountAddPayload/, 'sender validation must precede accounts:add payload processing');
+assert.match(accountIpc, /assertMainFrameIpcSender\(event\)[\s\S]*assertTrustedSender\(event\)/, 'Account IPC must authenticate the exact sending main frame before the broader WebContents sender guard');
 assert.match(accountIpc, /dispose\(\)[\s\S]*ipcMain\.removeHandler/, 'Account IPC owner must own teardown');
 assert.match(main, /const accountState = createAccountStateStore\(/, 'main composes but does not own account state');
 assert.match(main, /resolveAccountPartition:\s*accountId => accountState\.resolvePartition\(accountId\)/, 'Account Data production existence/partition resolution must come from Account State owner');
