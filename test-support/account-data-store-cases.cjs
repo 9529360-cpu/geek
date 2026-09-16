@@ -271,10 +271,11 @@ async function runAccountDataStoreCases() {
         handlers.set(channel, listener);
       },
     };
-    const sender = { id: 17 };
     const uiEntryPath = path.join(__dirname, '../ui/index.html');
+    const mainFrame = { url: pathToFileURL(uiEntryPath).href };
+    const sender = { id: 17, mainFrame };
     const window = {
-      webContents: { id: 17, getURL: () => pathToFileURL(uiEntryPath).href },
+      webContents: { id: 17, getURL: () => mainFrame.url },
       isDestroyed: () => false,
     };
     const BrowserWindow = { fromWebContents: (candidate) => candidate === sender ? window : null };
@@ -298,7 +299,12 @@ async function runAccountDataStoreCases() {
       return 'REMOVED';
     }));
 
-    const event = { sender };
+    const event = { sender, senderFrame: mainFrame };
+    await assert.rejects(
+      handlers.get('account-data:get-all')({ sender, senderFrame: { url: mainFrame.url } }, accountId),
+      { code: 'ACCOUNT_DATA_SENDER_INVALID' },
+      'same-WebContents child frames must not inherit account-data authority',
+    );
     await handlers.get('account-data:set')(event, accountId, 'savedMessages', 'hello');
     assert.deepEqual(await handlers.get('account-data:get-all')(event, accountId), { savedMessages: 'hello' });
     await handlers.get('account-data:remove')(event, accountId, 'savedMessages');
