@@ -27,8 +27,9 @@ function createFakeFs() {
   const handlers = new Map();
   const ipcMain = { handle(channel, handler) { handlers.set(channel, handler); } };
   const uiEntryPath = path.resolve('ui/index.html');
-  const sender = { id: 42 };
-  const win = { webContents: { id: 42, getURL: () => pathToFileURL(uiEntryPath).href }, isDestroyed: () => false };
+  const mainFrame = { url: pathToFileURL(uiEntryPath).href };
+  const sender = { id: 42, mainFrame };
+  const win = { webContents: { id: 42, getURL: () => mainFrame.url }, isDestroyed: () => false };
   const BrowserWindow = { fromWebContents(value) { return value === sender ? win : null; } };
   const fs = createFakeFs();
   fs.seed('docs/a.pdf', 'AAAA', 10);
@@ -74,7 +75,15 @@ function createFakeFs() {
   assert.equal(typeof boundary.cleanupAccount, 'function');
   assert.equal(handlers.size, 4);
 
-  const event = { sender };
+  const event = { sender, senderFrame: mainFrame };
+  await assert.rejects(
+    handlers.get(CHANNELS.persist)(
+      { sender, senderFrame: { url: mainFrame.url } },
+      { accountId: 'account-a', taskId: 'task-child', fileTokens: ['short-a'] },
+    ),
+    { code: 'SCHEDULED_BROADCAST_ATTACHMENT_OWNER_INVALID' },
+    'same-WebContents child frames must not persist scheduled attachment capabilities',
+  );
   const persisted = await handlers.get(CHANNELS.persist)(event, { accountId: 'account-a', taskId: 'task-1', fileTokens: ['short-a'] });
   assert.equal(persisted.length, 1);
   assert.deepEqual(releaseCalls, [], 'durable persist alone must not invalidate a draft that may still need retry');

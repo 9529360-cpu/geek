@@ -64,9 +64,10 @@ async function nextTurn() {
   const handlers = new Map();
   const ipcMain = { handle(channel, handler) { handlers.set(channel, handler); } };
   const uiEntryPath = path.resolve('ui/index.html');
-  const sender = { id: 42 };
+  const mainFrame = { url: pathToFileURL(uiEntryPath).href };
+  const sender = { id: 42, mainFrame };
   const win = {
-    webContents: { id: 42, getURL: () => pathToFileURL(uiEntryPath).href },
+    webContents: { id: 42, getURL: () => mainFrame.url },
     isDestroyed: () => false,
   };
   const BrowserWindow = { fromWebContents(value) { return value === sender ? win : null; } };
@@ -135,7 +136,7 @@ async function nextTurn() {
     ephemeralRegistry,
     getUserDataDir: () => path.dirname(storePath),
   });
-  const event = { sender };
+  const event = { sender, senderFrame: mainFrame };
 
   // Persist that was admitted before deletion must drain before terminal account cleanup.
   gatePersist = true;

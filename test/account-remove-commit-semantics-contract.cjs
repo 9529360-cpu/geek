@@ -13,7 +13,8 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
   const handlers = new Map();
   const ipcMain = { handle(channel, handler) { handlers.set(channel, handler); } };
   const uiEntryPath = path.resolve('ui/index.html');
-  const sender = { id: 42 };
+  const mainFrame = { url: pathToFileURL(uiEntryPath).href };
+  const sender = { id: 42, mainFrame };
   const win = { webContents: { id: 42, getURL: () => pathToFileURL(uiEntryPath).href }, isDestroyed: () => false };
   const BrowserWindow = { fromWebContents(value) { return value === sender ? win : null; } };
   let accountExists = true;
@@ -64,7 +65,7 @@ function configuredHarness(listener, cleanup = async ({ calls }) => { calls.push
       args,
     }),
   ));
-  return { handlers, event: { sender }, calls, pending, partition };
+  return { handlers, event: { sender, senderFrame: mainFrame }, calls, pending, partition };
 }
 
 (async () => {
