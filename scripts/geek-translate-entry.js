@@ -4,6 +4,7 @@ import {
   scopeTranslationRateLimitAuthority,
 } from './translation-rate-limit-compat.mjs';
 import {
+  purgeExpiredTranslationReplays,
   recoverStaleTranslationReservations,
   staleTranslationReservationSummary,
 } from './translation-reservation-recovery.mjs';
@@ -84,6 +85,7 @@ export default {
       const userId = await verifiedTranslationUserId(request, env.JWT_SECRET);
       if (userId) {
         await recoverStaleTranslationReservations(workerDb, { userId, limit: 8 }).catch(() => {});
+        await purgeExpiredTranslationReplays(workerDb, { limit: 4 }).catch(() => {});
       }
     }
 
@@ -101,6 +103,7 @@ export default {
       : env;
     if (db && typeof db.prepare === 'function') {
       await recoverStaleTranslationReservations(scopedEnv.geek_subscriptions, { limit: 50 }).catch(() => {});
+      await purgeExpiredTranslationReplays(scopedEnv.geek_subscriptions, { limit: 50 }).catch(() => {});
     }
     if (typeof baseWorker.scheduled === 'function') {
       return baseWorker.scheduled(controller, scopedEnv, ctx);

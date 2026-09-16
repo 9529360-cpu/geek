@@ -23,8 +23,12 @@ function loadEntry(baseFetch) {
       ].join('\n')
     )
     .replace(
-      "import {\n  recoverStaleTranslationReservations,\n  staleTranslationReservationSummary,\n} from './translation-reservation-recovery.mjs';",
-      'const recoverStaleTranslationReservations = this.__recoverStaleTranslationReservations;\nconst staleTranslationReservationSummary = this.__staleTranslationReservationSummary;'
+      /import\s*\{[\s\S]*?\}\s*from '\.\/translation-reservation-recovery\.mjs';/,
+      [
+        'const purgeExpiredTranslationReplays = this.__purgeExpiredTranslationReplays;',
+        'const recoverStaleTranslationReservations = this.__recoverStaleTranslationReservations;',
+        'const staleTranslationReservationSummary = this.__staleTranslationReservationSummary;',
+      ].join('\n')
     )
     .replace(/^export default\s*/m, 'this.__export = ');
 
@@ -41,6 +45,7 @@ function loadEntry(baseFetch) {
     __baseWorker: { fetch: baseFetch },
     __normalizeTranslationIntent: value => value === 'outgoing-send' ? 'outgoing-send' : 'message-display',
     __scopeTranslationRateLimitAuthority: (db) => db,
+    __purgeExpiredTranslationReplays: async () => ({ purged: 0 }),
     __recoverStaleTranslationReservations: async () => ({ recovered: 0 }),
     __staleTranslationReservationSummary: async () => ({ count: 0, oldestAgeSeconds: 0 }),
   };

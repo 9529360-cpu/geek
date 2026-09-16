@@ -1,5 +1,10 @@
 const DEFAULT_RECOVERY_LIMIT = 8;
 
+function boundedLimit(value, fallback = DEFAULT_RECOVERY_LIMIT) {
+  const raw = Number(value);
+  return Math.max(1, Math.min(50, Number.isInteger(raw) ? raw : fallback));
+}
+
 function stalePredicate() {
   return `(status = 'reserved' OR status LIKE 'reserved:%')
     AND COALESCE(lease_expires_at, datetime(created_at, '+2 minutes')) <= datetime('now')`;
@@ -31,8 +36,7 @@ async function reclaimOne(db, row) {
 
 export async function recoverStaleTranslationReservations(db, options = {}) {
   if (!db || typeof db.prepare !== 'function' || typeof db.batch !== 'function') return { recovered: 0 };
-  const rawLimit = Number(options.limit);
-  const limit = Math.max(1, Math.min(50, Number.isInteger(rawLimit) ? rawLimit : DEFAULT_RECOVERY_LIMIT));
+  const limit = boundedLimit(options.limit);
   const userId = Number(options.userId);
   const hasUser = Number.isInteger(userId) && userId > 0;
   const stale = stalePredicate();
@@ -50,6 +54,27 @@ export async function recoverStaleTranslationReservations(db, options = {}) {
     if (await reclaimOne(db, row)) recovered += 1;
   }
   return { recovered };
+}
+
+export async function purgeExpiredTranslationReplays(db, options = {}) {
+  if (!db || typeof db.prepare !== 'function') return { purged: 0 };
+  const limit = boundedLimit(options.limit, 8);
+  const rows = await db.prepare(`SELECT request_id FROM translation_usage
+    WHERE status = 'complete'
+      AND replay_ciphertext IS NOT NULL
+      AND replay_expires_at IS NOT NULL
+      AND replay_expires_at <= datetime('now')
+    ORDER BY replay_expires_at ASC LIMIT ?`).bind(limit).all();
+  let purged = 0;
+  for (const row of rows?.results || []) {
+    const result = await db.prepare(`UPDATE translation_usage
+      SET replay_ciphertext = NULL
+      WHERE request_id = ? AND status = 'complete'
+        AND replay_ciphertext IS NOT NULL
+        AND replay_expires_at <= datetime('now')`).bind(String(row.request_id || '')).run();
+    purged += Number(result?.meta?.changes) || 0;
+  }
+  return { purged };
 }
 
 export async function staleTranslationReservationSummary(db) {

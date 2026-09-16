@@ -39,7 +39,11 @@ for (const [name, text, expected] of fixtures) {
 }
 
 assert.match(translationWorker, /reserved = Math\.max\(1, countChars\(text\)\)/, '额度预留必须使用统一 countChars');
-assert.match(translationWorker, /finishUsage\(db, auth\.uid, requestId, countChars\(result\), reservationOwner\)/, '目标译文结算必须使用统一 countChars');
+assert.match(
+  translationWorker,
+  /finishUsage\([\s\S]*?requestId,[\s\S]*?countChars\(result\),[\s\S]*?reservationOwner/,
+  '目标译文结算必须使用统一 countChars，并保持 reservation owner 参与终态提交'
+);
 assert.match(translationWorker, /refundUsage\(db, auth\.uid, requestId, reserved, reservationOwner\)/, '退款必须返还同一预留值');
 
 console.log('TRANSLATION_CHARACTER_ACCOUNTING_CONTRACT_OK');
