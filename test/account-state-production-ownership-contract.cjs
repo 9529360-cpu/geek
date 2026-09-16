@@ -36,12 +36,19 @@ const commitBody = committedMirror.match(/async function commit\(content, \{ ini
 const primaryStage = commitBody.indexOf('await writeSynced(temporaryFile, snapshot)');
 const backupStage = commitBody.indexOf('await writeSynced(backupTemporaryFile, snapshot)');
 const proofStage = commitBody.indexOf('await writeSynced(commitTemporaryFile, proofText(snapshot))');
-const primaryRename = commitBody.indexOf('await fs.rename(temporaryFile, filePath)');
-const proofRename = commitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)');
+const initializingBranch = commitBody.indexOf('if (initializing) {');
+const initialProofRename = commitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)', initializingBranch);
+const initialPrimaryPublish = commitBody.indexOf('await publishInitializedPrimary(snapshot, expectedHash)', initializingBranch);
+const laterPrimaryRename = commitBody.indexOf('await fs.rename(temporaryFile, filePath)', initialPrimaryPublish);
+const laterProofRename = commitBody.indexOf('await fs.rename(commitTemporaryFile, commitPath)', laterPrimaryRename);
 assert.ok(primaryStage >= 0 && backupStage > primaryStage && proofStage > backupStage,
   'primary candidate, recovery mirror, and commit proof must all be staged before the commit sequence');
-assert.ok(primaryRename > proofStage && proofRename > primaryRename,
-  'candidate primary may become visible before commit, but the proof rename must remain the authoritative commit point');
+assert.ok(initializingBranch > proofStage && initialProofRename > initializingBranch && initialPrimaryPublish > initialProofRename,
+  'first proof-backed commit must publish proof authority before exposing a candidate primary as legacy-looking state');
+assert.ok(laterPrimaryRename > initialPrimaryPublish && laterProofRename > laterPrimaryRename,
+  'once an older proof exists, candidate primary may stage first but proof rename must remain the authoritative commit point');
+assert.match(committedMirror, /async function publishInitializedPrimary\(snapshot, expectedHash\)[\s\S]*fs\.rename\(temporaryFile, filePath\)/,
+  'first-proof commit must materialize the primary only through the post-proof helper');
 assert.match(committedMirror, /async function syncDirectory\(\)[\s\S]*handle\.sync\(\)/, 'durable replacement must retain best-effort directory sync');
 assert.match(committedMirror, /hashSnapshot\(candidate\.content\) !== expectedHash/, 'recovery must reject backup generations that do not match the committed proof');
 assert.match(owner, /const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-'/, 'partition identity must remain stable');
