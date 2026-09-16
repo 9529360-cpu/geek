@@ -47,7 +47,7 @@ assert.doesNotMatch(migration, /request_hash|replay_ciphertext|replay_expires_at
 assert.doesNotMatch(migration, /\bDROP\b|\bVACUUM\b|\bDELETE\b/i, '005 must remain additive/non-destructive');
 
 assert.match(validationWorkflow, /wrangler-d1-migrations\.toml/, 'PR validation must exercise the dedicated D1 config without production credentials');
-assert.match(validationWorkflow, /d1 migrations apply geek-subscriptions --local/, 'PR validation must really apply admitted migrations to a local D1 baseline');
+assert.match(validationWorkflow, /d1 migrations apply "\$DB" --local/, 'PR validation must really apply admitted migrations to the shared local D1 baseline');
 assert.doesNotMatch(validationWorkflow, /CLOUDFLARE_INFRA_API_TOKEN/, 'PR validation must not receive infrastructure credentials');
 
 const baseSchema = REQUIRED_BASE_COLUMNS.map((name, cid) => ({ cid, name }));
