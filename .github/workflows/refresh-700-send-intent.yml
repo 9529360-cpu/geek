@@ -1,0 +1,83 @@
+name: refresh-wa-send-intent
+
+on:
+  push:
+    branches:
+      - refresh/522-wa-js-4-6-current-master
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact refresh candidate
+        uses: actions/checkout@v4
+        with:
+          ref: refresh/522-wa-js-4-6-current-master
+          fetch-depth: 0
+
+      - name: Preserve outgoing-send QoS intent
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_PARENT='d45e248416c65c5ab26e045b2c46d1d5af9150fa'
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function edit(path, mutate) {
+            const before = fs.readFileSync(path, 'utf8');
+            const after = mutate(before);
+            if (after === before) throw new Error(`expected change missing: ${path}`);
+            fs.writeFileSync(path, after);
+          }
+
+          edit('ui/whatsapp-direct-composer-controller.js', source => {
+            let next = source.replace('const CONTROLLER_VERSION = 6;', 'const CONTROLLER_VERSION = 7;');
+            const before = `const translated = await translate({\n            text,\n            source: resolved.setting.source || 'auto',`;
+            const after = `const translated = await translate({\n            text,\n            intent: 'outgoing-send',\n            source: resolved.setting.source || 'auto',`;
+            if (!next.includes(before)) throw new Error('WhatsApp translation request anchor missing');
+            next = next.replace(before, after);
+            return next;
+          });
+
+          edit('test/whatsapp-direct-composer-controller-contract.cjs', source => {
+            let next = source.replace('assert.equal(controller.CONTROLLER_VERSION, 6);', 'assert.equal(controller.CONTROLLER_VERSION, 7);');
+            const before = `assert.equal(env.translationCalls.length, 1);\n    assert.equal(env.translationCalls[0].chatId, '987654321@lid');`;
+            const after = `assert.equal(env.translationCalls.length, 1);\n    assert.equal(env.translationCalls[0].intent, 'outgoing-send', 'ordinary translated sends must enter the interactive Translation Runtime QoS class');\n    assert.equal(env.translationCalls[0].chatId, '987654321@lid');`;
+            if (!next.includes(before)) throw new Error('controller intent assertion anchor missing');
+            return next.replace(before, after);
+          });
+
+          edit('test/whatsapp-direct-composer-actionable-errors-contract.cjs', source =>
+            source.replace(
+              "assert.equal(controller.CONTROLLER_VERSION, 6, 'thin native-send adapter identity hardening must force a fresh guest generation');",
+              "assert.equal(controller.CONTROLLER_VERSION, 7, 'outgoing-send intent integration must force a fresh guest generation');",
+            )
+          );
+
+          edit('e2e/specs/whatsapp-wa-js-runtime.e2e.cjs', source => {
+            let next = source.replace('state?.directComposerVersion === 6', 'state?.directComposerVersion === 7');
+            next = next.replace(
+              "assert.equal(state.directComposerVersion, 6, 'thin translation adapter must match the tested owner generation');",
+              "assert.equal(state.directComposerVersion, 7, 'thin translation adapter must match the tested owner generation');",
+            );
+            return next;
+          });
+          NODE
+
+          grep -F "intent: 'outgoing-send'" ui/whatsapp-direct-composer-controller.js
+          grep -F "CONTROLLER_VERSION = 7" ui/whatsapp-direct-composer-controller.js
+          grep -F "translationCalls[0].intent, 'outgoing-send'" test/whatsapp-direct-composer-controller-contract.cjs
+          git diff --check
+
+          git rm -- .github/workflows/refresh-700-send-intent.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: preserve outgoing translation send priority'
+          git push origin HEAD:refresh/522-wa-js-4-6-current-master
