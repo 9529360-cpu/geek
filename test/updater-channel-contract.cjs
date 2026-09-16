@@ -34,7 +34,18 @@ assert.equal(quitAndInstallCount, 1, 'quitAndInstall 只允许出现在手动安
 assert.match(main, /const \{ installDesktopIpc \} = require\('\.\/desktop-ipc\.cjs'\)/, '主进程必须组合 Desktop IPC owner');
 assert.match(main, /desktopIpcBoundary = installDesktopIpc\(\{[\s\S]*?quitAndInstallForUpdate,[\s\S]*?\}\);/, '主进程必须把现有更新安装入口注入 Desktop IPC owner');
 assert.match(desktopIpc, /register\('updater:install', \(\) => quitAndInstallForUpdate\(\)\)/, 'Desktop IPC owner 必须注册 updater:install 并调用现有安装入口');
-assert.match(desktopIpc, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{\s*assertTrustedSender\(event\);/s, '更新安装请求必须先通过统一 trusted sender 校验');
+assert.match(desktopIpc, /const \{ assertMainFrameIpcSender \} = require\('\.\/main-frame-ipc-boundary\.cjs'\)/, '更新安装请求必须复用 shared main-frame sender guard');
+const desktopRegistration = desktopIpc.match(
+  /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{([\s\S]*?)\n\s*\}\);\s*registeredChannels\.add\(channel\);/,
+);
+assert.ok(desktopRegistration, 'Desktop IPC owner 必须通过统一 registration wrapper 注册 privileged handler');
+const registrationBody = desktopRegistration[1];
+const frameGuardIndex = registrationBody.indexOf('assertMainFrameIpcSender(event);');
+const trustedGuardIndex = registrationBody.indexOf('assertTrustedSender(event);');
+const handlerIndex = registrationBody.indexOf('return handler(...args);');
+assert.ok(frameGuardIndex >= 0, '更新安装请求必须先通过 main-frame sender 校验');
+assert.ok(trustedGuardIndex > frameGuardIndex, 'trusted sender 校验必须发生在 main-frame sender 校验之后');
+assert.ok(handlerIndex > trustedGuardIndex, 'updater:install side effect 必须在两层 sender 校验都通过后执行');
 assert.match(preload, /updater:.*install|install: \(\) => ipcRenderer\.invoke\('updater:install'\)/, 'preload 必须暴露安装方法');
 assert.match(preload, /onStatus.*updater:status|updater:status/, 'preload 必须暴露状态监听');
 
