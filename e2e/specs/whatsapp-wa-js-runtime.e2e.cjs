@@ -44,6 +44,7 @@ async function probeGuestRuntime() {
         lidGroupReady: typeof W?.contact?.getPnLidEntry === 'function'
           && typeof W?.group?.getParticipants === 'function',
         storesReady: !!W?.whatsapp?.ChatStore && !!W?.whatsapp?.UserPrefs,
+        legacyRuntimeAbsent: typeof fallback === 'undefined',
         fallbackReady: typeof fallback?.chat?.sendTextMessage === 'function'
           && typeof fallback?.chat?.sendFileMessage === 'function'
           && typeof fallback?.contact?.getPnLidEntry === 'function'
@@ -77,7 +78,8 @@ function injectionReady(state) {
     && state?.wppReady === true
     && state?.loaderReady === true;
   return waJsReady
-    && state?.directComposerVersion === 7
+    && state?.legacyRuntimeAbsent === true
+    && state?.directComposerVersion === 8
     && state?.directComposerNativeReady === true
     && state?.directComposerSettingReady === true
     && state?.directComposerIdentityReady === true
@@ -112,7 +114,8 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
     assert.equal(state.wppInjected, true, 'WA-JS bundle must report injected before the partition is owned');
     assert.equal(state.wppReady, true, 'WA-JS official readiness must settle');
     assert.equal(state.loaderReady, true, 'WA-JS loader/module metadata required by compatibility paths is missing');
-    assert.equal(state.directComposerVersion, 7, 'thin translation adapter must match the tested owner generation');
+    assert.equal(state.legacyRuntimeAbsent, true, 'a second legacy runtime must not patch shared native sending');
+    assert.equal(state.directComposerVersion, 8, 'thin translation adapter must match the tested owner generation');
     assert.equal(state.directComposerNativeReady, true, 'native private-send adapter must be injected into the WhatsApp guest');
     assert.equal(state.directComposerSettingReady, true, 'chat-scoped translation configuration resolver must be injected');
     assert.equal(state.directComposerIdentityReady, true, 'WhatsApp LID/PN identity verifier must be injected');

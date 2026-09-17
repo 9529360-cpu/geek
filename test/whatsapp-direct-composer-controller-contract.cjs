@@ -67,7 +67,7 @@ function makePage(options = {}) {
 }
 
 (async () => {
-  assert.equal(controller.CONTROLLER_VERSION, 7);
+  assert.equal(controller.CONTROLLER_VERSION, 8);
   assert.equal(controller.isWhatsAppType('whatsapp'), true);
   assert.equal(controller.isWhatsAppType('whatsapp-pure'), true);
   assert.equal(controller.isWhatsAppType('telegram'), false);
@@ -161,10 +161,11 @@ function makePage(options = {}) {
     const group = makeChat('123@g.us', { isGroup: true });
     const env = makePage({ globalEnabled: true, nativeChat: group, activeChat: group });
     controller.installPageController(env.page);
-    const owner = env.page.__geekWhatsAppDirectComposerController;
-    await owner.handleNativeSend(group, ['group hello'], env.original, null);
-    assert.equal(env.translationCalls.length, 0);
-    assert.equal(env.nativeSends[0][1], 'group hello');
+    await env.page.__geekWhatsAppDirectComposerController.handleNativeSend(group, ['group hello'], env.original, null);
+    assert.equal(env.translationCalls.length, 1);
+    assert.equal(env.translationCalls[0].intent, 'outgoing-send');
+    assert.equal(env.nativeSends.length, 1);
+    assert.equal(env.nativeSends[0][1], 'translated:group hello');
   }
 
   {

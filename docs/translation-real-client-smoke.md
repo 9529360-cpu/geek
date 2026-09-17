@@ -102,7 +102,7 @@ real-client-evidence/translation/
 
 通过条件：
 
-- native send 恰好一次；
+- native send 恰好一次，且 WhatsApp 已确认发送；仅本地出现气泡、发送函数返回或诊断计数增加不算通过；
 - 不等待 Geek translation queue；
 - 无翻译错误提示；
 - 发送行为与 WhatsApp native path 一致。
@@ -119,7 +119,8 @@ real-client-evidence/translation/
 
 通过条件：
 
-- 翻译成功后只提交一次 native send；
+- 翻译成功后只提交一次 native send，并核对测试消息的实际发送状态：`isSendFailure !== true` 且 `ack >= 1`；接收方确认与双勾可提供更强证据；
+- 红色感叹号、`isSendFailure=true` 或始终 `ack=0` 必须记为失败/未确认，不能用内部 `sent` 计数替代；
 - 不出现原文和译文双发；
 - 不出现重复 Enter/click 导致的第二次提交；
 - elapsed 不触发 35s orphan timeout。
@@ -239,3 +240,16 @@ real-client-evidence/translation/
 `scripts/windows-real-client-evidence.ps1` 保留 Issue #95 的历史 1.2.8 -> 1.2.9 升级结构证据语义，不应为了当前翻译测试而修改。
 
 本 Issue 使用独立的 `windows-translation-real-client-evidence.ps1`，避免把不同年代、不同证据等级揉成一个脚本。
+
+## 群聊普通发送补充
+
+群聊 composer 与私聊 composer 必须分别验收。优先使用维护者控制的单人测试群，不向真实客户群发送测试内容。
+
+- 发送翻译开启：从真实群聊输入框分别按 Enter、点击发送按钮；只产生一条正确译文，并满足 `isSendFailure !== true`、`ack >= 1`。本地出现气泡或 native Promise 返回不代表通过。
+- 发送翻译关闭：保持原生发送；不调用翻译服务，不因群聊类型额外改写消息。
+- 群聊设置：使用该群的准确 ID 对应设置；不得借用另一个群或私聊的设置，也不使用私聊 LID/PN 归一化来合并群身份。
+- 原生参数：引用回复和 @ 成员参数保持原样；翻译只替换文本，不另建发送 transport。
+- 失败与切群：翻译失败或提交前切换群聊时不得自动发送原文；记录错误类别，不用未确认的消息算通过。
+- 生命周期：刷新 WebView、退出并重新启动后重复开启翻译的群聊实发检查；加载完成和 bridge ready 本身不算发送成功。
+
+“群聊自动接收翻译”只控制收到的群消息，不应成为群内发送翻译的额外开关。单人群验收只能证明服务端接受与本地正确显示，不能冒充多成员接收确认、已读或提及通知验证。
