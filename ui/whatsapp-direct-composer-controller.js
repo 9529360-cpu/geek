@@ -8,7 +8,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const CONTROLLER_VERSION = 7;
+  const CONTROLLER_VERSION = 8;
   const TRANSLATION_ERROR_ENVELOPE_PREFIX = '__GEEK_TRANSLATION_ERROR_V1__:';
 
   function isWhatsAppType(type) {
@@ -160,6 +160,14 @@
       return !/@g\.us$/i.test(id) && !/@broadcast$/i.test(id) && !/@newsletter$/i.test(id);
     };
 
+    const isGroupChat = (chat, chatId) => {
+      const id = String(chatId || '');
+      if (!id || chat?.isNewsletter === true || chat?.isBroadcast === true) return false;
+      if (chat?.isGroup === true || /@g\.us$/i.test(id)) return true;
+      try { return typeof chat?.id?.isGroup === 'function' && chat.id.isGroup(); }
+      catch { return false; }
+    };
+
     const pnIdentity = value => {
       const raw = idString(value).trim().toLowerCase();
       const match = raw.match(/^([+0-9]+)@(?:c\.us|s\.whatsapp\.net)$/i);
@@ -200,7 +208,9 @@
 
     const resolveTranslationSetting = async (chat, text) => {
       const nativeId = chatIdOf(chat);
-      if (!isDirectChat(chat, nativeId) || typeof text !== 'string' || !text.trim()) {
+      const direct = isDirectChat(chat, nativeId);
+      const group = isGroupChat(chat, nativeId);
+      if ((!direct && !group) || typeof text !== 'string' || !text.trim()) {
         return { mode: 'passthrough', chatId: nativeId, setting: null };
       }
 
@@ -214,7 +224,7 @@
       const chats = config.chats || {};
       let settingId = nativeId || activeId;
 
-      if (activeId && hasOwn(chats, activeId)) {
+      if (direct && activeId && hasOwn(chats, activeId)) {
         if (activeId === nativeId) {
           settingId = activeId;
         } else {
@@ -243,7 +253,9 @@
 
       const nativeId = chatIdOf(chat);
       const text = args[0];
-      if (typeof text !== 'string' || !isDirectChat(chat, nativeId)) {
+      const direct = isDirectChat(chat, nativeId);
+      const group = isGroupChat(chat, nativeId);
+      if (typeof text !== 'string' || (!direct && !group)) {
         diagnostics.passthrough += 1;
         return original.call(thisArg, chat, ...args);
       }
@@ -306,7 +318,7 @@
           }
 
           const activeAfter = chatIdOf(getActiveChat());
-          const stillSame = await sameDirectIdentity(activeAfter, nativeId);
+          const stillSame = group ? activeAfter === nativeId : await sameDirectIdentity(activeAfter, nativeId);
           if (stillSame !== true) {
             throw Object.assign(new Error('聊天已切换，翻译发送已取消'), { __geekStage: 'translation' });
           }
