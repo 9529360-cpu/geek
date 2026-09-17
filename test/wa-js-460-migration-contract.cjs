@@ -67,8 +67,8 @@ assert.ok(
   officialBundleIndex >= 0
     && pickerInstallIndex > officialBundleIndex
     && injectionOwnerIndex > pickerInstallIndex
-    && fallbackBundleIndex > injectionOwnerIndex,
-  'capability picker must install before injection ownership commits, while optional WAPLUS remains post-commit',
+    && fallbackBundleIndex === -1,
+  'capability picker must install before ownership commits without a second patching runtime',
 );
 for (const [name, source] of [['main', main], ['app', app], ['runtime', runtime]]) {
   assert.doesNotMatch(source, /window\.WPP \|\| window\.WAPLUS_WPP/, name + ' must not select WPP/WAPLUS by object existence alone');
@@ -85,7 +85,7 @@ assert.ok(app.includes("__geekPickWpp?.(['group.getGroupInfoFromInviteCode','wha
 assert.match(recovery, /wpp\?\.loader[\s\S]*moduleRequire[\s\S]*_moduleIdMap/, 'ordinary composer recovery must continue consuming WA-JS loader metadata');
 assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
-assert.match(main, /waplus-wpp\.js/, 'WAPLUS compatibility bundle must remain wired');
+assert.doesNotMatch(main, /waplus-wpp\.js/, 'legacy bundle must not rewrap modern WhatsApp native modules');
 
 const primary = { chat: { list() {}, sendTextMessage() {} } };
 const fallback = { chat: { list() {}, sendTextMessage() {}, getMessages() {}, getActiveChat() {} }, whatsapp: { ChatStore: {} } };

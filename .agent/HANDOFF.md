@@ -30,6 +30,7 @@ When sources disagree, use this order:
 These are intended to survive individual maintenance rounds. Reconfirm them against live source/tests when working near the boundary.
 
 - The real Electron entrypoint is `src/main-entry.cjs`; do not infer runtime ownership from an older entrypoint description.
+- WhatsApp startup injects only the pinned official WA-JS runtime. A differently named legacy WAPLUS bundle still patches the same native modules and must not be bootstrapped beside it; missing capabilities fail closed instead of loading incompatible native wrappers.
 - Each account owns a persistent Electron Session/partition. Account identity, partition, guest `WebContents`, and account-scoped state must not be silently rebound by UI focus or another account.
 - Account IPC ingress and account state durability are separate owners. Canonical account state transitions are serialized by the Account State owner; candidate state is encrypted and atomically persisted before becoming authoritative memory, and runtime cleanup/proxy/notifications are post-commit effects.
 - WebView invoke ingress for `webview:register` and `webview:insert-text` is owned by `src/webview-ipc.cjs`, composed and disposed by `src/main.cjs`. `src/webview-ownership.cjs` remains the sole ownership-registry authority; the IPC owner must inject and consult that registry plus Account State/WebContents/Session authorities rather than copying ownership state.
