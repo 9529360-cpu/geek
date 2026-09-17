@@ -1,0 +1,80 @@
+name: prepare-release-1.2.29
+
+on:
+  push:
+    branches:
+      - 'release/1.2.29'
+    paths:
+      - '.github/workflows/prepare-release-1.2.29.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v7
+        with:
+          ref: release/1.2.29
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Validate release starting point
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin master
+          test "$(git merge-base HEAD origin/master)" = "735a7b78b50538ee8e83b4a326e3f6b4d88ae133"
+          test "$(node -p "require('./package.json').version")" = "1.2.28"
+          test "$(node -p "require('./package-lock.json').version")" = "1.2.28"
+          test "$(node -p "require('./package-lock.json').packages[''].version")" = "1.2.28"
+          test "$(tr -d '\r\n' < .github/release-client-version)" = "1.2.28"
+          grep -Fq "const FALLBACK_VERSION = '1.2.28';" scripts/geek-website-worker.js
+          test "$(git diff --name-only origin/master...HEAD)" = ".github/workflows/prepare-release-1.2.29.yml"
+
+      - name: Prepare aligned release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm version 1.2.29 --no-git-tag-version
+          printf '1.2.29\n' > .github/release-client-version
+          rm .github/workflows/prepare-release-1.2.29.yml
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "1.2.29"
+          test "$(node -p "require('./package-lock.json').version")" = "1.2.29"
+          test "$(node -p "require('./package-lock.json').packages[''].version")" = "1.2.29"
+          test "$(tr -d '\r\n' < .github/release-client-version)" = "1.2.29"
+          grep -Fq "const FALLBACK_VERSION = '1.2.28';" scripts/geek-website-worker.js
+          git diff --check
+          printf '%s\n' \
+            '.github/release-client-version' \
+            'package-lock.json' \
+            'package.json' > /tmp/expected-release-files
+          git diff --name-only origin/master | sort > /tmp/actual-release-files
+          sort -o /tmp/expected-release-files /tmp/expected-release-files
+          diff -u /tmp/expected-release-files /tmp/actual-release-files
+          npm test
+
+      - name: Commit release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/release-client-version package.json package-lock.json .github/workflows/prepare-release-1.2.29.yml
+          git commit -m 'release: prepare Geek 1.2.29'
+          git push origin HEAD:release/1.2.29
