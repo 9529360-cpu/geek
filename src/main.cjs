@@ -1095,18 +1095,13 @@ function configureWebviewSecurity(window) {
           continue;
         }
 
-        // From here on the official WA-JS bundle owns injection lifecycle. Authenticated
-        // business modules and the WAPLUS compatibility bundle are independent capability
-        // evidence and must never force a healthy primary bundle to be injected again.
+        // One WA-JS runtime owns the shared WhatsApp modules. A separately named legacy
+        // bundle still wraps those same native exports: its positional fanout wrapper
+        // breaks modern named-parameter sends, including native sends with translation off.
+        // Missing capabilities stay unavailable; do not mask them by injecting old patches.
         await wc.executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE);
         wppInjected.add(part);
 
-        try {
-          const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');
-          await wc.executeJavaScript(waplusScript);
-        } catch (error) {
-          console.log('[wpp] WAPLUS 兼容层注入失败（WA-JS 主路径保留）:', error.message);
-        }
 
         const capabilityState = await wc.executeJavaScript(capabilityProbe).catch(() => null);
         console.log(`[wpp] WA-JS 4.6 injection ready ${part} primaryChat=${capabilityState?.primaryChatReady === true ? 'ready' : 'partial'} primaryLidGroup=${capabilityState?.primaryLidGroupReady === true ? 'ready' : 'partial'} primaryStores=${capabilityState?.primaryStoresReady === true ? 'ready' : 'partial'} fallback=${capabilityState?.fallbackPresent === true ? 'present' : 'absent'}`);
