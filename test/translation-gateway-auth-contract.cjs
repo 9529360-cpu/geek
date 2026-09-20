@@ -58,7 +58,7 @@ function loadWorker() {
   assert.doesNotMatch(runtimeBaseSource, /reportUsage\(/, 'Translation Runtime 不得在服务端扣费后再次上报扣费');
 
   const worker = loadWorker();
-  const env = { ZAI_API_KEY: 'configured', JWT_SECRET: 'secret', geek_subscriptions: {} };
+  const env = { GEMINI_API_KEY: 'configured', JWT_SECRET: 'secret', geek_subscriptions: {} };
   const unauthorized = await worker.handler(new Request('https://translate.invalid/v1/translate', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Request-ID': crypto.randomUUID() }, body: JSON.stringify({ text: 'hello', target: 'zh' }),
   }), env);
