@@ -93,20 +93,25 @@ function loadWorker(fetchImpl) {
   }
 
   {
-    let body = null;
-    const hooks = loadWorker(async (_url, init) => {
-      body = JSON.parse(init.body);
-      return response(200, { choices: [{ message: { content: 'Ciao' } }] });
+    let calledModel = null;
+    const hooks = loadWorker(async () => {
+      throw new Error('Workers AI must use its binding instead of external fetch');
     });
-    const result = await hooks.translate('Hello', 'auto', 'it', { ZAI_API_KEY: 'glm-key' }, Date.now() + 30_000);
-    assert.equal(result.engine, 'glm');
-    assert.deepEqual(JSON.parse(JSON.stringify(body.thinking)), { type: 'disabled' },
-      'GLM translation calls must disable reasoning so translated text arrives in message.content');
+    const result = await hooks.translate('Hello', 'auto', 'it', {
+      AI: {
+        async run(model) {
+          calledModel = model;
+          return { response: 'Ciao' };
+        },
+      },
+    }, Date.now() + 30_000);
+    assert.equal(result.engine, 'cloudflare');
+    assert.equal(calledModel, '@cf/meta/llama-3.1-8b-instruct-fp8');
   }
 
   assert.match(workerSource, /callProviderWithRetry\(/, 'Worker must own the bounded transient retry policy');
   assert.match(workerSource, /provider_rate_limited/, 'Worker must keep provider 429 separate from breaker health');
-  assert.match(workerSource, /thinking:\s*\{\s*type:\s*'disabled'/, 'GLM translation fallback must disable thinking');
+  assert.match(workerSource, /provider\.aiBinding/, 'Workers AI fallback must use the native binding');
   assert.doesNotMatch(workerSource, /reasoning_content\)\s*result\s*=/,
     'translation must never promote provider chain-of-thought into user-visible translated text');
 
