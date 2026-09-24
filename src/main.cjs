@@ -38,6 +38,7 @@ const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-bro
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 const { externalDebuggingRequested } = require('./external-debugging-policy.cjs');
 const { createProxyRuntime } = require('./proxy-runtime.cjs');
+const { createWhatsappRuntimeRecovery } = require('./whatsapp-runtime-recovery.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -404,6 +405,7 @@ let configIpcBoundary = null;
 let translationRuntime = null;
 let desktopIpcBoundary = null;
 let webviewIpcBoundary = null;
+let whatsappRuntimeRecovery = null;
 
 async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
@@ -510,6 +512,14 @@ function registerIpcHandlers() {
     getWebContentsById: (guestId) => webContents.fromId(guestId),
     getSessionForPartition: (partition) => session.fromPartition(partition),
   });
+
+  whatsappRuntimeRecovery = createWhatsappRuntimeRecovery({
+    ipcMain,
+    assertTrustedSender,
+    accountState,
+    getSessionForPartition: (partition) => session.fromPartition(partition, { cache: true }),
+    diagnostics,
+  }).install();
 
   configIpcBoundary = installConfigIpc({
     ipcMain,
@@ -1437,6 +1447,8 @@ app.on('before-quit', () => {
   subscriptionIpcBoundary = null;
   webviewIpcBoundary?.dispose();
   webviewIpcBoundary = null;
+  whatsappRuntimeRecovery?.dispose();
+  whatsappRuntimeRecovery = null;
   desktopIpcBoundary?.dispose();
   desktopIpcBoundary = null;
 });

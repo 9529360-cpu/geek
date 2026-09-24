@@ -270,6 +270,9 @@ contextBridge.exposeInMainWorld(
       register: (accountId, guestId, token) => ipcRenderer.invoke('webview:register', accountId, guestId, token),
       insertText: (accountId, guestId, text, token) => ipcRenderer.invoke('webview:insert-text', accountId, guestId, text, token),
     }),
+    webviewRecovery: Object.freeze({
+      repairWhatsAppRuntime: (accountId) => ipcRenderer.invoke('webview:recover-whatsapp-runtime', accountId),
+    }),
     bridge: Object.freeze({
       preloadPath: () => ipcRenderer.invoke('bridge:get-preload-path'),
     }),

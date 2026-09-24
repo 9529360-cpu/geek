@@ -61,9 +61,8 @@ assert.match(source, /WHATSAPP_BOOTSTRAP_CONFIRM_MS = 5000/);
 assert.match(source, /visibleProgressCount/);
 assert.match(source, /terminalEvidenceCount/);
 assert.match(source, /reloadIgnoringCache\(\)/, 'soft-stall recovery must request fresh application resources');
-assert.match(source, /navigator\.serviceWorker\?\.getRegistrations/, 'soft-stall repair must unregister stale WhatsApp service workers');
-assert.match(source, /caches\.keys\(\)/, 'soft-stall repair must enumerate only CacheStorage application assets');
-assert.match(source, /caches\.delete\(key\)/, 'soft-stall repair must remove stale CacheStorage application assets');
+assert.match(source, /webviewRecovery\?\.repairWhatsAppRuntime/, 'soft-stall repair must delegate persistent-partition cleanup to main');
+assert.match(source, /repairWhatsAppRuntime\(accountId\)/, 'soft-stall repair must remain account-scoped');
 assert.match(source, /softRecoveryLimiter\.allow\(accountId\)/, 'automatic reloads must be account-scoped and bounded');
 assert.match(source, /tracker\.forceBlocked\(accountId, 'soft-stall'\)/, 'repeat stalls must stop automatic reload loops');
 assert.match(source, /did-stop-loading/);
@@ -72,8 +71,8 @@ assert.match(source, /webview\.isLoading\?\.\(\) === true/, 'late-bound WebViews
 assert.doesNotMatch(source, /\[data-ref\]/, 'generic WhatsApp data-ref nodes must not be treated as terminal UI');
 assert.doesNotMatch(
   source,
-  /clearStorageData|clearCache\(|cookies\.|indexedDB|localStorage|removeAccount|session\.clear/,
-  'soft recovery must preserve cookies, IndexedDB, localStorage, account partitions and login state'
+  /clearStorageData|clearCache\(|\.cookies\.|indexedDB\.|localStorage\.|removeAccount|session\.clear/,
+  'renderer soft recovery must not clear identity-bearing stores or own session cleanup'
 );
 assert.doesNotMatch(
   source,
