@@ -1,7 +1,7 @@
 // geek-translate Worker —— 极客翻译网关云端版（协议对齐 local_translation_gateway.py）
 // 路由：GET /health、POST /v1/translate
-// 上游：免费模型轮换池（GLM → Groq → Gemini → Mistral），限流/失败自动切换下一个，无付费上游
-// 配置：各上游 API Key 从环境变量读取（GLM=ZAI_API_KEY, Groq=GROQ_API_KEY, Gemini=GEMINI_API_KEY, Mistral=MISTRAL_API_KEY），不写入代码
+// 上游：五路免费模型池，限流/失败自动切换下一个，无付费上游
+// 配置：外部上游 API Key 使用 Worker secrets；Cloudflare 使用原生 Workers AI binding
 
 const LANG_NAMES = {
   zh: 'Simplified Chinese', en: 'English', it: 'Italian', es: 'Spanish',
@@ -12,14 +12,19 @@ const LANG_NAMES = {
 };
 
 // 免费模型池（按顺序尝试；429/5xx/超时/空响应 → 自动切换下一个）
-// 2026-08-17 晚：Groq/Gemini 旧 key 失效、旧模型名下架 → 换新 key 和新模型名
-// 2026-08-17 深夜：Groq qwen 模型输出 <think> 思考过程污染翻译结果（几字变千字，扣光额度）
-//   → Groq 从池中移除；Gemini 优先（新 key 干净输出）；GLM 慢+易限流放最后备用
+// Gemini 优先；Mistral/OpenRouter/Workers AI 依次兜底；Groq 放最后并继续经过输出安全校验
 const PROVIDERS = [
   { id: 'gemini', model: 'gemini-3.6-flash',       base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
-  { id: 'mistral', model: 'mistral-small-latest',   base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
-  { id: 'glm',    model: 'glm-4.7-flash',          base: 'https://api.z.ai/api/paas/v4',           keyEnv: 'ZAI_API_KEY', body: { thinking: { type: 'disabled' } } },
+  { id: 'mistral', model: 'ministral-3b-latest',    base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
+  { id: 'openrouter', model: 'openrouter/free',      base: 'https://openrouter.ai/api/v1',           keyEnv: 'OPENROUTER_API_KEY' },
+  { id: 'cloudflare', model: '@cf/meta/llama-3.1-8b-instruct-fp8', aiBinding: 'AI' },
+  { id: 'groq', model: 'openai/gpt-oss-20b',         base: 'https://api.groq.com/openai/v1',         keyEnv: 'GROQ_API_KEY' },
 ];
+
+function providerConfigured(provider, env) {
+  if (provider.aiBinding) return typeof env?.[provider.aiBinding]?.run === 'function';
+  return Boolean(provider.keyEnv && env?.[provider.keyEnv]);
+}
 
 const enc = new TextEncoder();
 
@@ -218,12 +223,12 @@ function handleOptions(request, env) {
 }
 
 async function health(env, request) {
-  const hasProvider = PROVIDERS.some(p => Boolean(env[p.keyEnv]));
+  const hasProvider = PROVIDERS.some(p => providerConfigured(p, env));
   const configured = Boolean(hasProvider && env.JWT_SECRET && env.geek_subscriptions);
-  const providers = PROVIDERS.filter(p => Boolean(env[p.keyEnv])).map(p => p.id);
+  const providers = PROVIDERS.filter(p => providerConfigured(p, env)).map(p => p.id);
   const status = {};
   for (const p of PROVIDERS) {
-    if (!env[p.keyEnv]) continue;
+    if (!providerConfigured(p, env)) continue;
     const st = providerState.get(p.id) || { healthy: true, lastError: '', failCount: 0, lastFailAt: 0, lastOkAt: 0, rateLimitedUntil: 0 };
     status[p.id] = { healthy: st.healthy, failCount: st.failCount, lastError: st.lastError.slice(0, 120), lastFailAt: st.lastFailAt ? new Date(st.lastFailAt).toISOString() : null, lastOkAt: st.lastOkAt ? new Date(st.lastOkAt).toISOString() : null, rateLimitedUntil: st.rateLimitedUntil && st.rateLimitedUntil > Date.now() ? new Date(st.rateLimitedUntil).toISOString() : null };
   }
@@ -446,6 +451,14 @@ async function callProvider(provider, env, text, source, target, timeoutMs = PRO
       messages: buildMessages(text, source, target),
       ...(provider.body || {}),
     };
+    if (provider.aiBinding) {
+      const data = await env[provider.aiBinding].run(provider.model, { messages: body.messages, max_tokens: body.max_tokens });
+      let result = String(data?.response || '').trim();
+      if (!result) throw providerEmptyResponseError(provider);
+      try { result = validateTranslationOutput(text, result, source, target); }
+      catch (error) { throw providerQualityError(provider, error); }
+      return { text: result, engine: provider.id };
+    }
     const res = await fetch(`${provider.base}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env[provider.keyEnv]}` },
@@ -505,7 +518,7 @@ async function callProviderWithRetry(provider, env, text, source, target, timeou
 }
 
 async function translate(text, source, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS) {
-  const pool = PROVIDERS.filter(p => Boolean(env[p.keyEnv]));
+  const pool = PROVIDERS.filter(p => providerConfigured(p, env));
   if (!pool.length) throw new Error('no free provider configured');
   let lastError = null;
   for (const provider of pool) {
@@ -565,7 +578,7 @@ export default {
         if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
         if (source !== 'auto' && !LANG_NAMES[source]) return json({ error: 'invalid_source' }, 400, request, env);
         if (!LANG_NAMES[target] || target === 'auto') return json({ error: 'invalid_target' }, 400, request, env);
-        if (!PROVIDERS.some(p => Boolean(env[p.keyEnv]))) return json({ error: 'service_unavailable' }, 503, request, env);
+        if (!PROVIDERS.some(p => providerConfigured(p, env))) return json({ error: 'service_unavailable' }, 503, request, env);
         if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
         reserved = Math.max(1, countChars(text));
         const reservation = await reserveUsage(db, auth.uid, requestId, reserved);

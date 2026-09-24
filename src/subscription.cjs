@@ -167,7 +167,7 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
   let loadPromise = null;
   let translationTokenCache = null;
-  let translationTokenInflight = null;
+  const translationTokenInflight = new Map();
   let stateMutationQueue = Promise.resolve();
   let sessionGeneration = 0;
   let translationAuthorizationController = new AbortController();
@@ -287,7 +287,8 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), boundedRequestTimeoutMs);
     try {
-      const res = await fetch(`${apiBase()}${pathname}`, {
+      const requestFetch = typeof options.fetchImpl === 'function' ? options.fetchImpl : globalThis.fetch;
+      const res = await requestFetch(`${apiBase()}${pathname}`, {
         method: options.method || 'GET',
         headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
@@ -480,7 +481,11 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     }
   }
 
-  async function getTranslationToken(force = false) {
+  async function getTranslationToken(force = false, opts = {}) {
+    if (force && typeof force === 'object' && !Array.isArray(force)) {
+      opts = force;
+      force = false;
+    }
     const state = await load();
     const generation = sessionGeneration;
     if (!state.token) throw loginRequiredError();
@@ -493,12 +498,17 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     ) {
       return translationTokenCache.token;
     }
-    if (translationTokenInflight?.generation === generation) {
-      return translationTokenInflight.promise;
+    const networkKey = String(opts.networkKey || 'default');
+    const inflightKey = `${generation}:${networkKey}`;
+    if (translationTokenInflight.has(inflightKey)) {
+      return translationTokenInflight.get(inflightKey);
     }
 
     const promise = (async () => {
-      const data = await request('/api/translation-token', { method: 'POST' });
+      const data = await request('/api/translation-token', {
+        method: 'POST',
+        fetchImpl: opts.fetchImpl,
+      });
       if (!data.token || !Number.isFinite(Number(data.expires_at))) throw new Error('翻译授权返回格式错误');
       assertSessionGeneration(generation);
       const current = await load();
@@ -512,17 +522,21 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       return translationTokenCache.token;
     })();
 
-    translationTokenInflight = { generation, promise };
+    translationTokenInflight.set(inflightKey, promise);
     try {
       return await promise;
     } finally {
-      if (translationTokenInflight?.promise === promise) translationTokenInflight = null;
+      if (translationTokenInflight.get(inflightKey) === promise) translationTokenInflight.delete(inflightKey);
     }
   }
 
-  async function getTranslationAuthorization(force = false) {
+  async function getTranslationAuthorization(force = false, opts = {}) {
+    if (force && typeof force === 'object' && !Array.isArray(force)) {
+      opts = force;
+      force = false;
+    }
     const generation = sessionGeneration;
-    const token = await getTranslationToken(force);
+    const token = await getTranslationToken(force, opts);
     assertSessionGeneration(generation);
     const lease = Object.freeze({
       token: String(token),
@@ -569,7 +583,7 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       const previousAuthorizationController = translationAuthorizationController;
       cache = {};
       translationTokenCache = null;
-      translationTokenInflight = null;
+      translationTokenInflight.clear();
       sessionGeneration += 1;
       translationAuthorizationController = new AbortController();
       previousAuthorizationController.abort(sessionChangedError());

@@ -54,7 +54,7 @@ assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', reque
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'media', requestingUrl: 'https://web.whatsapp.com/', mediaTypes: ['audio', 'screen'] }), false, 'screen capture must not ride the ordinary media grant');
 
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'persistent-storage', requestingUrl: 'https://web.whatsapp.com/' }), true, 'WhatsApp official origin may keep its authenticated storage bucket persistent');
-assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'persistent-storage', requestingUrl: 'http://127.0.0.1:1843/' }), true, 'Geek WhatsApp local bootstrap origin may keep the account storage bucket persistent');
+assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'persistent-storage', requestingUrl: 'http://127.0.0.1:1843/' }), false, 'retired local WhatsApp bootstrap origin must not retain account storage permission');
 assert.equal(isAccountPermissionAllowed({ policy: wa, permission: 'persistent-storage', requestingUrl: 'https://example.com/' }), false, 'WhatsApp persistent storage must stay origin-scoped');
 assert.equal(isAccountPermissionAllowed({ policy: tg, permission: 'persistent-storage', requestingUrl: 'https://web.telegram.org/' }), false, 'Telegram persistent storage remains denied without product evidence');
 assert.equal(isAccountPermissionAllowed({ policy: line, permission: 'persistent-storage', requestingUrl: 'https://access.line.me/' }), false, 'LINE persistent storage remains denied without product evidence');
@@ -128,7 +128,7 @@ class FakeSession {
 
   let granted = null;
   ses.requestHandler(null, 'persistent-storage', value => { granted = value; }, { requestingUrl: 'http://127.0.0.1:1843/' });
-  assert.equal(granted, true, 'request path must grant WhatsApp local bootstrap persistent storage');
+  assert.equal(granted, false, 'retired local bootstrap origin must fail closed');
   assert.equal(ses.checkHandler(null, 'persistent-storage', 'https://web.whatsapp.com', {}), true, 'check path must grant WhatsApp official origin persistent storage');
 
   granted = null;
