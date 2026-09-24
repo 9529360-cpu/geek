@@ -110,7 +110,7 @@ assert.equal(
 
 assert.match(workerSource, /const source = String\(body\.source \|\| 'auto'\)\.trim\(\)\.toLowerCase\(\)/, 'Worker 必须规范化 source');
 assert.match(workerSource, /source !== 'auto' && !LANG_NAMES\[source\]/, 'Worker 必须使用与 target 相同的语言注册表校验 source');
-assert.match(workerSource, /translate\(text, source, target, env, deadlineAt\)/, 'Worker source 必须进入 provider 调用链');
+assert.match(workerSource, /translate\(text, source, target, env, deadlineAt, request\.signal\)/, 'Worker source 与 request signal 必须进入 provider 调用链');
 assert.match(workerSource, /buildMessages\(text, source, target\)/, 'Worker prompt 必须消费 source');
 assert.match(workerSource, /validateTranslationOutput\(text, result, source, target\)/, 'Worker 输出安全必须消费 source language');
 

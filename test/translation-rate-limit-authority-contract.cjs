@@ -28,12 +28,12 @@ assert.match(
 );
 assert.match(
   worker,
-  /if \(!results\[0\]\?\.meta\?\.changes\) return \{ ok: false, error: 'quota_exhausted' \}/,
-  'insufficient authorized quota must fail closed at the D1 reservation owner',
+  /if \(!results\[0\]\?\.meta\?\.changes\) \{[\s\S]{0,500}return \{ ok: false, error: 'quota_exhausted' \};[\s\S]{0,80}\}/,
+  'insufficient authorized quota must fail closed at the D1 reservation owner after idempotency reconciliation',
 );
 assert.match(
   worker,
-  /reservation\.error === 'duplicate_request' \? 409 : 402/,
+  /function reservationErrorStatus\(error\) \{[\s\S]*?error === 'quota_exhausted'\) return 402;/,
   'quota exhaustion must continue to project as the commercial entitlement response',
 );
 

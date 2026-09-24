@@ -208,6 +208,9 @@ function deferred() {
 }
 
 (async () => {
+  // This contract deliberately uses the pre-replay schema to prove migration 006 remains backward compatible.
+  // The dedicated outcome-recovery contract covers the richer post-migration replay semantics.
+
   // 1. Success keeps the documented source + target charging rule and closes the ledger row.
   {
     const { db, sqlite } = createD1();
@@ -250,7 +253,7 @@ function deferred() {
     assert.equal(retried.status, 200, 'refunded request ID must be reusable for a safe retry');
     assert.equal(quota(sqlite), 91);
     assert.equal(usage(sqlite, requestId).status, 'complete');
-    assert.equal(upstreamCalls, 3, 'failed logical request gets one bounded transient retry, then the later user retry makes one successful provider call');
+    assert.equal(upstreamCalls, 3, 'first transient provider failure retries once before the refundable logical retry succeeds');
     sqlite.close();
   }
 
@@ -272,7 +275,7 @@ function deferred() {
     sqlite.close();
   }
 
-  // 4. While request A owns a durable reservation, request B with the same request ID is a real duplicate.
+  // 4. While request A owns a durable reservation, a same-ID request is classified as in progress.
   //    It must not call the provider and cannot finish/refund A's owner marker.
   {
     const { db, sqlite } = createD1();
@@ -296,10 +299,10 @@ function deferred() {
 
     const duplicate = await worker.fetch(translateRequest(requestId), envFor(db));
     assert.equal(duplicate.status, 409);
-    assert.equal((await duplicate.json()).error, 'duplicate_request');
-    assert.equal(upstreamCalls, 1, 'duplicate request must be rejected before another provider call');
-    assert.equal(quota(sqlite), 95, 'duplicate request must not mutate the first reservation');
-    assert.equal(usage(sqlite, requestId).status, inFlight.status, 'duplicate request must not replace owner marker');
+    assert.equal((await duplicate.json()).error, 'request_in_progress');
+    assert.equal(upstreamCalls, 1, 'in-progress reconciliation must be rejected before another provider call');
+    assert.equal(quota(sqlite), 95, 'in-progress reconciliation must not mutate the first reservation');
+    assert.equal(usage(sqlite, requestId).status, inFlight.status, 'same-ID request must not replace owner marker');
 
     releaseProvider.resolve();
     const first = await firstPromise;
@@ -341,26 +344,26 @@ function deferred() {
     sqlite.close();
   }
 
-  // 7. Existing hard case: finishUsage commits, then the caller observes an exception. The catch/refund
-  //    path must see the terminal row, leave quota charged, and keep the request ID non-replayable.
+  // 7. On the legacy schema, finishUsage can commit and the caller can still observe an exception.
+  //    The terminal row remains charged and non-replayable until migration 006 adds encrypted outcome replay.
   {
     const { db, sqlite } = createD1({ throwAfterFinishCommit: true });
     let upstreamCalls = 0;
     const worker = loadWorker(async () => { upstreamCalls += 1; return successResponse(); });
     const requestId = nodeCrypto.randomUUID();
     const ambiguous = await worker.fetch(translateRequest(requestId), envFor(db));
-    assert.equal(ambiguous.status, 502, 'unknown finish outcome is surfaced as a request failure');
+    assert.equal(ambiguous.status, 502, 'legacy schema still surfaces an unknown finish outcome as request failure');
     assert.equal(quota(sqlite), 91, 'catch/refund must not mint source quota after finish already committed');
     const completed = usage(sqlite, requestId);
     assert.equal(completed.status, 'complete', 'completed idempotency row must survive the catch/refund path');
     assert.equal(Number(completed.target_chars), 4);
 
     const duplicate = await worker.fetch(translateRequest(requestId), envFor(db));
-    assert.equal(duplicate.status, 409, 'terminal request ID must stay reserved against replay');
+    assert.equal(duplicate.status, 409, 'legacy terminal request ID must stay reserved against unsafe replay');
     assert.equal((await duplicate.json()).error, 'duplicate_request');
-    assert.equal(quota(sqlite), 91, 'replay must not debit or credit quota again');
+    assert.equal(quota(sqlite), 91, 'legacy duplicate must not debit or credit quota again');
     assert.equal(usage(sqlite, requestId).status, 'complete');
-    assert.equal(upstreamCalls, 1, 'duplicate terminal request must be rejected before another provider call');
+    assert.equal(upstreamCalls, 1, 'legacy duplicate terminal request must be rejected before another provider call');
     sqlite.close();
   }
 
@@ -371,7 +374,11 @@ function deferred() {
   assert.match(workerSource, /DELETE FROM translation_usage WHERE request_id = \? AND user_id = \? AND reserved_chars = \? AND status = \?/);
   assert.match(workerSource, /UPDATE translation_usage SET target_chars = \?, status = 'complete',[^\n]+WHERE request_id = \? AND user_id = \? AND status = \?/);
   assert.match(workerSource, /reservationOwner = reservation\.owner/);
-  assert.match(workerSource, /finishUsage\(db, auth\.uid, requestId, countChars\(result\), reservationOwner\)/);
+  assert.match(
+    workerSource,
+    /finishUsage\([\s\S]*?requestId,[\s\S]*?countChars\(result\),[\s\S]*?reservationOwner/,
+    'terminal settlement must still bind target billing to the owned reservation'
+  );
   assert.match(workerSource, /refundUsage\(db, auth\.uid, requestId, reserved, reservationOwner\)/);
   assert.doesNotMatch(workerSource, /status = 'reserved'[^\n]*\)\.bind\(requestId, userId, chars\)/, 'attempt cleanup must not rely on a shared reserved state');
 

@@ -1,5 +1,6 @@
 import baseWorker from './geek-translate-worker.js';
 import {
+  purgeExpiredTranslationReplays,
   recoverStaleTranslationReservations,
   staleTranslationReservationSummary,
 } from './translation-reservation-recovery.mjs';
@@ -65,6 +66,7 @@ export default {
       const userId = await verifiedTranslationUserId(request, env.JWT_SECRET);
       if (userId) {
         await recoverStaleTranslationReservations(db, { userId, limit: 8 }).catch(() => {});
+        await purgeExpiredTranslationReplays(db, { limit: 4 }).catch(() => {});
       }
     }
 
@@ -79,6 +81,7 @@ export default {
     const db = env.geek_subscriptions;
     if (db && typeof db.prepare === 'function') {
       await recoverStaleTranslationReservations(db, { limit: 50 }).catch(() => {});
+      await purgeExpiredTranslationReplays(db, { limit: 50 }).catch(() => {});
     }
     if (typeof baseWorker.scheduled === 'function') {
       return baseWorker.scheduled(controller, env, ctx);

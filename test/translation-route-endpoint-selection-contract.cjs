@@ -103,8 +103,8 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     );
   }
 
-  // Runtime must send explicit backup traffic to the backup endpoint and pass the
-  // actual selected route to the Worker rather than only echoing the UI label.
+  // Runtime must send explicit backup traffic to the backup endpoint, while also
+  // preserving the stable user-selected operation route for replay identity.
   {
     const h = createRuntimeHarness();
     const result = await h.translate({
@@ -114,6 +114,7 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     assert.equal(h.calls.length, 1);
     assert.equal(h.calls[0].url, `${BACKUP}/v1/translate`);
     assert.equal(h.calls[0].body.route, 'backup');
+    assert.equal(h.calls[0].body.operationRoute, 'backup');
     assert.equal(result.route, 'backup');
     h.runtime.dispose();
   }
@@ -131,10 +132,13 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
       error => error?.status === 503 && error?.category === 'gateway',
     );
     assert.deepEqual(h.calls.map(call => call.url), [`${PRIMARY}/v1/translate`]);
+    assert.equal(h.calls[0].body.operationRoute, 'primary');
     h.runtime.dispose();
   }
 
-  // Automatic route keeps the mature health-failover behavior.
+  // Automatic route keeps the mature health-failover behavior. Both physical
+  // endpoint attempts must carry the same logical operation route and request ID
+  // contract, even though the selected transport route changes primary -> backup.
   {
     const h = createRuntimeHarness({
       fetchImpl: async (url, _options, body) => url.startsWith(PRIMARY)
@@ -145,7 +149,13 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
       accountId: 'account-a', text: 'automatic failover', target: 'it', route: 'default', refresh: true, skipQuota: true,
     });
     assert.deepEqual(h.calls.map(call => call.url), [`${PRIMARY}/v1/translate`, `${BACKUP}/v1/translate`]);
+    assert.equal(h.calls[0].body.route, 'primary');
     assert.equal(h.calls[1].body.route, 'backup', 'Worker must see the route actually used after failover');
+    assert.deepEqual(
+      h.calls.map(call => call.body.operationRoute),
+      ['default', 'default'],
+      'physical failover must not change the semantic route bound to the idempotency key'
+    );
     assert.equal(result.route, 'backup');
     h.runtime.dispose();
   }
