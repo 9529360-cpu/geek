@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const os = require('node:os');
 const path = require('node:path');
 const fsp = require('node:fs/promises');
-const { createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
+const { TRANSLATION_CACHE_VERSION, createTranslationRuntime, unwrapTranslationIpcResponse } = require('../src/translation-runtime.cjs');
 const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
 
 function deferred() {
@@ -201,7 +201,8 @@ async function resolvesBeforeNextTurn(promise, message) {
     assert.equal(resultB.text, 'B-work-ok', 'an unrelated live account must keep translating normally');
     await liveAppendFinished.promise;
     assert.equal(await pathExists(dirB), true, 'live account partition must remain intact');
-    assert.match(await fsp.readFile(cacheB, 'utf8'), /"version":"prompt-20260915-source-1"/, 'live account cache should persist in the source-language semantic namespace');
+    const persistedCache = await fsp.readFile(cacheB, 'utf8');
+    assert.equal(JSON.parse(persistedCache.trim()).version, TRANSLATION_CACHE_VERSION, 'live account cache should persist in the current semantic namespace');
     assert.equal(mkdirCalls, 0, 'live cache writes must also respect Session ownership of the partition directory');
     assert.equal(appendCalls, 2, 'the live account should perform its own independent cache append');
     assert.equal(fetchCalls, 3, 'the write-behind path must not duplicate remote requests');

@@ -1,24 +1,10 @@
 import baseWorker from './geek-translate-worker.js';
 import {
-  normalizeTranslationIntent,
-  scopeTranslationRateLimitAuthority,
-} from './translation-rate-limit-compat.mjs';
-import {
   recoverStaleTranslationReservations,
   staleTranslationReservationSummary,
 } from './translation-reservation-recovery.mjs';
 
-const TRANSLATION_INTENT_HEADER = 'X-Geek-Translation-Intent';
 const enc = new TextEncoder();
-
-function withTranslationDatabase(env, db) {
-  return new Proxy(env, {
-    get(target, property, receiver) {
-      if (property === 'geek_subscriptions') return db;
-      return Reflect.get(target, property, receiver);
-    },
-  });
-}
 
 function b64UrlToBytes(value) {
   const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
@@ -73,37 +59,29 @@ async function sanitizePublicHealthResponse(response, db) {
 export default {
   async fetch(request, env, ctx) {
     const db = env.geek_subscriptions;
-    const intent = normalizeTranslationIntent(request.headers.get(TRANSLATION_INTENT_HEADER));
-    const workerDb = db && typeof db.prepare === 'function'
-      ? scopeTranslationRateLimitAuthority(db, { intent })
-      : db;
-    const workerEnv = workerDb ? withTranslationDatabase(env, workerDb) : env;
     const url = new URL(request.url);
 
-    if (request.method === 'POST' && url.pathname === '/v1/translate' && workerDb) {
+    if (request.method === 'POST' && url.pathname === '/v1/translate' && db && typeof db.prepare === 'function') {
       const userId = await verifiedTranslationUserId(request, env.JWT_SECRET);
       if (userId) {
-        await recoverStaleTranslationReservations(workerDb, { userId, limit: 8 }).catch(() => {});
+        await recoverStaleTranslationReservations(db, { userId, limit: 8 }).catch(() => {});
       }
     }
 
-    const response = await baseWorker.fetch(request, workerEnv, ctx);
+    const response = await baseWorker.fetch(request, env, ctx);
     if (request.method === 'GET' && url.pathname === '/health') {
-      return sanitizePublicHealthResponse(response, workerDb);
+      return sanitizePublicHealthResponse(response, db);
     }
     return response;
   },
 
   async scheduled(controller, env, ctx) {
     const db = env.geek_subscriptions;
-    const scopedEnv = db && typeof db.prepare === 'function'
-      ? withTranslationDatabase(env, scopeTranslationRateLimitAuthority(db))
-      : env;
     if (db && typeof db.prepare === 'function') {
-      await recoverStaleTranslationReservations(scopedEnv.geek_subscriptions, { limit: 50 }).catch(() => {});
+      await recoverStaleTranslationReservations(db, { limit: 50 }).catch(() => {});
     }
     if (typeof baseWorker.scheduled === 'function') {
-      return baseWorker.scheduled(controller, scopedEnv, ctx);
+      return baseWorker.scheduled(controller, env, ctx);
     }
   },
 };

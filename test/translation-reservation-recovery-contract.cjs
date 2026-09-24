@@ -143,8 +143,8 @@ function addReservation(sqlite, { requestId, userId = 42, chars = 5, status = 'r
   assert.match(migration, /ALTER TABLE translation_usage ADD COLUMN lease_expires_at TEXT/);
   assert.match(migration, /datetime\('now', '\+2 minutes'\)/, 'migration trigger must issue a bounded durable lease');
   assert.match(schema, /trg_translation_usage_reservation_lease/, 'fresh schema and migration must agree on lease ownership');
-  assert.match(entry, /verifiedTranslationUserId[\s\S]*recoverStaleTranslationReservations\(workerDb, \{ userId, limit: 8 \}\)/, 'request-path recovery must only run after trusted JWT identity is known');
-  assert.match(entry, /recoverStaleTranslationReservations\(scopedEnv\.geek_subscriptions, \{ limit: 50 \}\)/, 'scheduled maintenance path must stay bounded');
+  assert.match(entry, /verifiedTranslationUserId[\s\S]*recoverStaleTranslationReservations\(db, \{ userId, limit: 8 \}\)/, 'request-path recovery must only run after trusted JWT identity is known');
+  assert.match(entry, /recoverStaleTranslationReservations\(db, \{ limit: 50 \}\)/, 'scheduled maintenance path must stay bounded');
 
   console.log('TRANSLATION_RESERVATION_RECOVERY_CONTRACT_OK');
 })().catch((error) => {

@@ -26,6 +26,10 @@ assert.match(runtimeOwner, /translation-runtime-base\.cjs/, 'public Translation 
 assert.match(runtimeBase, /createTranslationCacheStore/, 'translation runtime base must delegate persistent cache I/O to the main-process cache store');
 assert.match(cacheStore, /path\.join\(getUserDataDir\(\), 'Partitions', dirName, 'geek-translation-cache\.jsonl'\)/, 'translation cache remains main-process account-partition storage');
 assert.match(cacheStore, /safeStorage\.encryptString/, 'translation cache remains encrypted at rest');
-assert.match(runtimeBase, /if \(cached\)[\s\S]*cached: true/, 'cache hits must still return before a new remote translation');
+assert.match(
+  runtimeBase,
+  /subscriptionStore\.getQuota\(\)[\s\S]*if \(cached && cacheItemFresh\(cached\)\)[\s\S]*cached: true[\s\S]*enqueueRemote/,
+  'authorized fresh cache hits must return before a new remote translation without bypassing quota entitlement'
+);
 
 console.log('TRANSLATION_WHATSAPP_REHYDRATE_CONTRACT_OK');

@@ -190,10 +190,6 @@ function countChars(text) {
   return total;
 }
 
-function clientIp(request) {
-  return request.headers.get('CF-Connecting-IP') || 'unknown';
-}
-
 function corsHeaders(request, env) {
   const origin = request?.headers?.get('Origin') || '';
   const allowed = String(env?.ALLOWED_ORIGIN || '').split(',').map(v => v.trim()).filter(Boolean);
@@ -233,20 +229,6 @@ async function health(env, request) {
     status[p.id] = { healthy: st.healthy, failCount: st.failCount, lastError: st.lastError.slice(0, 120), lastFailAt: st.lastFailAt ? new Date(st.lastFailAt).toISOString() : null, lastOkAt: st.lastOkAt ? new Date(st.lastOkAt).toISOString() : null, rateLimitedUntil: st.rateLimitedUntil && st.rateLimitedUntil > Date.now() ? new Date(st.rateLimitedUntil).toISOString() : null };
   }
   return json({ ok: configured, service: 'geek-translate', providers, models: status }, configured ? 200 : 503, request, env);
-}
-
-async function rateLimited(db, bucket, limit, windowSeconds) {
-  const now = new Date();
-  const stamp = now.toISOString().slice(0, 19).replace('T', ' ');
-  const cutoff = new Date(now.getTime() - windowSeconds * 1000).toISOString().slice(0, 19).replace('T', ' ');
-  const row = await db.prepare('SELECT count, updated_at FROM rate_limits WHERE bucket = ?').bind(bucket).first();
-  if (!row || row.updated_at < cutoff) {
-    await db.prepare('INSERT INTO rate_limits (bucket, count, updated_at) VALUES (?, 1, ?) ON CONFLICT(bucket) DO UPDATE SET count = 1, updated_at = excluded.updated_at').bind(bucket, stamp).run();
-    return false;
-  }
-  if (row.count >= limit) return true;
-  await db.prepare('UPDATE rate_limits SET count = count + 1, updated_at = ? WHERE bucket = ?').bind(stamp, bucket).run();
-  return false;
 }
 
 async function reserveUsage(db, userId, requestId, chars) {
@@ -558,9 +540,6 @@ export default {
       const db = env.geek_subscriptions;
       if (!db) return json({ error: 'service_unavailable' }, 503, request, env);
       if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
-      if (await rateLimited(db, `translate:user:${auth.uid}`, 30, 60) || await rateLimited(db, `translate:ip:${clientIp(request)}`, 60, 60)) {
-        return json({ error: 'rate_limited' }, 429, request, env);
-      }
       let reserved = 0;
       let reservationOwner = '';
       try {

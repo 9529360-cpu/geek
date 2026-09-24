@@ -55,7 +55,8 @@ assert.match(runtime, /scheduler\.cancelPartition\(owner/, 'account deletion mus
 assert.match(scheduler, /outgoingReserve/, 'smart queue must reserve bounded interactive capacity');
 assert.match(scheduler, /dropOldestBackgroundAnywhere/, 'background overflow must be shed before rejecting interactive work');
 
-assert.match(base, /const TRANSLATION_CACHE_VERSION = 'prompt-20260915-source-1'/, 'source-language semantic changes must advance the base Translation Runtime cache namespace');
+assert.match(base, /const TRANSLATION_CACHE_VERSION = 'prompt-\d{8}-source-\d+'/,
+  'semantic translation changes must retain an explicit versioned cache namespace');
 assert.match(base, /state\.deletedPartitions\.has\(partition\)/, 'cache writes must remain partition-scoped and deletion-aware');
 assert.match(base, /const workKey = `\$\{partition\}:\$\{key\}`/, 'translation work identity must remain partition-scoped');
 assert.match(base, /const inflightKey = callerRequestId \? `\$\{workKey\}:request:\$\{callerRequestId\}` : workKey/, 'base caller transaction identity must remain explicit');

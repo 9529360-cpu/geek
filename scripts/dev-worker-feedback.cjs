@@ -61,9 +61,7 @@ const WORKERS = Object.freeze({
     inputs: Object.freeze([
       'scripts/geek-translate-entry.js',
       'scripts/geek-translate-worker.js',
-      'scripts/translation-rate-limit-compat.mjs',
       'scripts/translation-reservation-recovery.mjs',
-      'scripts/atomic-rate-limit.mjs',
       'wrangler-translate.toml',
     ]),
   }),

@@ -9,11 +9,17 @@ const { createSubscriptionStore } = require('../src/subscription.cjs');
 
 const runtimeOwnerSource = fs.readFileSync(path.join(__dirname, '../src/translation-runtime.cjs'), 'utf8');
 const runtimeBaseSource = fs.readFileSync(path.join(__dirname, '../src/translation-runtime-base.cjs'), 'utf8');
+const subscriptionSource = fs.readFileSync(path.join(__dirname, '../src/subscription.cjs'), 'utf8');
 assert.match(runtimeOwnerSource, /translation-runtime-base\.cjs/, '公共 Translation Runtime 必须继续组合唯一 quota/gateway 事务层');
 assert.match(
   runtimeBaseSource,
-  /const subscriptionStore = getSubscriptionStore\(\);[\s\S]*subscriptionStore\.getQuota\(\{\s*network:\s*false\s*\}\)/,
-  '翻译热路径必须从同一 Subscription authority 明确请求 quota 本地只读模式'
+  /const subscriptionStore = getSubscriptionStore\(\);[\s\S]*subscriptionStore\.getQuota\(\)/,
+  '翻译热路径必须通过 Subscription authority 校验当前 quota，缓存命中也不得绕过授权'
+);
+assert.match(
+  subscriptionSource,
+  /quota_checked_at[\s\S]*30 \* 1000[\s\S]*if \(!force && fresh && state\.quota_cache\) return localQuota/,
+  'Subscription authority 必须保留 30 秒 quota 缓存，避免每条翻译都访问远端 quota'
 );
 assert.match(
   runtimeBaseSource,
