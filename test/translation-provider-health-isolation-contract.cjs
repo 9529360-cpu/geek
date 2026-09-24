@@ -45,6 +45,13 @@ function createD1() {
         async first() { return sqlite.prepare(text).get(...values) || null; },
         async all() { return { results: sqlite.prepare(text).all(...values) }; },
         async run() {
+          if (/^\s*SELECT\b/i.test(text)) {
+            return {
+              success: true,
+              results: sqlite.prepare(text).all(...values),
+              meta: { changes: 0, last_row_id: 0 },
+            };
+          }
           const result = sqlite.prepare(text).run(...values);
           return {
             success: true,

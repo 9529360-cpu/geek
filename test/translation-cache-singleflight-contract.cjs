@@ -50,9 +50,39 @@ function cacheRecord(text, translated, target = 'en', at = CACHE_NOW - 1000) {
   }) + '\n';
 }
 
-function createHarness({ accounts, readFile, quotaResult = { remaining_chars: null }, nowMs = CACHE_NOW }) {
+function createHarness({
+  accounts,
+  readFile,
+  quotaResult = { remaining_chars: null },
+  nowMs = CACHE_NOW,
+  remoteGateway = false,
+  gatewayRemainingChars = null,
+}) {
   const handlers = new Map();
   let fetchCount = 0;
+  let quotaState = { ...quotaResult };
+  const acceptedQuota = [];
+  let quotaInvalidations = 0;
+  const authorizationController = new AbortController();
+  const subscriptionStore = {
+    getQuota: async () => quotaState,
+    getTranslationToken: async () => 'translation-token',
+    getTranslationAuthorization: async () => ({
+      token: 'translation-token',
+      generation: 1,
+      signal: authorizationController.signal,
+    }),
+    assertTranslationAuthorizationCurrent: () => {},
+    acceptAuthoritativeQuota: async (remainingChars) => {
+      quotaState = { ...quotaState, remaining_chars: remainingChars };
+      acceptedQuota.push(remainingChars);
+      return quotaState;
+    },
+    invalidateQuotaAuthority: () => {
+      quotaState = { ...quotaState, remaining_chars: null };
+      quotaInvalidations += 1;
+    },
+  };
   const runtime = createTranslationRuntime({
     ipcMain: {
       handle(channel, handler) { handlers.set(channel, handler); },
@@ -72,27 +102,32 @@ function createHarness({ accounts, readFile, quotaResult = { remaining_chars: nu
     accountState: {
       findById(accountId) { return accounts.get(accountId) || null; },
     },
-    createGatewayPool: () => ({
-      endpoints: ['http://127.0.0.1:8787'],
-      healthCheckAll: async () => ({ local: true }),
-      pick: () => ({ endpoint: 'http://127.0.0.1:8787', route: 'primary' }),
-      reportFailure() {},
-      reportSuccess() {},
-    }),
+    createGatewayPool: () => {
+      const endpoint = remoteGateway ? 'https://translate.invalid' : 'http://127.0.0.1:8787';
+      return {
+        endpoints: [endpoint],
+        healthCheckAll: async () => ({ local: !remoteGateway }),
+        pick: () => ({ endpoint, route: 'primary' }),
+        reportFailure() {},
+        reportSuccess() {},
+      };
+    },
     assertSafeTranslationOutput: ({ output }) => output,
     assertTrustedSender: () => {},
     assertValidAccountId: () => {},
-    getSubscriptionStore: () => ({
-      getQuota: async () => quotaResult,
-      getTranslationToken: async () => '',
-    }),
+    getSubscriptionStore: () => subscriptionStore,
     fetchImpl: async (_url, options) => {
       fetchCount += 1;
       const body = JSON.parse(options.body || '{}');
       return {
         ok: true,
         status: 200,
-        text: async () => JSON.stringify({ text: `remote:${body.text}`, source: 'auto', target: body.target }),
+        text: async () => JSON.stringify({
+          text: `remote:${body.text}`,
+          source: 'auto',
+          target: body.target,
+          remaining_chars: gatewayRemainingChars,
+        }),
       };
     },
     randomUUID: (() => { let id = 0; return () => `request-${++id}`; })(),
@@ -104,6 +139,9 @@ function createHarness({ accounts, readFile, quotaResult = { remaining_chars: nu
     runtime,
     translate: async (event, payload) => unwrapTranslationIpcResponse(await translateIpc(event, payload)),
     fetchCount: () => fetchCount,
+    quotaRemaining: () => quotaState.remaining_chars,
+    acceptedQuota: () => [...acceptedQuota],
+    quotaInvalidations: () => quotaInvalidations,
     event: mainFrameIpcEvent({ id: 1 }),
   };
 }
@@ -248,6 +286,55 @@ function createHarness({ accounts, readFile, quotaResult = { remaining_chars: nu
     assert.equal(result.cached, false, 'cache older than the production TTL must not be served');
     assert.equal(result.text, 'remote:stale-cache');
     assert.equal(harness.fetchCount(), 1, 'expired cache must fall through to a fresh provider translation');
+    harness.runtime.dispose();
+  }
+
+  {
+    const accounts = new Map([['account-a', { partition: 'persist:webview-page-authoritative-zero' }]]);
+    const harness = createHarness({
+      accounts,
+      readFile: async () => {
+        const error = new Error('missing cache');
+        error.code = 'ENOENT';
+        throw error;
+      },
+      quotaResult: { remaining_chars: 9 },
+      remoteGateway: true,
+      gatewayRemainingChars: 0,
+    });
+    const first = await harness.translate(harness.event, { accountId: 'account-a', text: 'last-quota', target: 'en' });
+    assert.equal(first.text, 'remote:last-quota');
+    assert.equal(first.cached, false);
+    assert.deepEqual(harness.acceptedQuota(), [0], 'post-commit gateway balance must become the current client quota authority');
+    assert.equal(harness.quotaRemaining(), 0);
+    await assert.rejects(
+      () => harness.translate(harness.event, { accountId: 'account-a', text: 'last-quota', target: 'en' }),
+      error => error?.code === 'QUOTA_EXHAUSTED',
+      'the translation that consumes the final quota may return, but its new cache entry must not bypass zero balance afterwards',
+    );
+    assert.equal(harness.fetchCount(), 1, 'zero authoritative balance must block before a second provider request');
+    harness.runtime.dispose();
+  }
+
+  {
+    const accounts = new Map([['account-a', { partition: 'persist:webview-page-unknown-balance' }]]);
+    const harness = createHarness({
+      accounts,
+      readFile: async () => {
+        const error = new Error('missing cache');
+        error.code = 'ENOENT';
+        throw error;
+      },
+      quotaResult: { remaining_chars: 9 },
+      remoteGateway: true,
+      gatewayRemainingChars: null,
+    });
+    const first = await harness.translate(harness.event, { accountId: 'account-a', text: 'rolling-gateway', target: 'en' });
+    assert.equal(first.cached, false);
+    assert.equal(harness.quotaInvalidations(), 1, 'missing post-commit balance must invalidate current quota authority');
+    const second = await harness.translate(harness.event, { accountId: 'account-a', text: 'rolling-gateway', target: 'en' });
+    assert.equal(second.cached, false, 'unknown quota authority must not serve an otherwise valid warm cache hit');
+    assert.equal(harness.fetchCount(), 2, 'unknown quota authority must fall through to the server gate');
     harness.runtime.dispose();
   }
 

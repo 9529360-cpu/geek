@@ -294,8 +294,11 @@ async function finishUsage(db, userId, requestId, targetChars, owner) {
         )`).bind(targetChars, userId, requestId, userId, owner),
     db.prepare("UPDATE translation_usage SET target_chars = ?, status = 'complete', completed_at = datetime('now') WHERE request_id = ? AND user_id = ? AND status = ?")
       .bind(targetChars, requestId, userId, owner),
+    db.prepare('SELECT quota_chars AS remaining_chars FROM users WHERE id = ?').bind(userId),
   ]);
   if (!results[1]?.meta?.changes) throw new Error('translation_usage_not_reserved');
+  const remaining = Number(results[2]?.results?.[0]?.remaining_chars);
+  return Number.isFinite(remaining) && remaining >= 0 ? Math.floor(remaining) : null;
 }
 
 function buildMessages(text, source, target) {
@@ -564,8 +567,8 @@ export default {
         if (!reservation.ok) return json({ error: reservation.error }, reservation.error === 'duplicate_request' ? 409 : 402, request, env);
         reservationOwner = reservation.owner;
         const { text: result, engine } = await translate(text, source, target, env, deadlineAt);
-        await finishUsage(db, auth.uid, requestId, countChars(result), reservationOwner);
-        return json({ text: result, source, target, engine, route }, 200, request, env);
+        const remainingChars = await finishUsage(db, auth.uid, requestId, countChars(result), reservationOwner);
+        return json({ text: result, source, target, engine, route, remaining_chars: remainingChars }, 200, request, env);
       } catch (error) {
         if (reservationOwner) await refundUsage(db, auth.uid, requestId, reserved, reservationOwner).catch(() => {});
         return json({ error: error?.code === 'deadline_exceeded' ? 'deadline_exceeded' : 'translation_failed' }, error?.code === 'deadline_exceeded' ? 504 : 502, request, env);

@@ -28,7 +28,7 @@ assert.match(cacheStore, /path\.join\(getUserDataDir\(\), 'Partitions', dirName,
 assert.match(cacheStore, /safeStorage\.encryptString/, 'translation cache remains encrypted at rest');
 assert.match(
   runtimeBase,
-  /subscriptionStore\.getQuota\(\)[\s\S]*if \(cached && cacheItemFresh\(cached\)\)[\s\S]*cached: true[\s\S]*enqueueRemote/,
+  /subscriptionStore\.getQuota\(\{\s*authority:\s*true\s*\}\)[\s\S]*if \(cached && cacheItemFresh\(cached\) && cacheAuthorized\)[\s\S]*cached: true[\s\S]*enqueueRemote/,
   'authorized fresh cache hits must return before a new remote translation without bypassing quota entitlement'
 );
 
