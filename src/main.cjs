@@ -924,7 +924,6 @@ function watchSystemTheme() {
 
 function configureWebviewSecurity(window) {
   window.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    webPreferences.backgroundThrottling = false;
     const partition = String(params.partition || '');
     const source = String(params.src || '');
 
@@ -962,6 +961,11 @@ function configureWebviewSecurity(window) {
     delete webPreferences.preloadURL;
     const isLine = account.type === 'line' || account.type === 'line-business';
     const isWebsite = account.type === 'website';
+    // Non-LINE account guests use Chromium's normal background scheduling. Keeping every
+    // WhatsApp/Telegram/Website renderer permanently unthrottled turns a few resident
+    // accounts into several always-foreground Chromium apps. LINE retains its existing
+    // scoped compatibility exception until authenticated regression evidence allows it.
+    webPreferences.backgroundThrottling = isLine ? false : true;
     if (!isWebsite) {
       const integrityComponent = isLine ? 'lineExtension' : 'bridge';
       if (!runtimeAssetAllowed(integrityComponent)) {

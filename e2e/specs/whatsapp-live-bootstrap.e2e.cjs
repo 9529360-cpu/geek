@@ -147,7 +147,13 @@ async function probeGuest() {
     const page = await Promise.race([pageProbe, probeTimeout]);
     clearTimeout(timeoutId);
 
-    return { found: true, platform: process.platform, mainUrl: guest.getURL(), ...page };
+    return {
+      found: true,
+      platform: process.platform,
+      mainUrl: guest.getURL(),
+      backgroundThrottling: guest.getBackgroundThrottling?.() !== false,
+      ...page,
+    };
   }, PARTITION, RENDERER_PROBE_TIMEOUT_MS);
 }
 
@@ -187,6 +193,7 @@ describe('WhatsApp current Web bootstrap', () => {
     assert.equal(summary.guestFound, true, 'exact synthetic WhatsApp guest was not found');
     assert.equal(summary.rendererResponsive, true, `WhatsApp renderer did not respond: ${summary.rendererErrorCategory}`);
     assert.equal(summary.officialWeb, true, 'WhatsApp guest and renderer did not use current official Web bootstrap');
+    assert.equal(state.backgroundThrottling, true, 'WhatsApp guest must keep Chromium background scheduling enabled');
     assert.equal(summary.mainOrigin, new URL(LIVE_URL).origin, 'main-process WhatsApp guest origin changed');
     assert.equal(summary.rendererOrigin, new URL(LIVE_URL).origin, 'WhatsApp renderer origin changed');
     assert.equal(summary.documentComplete, true, 'WhatsApp document did not complete loading');
