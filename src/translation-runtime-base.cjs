@@ -3,7 +3,8 @@
 const crypto = require('node:crypto');
 const { createTranslationCacheStore } = require('./translation-cache-store.cjs');
 
-const TRANSLATION_CACHE_VERSION = 'prompt-20260915-source-1';
+const TRANSLATION_CACHE_VERSION = 'prompt-20260924-source-2';
+const TRANSLATION_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TRANSLATION_REMOTE_LIMIT = 20;
 const TRANSLATION_REQUEST_TIMEOUT_MS = 30000;
 const TRANSLATION_CHANNELS = Object.freeze([
@@ -194,6 +195,8 @@ function createTranslationRuntime(options = {}) {
     getUserDataDir,
     cacheVersion: TRANSLATION_CACHE_VERSION,
     isPartitionDeleted: partition => state.deletedPartitions.has(String(partition || '')),
+    now,
+    maxAgeMs: TRANSLATION_CACHE_TTL_MS,
   });
   let requestSequence = 0;
   let gatewayPool = null;
@@ -360,6 +363,12 @@ function createTranslationRuntime(options = {}) {
     const cache = state.caches.get(partition);
     if (!cache) return;
     try { await cacheStore.append(partition, key, item, cache); } catch {}
+  }
+
+  function cacheItemFresh(item) {
+    const at = Number(item?.at);
+    const age = Number(now()) - at;
+    return Number.isFinite(at) && at > 0 && age >= 0 && age <= TRANSLATION_CACHE_TTL_MS;
   }
 
   function gatewayEndpoints() {
@@ -549,29 +558,31 @@ function createTranslationRuntime(options = {}) {
         if (state.deletedPartitions.has(partition)) throw accountDeletedError();
         assertBeforeDeadline(deadlineAt);
 
+        const subscriptionStore = getSubscriptionStore();
+        if (body.skipQuota !== true) {
+          const quota = await awaitWithDeadline(
+            subscriptionStore.getQuota().catch(() => ({ remaining_chars: null })),
+            deadlineAt
+          );
+          if (quota.remaining_chars != null && quota.remaining_chars <= 0) {
+            throw createTranslationError('QUOTA_EXHAUSTED', '翻译额度已用完，请前往个人中心开通', { category: 'quota', retryable: false });
+          }
+        }
+
         if (body.refresh !== true) {
           const cached = cache.get(key);
-          if (cached) {
+          if (cached && cacheItemFresh(cached)) {
             try {
               const safeCachedText = assertSafeTranslationOutput({ source: text, output: cached.text, target });
               return { text: safeCachedText, source: body.source || 'auto', target, cached: true, requestId };
             } catch {
               cache.delete(key);
             }
+          } else if (cached) {
+            cache.delete(key);
           }
           if (body.isHistory === true && body.translateHistory !== true) {
             return { text: '', source: body.source || 'auto', target, cached: false, skipped: true, history: true, requestId };
-          }
-        }
-
-        const subscriptionStore = getSubscriptionStore();
-        if (body.skipQuota !== true) {
-          const quota = await awaitWithDeadline(
-            subscriptionStore.getQuota({ network: false }).catch(() => ({ remaining_chars: null })),
-            deadlineAt
-          );
-          if (quota.remaining_chars != null && quota.remaining_chars <= 0) {
-            throw createTranslationError('QUOTA_EXHAUSTED', '翻译额度已用完，请前往个人中心开通', { category: 'quota', retryable: false });
           }
         }
 
@@ -782,6 +793,7 @@ function createTranslationRuntime(options = {}) {
 
 module.exports = {
   TRANSLATION_CACHE_VERSION,
+  TRANSLATION_CACHE_TTL_MS,
   TRANSLATION_REMOTE_LIMIT,
   TRANSLATION_REQUEST_TIMEOUT_MS,
   TRANSLATION_CHANNELS,

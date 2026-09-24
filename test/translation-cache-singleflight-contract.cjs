@@ -4,10 +4,13 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const {
   TRANSLATION_CACHE_VERSION,
+  TRANSLATION_CACHE_TTL_MS,
   unwrapTranslationIpcResponse,
   createTranslationRuntime,
 } = require('../src/translation-runtime.cjs');
 const { mainFrameIpcEvent } = require('./helpers/main-frame-ipc-event.cjs');
+
+const CACHE_NOW = Date.UTC(2026, 8, 24, 18, 0, 0);
 
 function deferred() {
   let resolve;
@@ -38,16 +41,16 @@ function cacheKey(text, target = 'en') {
   })).digest('hex');
 }
 
-function cacheRecord(text, translated, target = 'en') {
+function cacheRecord(text, translated, target = 'en', at = CACHE_NOW - 1000) {
   return JSON.stringify({
     version: TRANSLATION_CACHE_VERSION,
     key: cacheKey(text, target),
-    at: 123,
+    at,
     value: Buffer.from(translated).toString('base64'),
   }) + '\n';
 }
 
-function createHarness({ accounts, readFile }) {
+function createHarness({ accounts, readFile, quotaResult = { remaining_chars: null }, nowMs = CACHE_NOW }) {
   const handlers = new Map();
   let fetchCount = 0;
   const runtime = createTranslationRuntime({
@@ -80,7 +83,7 @@ function createHarness({ accounts, readFile }) {
     assertTrustedSender: () => {},
     assertValidAccountId: () => {},
     getSubscriptionStore: () => ({
-      getQuota: async () => ({ remaining_chars: null }),
+      getQuota: async () => quotaResult,
       getTranslationToken: async () => '',
     }),
     fetchImpl: async (_url, options) => {
@@ -93,6 +96,7 @@ function createHarness({ accounts, readFile }) {
       };
     },
     randomUUID: (() => { let id = 0; return () => `request-${++id}`; })(),
+    now: () => nowMs,
   });
   runtime.install();
   const translateIpc = handlers.get('translation:translate');
@@ -199,6 +203,51 @@ function createHarness({ accounts, readFile }) {
       'deleted partition must stay invalid after the old disk load completes',
     );
     assert.equal(readCount, 1, 'stale cache load completion must not resurrect disk cache authority');
+    harness.runtime.dispose();
+  }
+
+  {
+    const accounts = new Map([['account-a', { partition: 'persist:webview-page-quota-zero-cache' }]]);
+    const harness = createHarness({
+      accounts,
+      readFile: async () => cacheRecord('quota-zero', 'cached:quota-zero'),
+      quotaResult: { remaining_chars: 0 },
+    });
+    await assert.rejects(
+      () => harness.translate(harness.event, { accountId: 'account-a', text: 'quota-zero', target: 'en' }),
+      error => error?.code === 'QUOTA_EXHAUSTED',
+      'zero authorized quota must block a warm cache hit',
+    );
+    assert.equal(harness.fetchCount(), 0, 'zero quota must fail before cache or remote provider output is returned');
+    harness.runtime.dispose();
+  }
+
+  {
+    const accounts = new Map([['account-a', { partition: 'persist:webview-page-positive-cache' }]]);
+    const harness = createHarness({
+      accounts,
+      readFile: async () => cacheRecord('positive-cache', 'cached:positive-cache'),
+      quotaResult: { remaining_chars: 100 },
+    });
+    const result = await harness.translate(harness.event, { accountId: 'account-a', text: 'positive-cache', target: 'en' });
+    assert.equal(result.cached, true, 'positive authorized quota may use a valid cache hit');
+    assert.equal(result.text, 'cached:positive-cache');
+    assert.equal(harness.fetchCount(), 0, 'valid cache hit must avoid another provider request');
+    harness.runtime.dispose();
+  }
+
+  {
+    const accounts = new Map([['account-a', { partition: 'persist:webview-page-stale-cache' }]]);
+    const staleAt = CACHE_NOW - TRANSLATION_CACHE_TTL_MS - 1;
+    const harness = createHarness({
+      accounts,
+      readFile: async () => cacheRecord('stale-cache', 'must-expire', 'en', staleAt),
+      quotaResult: { remaining_chars: 100 },
+    });
+    const result = await harness.translate(harness.event, { accountId: 'account-a', text: 'stale-cache', target: 'en' });
+    assert.equal(result.cached, false, 'cache older than the production TTL must not be served');
+    assert.equal(result.text, 'remote:stale-cache');
+    assert.equal(harness.fetchCount(), 1, 'expired cache must fall through to a fresh provider translation');
     harness.runtime.dispose();
   }
 
