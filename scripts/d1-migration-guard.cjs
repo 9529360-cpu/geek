@@ -3,13 +3,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const EXPECTED_MIGRATION = '005-translation-reservation-lease.sql';
+const PREVIOUS_MIGRATION = '005-translation-reservation-lease.sql';
+const EXPECTED_MIGRATION = '006-translation-outcome-replay.sql';
 const MANAGED_DIR = 'scripts/d1-migrations';
 const MANAGED_TABLE = 'geek_d1_migrations';
-const BASELINE_FILE = 'scripts/d1-baselines/004-subscription-schema.sql';
+const BASELINE_FILE = 'scripts/d1-baselines/005-translation-reservation-schema.sql';
 const DATABASE_NAME = 'geek-subscriptions';
 const DATABASE_ID = '1e78a93a-36de-43db-88aa-4551f9991200';
-const REQUIRED_BASE_COLUMNS = Object.freeze([
+const REQUIRED_PRE006_COLUMNS = Object.freeze([
   'request_id',
   'user_id',
   'reserved_chars',
@@ -17,11 +18,12 @@ const REQUIRED_BASE_COLUMNS = Object.freeze([
   'status',
   'created_at',
   'completed_at',
+  'lease_expires_at',
 ]);
-const FUTURE_COLUMNS = Object.freeze(['request_hash', 'replay_ciphertext', 'replay_expires_at']);
+const REPLAY_COLUMNS = Object.freeze(['request_hash', 'replay_ciphertext', 'replay_expires_at']);
 const LEASE_INDEX = 'idx_translation_usage_lease';
 const LEASE_TRIGGER = 'trg_translation_usage_reservation_lease';
-const FUTURE_INDEX = 'idx_translation_usage_replay_expiry';
+const REPLAY_INDEX = 'idx_translation_usage_replay_expiry';
 
 function rowsFromPayload(payload) {
   const rows = [];
@@ -31,9 +33,7 @@ function rowsFromPayload(payload) {
       for (const item of value) visit(item);
       return;
     }
-    if (Array.isArray(value.results)) {
-      rows.push(...value.results);
-    }
+    if (Array.isArray(value.results)) rows.push(...value.results);
   };
   visit(payload);
   return rows;
@@ -64,18 +64,16 @@ function validateRepo(root = path.resolve(__dirname, '..')) {
   const baselinePath = path.join(root, BASELINE_FILE);
   const baseline = fs.readFileSync(baselinePath, 'utf8');
   const usageMatch = baseline.match(/CREATE TABLE IF NOT EXISTS translation_usage\s*\(([\s\S]*?)\n\);/i);
-  if (!usageMatch) fail('004 baseline translation_usage table missing');
-  for (const column of REQUIRED_BASE_COLUMNS) {
-    if (!new RegExp(`\\b${column}\\b`, 'i').test(usageMatch[1])) fail(`004 baseline is missing translation_usage.${column}`);
+  if (!usageMatch) fail('005 baseline translation_usage table missing');
+  for (const column of REQUIRED_PRE006_COLUMNS) {
+    if (!new RegExp(`\\b${column}\\b`, 'i').test(usageMatch[1])) fail(`005 baseline is missing translation_usage.${column}`);
   }
-  if (!/\baccount_no\b/i.test(baseline) || !/\btoken_version\b/i.test(baseline) || !/CREATE TABLE IF NOT EXISTS password_reset_requests/i.test(baseline)) {
-    fail('004 baseline does not include the proven legacy 002-004 schema effects');
-  }
-  if (/\blease_expires_at\b|idx_translation_usage_lease|trg_translation_usage_reservation_lease/i.test(baseline)) {
-    fail('004 baseline must remain strictly pre-005');
-  }
+  if (!/CREATE INDEX IF NOT EXISTS idx_translation_usage_lease/i.test(baseline)) fail('005 baseline lease index missing');
+  if (!/CREATE TRIGGER IF NOT EXISTS trg_translation_usage_reservation_lease/i.test(baseline)) fail('005 baseline lease trigger missing');
+  if (!new RegExp(`CREATE TABLE IF NOT EXISTS ${MANAGED_TABLE}\\b`, 'i').test(baseline)) fail('005 baseline managed ledger table missing');
+  if (!baseline.includes(PREVIOUS_MIGRATION)) fail('005 baseline managed ledger row missing');
   if (/\b(?:request_hash|replay_ciphertext|replay_expires_at)\b|idx_translation_usage_replay_expiry/i.test(baseline)) {
-    fail('004 baseline must remain strictly pre-006');
+    fail('005 baseline must remain strictly pre-006');
   }
 
   const managedPath = path.join(root, MANAGED_DIR);
@@ -84,16 +82,26 @@ function validateRepo(root = path.resolve(__dirname, '..')) {
     .map(entry => entry.name)
     .sort();
   if (files.length !== 1 || files[0] !== EXPECTED_MIGRATION) {
-    fail(`005 admission must expose exactly one managed migration: ${EXPECTED_MIGRATION}`);
+    fail(`006 admission must expose exactly one managed migration: ${EXPECTED_MIGRATION}`);
   }
 
   const sql = fs.readFileSync(path.join(managedPath, EXPECTED_MIGRATION), 'utf8');
-  if (!/ALTER TABLE translation_usage ADD COLUMN lease_expires_at TEXT;/i.test(sql)) fail('005 lease column DDL missing');
-  if (!/CREATE INDEX IF NOT EXISTS idx_translation_usage_lease/i.test(sql)) fail('005 lease index DDL missing');
-  if (!/CREATE TRIGGER IF NOT EXISTS trg_translation_usage_reservation_lease/i.test(sql)) fail('005 lease trigger DDL missing');
-  if (!/datetime\('now', '\+2 minutes'\)/i.test(sql)) fail('005 lease duration drifted');
-  if (/\b(?:DROP|VACUUM|REPLACE)\b/i.test(sql)) fail('005 contains destructive or replacement SQL');
-  if (/\b(?:request_hash|replay_ciphertext|replay_expires_at)\b/i.test(sql)) fail('006 replay schema must not cross the 005 admission boundary');
+  for (const column of REPLAY_COLUMNS) {
+    if (!new RegExp(`ALTER TABLE translation_usage ADD COLUMN ${column} TEXT;`, 'i').test(sql)) {
+      fail(`006 replay column DDL missing: ${column}`);
+    }
+  }
+  if (!/CREATE INDEX IF NOT EXISTS idx_translation_usage_replay_expiry/i.test(sql)) fail('006 replay expiry index DDL missing');
+  if (/\b(?:DROP|VACUUM|REPLACE|DELETE)\b/i.test(sql)) fail('006 contains destructive or replacement SQL');
+  if (/lease_expires_at|idx_translation_usage_lease|trg_translation_usage_reservation_lease/i.test(sql)) {
+    fail('006 must not re-own the already-applied 005 lease schema');
+  }
+
+  const canonical = fs.readFileSync(path.join(root, 'scripts/geek-subscription-schema.sql'), 'utf8');
+  for (const column of REPLAY_COLUMNS) {
+    if (!new RegExp(`\\b${column}\\s+TEXT\\b`, 'i').test(canonical)) fail(`canonical schema missing translation_usage.${column}`);
+  }
+  if (!/CREATE INDEX IF NOT EXISTS idx_translation_usage_replay_expiry/i.test(canonical)) fail('canonical schema missing replay expiry index');
   return true;
 }
 
@@ -101,45 +109,43 @@ function ledgerPresent(ledgerTableRows) {
   return ledgerTableRows.some(row => String(row?.name || '') === MANAGED_TABLE && String(row?.type || '') === 'table');
 }
 
-function inspect005({ schemaRows, objectRows, ledgerTableRows, ledgerRows }) {
+function inspect006({ schemaRows, objectRows, ledgerTableRows, ledgerRows }) {
   const columns = new Set(schemaRows.map(row => String(row?.name || '')));
-  for (const column of REQUIRED_BASE_COLUMNS) {
-    if (!columns.has(column)) fail(`translation_usage is missing required legacy column: ${column}`);
+  for (const column of REQUIRED_PRE006_COLUMNS) {
+    if (!columns.has(column)) fail(`translation_usage is missing required pre-006 column: ${column}`);
   }
 
   const objectTypes = new Map(objectRows.map(row => [String(row?.name || ''), String(row?.type || '')]));
-  for (const futureColumn of FUTURE_COLUMNS) {
-    if (columns.has(futureColumn)) fail(`future 006 column present before 005 admission: ${futureColumn}`);
-  }
-  if (objectTypes.has(FUTURE_INDEX)) fail(`future 006 index present before 005 admission: ${FUTURE_INDEX}`);
-
-  const hasLeaseColumn = columns.has('lease_expires_at');
-  const hasLeaseIndex = objectTypes.get(LEASE_INDEX) === 'index';
-  const hasLeaseTrigger = objectTypes.get(LEASE_TRIGGER) === 'trigger';
-  const leaseArtifactCount = Number(hasLeaseColumn) + Number(hasLeaseIndex) + Number(hasLeaseTrigger);
+  if (objectTypes.get(LEASE_INDEX) !== 'index') fail('pre-006 lease index is missing');
+  if (objectTypes.get(LEASE_TRIGGER) !== 'trigger') fail('pre-006 lease trigger is missing');
 
   const hasManagedLedger = ledgerPresent(ledgerTableRows);
-  if (!hasManagedLedger && ledgerRows.length > 0) fail('managed ledger rows returned while the managed ledger table is absent');
+  if (!hasManagedLedger) fail('managed migration ledger is missing before 006');
   const ledgerNames = ledgerRows.map(row => String(row?.name || '')).filter(Boolean);
-  const unknownLedgerNames = ledgerNames.filter(name => name !== EXPECTED_MIGRATION);
+  const unknownLedgerNames = ledgerNames.filter(name => name !== PREVIOUS_MIGRATION && name !== EXPECTED_MIGRATION);
   if (unknownLedgerNames.length > 0) fail(`unexpected managed migration ledger entry: ${unknownLedgerNames.join(', ')}`);
-  const recorded005 = ledgerNames.includes(EXPECTED_MIGRATION);
+  const recorded005 = ledgerNames.includes(PREVIOUS_MIGRATION);
+  const recorded006 = ledgerNames.includes(EXPECTED_MIGRATION);
+  if (!recorded005) fail('managed migration 005 must be recorded before 006');
 
-  if (leaseArtifactCount === 0 && !recorded005) return 'ready';
-  if (leaseArtifactCount === 3 && recorded005) return 'already-applied';
+  const replayColumnCount = REPLAY_COLUMNS.reduce((count, column) => count + Number(columns.has(column)), 0);
+  const hasReplayIndex = objectTypes.get(REPLAY_INDEX) === 'index';
+  const replayArtifactCount = replayColumnCount + Number(hasReplayIndex);
+
+  if (replayArtifactCount === 0 && !recorded006) return 'ready';
+  if (replayArtifactCount === REPLAY_COLUMNS.length + 1 && recorded006) return 'already-applied';
 
   const state = [
-    `lease_column=${hasLeaseColumn}`,
-    `lease_index=${hasLeaseIndex}`,
-    `lease_trigger=${hasLeaseTrigger}`,
-    `ledger_table=${hasManagedLedger}`,
+    ...REPLAY_COLUMNS.map(column => `${column}=${columns.has(column)}`),
+    `replay_index=${hasReplayIndex}`,
     `ledger_005=${recorded005}`,
+    `ledger_006=${recorded006}`,
   ].join(' ');
-  fail(`partial or out-of-band 005 state detected: ${state}`);
+  fail(`partial or out-of-band 006 state detected: ${state}`);
 }
 
-function inspect005Files(schemaFile, objectsFile, ledgerTableFile, ledgerRowsFile) {
-  return inspect005({
+function inspect006Files(schemaFile, objectsFile, ledgerTableFile, ledgerRowsFile) {
+  return inspect006({
     schemaRows: rowsFromFile(schemaFile),
     objectRows: rowsFromFile(objectsFile),
     ledgerTableRows: rowsFromFile(ledgerTableFile),
@@ -159,15 +165,15 @@ function main(argv) {
     process.stdout.write(`${ledgerPresent(rowsFromFile(args[0])) ? 'yes' : 'no'}\n`);
     return;
   }
-  if (command === 'inspect-005') {
-    if (args.length !== 4) fail('inspect-005 requires schema, objects, ledger-table, and ledger-rows JSON files');
-    process.stdout.write(`${inspect005Files(...args)}\n`);
+  if (command === 'inspect-006') {
+    if (args.length !== 4) fail('inspect-006 requires schema, objects, ledger-table, and ledger-rows JSON files');
+    process.stdout.write(`${inspect006Files(...args)}\n`);
     return;
   }
-  if (command === 'verify-005') {
-    if (args.length !== 4) fail('verify-005 requires schema, objects, ledger-table, and ledger-rows JSON files');
-    const state = inspect005Files(...args);
-    if (state !== 'already-applied') fail(`005 postflight state is ${state}, expected already-applied`);
+  if (command === 'verify-006') {
+    if (args.length !== 4) fail('verify-006 requires schema, objects, ledger-table, and ledger-rows JSON files');
+    const state = inspect006Files(...args);
+    if (state !== 'already-applied') fail(`006 postflight state is ${state}, expected already-applied`);
     process.stdout.write('verified\n');
     return;
   }
@@ -188,14 +194,15 @@ module.exports = {
   DATABASE_ID,
   DATABASE_NAME,
   EXPECTED_MIGRATION,
-  FUTURE_COLUMNS,
-  FUTURE_INDEX,
   LEASE_INDEX,
   LEASE_TRIGGER,
   MANAGED_DIR,
   MANAGED_TABLE,
-  REQUIRED_BASE_COLUMNS,
-  inspect005,
+  PREVIOUS_MIGRATION,
+  REPLAY_COLUMNS,
+  REPLAY_INDEX,
+  REQUIRED_PRE006_COLUMNS,
+  inspect006,
   ledgerPresent,
   rowsFromPayload,
   validateRepo,
