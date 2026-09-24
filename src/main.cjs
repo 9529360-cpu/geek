@@ -22,7 +22,8 @@ const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
 const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { normalizeWebsiteUrl } = require('./website-url.cjs');
-const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_LOCAL_PORT, WA_LOCAL_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
+const { WPP_CAPABILITY_PICKER_SOURCE } = require('./wpp-capability-picker.cjs');
+const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
 const { isAccountNavigationAllowed } = require('./webview-navigation-boundary.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installAccountIpc } = require('./account-ipc.cjs');
@@ -37,6 +38,8 @@ const { installScheduledBroadcastAttachmentBoundary } = require('./scheduled-bro
 const { createTelegramNativeAttachmentHandler } = require('./telegram-native-attachments.cjs');
 const { externalDebuggingRequested } = require('./external-debugging-policy.cjs');
 const { createProxyRuntime } = require('./proxy-runtime.cjs');
+const { createWhatsappRuntimeRecovery } = require('./whatsapp-runtime-recovery.cjs');
+const { applyWhatsAppSessionUserAgent } = require('./whatsapp-session-user-agent.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -264,7 +267,6 @@ function publicState(snapshot = accountState.getSnapshot()) {
     accounts: snapshot.accounts.map((account) => {
       const config = platformConfig(account.type);
       let url = config ? config.url : PLATFORM_CATALOG[account.type].url;
-      if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') url = WA_LOCAL_URL;
       if (account.type === 'website' && account.customUrl) {
         url = account.customUrl;
       }
@@ -404,6 +406,7 @@ let configIpcBoundary = null;
 let translationRuntime = null;
 let desktopIpcBoundary = null;
 let webviewIpcBoundary = null;
+let whatsappRuntimeRecovery = null;
 
 async function updateAccount(event, accountId, patchData) {
   assertTrustedSender(event);
@@ -500,6 +503,8 @@ function registerIpcHandlers() {
     assertTrustedSender,
     assertValidAccountId,
     getSubscriptionStore: () => initSubscriptionStore(),
+    getSessionForPartition: (partition) => session.fromPartition(partition, { cache: true }),
+    requireAccountSessionEgress: true,
   }).install();
 
   webviewIpcBoundary = installWebviewIpc({
@@ -510,6 +515,14 @@ function registerIpcHandlers() {
     getWebContentsById: (guestId) => webContents.fromId(guestId),
     getSessionForPartition: (partition) => session.fromPartition(partition),
   });
+
+  whatsappRuntimeRecovery = createWhatsappRuntimeRecovery({
+    ipcMain,
+    assertTrustedSender,
+    accountState,
+    getSessionForPartition: (partition) => session.fromPartition(partition, { cache: true }),
+    diagnostics,
+  }).install();
 
   configIpcBoundary = installConfigIpc({
     ipcMain,
@@ -560,7 +573,7 @@ function registerIpcHandlers() {
         const file = inp && inp.files && inp.files[0];
         if (!file) return 'NO_FILE';
         const W = window.require;
-        const wpp = window.WAPLUS_WPP || window.WPP;
+        const wpp = window.__geekPickWpp?.(['whatsapp.ChatStore']);
         const chatModel = wpp.whatsapp.ChatStore.get(${JSON.stringify(chatId)});
         if (!chatModel) return 'NO_CHAT';
         const mediaData = W('WAWebMediaOpaqueData').createFromData(file, file.type);
@@ -633,10 +646,10 @@ function registerIpcHandlers() {
   }
 
   function findExternalTarget(targets, platform) {
-    const urlMatch = platform === 'whatsapp' ? ('web.whatsapp.com|127.0.0.1:' + WA_LOCAL_PORT)
+    const urlMatch = platform === 'whatsapp' ? 'web.whatsapp.com'
       : platform === 'line' ? 'chrome-extension'
       : 'web.telegram.org';
-    const isTarget = (u) => urlMatch.includes('|') ? (u.includes('web.whatsapp.com') || u.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) : u.includes(urlMatch);
+    const isTarget = (u) => u.includes(urlMatch);
     const target = targets.find((t) => t.type === 'webview' && isTarget(t.url));
     if (!target || !target.webSocketDebuggerUrl) throw new Error('找不到账号页面');
     return target.webSocketDebuggerUrl;
@@ -923,7 +936,6 @@ function watchSystemTheme() {
 
 function configureWebviewSecurity(window) {
   window.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    webPreferences.backgroundThrottling = false;
     const partition = String(params.partition || '');
     const source = String(params.src || '');
 
@@ -948,6 +960,16 @@ function configureWebviewSecurity(window) {
       return;
     }
 
+    // WhatsApp's Service Worker fetch is owned by the Electron Session rather than the
+    // guest page. Keep the partition Session UA aligned with the page UA before the first
+    // navigation so worker/bootstrap requests never expose Electron/app identifiers.
+    applyWhatsAppSessionUserAgent({
+      account,
+      partition,
+      userAgent: CHROME_USER_AGENT,
+      sessionFromPartition: (name, options) => session.fromPartition(name, options),
+    });
+
     const globalConfig = configStore.getSnapshot();
     if (!proxyRuntime.isReadyForAccount(account, globalConfig)) {
       diagnostics.log('webview-proxy-not-ready', {
@@ -961,6 +983,11 @@ function configureWebviewSecurity(window) {
     delete webPreferences.preloadURL;
     const isLine = account.type === 'line' || account.type === 'line-business';
     const isWebsite = account.type === 'website';
+    // Non-LINE account guests use Chromium's normal background scheduling. Keeping every
+    // WhatsApp/Telegram/Website renderer permanently unthrottled turns a few resident
+    // accounts into several always-foreground Chromium apps. LINE retains its existing
+    // scoped compatibility exception until authenticated regression evidence allows it.
+    webPreferences.backgroundThrottling = isLine ? false : true;
     if (!isWebsite) {
       const integrityComponent = isLine ? 'lineExtension' : 'bridge';
       if (!runtimeAssetAllowed(integrityComponent)) {
@@ -1036,39 +1063,90 @@ function configureWebviewSecurity(window) {
     const ownerIsWhatsApp = ownerAccount?.type === 'whatsapp' || ownerAccount?.type === 'whatsapp-pure';
     webContents.on('did-finish-load', async () => {
       const url = webContents.getURL() || '';
-      if (ownerIsWhatsApp && (url.includes('web.whatsapp.com') || url.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) && !wppInjected.has(part)) {
+      if (ownerIsWhatsApp && url.includes('web.whatsapp.com') && !wppInjected.has(part)) {
         await injectWppWithRetry(webContents, part);
       }
     });
 
   async function injectWppWithRetry(wc, part) {
+    const injectionReadinessProbe = `(async () => {
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        const W = window.WPP;
+        const ready = W?.isInjected === true
+          && W?.isReady === true
+          && typeof W?.loader?.moduleRequire === 'function'
+          && typeof W?.whatsapp?._moduleIdMap?.get === 'function';
+        if (ready) return true;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      return false;
+    })()`;
+
+    const capabilityProbe = `(() => {
+      const primary = window.WPP;
+      const fallback = window.WAPLUS_WPP;
+      return {
+        primaryChatReady: typeof primary?.chat?.sendTextMessage === 'function'
+          && typeof primary?.chat?.sendFileMessage === 'function'
+          && typeof primary?.chat?.getActiveChat === 'function',
+        primaryLidGroupReady: typeof primary?.contact?.getPnLidEntry === 'function'
+          && typeof primary?.group?.getParticipants === 'function',
+        primaryStoresReady: !!primary?.whatsapp?.ChatStore && !!primary?.whatsapp?.UserPrefs,
+        fallbackPresent: !!fallback,
+        fallbackChatReady: typeof fallback?.chat?.sendTextMessage === 'function'
+          && typeof fallback?.chat?.sendFileMessage === 'function'
+          && typeof fallback?.chat?.getActiveChat === 'function',
+        fallbackLidGroupReady: typeof fallback?.contact?.getPnLidEntry === 'function'
+          && typeof fallback?.group?.getParticipants === 'function',
+        fallbackStoresReady: !!fallback?.whatsapp?.ChatStore && !!fallback?.whatsapp?.UserPrefs,
+      };
+    })()`;
+
+    let bundleExecuted = false;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
-        await wc.executeJavaScript(wppScript).catch(() => null);
-        try {
-          const waplusScript = await fs.readFile(path.join(__dirname, '../resources/waplus-wpp.js'), 'utf-8');
-          await wc.executeJavaScript(waplusScript).catch(() => null);
-        } catch (e) { console.log('[wpp] WAPLUS 注入失败:', e.message); }
-        const ok = await wc.executeJavaScript('!!(window.WPP && window.WAPLUS_WPP && window.WAPLUS_WPP.chat && window.WAPLUS_WPP.chat.sendTextMessage)').catch(() => false);
-        if (ok) {
-          wppInjected.add(part);
-          console.log('[wpp] 注入成功', part);
-          wc.executeJavaScript(`(async () => {
-            for (let i = 0; i < 10; i++) {
-              const arrow = document.querySelector('.bulk-sender .el-icon-arrow-left');
-              if (arrow) { arrow.click(); return 'COLLAPSED'; }
-              await new Promise(r => setTimeout(r, 800));
-            }
-            return 'NO_ARROW';
-          })()`).catch(() => null);
-          return;
+        if (!bundleExecuted) {
+          const wppScript = await fs.readFile(path.join(__dirname, '../node_modules/@wppconnect/wa-js/dist/wppconnect-wa.js'), 'utf-8');
+          await wc.executeJavaScript(wppScript);
+          bundleExecuted = true;
         }
-        console.log(`[wpp] 第 ${attempt + 1} 次注入后 WPP 未就绪，3 秒后重试…`);
-      } catch (e) { console.log('[wpp] 注入异常:', e.message); }
-      await new Promise((r) => setTimeout(r, 3000));
+
+        const injectionReady = await wc.executeJavaScript(injectionReadinessProbe).catch(() => false);
+        if (!injectionReady) {
+          const stillInjected = await wc.executeJavaScript('window.WPP?.isInjected === true').catch(() => false);
+          if (!stillInjected) bundleExecuted = false;
+          console.log(`[wpp] 第 ${attempt + 1} 次等待后 WA-JS 注入边界未就绪（bundle=${stillInjected ? 'injected' : 'retry'}），3 秒后重试…`);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          continue;
+        }
+
+        // One WA-JS runtime owns the shared WhatsApp modules. A separately named legacy
+        // bundle still wraps those same native exports: its positional fanout wrapper
+        // breaks modern named-parameter sends, including native sends with translation off.
+        // Missing capabilities stay unavailable; do not mask them by injecting old patches.
+        await wc.executeJavaScript(WPP_CAPABILITY_PICKER_SOURCE);
+        wppInjected.add(part);
+
+
+        const capabilityState = await wc.executeJavaScript(capabilityProbe).catch(() => null);
+        console.log(`[wpp] WA-JS 4.6 injection ready ${part} primaryChat=${capabilityState?.primaryChatReady === true ? 'ready' : 'partial'} primaryLidGroup=${capabilityState?.primaryLidGroupReady === true ? 'ready' : 'partial'} primaryStores=${capabilityState?.primaryStoresReady === true ? 'ready' : 'partial'} fallback=${capabilityState?.fallbackPresent === true ? 'present' : 'absent'}`);
+        wc.executeJavaScript(`(async () => {
+          for (let i = 0; i < 10; i++) {
+            const arrow = document.querySelector('.bulk-sender .el-icon-arrow-left');
+            if (arrow) { arrow.click(); return 'COLLAPSED'; }
+            await new Promise(r => setTimeout(r, 800));
+          }
+          return 'NO_ARROW';
+        })()`).catch(() => null);
+        return;
+      } catch (error) {
+        bundleExecuted = false;
+        console.log('[wpp] 注入异常:', error.message);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
     }
-    console.log('[wpp] 注入失败（5 次重试后仍不可用）', part);
+    console.log('[wpp] 注入失败（5 次重试后 WA-JS 注入边界仍不可用）', part);
   }
 
   });
@@ -1270,22 +1348,6 @@ try {
   app.commandLine.appendSwitch('lang', 'zh-CN');
 } catch (e) { /* 忽略 */ }
 
-async function startWaLocalServer() {
-  try {
-    const httpMod = require('node:http');
-    const waHtml = await fs.readFile(path.join(__dirname, '../resources/wa/index.html'), 'utf-8');
-    const server = httpMod.createServer((req, res) => {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.end(waHtml);
-    });
-    server.listen(WA_LOCAL_PORT, '127.0.0.1', () => {
-      console.log(`[wa-local] WhatsApp 本地页面 http://127.0.0.1:${WA_LOCAL_PORT}`);
-    });
-    server.on('error', (e) => console.log('[wa-local] 端口占用（HelloWorld 也在用？）:', e.code));
-  } catch (e) { console.log('[wa-local] 启动失败:', e.message); }
-}
-
 async function cleanupOrphanPartitions() {
   try {
     const snapshot = accountState.getSnapshot();
@@ -1398,6 +1460,8 @@ app.on('before-quit', () => {
   subscriptionIpcBoundary = null;
   webviewIpcBoundary?.dispose();
   webviewIpcBoundary = null;
+  whatsappRuntimeRecovery?.dispose();
+  whatsappRuntimeRecovery = null;
   desktopIpcBoundary?.dispose();
   desktopIpcBoundary = null;
 });

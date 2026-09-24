@@ -36,6 +36,8 @@ function createTranslationCacheStore(options = {}) {
     isPartitionDeleted = () => false,
     randomUUID = crypto.randomUUID,
     sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+    now = Date.now,
+    maxAgeMs = null,
     limits: rawLimits,
   } = options;
   if (!fs || typeof fs.readFile !== 'function' || typeof fs.appendFile !== 'function') throw new TypeError('fs cache API is required');
@@ -44,6 +46,9 @@ function createTranslationCacheStore(options = {}) {
   if (!cacheVersion) throw new TypeError('cacheVersion is required');
 
   const limits = normalizedLimits(rawLimits);
+  const boundedMaxAgeMs = Number.isFinite(Number(maxAgeMs)) && Number(maxAgeMs) > 0
+    ? Math.floor(Number(maxAgeMs))
+    : null;
   const queues = new Map();
   const metadata = new Map();
   const deleted = new Set();
@@ -83,13 +88,21 @@ function createTranslationCacheStore(options = {}) {
     return next;
   }
 
+  function itemIsFresh(item) {
+    if (!boundedMaxAgeMs) return true;
+    const at = Number(item?.at);
+    const age = Number(now()) - at;
+    return Number.isFinite(at) && at > 0 && age >= 0 && age <= boundedMaxAgeMs;
+  }
+
   function decodeRecord(line) {
     if (!line || !line.trim()) return null;
     try {
       const record = JSON.parse(line);
       if (record.version !== cacheVersion || typeof record.key !== 'string' || !record.key || typeof record.value !== 'string' || !record.value) return null;
-      const text = safeStorage.decryptString(Buffer.from(record.value, 'base64'));
-      return { key: record.key, item: { text, at: Number(record.at) || 0 } };
+      const item = { text: safeStorage.decryptString(Buffer.from(record.value, 'base64')), at: Number(record.at) || 0 };
+      if (!itemIsFresh(item)) return null;
+      return { key: record.key, item };
     } catch {
       return null;
     }
@@ -162,7 +175,7 @@ function createTranslationCacheStore(options = {}) {
 
   function compactedContent(cache) {
     const candidates = [...cache.entries()]
-      .filter(([key, item]) => typeof key === 'string' && key && item && typeof item.text === 'string')
+      .filter(([key, item]) => typeof key === 'string' && key && item && typeof item.text === 'string' && itemIsFresh(item))
       .sort((a, b) => (Number(b[1].at) || 0) - (Number(a[1].at) || 0));
     const lines = [];
     let bytes = 0;

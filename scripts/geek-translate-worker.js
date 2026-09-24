@@ -1,7 +1,7 @@
 // geek-translate Worker —— 极客翻译网关云端版（协议对齐 local_translation_gateway.py）
 // 路由：GET /health、POST /v1/translate
-// 上游：免费模型轮换池（GLM → Groq → Gemini → Mistral），限流/失败自动切换下一个，无付费上游
-// 配置：各上游 API Key 从环境变量读取（GLM=ZAI_API_KEY, Groq=GROQ_API_KEY, Gemini=GEMINI_API_KEY, Mistral=MISTRAL_API_KEY），不写入代码
+// 上游：五路免费模型池，限流/失败自动切换下一个，无付费上游
+// 配置：外部上游 API Key 使用 Worker secrets；Cloudflare 使用原生 Workers AI binding
 
 const LANG_NAMES = {
   zh: 'Simplified Chinese', en: 'English', it: 'Italian', es: 'Spanish',
@@ -11,11 +11,20 @@ const LANG_NAMES = {
   nl: 'Dutch', sv: 'Swedish', el: 'Greek', th: 'Thai',
 };
 
+// 免费模型池（按顺序尝试；429/5xx/超时/空响应 → 自动切换下一个）
+// Gemini 优先；Mistral/OpenRouter/Workers AI 依次兜底；Groq 放最后并继续经过输出安全校验
 const PROVIDERS = [
-  { id: 'gemini', model: 'gemini-3.6-flash', base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
-  { id: 'mistral', model: 'mistral-small-latest', base: 'https://api.mistral.ai/v1', keyEnv: 'MISTRAL_API_KEY' },
-  { id: 'glm', model: 'glm-4.7-flash', base: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY', body: { thinking: { type: 'disabled' } } },
+  { id: 'gemini', model: 'gemini-3.6-flash',       base: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY' },
+  { id: 'mistral', model: 'ministral-3b-latest',    base: 'https://api.mistral.ai/v1',              keyEnv: 'MISTRAL_API_KEY' },
+  { id: 'openrouter', model: 'openrouter/free',      base: 'https://openrouter.ai/api/v1',           keyEnv: 'OPENROUTER_API_KEY' },
+  { id: 'cloudflare', model: '@cf/meta/llama-3.1-8b-instruct-fp8', aiBinding: 'AI' },
+  { id: 'groq', model: 'openai/gpt-oss-20b',         base: 'https://api.groq.com/openai/v1',         keyEnv: 'GROQ_API_KEY' },
 ];
+
+function providerConfigured(provider, env) {
+  if (provider.aiBinding) return typeof env?.[provider.aiBinding]?.run === 'function';
+  return Boolean(provider.keyEnv && env?.[provider.keyEnv]);
+}
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -235,10 +244,6 @@ function countChars(text) {
   return total;
 }
 
-function clientIp(request) {
-  return request.headers.get('CF-Connecting-IP') || 'unknown';
-}
-
 function corsHeaders(request, env) {
   const origin = request?.headers?.get('Origin') || '';
   const allowed = String(env?.ALLOWED_ORIGIN || '').split(',').map(v => v.trim()).filter(Boolean);
@@ -268,12 +273,12 @@ function handleOptions(request, env) {
 }
 
 async function health(env, request) {
-  const hasProvider = PROVIDERS.some(p => Boolean(env[p.keyEnv]));
+  const hasProvider = PROVIDERS.some(p => providerConfigured(p, env));
   const configured = Boolean(hasProvider && env.JWT_SECRET && env.geek_subscriptions);
-  const providers = PROVIDERS.filter(p => Boolean(env[p.keyEnv])).map(p => p.id);
+  const providers = PROVIDERS.filter(p => providerConfigured(p, env)).map(p => p.id);
   const status = {};
   for (const p of PROVIDERS) {
-    if (!env[p.keyEnv]) continue;
+    if (!providerConfigured(p, env)) continue;
     const st = providerState.get(p.id) || { healthy: true, lastError: '', failCount: 0, lastFailAt: 0, lastOkAt: 0, rateLimitedUntil: 0 };
     status[p.id] = {
       healthy: st.healthy,
@@ -285,20 +290,6 @@ async function health(env, request) {
     };
   }
   return json({ ok: configured, service: 'geek-translate', providers, models: status }, configured ? 200 : 503, request, env);
-}
-
-async function rateLimited(db, bucket, limit, windowSeconds) {
-  const now = new Date();
-  const stamp = now.toISOString().slice(0, 19).replace('T', ' ');
-  const cutoff = new Date(now.getTime() - windowSeconds * 1000).toISOString().slice(0, 19).replace('T', ' ');
-  const row = await db.prepare('SELECT count, updated_at FROM rate_limits WHERE bucket = ?').bind(bucket).first();
-  if (!row || row.updated_at < cutoff) {
-    await db.prepare('INSERT INTO rate_limits (bucket, count, updated_at) VALUES (?, 1, ?) ON CONFLICT(bucket) DO UPDATE SET count = 1, updated_at = excluded.updated_at').bind(bucket, stamp).run();
-    return false;
-  }
-  if (row.count >= limit) return true;
-  await db.prepare('UPDATE rate_limits SET count = count + 1, updated_at = ? WHERE bucket = ?').bind(stamp, bucket).run();
-  return false;
 }
 
 function missingReplaySchema(error) {
@@ -376,6 +367,14 @@ async function readUsage(db, requestId) {
   }
 }
 
+async function readRemainingQuota(db, userId) {
+  const row = await db.prepare(
+    'SELECT quota_chars AS remaining_chars FROM users WHERE id = ?'
+  ).bind(userId).first();
+  const remaining = Number(row?.remaining_chars);
+  return Number.isFinite(remaining) && remaining >= 0 ? Math.floor(remaining) : null;
+}
+
 async function classifyExistingUsage(db, row, { userId, requestId, chars, requestHash, replaySecret }) {
   if (!row) return null;
   if (Number(row.user_id) !== Number(userId) || Number(row.reserved_chars) !== Number(chars)) {
@@ -395,7 +394,12 @@ async function classifyExistingUsage(db, row, { userId, requestId, chars, reques
     }
     try {
       const payload = await decryptReplayPayload(row.replay_ciphertext, replaySecret, requestId, userId, requestHash);
-      return { ok: true, replayed: true, payload };
+      const remainingChars = await readRemainingQuota(db, userId).catch(() => null);
+      return {
+        ok: true,
+        replayed: true,
+        payload: { ...payload, remaining_chars: remainingChars },
+      };
     } catch {
       return { ok: false, error: 'replay_unavailable' };
     }
@@ -505,6 +509,7 @@ async function finishUsage(db, userId, requestId, targetChars, owner, requestHas
               replay_ciphertext = ?, replay_expires_at = datetime('now', ?), lease_expires_at = NULL
           WHERE request_id = ? AND user_id = ? AND status = ? AND request_hash = ?`)
           .bind(targetChars, replayCiphertext, REPLAY_TTL_SQL, requestId, userId, owner, requestHash),
+        db.prepare('SELECT quota_chars AS remaining_chars FROM users WHERE id = ?').bind(userId),
       ]);
     } catch (error) {
       if (!missingReplaySchema(error)) throw error;
@@ -522,9 +527,12 @@ async function finishUsage(db, userId, requestId, targetChars, owner, requestHas
           )`).bind(targetChars, userId, requestId, userId, owner),
       db.prepare("UPDATE translation_usage SET target_chars = ?, status = 'complete', completed_at = datetime('now') WHERE request_id = ? AND user_id = ? AND status = ?")
         .bind(targetChars, requestId, userId, owner),
+      db.prepare('SELECT quota_chars AS remaining_chars FROM users WHERE id = ?').bind(userId),
     ]);
   }
   if (!results?.[1]?.meta?.changes) throw new Error('translation_usage_not_reserved');
+  const remaining = Number(results?.[2]?.results?.[0]?.remaining_chars);
+  return Number.isFinite(remaining) && remaining >= 0 ? Math.floor(remaining) : null;
 }
 
 function buildMessages(text, source, target) {
@@ -669,6 +677,14 @@ async function callProvider(provider, env, text, source, target, timeoutMs = PRO
       messages: buildMessages(text, source, target),
       ...(provider.body || {}),
     };
+    if (provider.aiBinding) {
+      const data = await env[provider.aiBinding].run(provider.model, { messages: body.messages, max_tokens: body.max_tokens });
+      let result = String(data?.response || '').trim();
+      if (!result) throw providerEmptyResponseError(provider);
+      try { result = validateTranslationOutput(text, result, source, target); }
+      catch (error) { throw providerQualityError(provider, error); }
+      return { text: result, engine: provider.id };
+    }
     const res = await fetch(`${provider.base}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env[provider.keyEnv]}` },
@@ -739,7 +755,7 @@ async function callProviderWithRetry(provider, env, text, source, target, timeou
 }
 
 async function translate(text, source, target, env, deadlineAt = Date.now() + REQUEST_BUDGET_MS, callerSignal = null) {
-  const pool = PROVIDERS.filter(p => Boolean(env[p.keyEnv]));
+  const pool = PROVIDERS.filter(p => providerConfigured(p, env));
   if (!pool.length) throw new Error('no free provider configured');
   let lastError = null;
   for (const provider of pool) {
@@ -791,18 +807,11 @@ export default {
       if (!db) return json({ error: 'service_unavailable' }, 503, request, env);
       if (request.signal?.aborted) return json({ error: 'request_aborted' }, 499, request, env);
       if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
-
       let reserved = 0;
       let reservationOwner = '';
       let replaySchema = false;
       try {
         const existingUsage = await readUsage(db, requestId);
-        if (!existingUsage && (
-          await rateLimited(db, `translate:user:${auth.uid}`, 30, 60)
-          || await rateLimited(db, `translate:ip:${clientIp(request)}`, 60, 60)
-        )) {
-          return json({ error: 'rate_limited' }, 429, request, env);
-        }
 
         const contentLength = Number(request.headers.get('Content-Length') || 0);
         if (contentLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
@@ -820,7 +829,7 @@ export default {
         if (text.length > 10000 || enc.encode(text).byteLength > 32768) return json({ error: 'payload_too_large' }, 413, request, env);
         if (source !== 'auto' && !LANG_NAMES[source]) return json({ error: 'invalid_source' }, 400, request, env);
         if (!LANG_NAMES[target] || target === 'auto') return json({ error: 'invalid_target' }, 400, request, env);
-        if (!PROVIDERS.some(p => Boolean(env[p.keyEnv]))) return json({ error: 'service_unavailable' }, 503, request, env);
+        if (!PROVIDERS.some(p => providerConfigured(p, env))) return json({ error: 'service_unavailable' }, 503, request, env);
         if (request.signal?.aborted) throw requestAbortedError(request.signal.reason);
         if (providerAttemptBudget(deadlineAt) <= 0) return json({ error: 'deadline_exceeded' }, 504, request, env);
 
@@ -860,7 +869,7 @@ export default {
         const replayCiphertext = replaySchema
           ? await encryptReplayPayload(payload, env.JWT_SECRET, requestId, auth.uid, requestHash)
           : '';
-        await finishUsage(
+        const remainingChars = await finishUsage(
           db,
           auth.uid,
           requestId,
@@ -870,7 +879,7 @@ export default {
           replayCiphertext,
           replaySchema
         );
-        return json(payload, 200, request, env);
+        return json({ ...payload, remaining_chars: remainingChars }, 200, request, env);
       } catch (error) {
         if (reservationOwner) await refundUsage(db, auth.uid, requestId, reserved, reservationOwner).catch(() => {});
         if (error?.code === 'request_aborted') return json({ error: 'request_aborted' }, 499, request, env);

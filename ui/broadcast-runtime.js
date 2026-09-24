@@ -179,7 +179,7 @@
     if (!(ctx.account.type === 'whatsapp' || ctx.account.type === 'whatsapp-pure')) throw new Error('群成员私聊发送仅支持 WhatsApp');
     const result = await ctx.wv.executeJavaScript(`(async () => {
       try {
-        const W = window.WAPLUS_WPP || window.WPP;
+        const W = window.__geekPickWpp?.(['whatsapp.UserPrefs','group.getParticipants','contact.get','contact.getPnLidEntry']);
         const UP = W.whatsapp.UserPrefs;
         const mePn = UP.getMaybeMePnUser ? UP.getMaybeMePnUser() : UP.getMeUser();
         const meLid = UP.getMaybeMeLidUser ? UP.getMaybeMeLidUser() : null;
@@ -194,7 +194,8 @@
             try {
               if (id.endsWith('@lid') && W.contact.getPnLidEntry) {
                 const pair = await W.contact.getPnLidEntry(id);
-                if (pair && pair.pn) id = String(pair.pn._serialized || pair.pn);
+                const phoneNumber = pair?.phoneNumber || pair?.pn;
+                if (phoneNumber) id = String(phoneNumber._serialized || phoneNumber);
               }
             } catch (_) {}
             seen.add(id);
@@ -239,7 +240,7 @@
     if (!(ctx.account.type === 'whatsapp' || ctx.account.type === 'whatsapp-pure') || !targets.length) return targets;
     const result = await ctx.wv.executeJavaScript(`(async () => {
       try {
-        const W = window.WAPLUS_WPP || window.WPP;
+        const W = window.__geekPickWpp?.(['contact.queryExists']);
         const out = [];
         for (const n of ${JSON.stringify(targets.map(target => target.id))}) {
           const raw = String(n).replace(/[^0-9@]/g, '');

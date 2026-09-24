@@ -32,11 +32,11 @@ function guest({ id, partitionLeaf, url, attached = false, delay = 0, storagePat
   assert.equal(storagePathLeaf('C:\\Users\\test\\AppData\\Roaming\\geek\\Partitions\\webview-page-win\\'), 'webview-page-win', '尾部分隔符不能破坏 partition leaf');
   assert.equal(storagePathLeaf(''), '', '空 storagePath 必须 fail closed');
 
-  const wa1 = guest({ id: 1, partitionLeaf: 'webview-page-a', url: 'http://127.0.0.1:1843/' });
+  const wa1 = guest({ id: 1, partitionLeaf: 'webview-page-a', url: 'https://web.whatsapp.com/' });
   const wa2 = guest({
     id: 2,
     partitionLeaf: 'webview-page-b',
-    url: 'http://127.0.0.1:1843/',
+    url: 'https://web.whatsapp.com/',
     storagePath: 'C:\\Users\\test\\AppData\\Roaming\\geek\\Partitions\\webview-page-b',
   });
   const tg = guest({

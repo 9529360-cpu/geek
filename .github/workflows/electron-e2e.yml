@@ -153,6 +153,12 @@ jobs:
           GEEK_E2E_SUITE: whatsapp-bootstrap
         run: npm run test:e2e
 
+      - name: Run Windows WA-JS 4.6 runtime gate
+        env:
+          FORCE_COLOR: '0'
+          GEEK_E2E_SUITE: whatsapp-runtime
+        run: npm run test:e2e
+
   gate:
     name: electron-e2e
     if: always()

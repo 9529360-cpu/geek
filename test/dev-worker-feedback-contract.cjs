@@ -15,7 +15,7 @@ const {
 
 assert.deepEqual(affectedWorkers(['scripts/geek-website-worker.js']), ['website']);
 assert.deepEqual(affectedWorkers(['scripts/website-payment-qr.mjs']), ['website']);
-assert.deepEqual(affectedWorkers(['scripts/atomic-rate-limit.mjs']), ['subscription', 'translation']);
+assert.deepEqual(affectedWorkers(['scripts/atomic-rate-limit.mjs']), ['subscription']);
 assert.deepEqual(affectedWorkers(['wrangler-subscription.toml']), ['subscription']);
 assert.deepEqual(affectedWorkers(['scripts/geek-release-worker.js']), ['release']);
 assert.deepEqual(affectedWorkers(['package.json']), WORKER_ORDER);
@@ -104,14 +104,13 @@ class FakeChild extends EventEmitter {
     warn: (message) => warnings.push(message),
   });
 
-  assert.deepEqual(feedback.schedule(['scripts/atomic-rate-limit.mjs']), ['subscription', 'translation']);
+  assert.deepEqual(feedback.schedule(['scripts/atomic-rate-limit.mjs']), ['subscription']);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.deepEqual(calls.map((call) => call.args.at(-1)), ['wrangler-subscription.toml', 'wrangler-translate.toml']);
+  assert.deepEqual(calls.map((call) => call.args.at(-1)), ['wrangler-subscription.toml']);
   assert.equal(calls.every((call) => call.args.includes('--dry-run')), true);
   assert.equal(calls.every((call) => call.options.env.CLOUDFLARE_API_TOKEN === undefined), true);
   assert.equal(warnings.length, 0);
   assert.equal(logs.some((message) => message.includes('Affected Worker bundle passed: subscription')), true);
-  assert.equal(logs.some((message) => message.includes('Affected Worker bundle passed: translation')), true);
   assert.deepEqual(feedback.snapshot().pending, []);
   await feedback.stop();
   assert.equal(feedback.snapshot().stopped, true);

@@ -75,6 +75,9 @@ function createD1(options = {}) {
         async first() { return sqlite.prepare(text).get(...values) || null; },
         async all() { return { results: sqlite.prepare(text).all(...values) }; },
         async run() {
+          if (/^\s*SELECT\b/i.test(text)) {
+            return { success: true, results: sqlite.prepare(text).all(...values), meta: { changes: 0, last_row_id: 0 } };
+          }
           const result = sqlite.prepare(text).run(...values);
           return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
         },
@@ -167,7 +170,9 @@ function successResponse() {
     const requestId = nodeCrypto.randomUUID();
     const response = await worker.fetch(requestFor(requestId), envFor(db));
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).text, 'ciao');
+    const responsePayload = await response.json();
+    assert.equal(responsePayload.text, 'ciao');
+    assert.equal(responsePayload.remaining_chars, 91, 'normal completion must return the post-commit authoritative balance');
     assert.equal(upstreamCalls, 1);
     assert.equal(quota(sqlite), 91);
     const row = usage(sqlite, requestId);
@@ -218,13 +223,15 @@ function successResponse() {
     assert.equal(quota(sqlite), 91, 'committed value must remain charged exactly once');
     assert.equal(usage(sqlite, requestId).status, 'complete');
 
+    sqlite.prepare('UPDATE users SET quota_chars = 80 WHERE id = 42').run();
     const retry = await worker.fetch(requestFor(requestId), envFor(db));
     assert.equal(retry.status, 200, 'same logical operation must recover the committed result');
     const payload = await retry.json();
     assert.equal(payload.text, 'ciao');
     assert.equal(payload.replayed, true);
+    assert.equal(payload.remaining_chars, 80, 'replay must project the current D1 balance, not a stale encrypted snapshot');
     assert.equal(upstreamCalls, 1, 'recovery must not call the provider a second time');
-    assert.equal(quota(sqlite), 91, 'recovery must not debit or refund quota again');
+    assert.equal(quota(sqlite), 80, 'recovery must not debit or refund quota again');
     sqlite.close();
   }
 

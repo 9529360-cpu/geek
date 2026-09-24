@@ -6,21 +6,15 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
-const entrySource = fs.readFileSync(path.join(root, 'scripts/geek-translate-entry.js'), 'utf8');
-const workerSource = fs.readFileSync(path.join(root, 'scripts/geek-translate-worker.js'), 'utf8');
+const normalizeLineEndings = value => String(value).replace(/\r\n?/g, '\n');
+const entrySource = normalizeLineEndings(fs.readFileSync(path.join(root, 'scripts/geek-translate-entry.js'), 'utf8'));
+const workerSource = normalizeLineEndings(fs.readFileSync(path.join(root, 'scripts/geek-translate-worker.js'), 'utf8'));
 
 function loadEntry(baseFetch) {
   const code = entrySource
     .replace(
       "import baseWorker from './geek-translate-worker.js';",
       'const baseWorker = this.__baseWorker;'
-    )
-    .replace(
-      /import\s*\{[\s\S]*?\}\s*from '\.\/translation-rate-limit-compat\.mjs';/,
-      [
-        'const normalizeTranslationIntent = this.__normalizeTranslationIntent;',
-        'const scopeTranslationRateLimitAuthority = this.__scopeTranslationRateLimitAuthority;',
-      ].join('\n')
     )
     .replace(
       /import\s*\{[\s\S]*?\}\s*from '\.\/translation-reservation-recovery\.mjs';/,
@@ -43,8 +37,6 @@ function loadEntry(baseFetch) {
     atob,
     console,
     __baseWorker: { fetch: baseFetch },
-    __normalizeTranslationIntent: value => value === 'outgoing-send' ? 'outgoing-send' : 'message-display',
-    __scopeTranslationRateLimitAuthority: (db) => db,
     __purgeExpiredTranslationReplays: async () => ({ purged: 0 }),
     __recoverStaleTranslationReservations: async () => ({ recovered: 0 }),
     __staleTranslationReservationSummary: async () => ({ count: 0, oldestAgeSeconds: 0 }),

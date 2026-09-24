@@ -10,6 +10,7 @@ const { normalizeSubscriptionApiBase } = require('./subscription-api-url.cjs');
 
 const DEFAULT_API_URL = 'https://geek-subscription.9529360.workers.dev';
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+const QUOTA_AUTHORITY_TTL_MS = 30 * 1000;
 const ACCOUNT_NO_PATTERN = /^GK-[0-9a-f]{32}$/;
 const TOKEN_DECRYPT_ERROR = 'SUBSCRIPTION_TOKEN_DECRYPT_FAILED';
 const STATE_RECOVERY_ERROR = 'SUBSCRIPTION_STATE_RECOVERY_REQUIRED';
@@ -167,7 +168,8 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
   let cache = null; // { token, email, user_id, account_no, account_ref, checked_at, quota_cache }
   let loadPromise = null;
   let translationTokenCache = null;
-  let translationTokenInflight = null;
+  const translationTokenInflight = new Map();
+  let quotaAuthoritySnapshot = null;
   let stateMutationQueue = Promise.resolve();
   let sessionGeneration = 0;
   let translationAuthorizationController = new AbortController();
@@ -287,7 +289,8 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), boundedRequestTimeoutMs);
     try {
-      const res = await fetch(`${apiBase()}${pathname}`, {
+      const requestFetch = typeof options.fetchImpl === 'function' ? options.fetchImpl : globalThis.fetch;
+      const res = await requestFetch(`${apiBase()}${pathname}`, {
         method: options.method || 'GET',
         headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
@@ -339,6 +342,76 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     return state.quota_cache
       ? { ...state.quota_cache, ...accountIdentity }
       : { remaining_chars: missingRemaining, email: state.email || '', ...accountIdentity };
+  }
+
+  function currentQuotaAuthority(generation, now = Date.now()) {
+    const snapshot = quotaAuthoritySnapshot;
+    if (
+      !snapshot
+      || snapshot.generation !== generation
+      || !Number.isFinite(snapshot.checkedAt)
+      || now - snapshot.checkedAt < 0
+      || now - snapshot.checkedAt >= QUOTA_AUTHORITY_TTL_MS
+    ) return null;
+    return snapshot.quota;
+  }
+
+  function rememberQuotaAuthority(state, remainingChars, generation, email = '', options = {}) {
+    const remaining = Number(remainingChars);
+    if (!Number.isFinite(remaining) || remaining < 0) return null;
+    const normalizedRemaining = Math.floor(remaining);
+    const current = options.monotonicDecrease === true ? currentQuotaAuthority(generation) : null;
+    const effectiveRemaining = current && Number.isFinite(Number(current.remaining_chars))
+      ? Math.min(normalizedRemaining, Number(current.remaining_chars))
+      : normalizedRemaining;
+    const identity = normalizeUserIdentity(state);
+    const quota = Object.freeze({
+      remaining_chars: effectiveRemaining,
+      email: String(email || state.email || ''),
+      account_no: identity.account_no,
+      account_ref: identity.account_ref,
+    });
+    quotaAuthoritySnapshot = Object.freeze({
+      generation,
+      checkedAt: Date.now(),
+      quota,
+    });
+    return quota;
+  }
+
+  function invalidateQuotaAuthority(options = {}) {
+    assertSessionGeneration(options.expectedSessionGeneration);
+    quotaAuthoritySnapshot = null;
+  }
+
+  async function acceptAuthoritativeQuota(remainingChars, options = {}) {
+    const generation = options.expectedSessionGeneration ?? sessionGeneration;
+    assertSessionGeneration(generation);
+    const state = await load();
+    assertSessionGeneration(generation);
+    if (!state.token) throw loginRequiredError();
+    const quota = rememberQuotaAuthority(
+      state,
+      remainingChars,
+      generation,
+      options.email,
+      { monotonicDecrease: true }
+    );
+    if (!quota) {
+      quotaAuthoritySnapshot = null;
+      return null;
+    }
+    try {
+      await save(
+        { quota_cache: quota, quota_checked_at: new Date().toISOString() },
+        { expectedSessionGeneration: generation }
+      );
+    } catch (error) {
+      if (error?.code === 'SUBSCRIPTION_SESSION_CHANGED') throw error;
+      // Runtime quota authority is already current. Durable quota mirror failure
+      // must not turn an already-completed paid translation into a retry hazard.
+    }
+    return quota;
   }
 
   // 刷新远程状态：token 有效→更新本地；401/失效→清除本地。
@@ -441,8 +514,8 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
   }
 
   // 字符余额查询：{ remaining_chars }（纯字符包，无订阅概念）
-  // 默认有本地缓存直接返回；否则请求远程。
-  // 传 { network: false } 时只读本地缓存，绝不发网络请求（翻译热路径用，额度固定由服务端扣减）。
+  // 默认模式保留 UI/offline mirror；翻译商业授权必须传 { authority: true }，只信任当前进程验证过的快照。
+  // 传 { network: false } 时显式只读本地 mirror，绝不发网络请求，也不得作为翻译缓存授权依据。
   async function getQuota(force = false, opts = {}) {
     if (force && typeof force === 'object' && !Array.isArray(force)) {
       opts = force;
@@ -451,21 +524,23 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     const state = await load();
     const generation = sessionGeneration;
     const now = Date.now();
-    const fresh = state.quota_checked_at && (now - new Date(state.quota_checked_at).getTime()) < 30 * 1000;
-    if (!force && fresh && state.quota_cache) return localQuota(state, null);
+    const requireAuthority = opts.authority === true;
+    const runtimeQuota = !force ? currentQuotaAuthority(generation, now) : null;
+    if (runtimeQuota) return runtimeQuota;
+    const durableFresh = state.quota_checked_at && (now - new Date(state.quota_checked_at).getTime()) < QUOTA_AUTHORITY_TTL_MS;
+    if (!requireAuthority && !force && durableFresh && state.quota_cache) return localQuota(state, null);
     if (opts.network === false) {
-      // 只读本地：有缓存返回缓存（哪怕是旧的），无缓存视为未知（放行，服务端兜底）
+      // Explicit offline reads may inspect the durable mirror, but translation
+      // entitlement never uses this path as current authority.
       return localQuota(state, null);
     }
     try {
       const data = await request('/api/quota');
-      const identity = normalizeUserIdentity(state);
-      const quota = {
-        remaining_chars: data.remaining_chars,
-        email: data.email || state.email || '',
-        account_no: identity.account_no,
-        account_ref: identity.account_ref,
-      };
+      const quota = rememberQuotaAuthority(state, data.remaining_chars, generation, data.email);
+      if (!quota) {
+        quotaAuthoritySnapshot = null;
+        return { ...localQuota(state, null), remaining_chars: null };
+      }
       await save(
         { quota_cache: quota, quota_checked_at: new Date().toISOString() },
         { expectedSessionGeneration: generation }
@@ -473,14 +548,26 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       return quota;
     } catch (e) {
       if (generation !== sessionGeneration || e.code === 'SUBSCRIPTION_SESSION_CHANGED') {
-        return localQuota(await load(), null);
+        return { ...localQuota(await load(), null), remaining_chars: null };
       }
-      // 网络失败：回退本地缓存（离线容忍）；无缓存则视为有额度（不阻断已有用户）
-      return localQuota(state, Number.MAX_SAFE_INTEGER);
+      const current = currentQuotaAuthority(generation);
+      if (current) return current;
+      if (!requireAuthority) {
+        // UI/offline callers may keep showing the durable mirror when the network is unavailable.
+        return localQuota(state, Number.MAX_SAFE_INTEGER);
+      }
+      // Persisted quota is a UI/offline mirror, not a commercial entitlement
+      // authority. If current verification fails, report unknown so a cache hit
+      // cannot bypass the server-side quota gate.
+      return { ...localQuota(state, null), remaining_chars: null };
     }
   }
 
-  async function getTranslationToken(force = false) {
+  async function getTranslationToken(force = false, opts = {}) {
+    if (force && typeof force === 'object' && !Array.isArray(force)) {
+      opts = force;
+      force = false;
+    }
     const state = await load();
     const generation = sessionGeneration;
     if (!state.token) throw loginRequiredError();
@@ -493,12 +580,17 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     ) {
       return translationTokenCache.token;
     }
-    if (translationTokenInflight?.generation === generation) {
-      return translationTokenInflight.promise;
+    const networkKey = String(opts.networkKey || 'default');
+    const inflightKey = `${generation}:${networkKey}`;
+    if (translationTokenInflight.has(inflightKey)) {
+      return translationTokenInflight.get(inflightKey);
     }
 
     const promise = (async () => {
-      const data = await request('/api/translation-token', { method: 'POST' });
+      const data = await request('/api/translation-token', {
+        method: 'POST',
+        fetchImpl: opts.fetchImpl,
+      });
       if (!data.token || !Number.isFinite(Number(data.expires_at))) throw new Error('翻译授权返回格式错误');
       assertSessionGeneration(generation);
       const current = await load();
@@ -512,17 +604,21 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       return translationTokenCache.token;
     })();
 
-    translationTokenInflight = { generation, promise };
+    translationTokenInflight.set(inflightKey, promise);
     try {
       return await promise;
     } finally {
-      if (translationTokenInflight?.promise === promise) translationTokenInflight = null;
+      if (translationTokenInflight.get(inflightKey) === promise) translationTokenInflight.delete(inflightKey);
     }
   }
 
-  async function getTranslationAuthorization(force = false) {
+  async function getTranslationAuthorization(force = false, opts = {}) {
+    if (force && typeof force === 'object' && !Array.isArray(force)) {
+      opts = force;
+      force = false;
+    }
     const generation = sessionGeneration;
-    const token = await getTranslationToken(force);
+    const token = await getTranslationToken(force, opts);
     assertSessionGeneration(generation);
     const lease = Object.freeze({
       token: String(token),
@@ -541,17 +637,7 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     try {
       const data = await request('/api/usage', { method: 'POST', body: { source: String(sourceText || ''), target: String(targetText || '') } });
       if (data.remaining_chars != null) {
-        const identity = normalizeUserIdentity(state);
-        const quota = {
-          remaining_chars: data.remaining_chars,
-          email: state.email || '',
-          account_no: identity.account_no,
-          account_ref: identity.account_ref,
-        };
-        await save(
-          { quota_cache: quota, quota_checked_at: new Date().toISOString() },
-          { expectedSessionGeneration: generation }
-        );
+        await acceptAuthoritativeQuota(data.remaining_chars, { expectedSessionGeneration: generation });
       }
       return data;
     } catch (e) {
@@ -569,7 +655,8 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
       const previousAuthorizationController = translationAuthorizationController;
       cache = {};
       translationTokenCache = null;
-      translationTokenInflight = null;
+      translationTokenInflight.clear();
+      quotaAuthoritySnapshot = null;
       sessionGeneration += 1;
       translationAuthorizationController = new AbortController();
       previousAuthorizationController.abort(sessionChangedError());
@@ -593,6 +680,8 @@ function createSubscriptionStore({ userDataDir, requestTimeoutMs = DEFAULT_REQUE
     getTranslationToken,
     getTranslationAuthorization,
     assertTranslationAuthorizationCurrent,
+    acceptAuthoritativeQuota,
+    invalidateQuotaAuthority,
     reportUsage,
     logout,
     clear,
