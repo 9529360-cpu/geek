@@ -137,13 +137,14 @@ function addReservation(sqlite, { requestId, userId = 42, chars = 5, status = 'r
     sqlite.close();
   }
 
-  const migration = fs.readFileSync(path.join(root, 'scripts', 'd1-migrations', '005-translation-reservation-lease.sql'), 'utf8');
+  const baseline = fs.readFileSync(path.join(root, 'scripts', 'd1-baselines', '005-translation-reservation-schema.sql'), 'utf8');
   const schema = fs.readFileSync(path.join(root, 'scripts', 'geek-subscription-schema.sql'), 'utf8');
   const entry = fs.readFileSync(path.join(root, 'scripts', 'geek-translate-entry.js'), 'utf8');
   const wrangler = fs.readFileSync(path.join(root, 'wrangler-translate.toml'), 'utf8');
-  assert.match(migration, /ALTER TABLE translation_usage ADD COLUMN lease_expires_at TEXT/);
-  assert.match(migration, /datetime\('now', '\+2 minutes'\)/, 'migration trigger must issue a bounded durable lease');
-  assert.match(schema, /trg_translation_usage_reservation_lease/, 'fresh schema and migration must agree on lease ownership');
+  assert.match(baseline, /\blease_expires_at\s+TEXT\b/, 'immutable post-005 baseline must retain the durable lease column');
+  assert.match(baseline, /datetime\('now', '\+2 minutes'\)/, 'immutable post-005 baseline must retain the bounded lease trigger');
+  assert.match(baseline, /005-translation-reservation-lease\.sql/, 'immutable post-005 baseline must retain the managed 005 ledger evidence');
+  assert.match(schema, /trg_translation_usage_reservation_lease/, 'fresh schema and verified post-005 baseline must agree on lease ownership');
   assert.match(entry, /verifiedTranslationUserId[\s\S]*recoverStaleTranslationReservations\(db, \{ userId, limit: 8 \}\)/, 'request-path recovery must only run after trusted JWT identity is known');
   assert.match(entry, /recoverStaleTranslationReservations\(db, \{ limit: 50 \}\)/, 'scheduled maintenance path must stay bounded');
   assert.match(wrangler, /\[triggers\][\s\S]*crons\s*=\s*\[\s*"\*\/5 \* \* \* \*"\s*\]/,

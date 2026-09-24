@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
   locked_until TEXT
 );
 
--- 翻译请求幂等、计费与短期加密结果回放；不保存聊天明文或译文明文。
+-- 翻译请求幂等与服务端计费记录；不保存聊天正文或译文。
 CREATE TABLE IF NOT EXISTS translation_usage (
   request_id TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
@@ -81,14 +81,10 @@ CREATE TABLE IF NOT EXISTS translation_usage (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at TEXT,
   lease_expires_at TEXT,
-  request_hash TEXT,
-  replay_ciphertext TEXT,
-  replay_expires_at TEXT,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_translation_usage_user_created ON translation_usage(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_translation_usage_lease ON translation_usage(lease_expires_at);
-CREATE INDEX IF NOT EXISTS idx_translation_usage_replay_expiry ON translation_usage(replay_expires_at);
 CREATE TRIGGER IF NOT EXISTS trg_translation_usage_reservation_lease
 AFTER INSERT ON translation_usage
 WHEN NEW.lease_expires_at IS NULL
@@ -114,3 +110,14 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_password_resets_status_created ON password_reset_requests(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_reset_requests(token_hash);
+
+
+-- Managed migration ledger fixture for the exact post-005 / pre-006 state.
+-- This is local validation data only; production remains read-only during plan.
+CREATE TABLE IF NOT EXISTS geek_d1_migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO geek_d1_migrations (name, applied_at)
+VALUES ('005-translation-reservation-lease.sql', '2026-09-24 00:00:00');
