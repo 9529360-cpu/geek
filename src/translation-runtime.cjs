@@ -30,6 +30,7 @@ function createTranslationRuntime(options = {}) {
     assertTrustedSender,
     assertSafeTranslationOutput,
     getSubscriptionStore,
+    getSessionForPartition = null,
     now = Date.now,
     fetchImpl = globalThis.fetch,
     env = process.env,
@@ -42,6 +43,7 @@ function createTranslationRuntime(options = {}) {
   if (typeof assertTrustedSender !== 'function') throw new TypeError('assertTrustedSender is required');
   if (typeof assertSafeTranslationOutput !== 'function') throw new TypeError('assertSafeTranslationOutput is required');
   if (typeof getSubscriptionStore !== 'function') throw new TypeError('getSubscriptionStore is required');
+  if (getSessionForPartition != null && typeof getSessionForPartition !== 'function') throw new TypeError('getSessionForPartition must be a function');
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl is required');
 
   // The base runtime registers against this private registrar. Only this public
@@ -64,10 +66,36 @@ function createTranslationRuntime(options = {}) {
   const intentContext = new AsyncLocalStorage();
   const authorizationLeaseContext = new AsyncLocalStorage();
   const sourceLanguageContext = new AsyncLocalStorage();
+  const egressPartitionContext = new AsyncLocalStorage();
+
+  function accountEgressFetch(partition, url, request = {}) {
+    const owner = String(partition || '');
+    let parsed;
+    try { parsed = new URL(url); } catch { parsed = null; }
+    const isLocalGateway = parsed?.protocol === 'http:' && parsed.hostname === '127.0.0.1';
+    if (!owner || isLocalGateway) return fetchImpl(url, request);
+    if (typeof getSessionForPartition !== 'function') {
+      throw base.createTranslationError(
+        'TRANSLATION_EGRESS_UNAVAILABLE',
+        '翻译账号网络会话不可用，请重试',
+        { category: 'gateway', retryable: true, endpointFailure: true },
+      );
+    }
+    const accountSession = getSessionForPartition(owner);
+    if (!accountSession || typeof accountSession.fetch !== 'function') {
+      throw base.createTranslationError(
+        'TRANSLATION_EGRESS_UNAVAILABLE',
+        '翻译账号网络会话不可用，请重试',
+        { category: 'gateway', retryable: true, endpointFailure: true },
+      );
+    }
+    return accountSession.fetch(url, request);
+  }
+
   const intentAwareFetch = (url, request = {}) => {
     const intent = normalizeTranslationIntent(intentContext.getStore());
     const headers = { ...(request.headers || {}), [TRANSLATION_INTENT_HEADER]: intent };
-    return fetchImpl(url, { ...request, headers });
+    return accountEgressFetch(egressPartitionContext.getStore(), url, { ...request, headers });
   };
   const sourceAwareOutputSafety = input => assertSafeTranslationOutput({
     ...(input && typeof input === 'object' ? input : {}),
@@ -289,30 +317,37 @@ function createTranslationRuntime(options = {}) {
     return error;
   }
 
-  async function captureAdmissionAuthorization(deadlineAt) {
+  async function captureAdmissionAuthorization(deadlineAt, partition) {
     if (!gatewayNeedsRemoteAuthorization()) return null;
     const store = getSubscriptionStore();
     if (!store || typeof store.getTranslationAuthorization !== 'function') return null;
     if (typeof store.assertTranslationAuthorizationCurrent !== 'function') {
       throw new TypeError('subscription authorization lease validator is required');
     }
-    const lease = await awaitScheduledLeader(store.getTranslationAuthorization(), deadlineAt);
+    const owner = String(partition || '');
+    const lease = await awaitScheduledLeader(store.getTranslationAuthorization({
+      networkKey: owner,
+      fetchImpl: (url, request = {}) => accountEgressFetch(owner, url, request),
+    }), deadlineAt);
     store.assertTranslationAuthorizationCurrent(lease);
     return lease;
   }
 
-  function runBaseTranslation(event, body, authorizationLease = null) {
-    return sourceLanguageContext.run(
-      body.source,
-      () => authorizationLeaseContext.run(
-        authorizationLease,
-        () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body)),
+  function runBaseTranslation(event, body, authorizationLease = null, partition = '') {
+    return egressPartitionContext.run(
+      String(partition || ''),
+      () => sourceLanguageContext.run(
+        body.source,
+        () => authorizationLeaseContext.run(
+          authorizationLease,
+          () => intentContext.run(body.intent, () => baseHandler('translation:translate')(event, body)),
+        ),
       ),
     );
   }
 
-  function scheduledTask(event, body, authorizationLease) {
-    return () => runBaseTranslation(event, body, authorizationLease || null);
+  function scheduledTask(event, body, authorizationLease, partition) {
+    return () => runBaseTranslation(event, body, authorizationLease || null, partition);
   }
 
   async function translateIpc(event, payload) {
@@ -332,7 +367,7 @@ function createTranslationRuntime(options = {}) {
     // Let the base runtime project canonical typed input/account failures. The
     // scheduler only owns requests that have a real account partition.
     if (!partition) {
-      return runBaseTranslation(event, body, null);
+      return runBaseTranslation(event, body, null, '');
     }
 
     const singleflightKey = scheduledSingleflightKey(body, partition);
@@ -354,7 +389,7 @@ function createTranslationRuntime(options = {}) {
     const leader = (async () => {
       let authorizationLease = null;
       try {
-        authorizationLease = await captureAdmissionAuthorization(body.deadlineAt);
+        authorizationLease = await captureAdmissionAuthorization(body.deadlineAt, partition);
       } catch (error) {
         throw normalizeAdmissionAuthorizationError(error);
       }
@@ -363,7 +398,7 @@ function createTranslationRuntime(options = {}) {
         intent: body.intent,
         deadlineAt: body.deadlineAt,
         signal: authorizationLease?.signal || null,
-        task: scheduledTask(event, body, authorizationLease),
+        task: scheduledTask(event, body, authorizationLease, partition),
       });
     })();
     if (singleflightKey) {
