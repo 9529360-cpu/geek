@@ -89,6 +89,13 @@ function Get-DeclaredWaJsVersion {
   return $null
 }
 
+function Get-OptionalPropertyValue([object]$InputObject, [string]$Name) {
+  if ($null -eq $InputObject) { return $null }
+  $property = $InputObject.PSObject.Properties[$Name]
+  if ($null -eq $property) { return $null }
+  return $property.Value
+}
+
 function Get-InstalledGeekVersion {
   $roots = @(
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -97,8 +104,9 @@ function Get-InstalledGeekVersion {
   )
   foreach ($root in $roots) {
     foreach ($entry in @(Get-ItemProperty $root -ErrorAction SilentlyContinue)) {
-      if (-not $entry.DisplayName -or $entry.DisplayName -notmatch '(?i)^(极客|Geek)(\s|$)') { continue }
-      $displayVersion = [string]$entry.DisplayVersion
+      $displayName = [string](Get-OptionalPropertyValue $entry 'DisplayName')
+      if (-not $displayName -or $displayName -notmatch '(?i)^(极客|Geek)(\s|$)') { continue }
+      $displayVersion = [string](Get-OptionalPropertyValue $entry 'DisplayVersion')
       if ($displayVersion -match '^\d+\.\d+\.\d+') { return $Matches[0] }
     }
   }
