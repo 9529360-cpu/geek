@@ -267,36 +267,24 @@
       return state;
     }
 
-    async function resetWhatsAppApplicationAssets(webview) {
-      if (!webview || typeof webview.executeJavaScript !== 'function') return false;
-      return Promise.resolve(webview.executeJavaScript(`(async () => {
-        let serviceWorkersCleared = 0;
-        let cacheEntriesCleared = 0;
-        try {
-          if (navigator.serviceWorker?.getRegistrations) {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            const results = await Promise.all(registrations.map(registration => registration.unregister().catch(() => false)));
-            serviceWorkersCleared = results.filter(Boolean).length;
-          }
-        } catch (_) {}
-        try {
-          if (typeof caches !== 'undefined' && typeof caches.keys === 'function') {
-            const keys = await caches.keys();
-            const results = await Promise.all(keys.map(key => caches.delete(key).catch(() => false)));
-            cacheEntriesCleared = results.filter(Boolean).length;
-          }
-        } catch (_) {}
-        return { serviceWorkersCleared, cacheEntriesCleared };
-      })()`))
-        .then(() => true)
-        .catch(() => false);
+    async function repairWhatsAppRuntime(accountId) {
+      const repair = window.api?.webviewRecovery?.repairWhatsAppRuntime;
+      if (typeof repair !== 'function') return false;
+      try {
+        const result = await repair(accountId);
+        return result?.ok === true;
+      } catch (_) {
+        return false;
+      }
     }
 
-    async function reloadWhatsAppAfterSoftStall(webview) {
+    async function reloadWhatsAppAfterSoftStall(webview, accountId) {
       if (!webview || typeof webview.reloadIgnoringCache !== 'function') return false;
-      // Keep identity-bearing state intact. Only replace the web-app delivery layer that
-      // can strand one persistent partition on an old WhatsApp shell after an upstream rollout.
-      await resetWhatsAppApplicationAssets(webview);
+      // Main owns the persistent partition and clears only WhatsApp's delivery layer
+      // (Service Worker/CacheStorage/HTTP+code cache). Identity-bearing cookies,
+      // localStorage and IndexedDB stay intact, so linked-device state is preserved.
+      const repaired = await repairWhatsAppRuntime(accountId);
+      if (!repaired) return false;
       webview.reloadIgnoringCache();
       return true;
     }
@@ -316,7 +304,7 @@
       tracker.crashed(accountId);
       render();
       try {
-        const reloaded = await reloadWhatsAppAfterSoftStall(webview);
+        const reloaded = await reloadWhatsAppAfterSoftStall(webview, accountId);
         if (!reloaded) throw new Error('soft-stall reload unavailable');
       } catch (_) {
         tracker.forceBlocked(accountId, 'soft-stall');
@@ -425,7 +413,7 @@
       tracker.crashed(accountId);
       try {
         if (blockedState.stage === 'soft-stall') {
-          const reloaded = await reloadWhatsAppAfterSoftStall(webview);
+          const reloaded = await reloadWhatsAppAfterSoftStall(webview, accountId);
           if (!reloaded) throw new Error('soft-stall reload unavailable');
         } else {
           webview.reload();
