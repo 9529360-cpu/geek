@@ -80,9 +80,21 @@ CREATE TABLE IF NOT EXISTS translation_usage (
   status TEXT NOT NULL DEFAULT 'reserved',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at TEXT,
+  lease_expires_at TEXT,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_translation_usage_user_created ON translation_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_translation_usage_lease ON translation_usage(lease_expires_at);
+CREATE TRIGGER IF NOT EXISTS trg_translation_usage_reservation_lease
+AFTER INSERT ON translation_usage
+WHEN NEW.lease_expires_at IS NULL
+  AND (NEW.status = 'reserved' OR NEW.status LIKE 'reserved:%')
+BEGIN
+  UPDATE translation_usage
+  SET lease_expires_at = datetime('now', '+2 minutes')
+  WHERE request_id = NEW.request_id
+    AND lease_expires_at IS NULL;
+END;
 
 -- 忘记密码：仅保存一次性 Token 的 SHA-256，不保存明文链接。
 CREATE TABLE IF NOT EXISTS password_reset_requests (
