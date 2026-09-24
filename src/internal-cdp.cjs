@@ -15,7 +15,7 @@ function createInternalCdp({ getAllWebContents, timeoutMs = 10000, externalDebug
 
   function isPlatformUrl(url, platform) {
     if (platform === 'whatsapp' || platform === 'whatsapp-pure') {
-      return url.includes('web.whatsapp.com') || url.includes('127.0.0.1:1843');
+      return url.includes('web.whatsapp.com');
     }
     if (platform === 'telegram-z' || platform === 'telegram-k') {
       return url.includes('web.telegram.org');
