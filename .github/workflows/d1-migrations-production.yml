@@ -14,10 +14,10 @@ on:
       migration:
         description: Exact admitted migration filename
         required: true
-        default: 005-translation-reservation-lease.sql
+        default: 006-translation-outcome-replay.sql
         type: string
       confirmation:
-        description: Apply mode only; type APPLY 005-translation-reservation-lease.sql
+        description: Apply mode only; type APPLY 006-translation-outcome-replay.sql
         required: false
         type: string
 
@@ -61,11 +61,11 @@ jobs:
           set -euo pipefail
           node --check scripts/d1-migration-guard.cjs
           node scripts/d1-migration-guard.cjs validate-repo
-          test "$MIGRATION" = '005-translation-reservation-lease.sql'
+          test "$MIGRATION" = '006-translation-outcome-replay.sql'
           case "$MODE" in
             plan) ;;
             apply)
-              test "$CONFIRMATION" = 'APPLY 005-translation-reservation-lease.sql'
+              test "$CONFIRMATION" = 'APPLY 006-translation-outcome-replay.sql'
               ;;
             *)
               echo 'Unsupported D1 migration mode' >&2
@@ -91,10 +91,10 @@ jobs:
           WRANGLER=(npx --yes wrangler@4.36.0)
           DB='geek-subscriptions'
           CONFIG='wrangler-d1-migrations.toml'
-          SCHEMA="$RUNNER_TEMP/d1-005-schema.json"
-          OBJECTS="$RUNNER_TEMP/d1-005-objects.json"
-          LEDGER_TABLE="$RUNNER_TEMP/d1-005-ledger-table.json"
-          LEDGER_ROWS="$RUNNER_TEMP/d1-005-ledger-rows.json"
+          SCHEMA="$RUNNER_TEMP/d1-006-schema.json"
+          OBJECTS="$RUNNER_TEMP/d1-006-objects.json"
+          LEDGER_TABLE="$RUNNER_TEMP/d1-006-ledger-table.json"
+          LEDGER_ROWS="$RUNNER_TEMP/d1-006-ledger-rows.json"
 
           "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "PRAGMA table_info(translation_usage)" --json > "$SCHEMA"
           "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name IN ('idx_translation_usage_lease','trg_translation_usage_reservation_lease','idx_translation_usage_replay_expiry') ORDER BY name" --json > "$OBJECTS"
@@ -106,12 +106,12 @@ jobs:
             printf '[]\n' > "$LEDGER_ROWS"
           fi
 
-          STATE="$(node scripts/d1-migration-guard.cjs inspect-005 "$SCHEMA" "$OBJECTS" "$LEDGER_TABLE" "$LEDGER_ROWS")"
+          STATE="$(node scripts/d1-migration-guard.cjs inspect-006 "$SCHEMA" "$OBJECTS" "$LEDGER_TABLE" "$LEDGER_ROWS")"
           echo "state=$STATE" >> "$GITHUB_OUTPUT"
           {
             echo '### Production D1 migration preflight'
             echo
-            echo "- admitted migration: \`005-translation-reservation-lease.sql\`"
+            echo "- admitted migration: \`006-translation-outcome-replay.sql\`"
             echo "- preflight state: \`$STATE\`"
             echo '- business/user rows were not selected'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -120,17 +120,17 @@ jobs:
         if: inputs.mode == 'apply' && steps.preflight.outputs.state != 'ready'
         shell: bash
         run: |
-          echo 'Production schema is not in the exact pre-005 state; refusing to apply.' >&2
+          echo 'Production schema is not in the exact post-005 / pre-006 state; refusing to apply.' >&2
           exit 1
 
-      - name: Apply admitted migration 005
+      - name: Apply admitted migration 006
         if: inputs.mode == 'apply' && steps.preflight.outputs.state == 'ready'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx --yes wrangler@4.36.0 d1 migrations apply geek-subscriptions --remote --config wrangler-d1-migrations.toml
 
-      - name: Verify migration 005 postflight
+      - name: Verify migration 006 postflight
         if: inputs.mode == 'apply' && steps.preflight.outputs.state == 'ready'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_INFRA_API_TOKEN }}
@@ -141,21 +141,21 @@ jobs:
           WRANGLER=(npx --yes wrangler@4.36.0)
           DB='geek-subscriptions'
           CONFIG='wrangler-d1-migrations.toml'
-          SCHEMA="$RUNNER_TEMP/d1-005-post-schema.json"
-          OBJECTS="$RUNNER_TEMP/d1-005-post-objects.json"
-          LEDGER_TABLE="$RUNNER_TEMP/d1-005-post-ledger-table.json"
-          LEDGER_ROWS="$RUNNER_TEMP/d1-005-post-ledger-rows.json"
+          SCHEMA="$RUNNER_TEMP/d1-006-post-schema.json"
+          OBJECTS="$RUNNER_TEMP/d1-006-post-objects.json"
+          LEDGER_TABLE="$RUNNER_TEMP/d1-006-post-ledger-table.json"
+          LEDGER_ROWS="$RUNNER_TEMP/d1-006-post-ledger-rows.json"
 
           "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "PRAGMA table_info(translation_usage)" --json > "$SCHEMA"
           "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name IN ('idx_translation_usage_lease','trg_translation_usage_reservation_lease','idx_translation_usage_replay_expiry') ORDER BY name" --json > "$OBJECTS"
           "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT name, type FROM sqlite_schema WHERE name = 'geek_d1_migrations'" --json > "$LEDGER_TABLE"
           "${WRANGLER[@]}" d1 execute "$DB" --remote --config "$CONFIG" --command "SELECT id, name, applied_at FROM geek_d1_migrations ORDER BY id" --json > "$LEDGER_ROWS"
 
-          node scripts/d1-migration-guard.cjs verify-005 "$SCHEMA" "$OBJECTS" "$LEDGER_TABLE" "$LEDGER_ROWS"
+          node scripts/d1-migration-guard.cjs verify-006 "$SCHEMA" "$OBJECTS" "$LEDGER_TABLE" "$LEDGER_ROWS"
           {
             echo '### Production D1 migration postflight'
             echo
-            echo '- migration 005 schema artifacts: verified'
+            echo '- migration 006 replay schema artifacts: verified'
             echo '- managed migration ledger: verified'
-            echo '- migration 006 replay schema: absent as required'
+            echo '- migration 005 lease schema and ledger prerequisite: verified'
           } >> "$GITHUB_STEP_SUMMARY"

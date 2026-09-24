@@ -17,7 +17,7 @@ Wrangler-managed production migrations start at migration 005 and use:
 
 Only one migration is admitted in the managed directory at a time. This prevents `wrangler d1 migrations apply` from crossing an unreviewed rollout boundary by applying multiple newly-added files in one run.
 
-Migration tests use immutable pre-migration schema fixtures under `scripts/d1-baselines/`. For migration 005, `004-subscription-schema.sql` is the frozen schema after the proven legacy 002–004 effects and before any 005 artifact. Do not replace a migration baseline with the moving `scripts/geek-subscription-schema.sql`: the canonical schema is expected to advance after a migration lands, while a migration's input state must remain reproducible.
+Migration tests use immutable pre-migration fixtures under `scripts/d1-baselines/`. The current 006 admission uses `005-translation-reservation-schema.sql`, which freezes the verified post-005 table/index/trigger state plus the local managed-ledger fixture recording 005. Do not replace a migration baseline with the moving `scripts/geek-subscription-schema.sql`: the canonical schema is expected to advance after a migration lands, while a migration's input state must remain reproducible.
 
 ## Production workflow boundary
 
@@ -28,35 +28,37 @@ Two modes exist:
 - `plan`: read-only inspection of `translation_usage`, the expected indexes/triggers, and managed-ledger existence. It intentionally does **not** run `wrangler d1 migrations list` against production because Wrangler initializes the migration ledger before listing.
 - `apply`: requires the exact admitted migration name and an exact human-readable confirmation token. It is still a production schema mutation and must be explicitly authorized before dispatch.
 
-The repository guard fails closed when it sees a partial migration, an out-of-band schema change, an unexpected managed-ledger entry, or a later migration's schema before the current admission is complete. An empty managed ledger with no current migration artifacts is retryable because Wrangler may have initialized the ledger before an interrupted migration attempt.
+The repository guard fails closed when it sees a partial migration, an out-of-band schema change, an unexpected managed-ledger entry, or a later migration's schema before the current admission is complete. For the current 006 boundary, the verified 005 managed-ledger entry is a prerequisite: a missing/empty ledger is a stop condition. A retry is safe only when the complete 005 prerequisite remains recorded and no partial 006 artifact has appeared.
 
-## Migration 005 rollout
+## Migration 005 completed state
 
-Migration `005-translation-reservation-lease.sql` is additive. It adds `translation_usage.lease_expires_at`, the lease index, and the reservation lease trigger. It does not refund or delete old reservations by itself.
+Migration `005-translation-reservation-lease.sql` is complete in production. The authorized apply and postflight verified the lease column, lease index, reservation trigger, and managed ledger entry before the dependent recovery Worker was merged. The recovery Worker and its bounded Cron owner are deployed, and the public aggregate health projection reached `staleReservations.count = 0`.
+
+Migration 005 is therefore historical prerequisite state, not the current admitted migration. Its SQL is no longer present in the one-at-a-time managed directory; the immutable post-005 state is preserved in `scripts/d1-baselines/005-translation-reservation-schema.sql`.
+
+## Migration 006 rollout
+
+Migration `006-translation-outcome-replay.sql` is additive. It adds `translation_usage.request_hash`, `replay_ciphertext`, `replay_expires_at`, and `idx_translation_usage_replay_expiry`. It does not rewrite user rows, plaintext chat content, translation content, or quota values.
 
 Required order:
 
-1. Merge the schema-control-plane admission containing **only** managed migration 005 to `master`.
-2. Dispatch `d1-migrations-production` in `plan` mode from `master`. The state must be exactly `ready`; any partial or future schema is a stop condition.
+1. Merge the schema-control-plane admission containing **only** managed migration 006 to `master`.
+2. Dispatch `d1-migrations-production` in `plan` mode from `master`. The state must be exactly `ready`; the guard must prove the complete 005 lease schema and exact 005 managed-ledger entry while all 006 artifacts are absent.
 3. Obtain explicit authorization for the production schema mutation.
-4. Dispatch the same workflow in `apply` mode with migration `005-translation-reservation-lease.sql` and confirmation `APPLY 005-translation-reservation-lease.sql`.
-5. Require the workflow postflight to prove the lease column, index, trigger, and the exact `geek_d1_migrations` ledger entry. Migration 006 replay columns/index must still be absent.
-6. Only after 005 is verified may the translation Worker change that depends on reservation leases merge to `master` and use the repository's normal automatic translation Worker deployment path.
-7. Verify the production Worker deployment and non-sensitive service health evidence separately from the schema migration evidence.
+4. Dispatch the same workflow in `apply` mode with migration `006-translation-outcome-replay.sql` and confirmation `APPLY 006-translation-outcome-replay.sql`.
+5. Require postflight to prove all three replay columns, the replay-expiry index, the preserved 005 lease artifacts, and exact managed-ledger entries for 005 and 006.
+6. Only after 006 is verified may the outcome-recovery Worker/runtime PR become Ready and merge to `master`.
+7. Verify the normal translation Worker deployment and privacy-safe service health separately from the schema migration evidence.
 
-Do not merge a Worker that requires 005 before step 5 is complete. The automatic `deploy-translate` workflow is intentionally not made schema-aware; migration ordering is established before the Worker PR enters `master`.
+Do not merge application code that requires 006 before step 5 is complete. The automatic `deploy-translate` workflow remains intentionally schema-agnostic; migration ordering is established before the Worker PR enters `master`.
 
-## Migration 006 and later
-
-Do not place migration 006 in `scripts/d1-migrations/` while 005 is still the admitted production migration. After the 005-dependent Worker is deployed and healthy, make a separate schema admission that replaces the one-migration boundary with 006, updates the guard's expected pre/post state, validates it locally, then repeats the plan → explicit authorization → apply → verify sequence.
-
-This one-at-a-time rule is deliberate: each schema boundary can be stopped, reviewed, and verified before application code depending on it is deployed.
+The one-at-a-time rule remains deliberate for later migrations: each schema boundary must replace the currently admitted SQL, carry an immutable pre-migration baseline, and pass plan → explicit authorization → apply → verify before dependent code deploys.
 
 ## Local / PR validation
 
-`cloudflare-worker-validation` receives no production infrastructure secret. It creates an isolated local D1 database from the immutable pre-005 fixture `scripts/d1-baselines/004-subscription-schema.sql`, runs the admitted managed migration with the pinned Wrangler version, then verifies the resulting schema and managed ledger using `scripts/d1-migration-guard.cjs`.
+`cloudflare-worker-validation` receives no production infrastructure secret. It creates an isolated local D1 database from the immutable post-005 / pre-006 fixture `scripts/d1-baselines/005-translation-reservation-schema.sql`, runs admitted migration 006 with the pinned Wrangler version, then verifies the resulting replay schema and managed ledger using `scripts/d1-migration-guard.cjs`.
 
-This proves that the D1-only Wrangler config is accepted and that the migration executes against its actual prior schema, while allowing the current canonical schema to advance independently after rollout. Local success is not production evidence.
+This proves that the D1-only Wrangler config is accepted and that 006 executes against its exact prior schema/ledger state, while allowing the current canonical schema to advance independently after rollout. Local success is not production evidence.
 
 ## Stop conditions
 
