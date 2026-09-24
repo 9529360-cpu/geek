@@ -106,9 +106,12 @@ try {
 // 首次运行时会从旧 data/ 安全迁移（目标已存在则以目标为准）。
 const CONFIG_FILE = runtimePaths.configFile(USER_DATA_DIR);
 const PARTITION_PREFIX = ACCOUNT_PARTITION_PREFIX;
-// Ordinary Chrome UA so WhatsApp/Telegram Web don't reject the embedded browser.
-// Same UA family the original Hello-GPT ships (verified working with WhatsApp Web).
-const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.243 Safari/537.36';
+// Present the embedded Chromium engine as Chrome without Electron's product token.
+// Keep the advertised browser generation aligned with the Chromium we actually ship:
+// WhatsApp Web supports current browser versions and can strand stale spoofed UAs on
+// its startup shell even when the underlying Electron Chromium is much newer.
+const CHROMIUM_VERSION = String(process.versions.chrome || '').trim();
+const CHROME_USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROMIUM_VERSION || '150.0.0.0'} Safari/537.36`;
 
 
 const accountState = createAccountStateStore({
