@@ -27,6 +27,13 @@ function Get-DirectorySummary([string]$Path) {
   return [ordered]@{ exists = $true; childDirectoryCount = $count }
 }
 
+function Get-OptionalPropertyValue([object]$InputObject, [string]$Name) {
+  if ($null -eq $InputObject) { return $null }
+  $property = $InputObject.PSObject.Properties[$Name]
+  if ($null -eq $property) { return $null }
+  return $property.Value
+}
+
 function Get-UninstallEntries {
   $roots = @(
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -35,21 +42,26 @@ function Get-UninstallEntries {
   )
   foreach ($root in $roots) {
     Get-ItemProperty $root -ErrorAction SilentlyContinue |
-      Where-Object { $_.DisplayName -and $_.DisplayName -match '(?i)^(极客|Geek)(\s|$)' }
+      Where-Object {
+        $displayName = [string](Get-OptionalPropertyValue $_ 'DisplayName')
+        $displayName -and $displayName -match '(?i)^(极客|Geek)(\s|$)'
+      }
   }
 }
 
 function Get-GeekExecutable {
   $candidates = [System.Collections.Generic.List[string]]::new()
   foreach ($entry in @(Get-UninstallEntries)) {
-    if ($entry.DisplayIcon) {
-      $icon = [string]$entry.DisplayIcon
+    $displayIcon = Get-OptionalPropertyValue $entry 'DisplayIcon'
+    if ($displayIcon) {
+      $icon = [string]$displayIcon
       $icon = $icon.Trim('"') -replace ',\d+$', ''
       if ($icon) { $candidates.Add($icon) }
     }
-    if ($entry.InstallLocation) {
+    $installLocation = Get-OptionalPropertyValue $entry 'InstallLocation'
+    if ($installLocation) {
       foreach ($name in @('极客.exe', 'geek.exe', 'Geek.exe')) {
-        $candidates.Add((Join-Path ([string]$entry.InstallLocation) $name))
+        $candidates.Add((Join-Path ([string]$installLocation) $name))
       }
     }
   }

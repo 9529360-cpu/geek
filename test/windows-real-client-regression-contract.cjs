@@ -24,5 +24,7 @@ assert.match(collector, /tokensIncluded = \$false/, 'collector must declare toke
 assert.match(collector, /chatContentIncluded = \$false/, 'collector must declare chat content excluded');
 assert.doesNotMatch(collector, /Get-Content[^\n]*(accounts\.json|config\.json|line-tokens\.json)/i, 'collector must not read sensitive state files as text');
 assert.doesNotMatch(collector, /Invoke-WebRequest|Invoke-RestMethod|curl|wget/i, 'collector must not upload or call external services itself');
+assert.match(collector, /PSObject\.Properties\[\$Name\]/, 'collector must read optional registry properties safely under StrictMode');
+assert.doesNotMatch(collector, /\$entry\.Display(Name|Icon|Version|InstallLocation)/, 'collector must not directly dereference optional uninstall registry properties');
 
 console.log('WINDOWS_REAL_CLIENT_REGRESSION_CONTRACT_OK');

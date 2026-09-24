@@ -67,6 +67,8 @@ assert.equal(script.includes('Invoke-WebRequest'), false, 'recorder must not upl
 assert.equal(script.includes('Invoke-RestMethod'), false, 'recorder must not call remote APIs');
 assert.equal(script.includes('SendKeys'), false, 'recorder must not automate message sends');
 assert.equal(script.includes('executeJavaScript'), false, 'recorder must not inspect remote chat DOM');
+assert.match(script, /PSObject\.Properties\[\$Name\]/, 'recorder must read optional registry properties safely under StrictMode');
+assert.doesNotMatch(script, /\$entry\.Display(Name|Version)/, 'recorder must not directly dereference optional uninstall registry properties');
 
 // Historical Issue #95 evidence remains a separate compatibility artifact. This
 // contract checks its stable phase/version guards instead of merging current
