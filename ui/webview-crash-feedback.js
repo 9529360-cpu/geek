@@ -7,6 +7,43 @@
 
   const RELOAD_START_GRACE_MS = 1500;
   const RELOAD_READY_TIMEOUT_MS = 45000;
+  const WHATSAPP_WEB_ORIGIN = 'https://web.whatsapp.com';
+  const WHATSAPP_BOOTSTRAP_GRACE_MS = 45000;
+  const WHATSAPP_BOOTSTRAP_CONFIRM_MS = 5000;
+  const WHATSAPP_PROBE_TIMEOUT_MS = 2500;
+  const WHATSAPP_AUTO_RECOVERY_WINDOW_MS = 10 * 60 * 1000;
+  const WHATSAPP_AUTO_RECOVERY_LIMIT = 1;
+
+  function createAccountRecoveryLimiter(options = {}) {
+    const now = typeof options.now === 'function' ? options.now : Date.now;
+    const windowMs = Number(options.windowMs) > 0 ? Number(options.windowMs) : WHATSAPP_AUTO_RECOVERY_WINDOW_MS;
+    const limit = Number(options.limit) > 0 ? Math.floor(Number(options.limit)) : WHATSAPP_AUTO_RECOVERY_LIMIT;
+    const timestampsByAccount = new Map();
+    return Object.freeze({
+      allow(accountId) {
+        const id = String(accountId || '').trim();
+        if (!id) return false;
+        const current = now();
+        const timestamps = timestampsByAccount.get(id) || [];
+        while (timestamps.length && timestamps[0] <= current - windowMs) timestamps.shift();
+        if (timestamps.length >= limit) return false;
+        timestamps.push(current);
+        timestampsByAccount.set(id, timestamps);
+        return true;
+      },
+    });
+  }
+
+  function classifyWhatsAppStartupProbe(state = {}) {
+    if (state.probeTimedOut === true) return { stalled: false, reason: 'probe-timeout' };
+    if (state.probeFailed === true || state.probeOk !== true) return { stalled: false, reason: 'probe-failed' };
+    if (String(state.origin || '') !== WHATSAPP_WEB_ORIGIN) return { stalled: false, reason: 'wrong-origin' };
+    if (state.readyState !== 'complete') return { stalled: false, reason: 'document-incomplete' };
+    if (state.wppReady === true) return { stalled: false, reason: 'wpp-ready' };
+    if (Number(state.terminalEvidenceCount || 0) > 0) return { stalled: false, reason: 'terminal-visible' };
+    if (Number(state.visibleProgressCount || 0) <= 0) return { stalled: false, reason: 'no-loading-indicator' };
+    return { stalled: true, reason: 'bootstrap-progress-stalled' };
+  }
 
   function createTracker(options = {}) {
     const setTimer = typeof options.setTimeout === 'function' ? options.setTimeout : setTimeout;
@@ -73,6 +110,17 @@
       return next;
     }
 
+    function forceBlocked(accountId, stage = 'manual') {
+      const id = String(accountId || '').trim();
+      if (!id) return null;
+      clearStateTimer(states.get(id));
+      const generation = ++sequence;
+      const next = Object.freeze({ phase: 'blocked', stage: String(stage || 'manual'), generation, timer: null });
+      states.set(id, next);
+      emit(id);
+      return next;
+    }
+
     function ready(accountId) {
       const id = String(accountId || '').trim();
       const current = states.get(id);
@@ -97,14 +145,18 @@
       return () => listeners.delete(listener);
     }
 
-    return Object.freeze({ crashed, loading, ready, remove: ready, get, ids, subscribe });
+    return Object.freeze({ crashed, loading, forceBlocked, ready, remove: ready, get, ids, subscribe });
   }
 
   function normalizeAccounts(value) {
     const list = Array.isArray(value?.accounts) ? value.accounts : (Array.isArray(value) ? value : []);
     return list
       .filter(account => account && account.id && account.partition)
-      .map(account => ({ id: String(account.id), partition: String(account.partition) }));
+      .map(account => ({
+        id: String(account.id),
+        partition: String(account.partition),
+        type: String(account.type || ''),
+      }));
   }
 
   function webviewPartition(webview) {
@@ -161,6 +213,94 @@
       void resolveAccountId(webview).then(accountId => {
         if (accountId) callback(accountId);
       });
+    }
+
+    const softRecoveryLimiter = options.softRecoveryLimiter || createAccountRecoveryLimiter(options);
+
+    function isWhatsAppAccount(account) {
+      return account?.type === 'whatsapp' || account?.type === 'whatsapp-pure';
+    }
+
+    function clearSoftHealthTimers(lifecycle) {
+      if (!lifecycle) return;
+      if (lifecycle.softTimer != null) clearTimeout(lifecycle.softTimer);
+      if (lifecycle.confirmTimer != null) clearTimeout(lifecycle.confirmTimer);
+      lifecycle.softTimer = null;
+      lifecycle.confirmTimer = null;
+      lifecycle.healthGeneration += 1;
+    }
+
+    async function probeWhatsAppStartup(webview) {
+      if (!webview || typeof webview.executeJavaScript !== 'function') return { probeFailed: true };
+      let timeoutId;
+      const probe = Promise.resolve().then(() => webview.executeJavaScript(`(() => {
+        const rendered = (element) => {
+          if (!(element instanceof Element)) return false;
+          const style = getComputedStyle(element);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+          if (Number.parseFloat(style.opacity || '1') <= 0.01) return false;
+          const rect = element.getBoundingClientRect();
+          return rect.width >= 2 && rect.height >= 2;
+        };
+        const progress = Array.from(document.querySelectorAll('progress,[role="progressbar"],[aria-busy="true"]')).filter(rendered);
+        const terminal = Array.from(document.querySelectorAll('button,[contenteditable="true"],input,textarea,canvas,[data-ref]')).filter(rendered);
+        return {
+          probeOk: true,
+          origin: location.origin,
+          readyState: document.readyState,
+          visibleProgressCount: Math.min(progress.length, 99),
+          terminalEvidenceCount: Math.min(terminal.length, 99),
+          wppReady: window.WPP?.isReady === true,
+        };
+      })()`)).catch(() => ({ probeFailed: true }));
+      const timeout = new Promise(resolve => {
+        timeoutId = setTimeout(() => resolve({ probeTimedOut: true }), WHATSAPP_PROBE_TIMEOUT_MS);
+      });
+      const state = await Promise.race([probe, timeout]);
+      clearTimeout(timeoutId);
+      return state;
+    }
+
+    async function confirmWhatsAppSoftStall(webview, accountId, lifecycle, generation) {
+      if (!lifecycle || lifecycle.healthGeneration !== generation || lifecycle.loading || !webview.isConnected) return;
+      const second = classifyWhatsAppStartupProbe(await probeWhatsAppStartup(webview));
+      if (!second.stalled || lifecycle.healthGeneration !== generation) return;
+
+      clearSoftHealthTimers(lifecycle);
+      if (!softRecoveryLimiter.allow(accountId)) {
+        tracker.forceBlocked(accountId, 'soft-stall');
+        render();
+        return;
+      }
+
+      tracker.crashed(accountId);
+      render();
+      try {
+        if (typeof webview.reloadIgnoringCache !== 'function') throw new Error('reloadIgnoringCache unavailable');
+        webview.reloadIgnoringCache();
+      } catch (_) {
+        tracker.forceBlocked(accountId, 'soft-stall');
+        render();
+      }
+    }
+
+    function armWhatsAppBootstrapCheck(webview) {
+      const lifecycle = lifecycleByWebview.get(webview);
+      if (!lifecycle) return;
+      clearSoftHealthTimers(lifecycle);
+      const generation = lifecycle.healthGeneration;
+      lifecycle.softTimer = setTimeout(async () => {
+        lifecycle.softTimer = null;
+        if (lifecycle.healthGeneration !== generation || lifecycle.loading || !webview.isConnected) return;
+        const account = findAccountForWebview(await listAccounts(), webview);
+        if (!isWhatsAppAccount(account)) return;
+        const first = classifyWhatsAppStartupProbe(await probeWhatsAppStartup(webview));
+        if (!first.stalled || lifecycle.healthGeneration !== generation) return;
+        lifecycle.confirmTimer = setTimeout(() => {
+          lifecycle.confirmTimer = null;
+          void confirmWhatsAppSoftStall(webview, account.id, lifecycle, generation);
+        }, WHATSAPP_BOOTSTRAP_CONFIRM_MS);
+      }, WHATSAPP_BOOTSTRAP_GRACE_MS);
     }
 
     function ensureStyle() {
@@ -227,7 +367,8 @@
 
     async function reloadActiveBlockedAccount() {
       const accountId = activeAccountId();
-      if (!accountId || tracker.get(accountId)?.phase !== 'blocked') return false;
+      const blockedState = tracker.get(accountId);
+      if (!accountId || blockedState?.phase !== 'blocked') return false;
       const freshAccounts = await listAccounts();
       const account = freshAccounts.find(item => item.id === accountId);
       if (!account) {
@@ -243,7 +384,8 @@
       // two-per-minute crash budget. A failed/no-op reload naturally returns to blocked.
       tracker.crashed(accountId);
       try {
-        webview.reload();
+        if (blockedState.stage === 'soft-stall' && typeof webview.reloadIgnoringCache === 'function') webview.reloadIgnoringCache();
+        else webview.reload();
         return true;
       } catch (_) {
         return false;
@@ -255,11 +397,18 @@
     function bindWebview(webview) {
       if (!webview || boundWebviews.has(webview) || typeof webview.addEventListener !== 'function') return;
       boundWebviews.add(webview);
-      const lifecycle = { loading: false, startedThisTurn: false };
+      const lifecycle = {
+        loading: false,
+        startedThisTurn: false,
+        softTimer: null,
+        confirmTimer: null,
+        healthGeneration: 0,
+      };
       lifecycleByWebview.set(webview, lifecycle);
       void resolveAccountId(webview);
 
       webview.addEventListener('did-start-loading', () => {
+        clearSoftHealthTimers(lifecycle);
         lifecycle.loading = true;
         lifecycle.startedThisTurn = true;
         // app.js may call reload() synchronously from its earlier render-process-gone
@@ -278,9 +427,20 @@
           tracker.ready(accountId);
           render();
         });
+        armWhatsAppBootstrapCheck(webview);
+      });
+
+      webview.addEventListener('did-stop-loading', () => {
+        lifecycle.loading = false;
+        armWhatsAppBootstrapCheck(webview);
+      });
+
+      webview.addEventListener('did-fail-load', () => {
+        clearSoftHealthTimers(lifecycle);
       });
 
       webview.addEventListener('render-process-gone', () => {
+        clearSoftHealthTimers(lifecycle);
         const recoveryStartedInThisTurn = lifecycle.startedThisTurn;
         withAccount(webview, accountId => {
           tracker.crashed(accountId);
@@ -334,6 +494,14 @@
   return Object.freeze({
     RELOAD_START_GRACE_MS,
     RELOAD_READY_TIMEOUT_MS,
+    WHATSAPP_WEB_ORIGIN,
+    WHATSAPP_BOOTSTRAP_GRACE_MS,
+    WHATSAPP_BOOTSTRAP_CONFIRM_MS,
+    WHATSAPP_PROBE_TIMEOUT_MS,
+    WHATSAPP_AUTO_RECOVERY_WINDOW_MS,
+    WHATSAPP_AUTO_RECOVERY_LIMIT,
+    createAccountRecoveryLimiter,
+    classifyWhatsAppStartupProbe,
     createTracker,
     normalizeAccounts,
     webviewPartition,

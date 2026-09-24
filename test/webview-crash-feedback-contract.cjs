@@ -107,12 +107,12 @@ const accounts = api.normalizeAccounts({
   ],
 });
 assert.deepEqual(accounts, [
-  { id: '1', partition: 'persist:webview-page-1' },
-  { id: '2', partition: 'persist:webview-page-2' },
+  { id: '1', partition: 'persist:webview-page-1', type: '' },
+  { id: '2', partition: 'persist:webview-page-2', type: '' },
 ]);
 assert.deepEqual(
   api.findAccountForWebview(accounts, { partition: 'persist:webview-page-2' }),
-  { id: '2', partition: 'persist:webview-page-2' },
+  { id: '2', partition: 'persist:webview-page-2', type: '' },
 );
 assert.equal(
   api.findAccountForWebview(accounts, { getAttribute: name => name === 'partition' ? 'persist:unknown' : '' }),
@@ -149,7 +149,8 @@ assert.match(source, /重新加载/);
 assert.match(source, /freshAccounts\.find\(item => item\.id === accountId\)/);
 assert.match(source, /webviewPartition\(candidate\) === account\.partition/);
 assert.match(source, /webview\.reload\(\)/);
-assert.doesNotMatch(source, /webviewCrashLimiter|\.allow\(/, 'feedback owner must not copy or reset the automatic crash budget');
+assert.doesNotMatch(source, /webviewCrashLimiter/, 'feedback owner must not copy or reset app.js automatic crash budget');
+assert.match(source, /softRecoveryLimiter\.allow\(accountId\)/, 'soft-stall recovery must use its own account-scoped budget');
 
 // Account/sidebar and WebView removal both refresh the authoritative account projection,
 // so deleted accounts cannot retain visible crash state.
