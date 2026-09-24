@@ -9,9 +9,7 @@ const { DatabaseSync } = require('node:sqlite');
 
 const root = path.resolve(__dirname, '..');
 const workerSource = fs.readFileSync(path.join(root, 'scripts', 'geek-translate-worker.js'), 'utf8');
-const SECRET = 'translation-idempotent-rate-limit-secret';
-const USER_BUCKET = 'translate:user:42';
-const IP_BUCKET = 'translate:ip:203.0.113.42';
+const SECRET = 'translation-idempotent-entitlement-secret';
 
 function createD1() {
   const sqlite = new DatabaseSync(':memory:');
@@ -52,6 +50,13 @@ function createD1() {
         async first() { return sqlite.prepare(text).get(...values) || null; },
         async all() { return { results: sqlite.prepare(text).all(...values) }; },
         async run() {
+          if (/^\s*SELECT\b/i.test(text)) {
+            return {
+              success: true,
+              results: sqlite.prepare(text).all(...values),
+              meta: { changes: 0, last_row_id: 0 },
+            };
+          }
           const result = sqlite.prepare(text).run(...values);
           return {
             success: true,
@@ -157,8 +162,8 @@ function deferred() {
   return { promise, resolve };
 }
 
-function bucketCount(sqlite, bucket) {
-  return Number(sqlite.prepare('SELECT count FROM rate_limits WHERE bucket = ?').get(bucket)?.count || 0);
+function rateLimitRows(sqlite) {
+  return Number(sqlite.prepare('SELECT COUNT(*) AS count FROM rate_limits').get().count || 0);
 }
 
 (async () => {
@@ -180,21 +185,22 @@ function bucketCount(sqlite, bucket) {
   const firstPromise = worker.fetch(requestFor(requestId), envFor(db));
   await providerEntered.promise;
 
-  assert.equal(bucketCount(sqlite, USER_BUCKET), 1, 'one new logical operation consumes one user admission slot');
-  assert.equal(bucketCount(sqlite, IP_BUCKET), 1, 'one new logical operation consumes one IP admission slot');
+  assert.equal(rateLimitRows(sqlite), 0, 'translation entitlement must not consume user/IP request-limit buckets');
 
   for (let poll = 1; poll <= 35; poll += 1) {
     const response = await worker.fetch(requestFor(requestId), envFor(db));
     assert.equal(response.status, 409, `in-progress reconciliation poll ${poll} must not become rate limited`);
     assert.equal((await response.json()).error, 'request_in_progress');
   }
-  assert.equal(bucketCount(sqlite, USER_BUCKET), 1, 'in-progress reconciliation must not consume user admission quota');
-  assert.equal(bucketCount(sqlite, IP_BUCKET), 1, 'in-progress reconciliation must not consume IP admission quota');
+  assert.equal(rateLimitRows(sqlite), 0, 'in-progress reconciliation must remain independent from request-limit buckets');
   assert.equal(providerCalls, 1, 'duplicate reconciliation must never invoke the provider again');
 
   releaseProvider.resolve();
   const first = await firstPromise;
   assert.equal(first.status, 200);
+  const firstPayload = await first.json();
+  assert.equal(firstPayload.text, 'ciao');
+  assert.equal(firstPayload.remaining_chars, 91, 'first completion must project the authoritative post-commit quota');
 
   for (let replay = 1; replay <= 35; replay += 1) {
     const response = await worker.fetch(requestFor(requestId), envFor(db));
@@ -202,14 +208,14 @@ function bucketCount(sqlite, bucket) {
     const payload = await response.json();
     assert.equal(payload.text, 'ciao');
     assert.equal(payload.replayed, true);
+    assert.equal(payload.remaining_chars, 91, 'replay must project current D1 quota without a second debit');
   }
-  assert.equal(bucketCount(sqlite, USER_BUCKET), 1, 'completed replays must not consume user admission quota');
-  assert.equal(bucketCount(sqlite, IP_BUCKET), 1, 'completed replays must not consume IP admission quota');
+  assert.equal(rateLimitRows(sqlite), 0, 'completed replays must never revive the removed product request limiter');
   assert.equal(providerCalls, 1);
   assert.equal(Number(sqlite.prepare('SELECT quota_chars FROM users WHERE id = 42').get().quota_chars), 91);
 
   sqlite.close();
-  console.log('TRANSLATION_IDEMPOTENT_RATE_LIMIT_CONTRACT_OK');
+  console.log('TRANSLATION_IDEMPOTENT_ENTITLEMENT_CONTRACT_OK');
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exit(1);
