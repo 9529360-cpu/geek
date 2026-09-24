@@ -140,11 +140,14 @@ function addReservation(sqlite, { requestId, userId = 42, chars = 5, status = 'r
   const migration = fs.readFileSync(path.join(root, 'scripts', 'd1-migrations', '005-translation-reservation-lease.sql'), 'utf8');
   const schema = fs.readFileSync(path.join(root, 'scripts', 'geek-subscription-schema.sql'), 'utf8');
   const entry = fs.readFileSync(path.join(root, 'scripts', 'geek-translate-entry.js'), 'utf8');
+  const wrangler = fs.readFileSync(path.join(root, 'wrangler-translate.toml'), 'utf8');
   assert.match(migration, /ALTER TABLE translation_usage ADD COLUMN lease_expires_at TEXT/);
   assert.match(migration, /datetime\('now', '\+2 minutes'\)/, 'migration trigger must issue a bounded durable lease');
   assert.match(schema, /trg_translation_usage_reservation_lease/, 'fresh schema and migration must agree on lease ownership');
   assert.match(entry, /verifiedTranslationUserId[\s\S]*recoverStaleTranslationReservations\(workerDb, \{ userId, limit: 8 \}\)/, 'request-path recovery must only run after trusted JWT identity is known');
   assert.match(entry, /recoverStaleTranslationReservations\(scopedEnv\.geek_subscriptions, \{ limit: 50 \}\)/, 'scheduled maintenance path must stay bounded');
+  assert.match(wrangler, /\[triggers\][\s\S]*crons\s*=\s*\[\s*"\*\/5 \* \* \* \*"\s*\]/,
+    'production translation Worker must invoke the bounded scheduled recovery every five minutes');
 
   console.log('TRANSLATION_RESERVATION_RECOVERY_CONTRACT_OK');
 })().catch((error) => {
