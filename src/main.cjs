@@ -504,6 +504,7 @@ function registerIpcHandlers() {
     assertValidAccountId,
     getSubscriptionStore: () => initSubscriptionStore(),
     getSessionForPartition: (partition) => session.fromPartition(partition, { cache: true }),
+    requireAccountSessionEgress: true,
   }).install();
 
   webviewIpcBoundary = installWebviewIpc({
