@@ -503,6 +503,7 @@ function registerIpcHandlers() {
     assertTrustedSender,
     assertValidAccountId,
     getSubscriptionStore: () => initSubscriptionStore(),
+    getSessionForPartition: (partition) => session.fromPartition(partition, { cache: true }),
   }).install();
 
   webviewIpcBoundary = installWebviewIpc({
