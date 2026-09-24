@@ -42,11 +42,12 @@ function record(key, text, at) {
 
   const sourceText = 'hello bounded cache';
   const translatedText = 'ciao cache limitato';
+  const nowMs = Date.UTC(2026, 8, 24, 18, 0, 0);
   const lines = [];
   for (let index = 0; index < 1100; index += 1) {
     lines.push(record(`padding-${index}`, `padding-${index}-${'x'.repeat(900)}`, index));
   }
-  lines.push(record(cacheKey(sourceText), translatedText, 999999));
+  lines.push(record(cacheKey(sourceText), translatedText, nowMs - 1000));
   await fsp.writeFile(file, lines.join(''), 'utf8');
   const legacyBytes = (await fsp.stat(file)).size;
   assert.ok(legacyBytes > DEFAULT_LIMITS.coldLoadBytes, 'fixture must exceed the production cold-load budget');
@@ -117,6 +118,7 @@ function record(key, text, at) {
       };
     },
     randomUUID: () => 'runtime-bounded-cache-request',
+    now: () => nowMs,
   });
 
   try {

@@ -80,6 +80,13 @@ function createD1(options = {}) {
           return { results: sqlite.prepare(text).all(...values) };
         },
         async run() {
+          if (/^\s*SELECT\b/i.test(text)) {
+            return {
+              success: true,
+              results: sqlite.prepare(text).all(...values),
+              meta: { changes: 0, last_row_id: 0 },
+            };
+          }
           const result = sqlite.prepare(text).run(...values);
           return {
             success: true,
@@ -209,7 +216,9 @@ function deferred() {
     const requestId = nodeCrypto.randomUUID();
     const response = await worker.fetch(translateRequest(requestId), envFor(db));
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).text, 'ciao');
+    const payload = await response.json();
+    assert.equal(payload.text, 'ciao');
+    assert.equal(payload.remaining_chars, 91, 'successful translation must return the authoritative post-commit balance');
     assert.equal(upstreamCalls, 1);
     assert.equal(quota(sqlite), 91, '5 source chars + 4 target chars must be charged');
     const row = usage(sqlite, requestId);
