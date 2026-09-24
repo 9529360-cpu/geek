@@ -2,9 +2,6 @@
 
 const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const LINE_EXTENSION_URL = `chrome-extension://${LINE_EXTENSION_ID}/index.html`;
-const WA_LOCAL_PORT = 1843;
-const WA_LOCAL_ORIGIN = `http://127.0.0.1:${WA_LOCAL_PORT}`;
-const WA_LOCAL_URL = `${WA_LOCAL_ORIGIN}/`;
 const WA_WEB_URL = 'https://web.whatsapp.com/';
 
 function freezeConfig(value) {
@@ -21,7 +18,6 @@ const PLATFORM_CATALOG = Object.freeze({
     navigationKind: 'whatsapp',
     hostnames: ['web.whatsapp.com'],
     allowSuffix: '.whatsapp.com',
-    localOrigin: WA_LOCAL_ORIGIN,
   }),
   'whatsapp-pure': freezeConfig({
     name: 'WhatsApp 纯净版',
@@ -30,7 +26,6 @@ const PLATFORM_CATALOG = Object.freeze({
     navigationKind: 'whatsapp',
     hostnames: ['web.whatsapp.com'],
     allowSuffix: '.whatsapp.com',
-    localOrigin: WA_LOCAL_ORIGIN,
   }),
   'telegram-z': freezeConfig({
     name: 'TelegramZ',
@@ -82,9 +77,6 @@ function platformConfig(type) {
 module.exports = {
   LINE_EXTENSION_ID,
   LINE_EXTENSION_URL,
-  WA_LOCAL_PORT,
-  WA_LOCAL_ORIGIN,
-  WA_LOCAL_URL,
   WA_WEB_URL,
   PLATFORM_CATALOG,
   platformConfig,

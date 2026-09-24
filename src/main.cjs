@@ -23,7 +23,7 @@ const { cleanupPendingPartitions } = require('./exit-partition-cleanup.cjs');
 const { sanitizeUrlForLog } = require('./log-url.cjs');
 const { normalizeWebsiteUrl } = require('./website-url.cjs');
 const { WPP_CAPABILITY_PICKER_SOURCE } = require('./wpp-capability-picker.cjs');
-const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_LOCAL_PORT, WA_LOCAL_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
+const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, WA_WEB_URL, PLATFORM_CATALOG, platformConfig } = require('./platform-catalog.cjs');
 const { isAccountNavigationAllowed } = require('./webview-navigation-boundary.cjs');
 const { installAccountDataBoundary } = require('./account-data-boundary.cjs');
 const { installAccountIpc } = require('./account-ipc.cjs');
@@ -265,7 +265,6 @@ function publicState(snapshot = accountState.getSnapshot()) {
     accounts: snapshot.accounts.map((account) => {
       const config = platformConfig(account.type);
       let url = config ? config.url : PLATFORM_CATALOG[account.type].url;
-      if (account.type === 'whatsapp' || account.type === 'whatsapp-pure') url = WA_LOCAL_URL;
       if (account.type === 'website' && account.customUrl) {
         url = account.customUrl;
       }
@@ -634,10 +633,10 @@ function registerIpcHandlers() {
   }
 
   function findExternalTarget(targets, platform) {
-    const urlMatch = platform === 'whatsapp' ? ('web.whatsapp.com|127.0.0.1:' + WA_LOCAL_PORT)
+    const urlMatch = platform === 'whatsapp' ? 'web.whatsapp.com'
       : platform === 'line' ? 'chrome-extension'
       : 'web.telegram.org';
-    const isTarget = (u) => urlMatch.includes('|') ? (u.includes('web.whatsapp.com') || u.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) : u.includes(urlMatch);
+    const isTarget = (u) => u.includes(urlMatch);
     const target = targets.find((t) => t.type === 'webview' && isTarget(t.url));
     if (!target || !target.webSocketDebuggerUrl) throw new Error('找不到账号页面');
     return target.webSocketDebuggerUrl;
@@ -1041,7 +1040,7 @@ function configureWebviewSecurity(window) {
     const ownerIsWhatsApp = ownerAccount?.type === 'whatsapp' || ownerAccount?.type === 'whatsapp-pure';
     webContents.on('did-finish-load', async () => {
       const url = webContents.getURL() || '';
-      if (ownerIsWhatsApp && (url.includes('web.whatsapp.com') || url.includes(`127.0.0.1:${WA_LOCAL_PORT}`)) && !wppInjected.has(part)) {
+      if (ownerIsWhatsApp && url.includes('web.whatsapp.com') && !wppInjected.has(part)) {
         await injectWppWithRetry(webContents, part);
       }
     });
@@ -1325,22 +1324,6 @@ try {
   app.commandLine.appendSwitch('dns-over-https-templates', 'https://dns.google/dns-query https://cloudflare-dns.com/dns-query');
   app.commandLine.appendSwitch('lang', 'zh-CN');
 } catch (e) { /* 忽略 */ }
-
-async function startWaLocalServer() {
-  try {
-    const httpMod = require('node:http');
-    const waHtml = await fs.readFile(path.join(__dirname, '../resources/wa/index.html'), 'utf-8');
-    const server = httpMod.createServer((req, res) => {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.end(waHtml);
-    });
-    server.listen(WA_LOCAL_PORT, '127.0.0.1', () => {
-      console.log(`[wa-local] WhatsApp 本地页面 http://127.0.0.1:${WA_LOCAL_PORT}`);
-    });
-    server.on('error', (e) => console.log('[wa-local] 端口占用（HelloWorld 也在用？）:', e.code));
-  } catch (e) { console.log('[wa-local] 启动失败:', e.message); }
-}
 
 async function cleanupOrphanPartitions() {
   try {

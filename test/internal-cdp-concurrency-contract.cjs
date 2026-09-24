@@ -9,7 +9,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function guest({ id, partitionLeaf, url = 'http://127.0.0.1:1843/' }) {
+function guest({ id, partitionLeaf, url = 'https://web.whatsapp.com/' }) {
   const calls = [];
   let attached = false;
   const listeners = new Map();

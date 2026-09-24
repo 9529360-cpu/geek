@@ -1,7 +1,7 @@
 'use strict';
 
 const { parseWebsiteUrl } = require('./website-url.cjs');
-const { LINE_EXTENSION_ID, WA_LOCAL_ORIGIN, platformConfig } = require('./platform-catalog.cjs');
+const { LINE_EXTENSION_ID, platformConfig } = require('./platform-catalog.cjs');
 
 const ACCOUNT_PARTITION_PREFIX = 'persist:webview-page-';
 
@@ -37,7 +37,6 @@ function policyForAccount(account, partitionValue) {
     kind: config.navigationKind,
     exactHosts: config.hostnames || Object.freeze([]),
     suffix: config.allowSuffix || '',
-    localOrigin: config.localOrigin || '',
     extensionId: config.extensionId || '',
   });
 }
@@ -69,7 +68,6 @@ function isNavigationAllowed(policy, value) {
       && (hostname === policy.hostname || hostname.endsWith(`.${policy.hostname}`));
   }
   if (policy.extensionId && url.protocol === 'chrome-extension:' && hostname === policy.extensionId) return true;
-  if (policy.localOrigin && url.protocol === 'http:' && url.origin === policy.localOrigin) return true;
   return url.protocol === 'https:' && hostnameMatches(hostname, policy.exactHosts, policy.suffix);
 }
 
@@ -124,7 +122,6 @@ function installAccountScopedWebviewNavigationBoundary({ app, resolvePolicyForPa
 module.exports = {
   ACCOUNT_PARTITION_PREFIX,
   LINE_EXTENSION_ID,
-  WA_LOCAL_ORIGIN,
   accountIdFromPartition,
   policyForAccount,
   policyFromAccountState,

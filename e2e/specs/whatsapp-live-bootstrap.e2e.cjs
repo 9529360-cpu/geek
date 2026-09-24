@@ -184,8 +184,13 @@ describe('WhatsApp current Web bootstrap', () => {
       throw new Error(`WhatsApp bootstrap terminal-state timeout: ${JSON.stringify(classification)}`, { cause: error });
     }
 
+    const hostSource = await browser.execute((partition) => {
+      const guest = [...document.querySelectorAll('webview')].find((element) => String(element.partition || element.getAttribute('partition') || '') === partition);
+      return String(guest?.getAttribute('src') || guest?.src || '');
+    }, PARTITION);
+
     const summary = classification.summary;
-    console.log(`WA_LIVE_BOOTSTRAP ${JSON.stringify({ ...summary, reason: classification.reason })}`);
+    console.log(`WA_LIVE_BOOTSTRAP ${JSON.stringify({ ...summary, hostSource, reason: classification.reason })}`);
     if (summary.platform === 'win32') {
       console.log(`WA_WINDOWS_BOOTSTRAP platform=win32 guestFound=${summary.guestFound} officialWeb=${summary.officialWeb} rendererResponsive=${summary.rendererResponsive} documentComplete=${summary.documentComplete} loginShell=${summary.loginShell} terminalBlocked=${summary.terminalBlocked} loadingProgress=${summary.loadingProgress} visibleLoadingProgress=${summary.visibleLoadingProgress}`);
     }
@@ -193,6 +198,7 @@ describe('WhatsApp current Web bootstrap', () => {
     assert.equal(summary.guestFound, true, 'exact synthetic WhatsApp guest was not found');
     assert.equal(summary.rendererResponsive, true, `WhatsApp renderer did not respond: ${summary.rendererErrorCategory}`);
     assert.equal(summary.officialWeb, true, 'WhatsApp guest and renderer did not use current official Web bootstrap');
+    assert.equal(new URL(hostSource).origin, WHATSAPP_WEB_ORIGIN, 'shell WebView src must be the official WhatsApp origin, not a retired local snapshot');
     assert.equal(state.backgroundThrottling, true, 'WhatsApp guest must keep Chromium background scheduling enabled');
     assert.equal(summary.mainOrigin, new URL(LIVE_URL).origin, 'main-process WhatsApp guest origin changed');
     assert.equal(summary.rendererOrigin, new URL(LIVE_URL).origin, 'WhatsApp renderer origin changed');

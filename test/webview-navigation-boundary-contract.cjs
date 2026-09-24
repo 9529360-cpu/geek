@@ -86,7 +86,7 @@ assert.equal(isNavigationAllowed(lineBusiness, 'https://manager.line.biz/'), tru
 const waAccount = account('WA1', 'whatsapp');
 const wa = policyForAccount(waAccount, waAccount.partition);
 assert.equal(wa.kind, 'whatsapp');
-assert.equal(isNavigationAllowed(wa, 'http://127.0.0.1:1843/index.html'), true);
+assert.equal(isNavigationAllowed(wa, 'http://127.0.0.1:1843/index.html'), false, 'retired local WhatsApp bootstrap must be blocked');
 assert.equal(isNavigationAllowed(wa, 'http://127.0.0.1:9999/'), false);
 assert.equal(isNavigationAllowed(wa, 'https://web.whatsapp.com/'), true);
 assert.equal(isNavigationAllowed(wa, 'https://web.telegram.org/a'), false);
