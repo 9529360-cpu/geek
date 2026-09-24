@@ -92,7 +92,10 @@ assert.match(whatsappSpec, /visibleProgressCount:\s*boundedCount\(visibleProgres
 assert.match(whatsappSpec, /rendererProbeOk:\s*true/, 'successful renderer execution must be explicit');
 assert.match(whatsappSpec, /rendererProbeFailed:\s*true/, 'renderer execute failure must be explicit');
 assert.match(whatsappSpec, /rendererProbeTimedOut:\s*true/, 'renderer probe timeout must be explicit');
-assert.match(whatsappSpec, /return classification\.ready;/, 'bounded waitUntil polling must use the pure readiness classifier');
+assert.match(whatsappSpec, /return classification\.ready[\s\S]{0,260}state\.qrCodeVisible === true[\s\S]{0,260}state\.serviceWorkerControlled === true[\s\S]{0,260}serviceWorkerRegistrationCount/, 'bounded waitUntil polling must require the pure classifier plus an actual QR and controlling Service Worker');
+assert.match(whatsappSpec, /sessionUserAgent:\s*guest\.session\?\.getUserAgent/, 'live gate must capture the account Session UA used by Service Worker requests');
+assert.match(whatsappSpec, /assert\.equal\(state\.sessionUserAgent, state\.rendererUserAgent/, 'live gate must require Session and renderer UA identity to match');
+assert.match(whatsappSpec, /assert\.doesNotMatch\(state\.sessionUserAgent, \/Electron\\\//, 'live gate must reject Electron product tokens in the WhatsApp Session UA');
 assert.match(whatsappSpec, /WA_WINDOWS_BOOTSTRAP platform=win32 guestFound=\$\{summary\.guestFound\} officialWeb=\$\{summary\.officialWeb\} rendererResponsive=\$\{summary\.rendererResponsive\} documentComplete=\$\{summary\.documentComplete\} loginShell=\$\{summary\.loginShell\} terminalBlocked=\$\{summary\.terminalBlocked\} loadingProgress=\$\{summary\.loadingProgress\} visibleLoadingProgress=\$\{summary\.visibleLoadingProgress\}/, 'Windows gate must emit stable non-sensitive acceptance plus progress telemetry');
 assert.doesNotMatch(whatsappSpec, /console\.(?:log|error)\([^\n]*(?:document\.cookie|localStorage|sessionStorage|Authorization|qrData|innerText|textContent)/i, 'bootstrap logs must not expose credentials, QR payloads, or page bodies');
 assert.doesNotMatch(whatsappSpec, /getAttribute\(['"]data-ref['"]\)|\.dataset\.ref\b/, 'QR payload values must never be read by the bootstrap gate');

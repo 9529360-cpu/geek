@@ -39,6 +39,7 @@ const { createTelegramNativeAttachmentHandler } = require('./telegram-native-att
 const { externalDebuggingRequested } = require('./external-debugging-policy.cjs');
 const { createProxyRuntime } = require('./proxy-runtime.cjs');
 const { createWhatsappRuntimeRecovery } = require('./whatsapp-runtime-recovery.cjs');
+const { applyWhatsAppSessionUserAgent } = require('./whatsapp-session-user-agent.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
@@ -956,6 +957,16 @@ function configureWebviewSecurity(window) {
       event.preventDefault();
       return;
     }
+
+    // WhatsApp's Service Worker fetch is owned by the Electron Session rather than the
+    // guest page. Keep the partition Session UA aligned with the page UA before the first
+    // navigation so worker/bootstrap requests never expose Electron/app identifiers.
+    applyWhatsAppSessionUserAgent({
+      account,
+      partition,
+      userAgent: CHROME_USER_AGENT,
+      sessionFromPartition: (name, options) => session.fromPartition(name, options),
+    });
 
     const globalConfig = configStore.getSnapshot();
     if (!proxyRuntime.isReadyForAccount(account, globalConfig)) {

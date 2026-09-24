@@ -239,7 +239,7 @@
     async function probeWhatsAppStartup(webview) {
       if (!webview || typeof webview.executeJavaScript !== 'function') return { probeFailed: true };
       let timeoutId;
-      const probe = Promise.resolve().then(() => webview.executeJavaScript(`(() => {
+      const probe = Promise.resolve().then(() => webview.executeJavaScript(`(async () => {
         const rendered = (element) => {
           if (!(element instanceof Element)) return false;
           const style = getComputedStyle(element);
@@ -248,14 +248,31 @@
           const rect = element.getBoundingClientRect();
           return rect.width >= 2 && rect.height >= 2;
         };
-        const progress = Array.from(document.querySelectorAll('progress,[role="progressbar"],[aria-busy="true"]')).filter(rendered);
-        const terminal = Array.from(document.querySelectorAll('button,[role="button"],[role="textbox"],input,textarea,[contenteditable="true"],canvas')).filter(rendered);
+        const qrCanvas = (element) => {
+          if (!rendered(element)) return false;
+          const rect = element.getBoundingClientRect();
+          const ratio = rect.height > 0 ? rect.width / rect.height : 0;
+          return rect.width >= 80 && rect.height >= 80 && ratio >= 0.6 && ratio <= 1.4;
+        };
+        const progress = Array.from(document.querySelectorAll('progress,[role="progressbar"],[aria-busy="true"],[data-testid="loading-spinner"]')).filter(rendered);
+        const qrReady = Array.from(document.querySelectorAll('[data-testid="link-device-qr-code"]')).some(rendered)
+          || Array.from(document.querySelectorAll('canvas')).some(qrCanvas);
+        const chatReady = Array.from(document.querySelectorAll('#pane-side,[data-testid="chat-list"],[data-testid="chat-list-search"]')).some(rendered);
+        const phoneLoginReady = Array.from(document.querySelectorAll('input[type="tel"],input[autocomplete="tel"]')).some(rendered);
+        const registrations = navigator.serviceWorker?.getRegistrations
+          ? await navigator.serviceWorker.getRegistrations().catch(() => [])
+          : [];
         return {
           probeOk: true,
           origin: location.origin,
           readyState: document.readyState,
           visibleProgressCount: Math.min(progress.length, 99),
-          terminalEvidenceCount: Math.min(terminal.length, 99),
+          terminalEvidenceCount: Number(qrReady) + Number(chatReady) + Number(phoneLoginReady),
+          qrReady,
+          chatReady,
+          phoneLoginReady,
+          serviceWorkerControlled: !!navigator.serviceWorker?.controller,
+          serviceWorkerRegistrationCount: Math.min(registrations.length, 99),
           wppReady: window.WPP?.isReady === true,
         };
       })()`)).catch(() => ({ probeFailed: true }));
