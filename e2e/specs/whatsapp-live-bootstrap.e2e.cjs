@@ -34,7 +34,7 @@ async function probeGuest() {
     const guest = guests[0];
 
     let timeoutId;
-    const pageProbe = guest.executeJavaScript(`(() => {
+    const pageProbe = guest.executeJavaScript(`(async () => {
       const MAX_DIAGNOSTIC_COUNT = 99;
       const MAX_TEXT_NODES = 5000;
       const MAX_VISUAL_CANDIDATES = 50;
@@ -119,8 +119,12 @@ async function probeGuest() {
       const qrDataRefPresent = dataRefCandidates.some(looksLikeQrGeometry);
       const qrCanvasVisible = canvasCandidates.some(element => looksLikeQrGeometry(element) && elementIsObservable(element));
       const qrDataRefVisible = dataRefCandidates.some(element => looksLikeQrGeometry(element) && elementIsObservable(element));
+      const exactQrVisible = Array.from(document.querySelectorAll('[data-testid="link-device-qr-code"]')).some(elementIsObservable);
+      const serviceWorkerRegistrations = navigator.serviceWorker?.getRegistrations
+        ? await navigator.serviceWorker.getRegistrations().catch(() => [])
+        : [];
 
-      const progressElements = Array.from(document.querySelectorAll('progress,[role="progressbar"]'));
+      const progressElements = Array.from(document.querySelectorAll('progress,[role="progressbar"],[data-testid="loading-spinner"]'));
       const visibleProgressCount = progressElements.slice(0, MAX_DIAGNOSTIC_COUNT).filter(isRendered).length;
       const loginShellPresent = loginTextPresent || qrCanvasPresent || qrDataRefPresent;
       const loginShellVisible = loginTextVisible || qrCanvasVisible || qrDataRefVisible;
@@ -129,10 +133,14 @@ async function probeGuest() {
         rendererProbeOk: true,
         url: location.href,
         readyState: document.readyState,
+        rendererUserAgent: navigator.userAgent,
         progressCount: boundedCount(progressElements.length),
         visibleProgressCount: boundedCount(visibleProgressCount),
         loginShellPresent,
         loginShellVisible,
+        qrCodeVisible: exactQrVisible || qrCanvasVisible,
+        serviceWorkerControlled: !!navigator.serviceWorker?.controller,
+        serviceWorkerRegistrationCount: Math.min(serviceWorkerRegistrations.length, MAX_DIAGNOSTIC_COUNT),
         metaRequire: typeof window.require === 'function',
         wppPresent: !!window.WPP,
         wppInjected: window.WPP?.isInjected === true,
@@ -152,6 +160,7 @@ async function probeGuest() {
       platform: process.platform,
       mainUrl: guest.getURL(),
       backgroundThrottling: guest.getBackgroundThrottling?.() !== false,
+      sessionUserAgent: guest.session?.getUserAgent?.() || '',
       ...page,
     };
   }, PARTITION, RENDERER_PROBE_TIMEOUT_MS);
@@ -174,7 +183,10 @@ describe('WhatsApp current Web bootstrap', () => {
       await browser.waitUntil(async () => {
         state = await probeGuest();
         classification = classifyWhatsAppBootstrap(state);
-        return classification.ready;
+        return classification.ready
+          && state.qrCodeVisible === true
+          && state.serviceWorkerControlled === true
+          && Number(state.serviceWorkerRegistrationCount || 0) > 0;
       }, {
         timeout: BOOTSTRAP_TIMEOUT_MS,
         interval: 500,
@@ -200,6 +212,12 @@ describe('WhatsApp current Web bootstrap', () => {
     assert.equal(summary.officialWeb, true, 'WhatsApp guest and renderer did not use current official Web bootstrap');
     assert.equal(new URL(hostSource).origin, WHATSAPP_WEB_ORIGIN, 'shell WebView src must be the official WhatsApp origin, not a retired local snapshot');
     assert.equal(state.backgroundThrottling, true, 'WhatsApp guest must keep Chromium background scheduling enabled');
+    assert.equal(state.sessionUserAgent, state.rendererUserAgent, 'WhatsApp Session UA must match the renderer UA so Service Worker fetches use the same browser identity');
+    assert.doesNotMatch(state.sessionUserAgent, /Electron\//i, 'WhatsApp Session UA must not expose Electron to worker/bootstrap requests');
+    assert.doesNotMatch(state.sessionUserAgent, /极客\//i, 'WhatsApp Session UA must not expose the app product token to worker/bootstrap requests');
+    assert.equal(state.serviceWorkerControlled, true, 'WhatsApp page must be controlled by its Service Worker before QR bootstrap is accepted');
+    assert.ok(Number(state.serviceWorkerRegistrationCount || 0) > 0, 'WhatsApp Service Worker must be registered');
+    assert.equal(state.qrCodeVisible, true, 'logged-out WhatsApp bootstrap must render an observable QR code, not only the login scaffold');
     assert.equal(summary.mainOrigin, new URL(LIVE_URL).origin, 'main-process WhatsApp guest origin changed');
     assert.equal(summary.rendererOrigin, new URL(LIVE_URL).origin, 'WhatsApp renderer origin changed');
     assert.equal(summary.documentComplete, true, 'WhatsApp document did not complete loading');
