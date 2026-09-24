@@ -39,10 +39,16 @@
     if (state.probeFailed === true || state.probeOk !== true) return { stalled: false, reason: 'probe-failed' };
     if (String(state.origin || '') !== WHATSAPP_WEB_ORIGIN) return { stalled: false, reason: 'wrong-origin' };
     if (state.readyState !== 'complete') return { stalled: false, reason: 'document-incomplete' };
-    if (state.wppReady === true) return { stalled: false, reason: 'wpp-ready' };
     if (Number(state.terminalEvidenceCount || 0) > 0) return { stalled: false, reason: 'terminal-visible' };
-    if (Number(state.visibleProgressCount || 0) <= 0) return { stalled: false, reason: 'no-loading-indicator' };
-    return { stalled: true, reason: 'bootstrap-progress-stalled' };
+    // WA-JS can report ready several seconds before WhatsApp leaves its native splash.
+    // Internal module readiness is therefore diagnostic only; user-visible terminal UI
+    // is the authority for deciding whether startup actually completed.
+    return {
+      stalled: true,
+      reason: Number(state.visibleProgressCount || 0) > 0
+        ? 'bootstrap-progress-stalled'
+        : 'bootstrap-ui-stalled',
+    };
   }
 
   function createTracker(options = {}) {
@@ -243,7 +249,7 @@
           return rect.width >= 2 && rect.height >= 2;
         };
         const progress = Array.from(document.querySelectorAll('progress,[role="progressbar"],[aria-busy="true"]')).filter(rendered);
-        const terminal = Array.from(document.querySelectorAll('button,[contenteditable="true"],input,textarea,canvas,[data-ref]')).filter(rendered);
+        const terminal = Array.from(document.querySelectorAll('button,[role="button"],[role="textbox"],input,textarea,[contenteditable="true"],canvas')).filter(rendered);
         return {
           probeOk: true,
           origin: location.origin,
@@ -261,6 +267,40 @@
       return state;
     }
 
+    async function resetWhatsAppApplicationAssets(webview) {
+      if (!webview || typeof webview.executeJavaScript !== 'function') return false;
+      return Promise.resolve(webview.executeJavaScript(`(async () => {
+        let serviceWorkersCleared = 0;
+        let cacheEntriesCleared = 0;
+        try {
+          if (navigator.serviceWorker?.getRegistrations) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            const results = await Promise.all(registrations.map(registration => registration.unregister().catch(() => false)));
+            serviceWorkersCleared = results.filter(Boolean).length;
+          }
+        } catch (_) {}
+        try {
+          if (typeof caches !== 'undefined' && typeof caches.keys === 'function') {
+            const keys = await caches.keys();
+            const results = await Promise.all(keys.map(key => caches.delete(key).catch(() => false)));
+            cacheEntriesCleared = results.filter(Boolean).length;
+          }
+        } catch (_) {}
+        return { serviceWorkersCleared, cacheEntriesCleared };
+      })()`))
+        .then(() => true)
+        .catch(() => false);
+    }
+
+    async function reloadWhatsAppAfterSoftStall(webview) {
+      if (!webview || typeof webview.reloadIgnoringCache !== 'function') return false;
+      // Keep identity-bearing state intact. Only replace the web-app delivery layer that
+      // can strand one persistent partition on an old WhatsApp shell after an upstream rollout.
+      await resetWhatsAppApplicationAssets(webview);
+      webview.reloadIgnoringCache();
+      return true;
+    }
+
     async function confirmWhatsAppSoftStall(webview, accountId, lifecycle, generation) {
       if (!lifecycle || lifecycle.healthGeneration !== generation || lifecycle.loading || !webview.isConnected) return;
       const second = classifyWhatsAppStartupProbe(await probeWhatsAppStartup(webview));
@@ -276,8 +316,8 @@
       tracker.crashed(accountId);
       render();
       try {
-        if (typeof webview.reloadIgnoringCache !== 'function') throw new Error('reloadIgnoringCache unavailable');
-        webview.reloadIgnoringCache();
+        const reloaded = await reloadWhatsAppAfterSoftStall(webview);
+        if (!reloaded) throw new Error('soft-stall reload unavailable');
       } catch (_) {
         tracker.forceBlocked(accountId, 'soft-stall');
         render();
@@ -384,8 +424,12 @@
       // two-per-minute crash budget. A failed/no-op reload naturally returns to blocked.
       tracker.crashed(accountId);
       try {
-        if (blockedState.stage === 'soft-stall' && typeof webview.reloadIgnoringCache === 'function') webview.reloadIgnoringCache();
-        else webview.reload();
+        if (blockedState.stage === 'soft-stall') {
+          const reloaded = await reloadWhatsAppAfterSoftStall(webview);
+          if (!reloaded) throw new Error('soft-stall reload unavailable');
+        } else {
+          webview.reload();
+        }
         return true;
       } catch (_) {
         return false;
@@ -397,8 +441,10 @@
     function bindWebview(webview) {
       if (!webview || boundWebviews.has(webview) || typeof webview.addEventListener !== 'function') return;
       boundWebviews.add(webview);
+      let initiallyLoading = false;
+      try { initiallyLoading = webview.isLoading?.() === true; } catch (_) {}
       const lifecycle = {
-        loading: false,
+        loading: initiallyLoading,
         startedThisTurn: false,
         softTimer: null,
         confirmTimer: null,
@@ -448,6 +494,17 @@
           render();
         });
       });
+
+      // A dynamically loaded shell helper can bind after dom-ready/did-stop-loading already
+      // fired. Do not leave such an already-loaded WhatsApp guest outside the watchdog.
+      if (!initiallyLoading) {
+        queueMicrotask(() => {
+          if (!webview.isConnected) return;
+          let loading = false;
+          try { loading = webview.isLoading?.() === true; } catch (_) {}
+          if (!loading) armWhatsAppBootstrapCheck(webview);
+        });
+      }
     }
 
     function bindCurrentWebviews() {
