@@ -31,6 +31,7 @@ function createTranslationRuntime(options = {}) {
     assertSafeTranslationOutput,
     getSubscriptionStore,
     getSessionForPartition = null,
+    requireAccountSessionEgress = false,
     now = Date.now,
     fetchImpl = globalThis.fetch,
     env = process.env,
@@ -75,6 +76,7 @@ function createTranslationRuntime(options = {}) {
     const isLocalGateway = parsed?.protocol === 'http:' && parsed.hostname === '127.0.0.1';
     if (!owner || isLocalGateway) return fetchImpl(url, request);
     if (typeof getSessionForPartition !== 'function') {
+      if (!requireAccountSessionEgress) return fetchImpl(url, request);
       throw base.createTranslationError(
         'TRANSLATION_EGRESS_UNAVAILABLE',
         '翻译账号网络会话不可用，请重试',
@@ -83,6 +85,7 @@ function createTranslationRuntime(options = {}) {
     }
     const accountSession = getSessionForPartition(owner);
     if (!accountSession || typeof accountSession.fetch !== 'function') {
+      if (!requireAccountSessionEgress) return fetchImpl(url, request);
       throw base.createTranslationError(
         'TRANSLATION_EGRESS_UNAVAILABLE',
         '翻译账号网络会话不可用，请重试',
