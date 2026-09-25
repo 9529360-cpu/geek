@@ -40,7 +40,16 @@ const { externalDebuggingRequested } = require('./external-debugging-policy.cjs'
 const { createProxyRuntime } = require('./proxy-runtime.cjs');
 const { createWhatsappRuntimeRecovery } = require('./whatsapp-runtime-recovery.cjs');
 const { applyWhatsAppSessionUserAgent } = require('./whatsapp-session-user-agent.cjs');
+const {
+  isLineContextIsolationCandidateEnabled,
+  applyLineContextIsolationPolicy,
+  lineWebPreferencesAttribute,
+} = require('./line-context-isolation-policy.cjs');
 const relaunchLimiter = createRateLimiter({ max: 2, windowMs: 5 * 60 * 1000 });
+const LINE_CONTEXT_ISOLATION_CANDIDATE = isLineContextIsolationCandidateEnabled({
+  isPackaged: app.isPackaged,
+  env: process.env,
+});
 const USER_DATA_DIR = runtimePaths.resolveUserDataDir({
   appDataDir: app.getPath('appData'),
   overrideDir: process.env.GEEK_USER_DATA_DIR
@@ -985,8 +994,9 @@ function configureWebviewSecurity(window) {
     const isWebsite = account.type === 'website';
     // Non-LINE account guests use Chromium's normal background scheduling. Keeping every
     // WhatsApp/Telegram/Website renderer permanently unthrottled turns a few resident
-    // accounts into several always-foreground Chromium apps. LINE retains its existing
-    // scoped compatibility exception until authenticated regression evidence allows it.
+    // accounts into several always-foreground Chromium apps. Production LINE keeps its
+    // scoped compatibility exception; an unpackaged candidate can opt into isolation
+    // without mutating source or allowing a packaged client to inherit the experiment.
     webPreferences.backgroundThrottling = isLine ? false : true;
     if (!isWebsite) {
       const integrityComponent = isLine ? 'lineExtension' : 'bridge';
@@ -997,8 +1007,11 @@ function configureWebviewSecurity(window) {
       }
     }
     if (isLine) {
-      webPreferences.preload = path.join(__dirname, '..', 'resources', 's3loYR.js');
-      webPreferences.contextIsolation = false;
+      applyLineContextIsolationPolicy({
+        webPreferences,
+        candidateEnabled: LINE_CONTEXT_ISOLATION_CANDIDATE,
+        legacyPreloadPath: path.join(__dirname, '..', 'resources', 's3loYR.js'),
+      });
     } else if (isWebsite) {
       delete webPreferences.preload;
       webPreferences.contextIsolation = true;
@@ -1022,7 +1035,7 @@ function configureWebviewSecurity(window) {
     }
     webPreferences.sandbox = true;
     params.webpreferences = isLine
-      ? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'
+      ? lineWebPreferencesAttribute(LINE_CONTEXT_ISOLATION_CANDIDATE)
       : isWebsite
         ? 'contextIsolation=yes,sandbox=true,nativeWindowOpen=no,spellcheck=no'
         : 'contextIsolation=yes,sandbox=true,nativeWindowOpen=yes,spellcheck=no';

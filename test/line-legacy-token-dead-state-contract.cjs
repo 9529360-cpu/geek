@@ -9,6 +9,11 @@ const srcDir = path.join(root, 'src');
 const main = fs.readFileSync(path.join(srcDir, 'main.cjs'), 'utf8');
 const accountState = fs.readFileSync(path.join(srcDir, 'account-state.cjs'), 'utf8');
 const { LINE_EXTENSION_ID, LINE_EXTENSION_URL, PLATFORM_CATALOG } = require('../src/platform-catalog.cjs');
+const {
+  isLineContextIsolationCandidateEnabled,
+  applyLineContextIsolationPolicy,
+  lineWebPreferencesAttribute,
+} = require('../src/line-context-isolation-policy.cjs');
 
 const deadMainSymbols = [
   'LINE_TOKENS_FILE',
@@ -73,13 +78,31 @@ assert.match(
 );
 assert.match(
   main,
-  /if \(isLine\) \{\s*webPreferences\.preload = path\.join\(__dirname, '\.\.', 'resources', 's3loYR\.js'\);\s*webPreferences\.contextIsolation = false;/,
-  'LINE compatibility preload and scoped contextIsolation=false exception must remain unchanged'
+  /applyLineContextIsolationPolicy\(\{[\s\S]*?candidateEnabled:\s*LINE_CONTEXT_ISOLATION_CANDIDATE,[\s\S]*?legacyPreloadPath:\s*path\.join\(__dirname, '\.\.', 'resources', 's3loYR\.js'\),[\s\S]*?\}\);/,
+  'main must keep the legacy LINE preload as the default policy path'
 );
-assert.match(
-  main,
-  /params\.webpreferences = isLine\s*\? 'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'/,
-  'LINE WebView compatibility preferences must remain scoped and unchanged'
+assert.equal(
+  lineWebPreferencesAttribute(false),
+  'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false',
+  'default LINE WebView compatibility preferences must remain unchanged'
+);
+{
+  const webPreferences = {};
+  applyLineContextIsolationPolicy({
+    webPreferences,
+    candidateEnabled: false,
+    legacyPreloadPath: 'C:/runtime/resources/s3loYR.js',
+  });
+  assert.equal(webPreferences.preload, 'C:/runtime/resources/s3loYR.js');
+  assert.equal(webPreferences.contextIsolation, false);
+}
+assert.equal(
+  isLineContextIsolationCandidateEnabled({
+    isPackaged: true,
+    env: { GEEK_LINE_CONTEXT_ISOLATION_CANDIDATE: '1' },
+  }),
+  false,
+  'packaged LINE must retain the scoped compatibility exception even if candidate env leaks in'
 );
 
 assert.equal(LINE_EXTENSION_ID, 'ophjlpahpchlmihnnnihgmmeilfjmjjc', 'LINE extension ID must remain unchanged');
