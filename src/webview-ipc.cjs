@@ -44,7 +44,7 @@ function focusedComposerScript(expectedChatId = '') {
           const currentChatId = String(location.hash || '').replace(/^#/, '').split('?')[0];
           if (currentChatId !== expectedChatId) return 'CHAT_CHANGED';
         }
-        const editor = document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"]');
+        const editor = document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
         return !!editor && (document.activeElement === editor || editor.contains(document.activeElement));
       }
       if (/^chrome-extension:\\/\\/ophjlpahpchlmihnnnihgmmeilfjmjjc\\//.test(location.href)) {

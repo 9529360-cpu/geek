@@ -167,12 +167,14 @@
       else await run();
     };
     const root = document.querySelector('#MiddleColumn') || document.querySelector('#Main') || document.body;
-    const sendEditor = () => document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"]');
+    const sendEditor = () => document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
+    const isWebKEditor = editor => !!editor?.matches?.('.input-message-input:not(.input-field-input-fake)');
     window.__geekTelegramSendAbort?.abort();
     window.__geekTelegramSendAbort = new AbortController();
     window.__geekTelegramSendBound = true;
     window.__geekTelegramSendLock = false;
-    const sendButton = () => document.querySelector('#MiddleColumn button.Button.send.main-button, #Main button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"]');
+    window.__geekTelegramNativeInputCommit = false;
+    const sendButton = () => document.querySelector('#MiddleColumn button.Button.send.main-button, #Main button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"], .btn-send');
     const notifySendBlocked = message => {
       document.getElementById('geek-translation-send-error')?.remove();
       const notice = document.createElement('div'); notice.id = 'geek-translation-send-error'; notice.textContent = message;
@@ -204,14 +206,21 @@
         if (liveEditor !== editor || editor.isConnected === false) throw new Error('消息输入框已变化，翻译发送已取消');
       };
       window.__geekTelegramSendLock = true;
-      editor.setAttribute('contenteditable', 'false');
+      const keepWebKContenteditable = isWebKEditor(editor);
+      if (!keepWebKContenteditable) editor.setAttribute('contenteditable', 'false');
       try {
         const result = await window.__geekTranslationRequest({ text: original, source: setting.source || 'auto', target: setting.target || 'en', provider: setting.provider, route: setting.route, chatId: cid, intent: 'outgoing-send' });
         if (!result?.text) throw new Error('翻译失败');
         assertSendContext();
-        editor.setAttribute('contenteditable', 'true'); editor.focus();
+        if (!keepWebKContenteditable) editor.setAttribute('contenteditable', 'true');
+        editor.focus();
         const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(editor); sel.removeAllRanges(); sel.addRange(range);
-        await nativeInsertText(result.text, cid);
+        window.__geekTelegramNativeInputCommit = true;
+        try {
+          await nativeInsertText(result.text, cid);
+        } finally {
+          window.__geekTelegramNativeInputCommit = false;
+        }
         await new Promise(resolve => setTimeout(resolve, 30));
         assertSendContext();
         const editorAfterFill = messageText(editor);
@@ -225,16 +234,26 @@
         console.error('[geek-telegram-translation-send]', error);
         const cancelled = /聊天已切换|输入框已变化/.test(String(error?.message || error));
         notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : translationSendErrorMessage(error));
-        if (sendEditor() === editor && editor.isConnected !== false) { editor.setAttribute('contenteditable', 'true'); editor.focus(); }
-      } finally { window.__geekTelegramSendLock = false; }
+        if (editor.isConnected !== false) {
+          if (!keepWebKContenteditable) editor.setAttribute('contenteditable', 'true');
+          if (sendEditor() === editor) editor.focus();
+        }
+      } finally { window.__geekTelegramNativeInputCommit = false; window.__geekTelegramSendLock = false; }
     };
+    document.addEventListener('beforeinput', event => {
+      if (!window.__geekTelegramSendLock || !event.isTrusted || window.__geekTelegramNativeInputCommit) return;
+      const editor = event.target?.closest?.('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
+      if (!editor) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture: true, signal: window.__geekTelegramSendAbort.signal });
     document.addEventListener('keydown', event => {
-      const editor = event.target?.closest?.('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"]');
+      const editor = event.target?.closest?.('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
       if (!editor || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
       translateAndSend(event, editor, sendButton());
     }, { capture: true, signal: window.__geekTelegramSendAbort.signal });
     document.addEventListener('click', event => {
-      const button = event.target?.closest?.('#MiddleColumn button.Button.send.main-button, #Main button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"]');
+      const button = event.target?.closest?.('#MiddleColumn button.Button.send.main-button, #Main button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"], .btn-send');
       const editor = sendEditor();
       if (!button || !editor) return;
       translateAndSend(event, editor, button);
