@@ -31,4 +31,10 @@ assert.ok(lineFinalGuard >= 0 && lineFinalGuard < lineSubmit && lineSubmit - lin
 assert.equal((line.match(/submitButton\.click\(\);/g) || []).length, 1, 'LINE 每次译文流程只能保留一个最终程序化 click 提交点');
 assert.doesNotMatch(line, /dispatchEvent\(new KeyboardEvent\(['"]keydown['"]/, 'LINE 译文提交不得回退到不受信任的 synthetic Enter');
 
+assert.match(
+  line,
+  /document\.addEventListener\('click', event => \{\s*if \(!event\.isTrusted\) return;/,
+  'LINE translation must intercept only trusted user clicks so verified programmatic submits bypass translation'
+);
+
 console.log('TRANSLATION_DOUBLE_ENTER_CONTRACT_OK');
