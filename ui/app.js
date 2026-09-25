@@ -1700,22 +1700,22 @@
         return false;
       },
       async getComposerText() {
-        if (family === 'telegram') return wv.executeJavaScript(`document.querySelector('#editable-message-text')?.innerText || ''`);
+        if (family === 'telegram') return wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText || ''`);
         if (family === 'line') return wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value || ''`);
         return '';
       },
       async clearComposerText() {
-        if (family === 'telegram') return wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text'); if(!editor)return false; editor.focus(); document.execCommand('selectAll',false,null); document.execCommand('delete',false,null); return !(editor.innerText||'').trim(); })()`);
+        if (family === 'telegram') return wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; editor.focus(); document.execCommand('selectAll',false,null); document.execCommand('delete',false,null); return !(editor.innerText||'').trim(); })()`);
         if (family === 'line') return wv.executeJavaScript(`(() => { const host=document.querySelector('textarea-ex'); const textarea=host?.shadowRoot?.querySelector('textarea'); if(!host||!textarea||typeof host.insertValue!=='function')return false; textarea.focus(); textarea.select(); host.insertValue([]); return !(textarea.value||'').trim(); })()`);
         return true;
       },
       async setComposerText(text) {
         if (family === 'telegram') {
-          const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror'); if(!editor)return false; editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
+          const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
           if (!focused) return 'NO_EDITOR';
           await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv));
           await sleep(50);
-          const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text')?.innerText?.trim() || ''`);
+          const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText?.trim() || ''`);
           return actual === String(text).trim() ? 'OK' : 'EMPTY';
         }
         if (family === 'line') {
@@ -1730,7 +1730,7 @@
         return wv.executeJavaScript(script);
       },
       async sendText(text = '') {
-        if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const editor=document.querySelector('#editable-message-text'); const before=(editor?.innerText||'').trim(); if(!before)return 'EMPTY'; const count=document.querySelectorAll('.Message').length; const button=document.querySelector('button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"]'); if(!button)return 'NO_SEND_BUTTON'; button.click(); for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,250)); if(document.querySelectorAll('.Message').length>count && !(editor?.innerText||'').trim())return 'SENT';} return 'MAYBE';})()`);
+        if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const editor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); const before=(editor?.innerText||'').trim(); if(!before)return 'EMPTY'; const messageCount=()=>document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length; const count=messageCount(); const button=document.querySelector('button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"], .btn-send'); if(!button)return 'NO_SEND_BUTTON'; button.click(); for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,250)); if(messageCount()>count && !(editor?.innerText||'').trim())return 'SENT';} return 'MAYBE';})()`);
         const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;
         return wv.executeJavaScript(script);
       },

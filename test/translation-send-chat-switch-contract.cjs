@@ -55,7 +55,9 @@ function createTelegramHarness(translationPromise) {
   editor.innerText = 'hello';
   editor.textContent = 'hello';
   editor.attributes = new Map([['contenteditable', 'true']]);
-  editor.closest = selector => selector.includes('#editable-message-text') ? editor : null;
+  editor.classList = { contains: name => name === 'input-message-input' };
+  editor.matches = selector => selector.includes('.input-message-input');
+  editor.closest = selector => selector.includes('.input-message-input') ? editor : null;
   editor.setAttribute = (name, value) => editor.attributes.set(name, String(value));
   editor.focus = () => {};
   editor.contains = node => node === editor;
@@ -68,8 +70,8 @@ function createTelegramHarness(translationPromise) {
     querySelector(selector) {
       if (selector === '#MiddleColumn') return root;
       if (selector === '#Main') return null;
-      if (selector.includes('#editable-message-text')) return editor;
-      if (selector.includes('button.Button.send.main-button') || selector.includes('button[aria-label="Send"]')) return sendButton;
+      if (selector.includes('.input-message-input')) return editor;
+      if (selector.includes('.btn-send')) return sendButton;
       return null;
     },
     querySelectorAll() { return []; },
@@ -81,7 +83,7 @@ function createTelegramHarness(translationPromise) {
   root.appendChild = node => { notices.push(node); return node; };
   root.querySelectorAll = () => [];
 
-  const location = { href: 'https://web.telegram.org/a/', hash: '#chat-a' };
+  const location = { href: 'https://web.telegram.org/k/', hash: '#chat-a' };
   const context = {
     console: { log() {}, error() {} },
     AbortController,
@@ -224,6 +226,7 @@ async function verifyTelegramSwitchBeforeTranslationCommit() {
   h.context.onNativeInputRequest = () => { nativeRequests += 1; };
   h.keydown(h.makeEvent());
   assert.equal(h.context.window.__geekTelegramSendLock, true);
+  assert.equal(h.editor.attributes.get('contenteditable'), 'true', 'Web K controlled composer must remain contenteditable while translation is pending');
   h.location.hash = '#chat-b';
   translation.resolve({ text: 'ciao' });
   await flush();
@@ -258,6 +261,29 @@ async function verifyTelegramSwitchDuringNativeFill() {
   assert.match(h.notices.at(-1)?.textContent || '', /聊天已切换/);
 }
 
+async function verifyTelegramWebKNativeFillAndButtonSubmit() {
+  const h = createTelegramHarness(Promise.resolve({ text: 'ciao' }));
+  let nativeRequests = 0;
+  h.context.onNativeInputRequest = payload => {
+    nativeRequests += 1;
+    const raw = h.context.window.__geekTakeNativeInputRequest(payload.id);
+    const request = JSON.parse(raw);
+    assert.equal(request.text.startsWith(NATIVE_INPUT_ENVELOPE_PREFIX), true);
+    const envelope = JSON.parse(request.text.slice(NATIVE_INPUT_ENVELOPE_PREFIX.length));
+    assert.equal(envelope.expectedChatId, 'chat-a');
+    assert.equal(envelope.text, 'ciao');
+    h.editor.innerText = 'ciao';
+    h.editor.textContent = 'ciao';
+    h.context.window.__geekResolveNativeInput(payload.id, true, null);
+  };
+  h.keydown(h.makeEvent());
+  await flush();
+  assert.equal(nativeRequests, 1, 'Telegram Web K translated send must use one request-scoped native fill');
+  assert.equal(h.sendClicks(), 1, 'Telegram Web K translated send must commit through the live send button');
+  assert.equal(h.editor.attributes.get('contenteditable'), 'true', 'Web K composer must remain editable after commit');
+  assert.equal(h.context.window.__geekTelegramNativeInputCommit, false, 'native-input commit bypass must always be released');
+  assert.equal(h.context.window.__geekTelegramSendLock, false);
+}
 async function verifyLineProgrammaticClickBypassesTranslation() {
   const h = createLineHarness(Promise.resolve({ text: 'ciao' }));
   let prevented = 0;
@@ -411,6 +437,7 @@ async function verifyNativeInputOwnerUsesRequestScopedLease() {
 
   await verifyTelegramSwitchBeforeTranslationCommit();
   await verifyTelegramSwitchDuringNativeFill();
+  await verifyTelegramWebKNativeFillAndButtonSubmit();
   await verifyLineProgrammaticClickBypassesTranslation();
   await verifyLineSwitchBeforeTranslationCommit();
   await verifyLineSwitchAfterNativeFillBeforeSubmit();
