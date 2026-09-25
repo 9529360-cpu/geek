@@ -57,11 +57,14 @@ function createHarness({
   nowMs = CACHE_NOW,
   remoteGateway = false,
   gatewayRemainingChars = null,
+  gatewayStatus = 200,
+  gatewayError = 'quota_exhausted',
 }) {
   const handlers = new Map();
   let fetchCount = 0;
   let quotaState = { ...quotaResult };
   const acceptedQuota = [];
+  const acceptedQuotaOptions = [];
   let quotaInvalidations = 0;
   const authorizationController = new AbortController();
   const subscriptionStore = {
@@ -73,9 +76,10 @@ function createHarness({
       signal: authorizationController.signal,
     }),
     assertTranslationAuthorizationCurrent: () => {},
-    acceptAuthoritativeQuota: async (remainingChars) => {
+    acceptAuthoritativeQuota: async (remainingChars, options = {}) => {
       quotaState = { ...quotaState, remaining_chars: remainingChars };
       acceptedQuota.push(remainingChars);
+      acceptedQuotaOptions.push({ ...options });
       return quotaState;
     },
     invalidateQuotaAuthority: () => {
@@ -120,13 +124,16 @@ function createHarness({
       fetchCount += 1;
       const body = JSON.parse(options.body || '{}');
       return {
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({
+        ok: gatewayStatus >= 200 && gatewayStatus < 300,
+        status: gatewayStatus,
+        text: async () => JSON.stringify(gatewayStatus >= 200 && gatewayStatus < 300 ? {
           text: `remote:${body.text}`,
           source: 'auto',
           target: body.target,
           remaining_chars: gatewayRemainingChars,
+        } : {
+          error: gatewayError,
+          message: 'synthetic gateway rejection',
         }),
       };
     },
@@ -141,6 +148,7 @@ function createHarness({
     fetchCount: () => fetchCount,
     quotaRemaining: () => quotaState.remaining_chars,
     acceptedQuota: () => [...acceptedQuota],
+    acceptedQuotaOptions: () => acceptedQuotaOptions.map(item => ({ ...item })),
     quotaInvalidations: () => quotaInvalidations,
     event: mainFrameIpcEvent({ id: 1 }),
   };
@@ -286,6 +294,63 @@ function createHarness({
     assert.equal(result.cached, false, 'cache older than the production TTL must not be served');
     assert.equal(result.text, 'remote:stale-cache');
     assert.equal(harness.fetchCount(), 1, 'expired cache must fall through to a fresh provider translation');
+    harness.runtime.dispose();
+  }
+
+  {
+    const accounts = new Map([['account-a', { partition: 'persist:webview-page-remote-quota-exhausted' }]]);
+    const harness = createHarness({
+      accounts,
+      readFile: async () => {
+        const error = new Error('missing cache');
+        error.code = 'ENOENT';
+        throw error;
+      },
+      quotaResult: { remaining_chars: 9 },
+      remoteGateway: true,
+      gatewayStatus: 402,
+      gatewayError: 'quota_exhausted',
+    });
+    await assert.rejects(
+      () => harness.translate(harness.event, { accountId: 'account-a', text: 'remote-quota-exhausted', target: 'en' }),
+      error => error?.category === 'quota' && error?.status === 402,
+      'authoritative remote quota exhaustion must remain the typed terminal error',
+    );
+    assert.deepEqual(harness.acceptedQuota(), [0], 'remote quota exhaustion must immediately reconcile local quota authority to zero');
+    assert.equal(harness.acceptedQuotaOptions()[0]?.expectedSessionGeneration, 1, 'zero reconciliation must remain bound to the authorization session generation');
+    assert.equal(harness.quotaRemaining(), 0);
+    const fetchesAfter402 = harness.fetchCount();
+    await assert.rejects(
+      () => harness.translate(harness.event, { accountId: 'account-a', text: 'after-remote-zero', target: 'en' }),
+      error => error?.code === 'QUOTA_EXHAUSTED',
+      'subsequent work must fail fast from the reconciled zero authority',
+    );
+    assert.equal(harness.fetchCount(), fetchesAfter402, 'reconciled zero quota must prevent another gateway request');
+    harness.runtime.dispose();
+  }
+
+  {
+    const accounts = new Map([['account-a', { partition: 'persist:webview-page-nonquota-402' }]]);
+    const harness = createHarness({
+      accounts,
+      readFile: async () => {
+        const error = new Error('missing cache');
+        error.code = 'ENOENT';
+        throw error;
+      },
+      quotaResult: { remaining_chars: 9 },
+      remoteGateway: true,
+      gatewayStatus: 402,
+      gatewayError: 'payment_required',
+    });
+    await assert.rejects(
+      () => harness.translate(harness.event, { accountId: 'account-a', text: 'nonquota-402', target: 'en' }),
+      error => error?.category === 'quota' && error?.status === 402,
+      'other 402 responses keep the existing typed payment/quota rejection semantics',
+    );
+    assert.deepEqual(harness.acceptedQuota(), [], 'a non quota_exhausted 402 must not manufacture a zero-balance authority');
+    assert.equal(harness.quotaRemaining(), 9);
+    assert.equal(harness.fetchCount(), 1);
     harness.runtime.dispose();
   }
 
