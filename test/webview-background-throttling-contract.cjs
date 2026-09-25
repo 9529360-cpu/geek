@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { lineWebPreferencesAttribute } = require('../src/line-context-isolation-policy.cjs');
 
 const main = fs.readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8').replace(/\r\n?/g, '\n');
 const start = main.indexOf("function configureWebviewSecurity(window) {");
@@ -20,10 +21,15 @@ assert.doesNotMatch(
   /will-attach-webview'[\s\S]{0,180}backgroundThrottling\s*=\s*false/,
   'all account WebViews must not be forced into permanent foreground scheduling'
 );
+assert.equal(
+  lineWebPreferencesAttribute(false),
+  'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false',
+  'default LINE compatibility must keep its explicitly scoped background scheduling exception'
+);
 assert.match(
   attach,
-  /isLine[\s\S]*'contextIsolation=no,sandbox=true,nativeWindowOpen=yes,spellcheck=no,backgroundThrottling=false'/,
-  'LINE compatibility must keep its explicitly scoped background scheduling exception'
+  /lineWebPreferencesAttribute\(LINE_CONTEXT_ISOLATION_CANDIDATE\)/,
+  'LINE attach policy must source its compatibility string from the centralized LINE isolation policy'
 );
 assert.match(
   attach,

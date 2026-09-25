@@ -92,6 +92,8 @@ npm run dev
 
 默认 development userData 会绑定到首次使用它的源码工作区；绑定文件只保存工作区路径的 SHA-256 指纹，不保存真实路径、账号或会话内容。同一工作区可跨重启/切分支继续使用；其他 checkout 必须设置自己的 GEEK_USER_DATA_DIR，复用已经绑定的 development userData 会在创建账号 WebView 前 fail closed。
 
+仅在 LINE 认证兼容性验证时，未打包的开发环境可以设置 `GEEK_LINE_CONTEXT_ISOLATION_CANDIDATE=1`。该候选模式会为 LINE 账号 WebView 启用 `contextIsolation=true` 并移除旧兼容 preload；正式打包客户端会忽略此开关。它只是验证入口，在 #16 的文本发送和附件证据完成前，不代表可以修改生产默认行为。
+
 `npm run dev` 会复用 Electron 已有的隔离 development profile，并固定使用受控的 9344 调试端口。它按变更范围给反馈，而不是每次保存都重启整个工程：
 
 - `ui/` 的 JavaScript 先做语法检查，再通过现有 CDP 工具执行无缓存桌面 shell 刷新；如果 CDP 刷新不可用，自动退回有序重启 Electron。
