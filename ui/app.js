@@ -1670,7 +1670,13 @@
     const currentChatScripts = {
       whatsapp: `(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`,
       telegram: `(() => String(location.hash || '').replace(/^#/, '').split('?')[0] || null)()`,
-      line: `(() => { try { const hit=String(location.hash || '').match(/\\/chats\\/([^/?]+)/); return hit ? decodeURIComponent(hit[1]) : null; } catch { return null; } })()`,
+      line: `(() => {
+        try {
+          const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
+          const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
+          return match ? decodeURIComponent(match[1]) : null;
+        } catch { return null; }
+      })()`,
     };
     const adapter = Object.freeze({
       family, accountId: account.id, transport,
