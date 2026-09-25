@@ -90,6 +90,8 @@ npm install
 npm run dev
 ```
 
+默认 development userData 会绑定到首次使用它的源码工作区；绑定文件只保存工作区路径的 SHA-256 指纹，不保存真实路径、账号或会话内容。同一工作区可跨重启/切分支继续使用；其他 checkout 必须设置自己的 GEEK_USER_DATA_DIR，复用已经绑定的 development userData 会在创建账号 WebView 前 fail closed。
+
 `npm run dev` 会复用 Electron 已有的隔离 development profile，并固定使用受控的 9344 调试端口。它按变更范围给反馈，而不是每次保存都重启整个工程：
 
 - `ui/` 的 JavaScript 先做语法检查，再通过现有 CDP 工具执行无缓存桌面 shell 刷新；如果 CDP 刷新不可用，自动退回有序重启 Electron。

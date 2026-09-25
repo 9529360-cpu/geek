@@ -8,6 +8,7 @@ const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const { installDevLoopControl } = require('./dev-loop-control.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
 const { prepareUserDataPath } = require('./user-data-path.cjs');
+const { claimDevelopmentProfileWorkspace } = require('./development-profile-workspace.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
 const { installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
@@ -68,6 +69,12 @@ const earlyUserDataDir = runtimePaths.resolveUserDataDir({
 let userDataPathReady = false;
 try {
   prepareUserDataPath({ app, fs: nodeFs, userDataDir: earlyUserDataDir });
+  claimDevelopmentProfileWorkspace({
+    profile: runtimeIdentity.profile,
+    userDataDir: earlyUserDataDir,
+    workspaceDir: app.getAppPath(),
+    fs: nodeFs,
+  });
   userDataPathReady = true;
 } catch (error) {
   const code = typeof error?.code === 'string' ? error.code : String(error?.message || 'USER_DATA_PATH_BIND_FAILED');
