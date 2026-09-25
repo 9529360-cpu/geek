@@ -291,6 +291,24 @@ function createTranslationRuntime(options = {}) {
     store.assertTranslationAuthorizationCurrent(lease);
   }
 
+  async function reconcileRemoteQuotaExhaustion(store, lease) {
+    if (!lease || lease.legacy === true || typeof store?.acceptAuthoritativeQuota !== 'function') return;
+    assertRemoteAuthorizationCurrent(store, lease);
+    try {
+      await store.acceptAuthoritativeQuota(0, { expectedSessionGeneration: lease.generation });
+    } catch (error) {
+      if (error?.code === 'SUBSCRIPTION_SESSION_CHANGED') throw error;
+      if (typeof store.invalidateQuotaAuthority === 'function') {
+        try {
+          store.invalidateQuotaAuthority({ expectedSessionGeneration: lease.generation });
+        } catch (invalidateError) {
+          if (invalidateError?.code === 'SUBSCRIPTION_SESSION_CHANGED') throw invalidateError;
+        }
+      }
+      return;
+    }
+    assertRemoteAuthorizationCurrent(store, lease);
+  }
   function authorizationChangedError() {
     return createTranslationError(
       'SUBSCRIPTION_SESSION_CHANGED',
@@ -671,6 +689,9 @@ function createTranslationRuntime(options = {}) {
               try { result = JSON.parse(raw); } catch { result = {}; }
               if (!response.ok) {
                 const rejection = classifyGatewayResponse(response.status, result);
+                if (rejection.status === 402 && rejection.upstreamCode === 'quota_exhausted') {
+                  await reconcileRemoteQuotaExhaustion(subscriptionStore, remoteAuthorizationLease);
+                }
                 if (rejection.code === 'TRANSLATION_REQUEST_IN_PROGRESS') {
                   lastError = rejection;
                   const retryDelay = Math.min(
