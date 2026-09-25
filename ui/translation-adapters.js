@@ -429,6 +429,7 @@
       translateAndSend(event, host);
     }, { capture: true, signal: window.__geekLineSendAbort.signal });
     document.addEventListener('click', event => {
+      if (!event.isTrusted) return;
       const button = event.target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],button[type="submit"],[class*="chatroomEditor-module__editor_area__"] button[data-action="send"]');
       if (!button || !button.closest?.('[class*="chatroomEditor-module__editor_area__"]')) return;
       translateAndSend(event, composerHost(event), button);

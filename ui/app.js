@@ -1654,8 +1654,11 @@
         if (!host || !textarea) return 'NO_EDITOR';
         const before = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim();
         if (!before) return 'EMPTY';
+        const editorArea = host.closest?.('[class*="chatroomEditor-module__editor_area__"]') || document.querySelector('[class*="chatroomEditor-module__editor_area__"]');
+        const submitButton = editorArea?.querySelector('button[aria-label="Send"],button[type="submit"],button[data-action="send"]');
+        if (!submitButton) return 'NO_SEND_BUTTON';
         const count = document.querySelectorAll('[class*="message-module__message__"][data-mid]').length;
-        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }));
+        submitButton.click();
         for (let i = 0; i < 40; i++) { await new Promise(resolve => setTimeout(resolve, 250)); const value = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim(); if (document.querySelectorAll('[class*="message-module__message__"][data-mid]').length > count && !value) return 'SENT'; }
         return 'MAYBE';
       })()`,

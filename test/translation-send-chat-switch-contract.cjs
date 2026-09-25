@@ -140,8 +140,14 @@ function createLineHarness(translationPromise) {
   host.value = ['hello'];
   host.shadowRoot = { querySelector: () => textarea };
   const sendButton = fakeElement('BUTTON');
+  const editorArea = fakeElement('DIV');
   let sendClicks = 0;
   sendButton.click = () => { sendClicks += 1; };
+  sendButton.closest = selector => {
+    if (selector.includes('chatroomEditor-module__editor_area__')) return editorArea;
+    if (selector.includes('button[')) return sendButton;
+    return null;
+  };
 
   const document = {
     body: root,
@@ -180,7 +186,8 @@ function createLineHarness(translationPromise) {
     MutationObserver: class { observe() {} disconnect() {} },
   };
   context.window = context;
-  context.window.__geekTranslationRequest = () => translationPromise;
+  let translationRequests = 0;
+  context.window.__geekTranslationRequest = () => { translationRequests += 1; return translationPromise; };
   context.window.$electron = {
     send2Host(message) {
       if (message?.type === 'geek-native-input-request') context.onNativeInputRequest?.(message);
@@ -194,7 +201,9 @@ function createLineHarness(translationPromise) {
   });
 
   const keydown = listeners.get('keydown');
+  const click = listeners.get('click');
   assert.equal(typeof keydown, 'function');
+  assert.equal(typeof click, 'function');
   const makeEvent = () => ({
     key: 'Enter', shiftKey: false, ctrlKey: false, metaKey: false, isComposing: false, isTrusted: true,
     target: textarea,
@@ -202,8 +211,9 @@ function createLineHarness(translationPromise) {
     preventDefault() {}, stopImmediatePropagation() {},
   });
   return {
-    context, location, host, textarea, sendButton, notices, makeEvent, keydown,
+    context, location, host, textarea, sendButton, notices, makeEvent, keydown, click,
     sendClicks: () => sendClicks, syntheticKeyDispatches: () => syntheticKeyDispatches,
+    translationRequests: () => translationRequests,
   };
 }
 
@@ -246,6 +256,24 @@ async function verifyTelegramSwitchDuringNativeFill() {
   assert.equal(h.sendClicks(), 0, 'chat switch during native fill must prevent final synthetic send');
   assert.equal(h.context.window.__geekTelegramSendLock, false);
   assert.match(h.notices.at(-1)?.textContent || '', /聊天已切换/);
+}
+
+async function verifyLineProgrammaticClickBypassesTranslation() {
+  const h = createLineHarness(Promise.resolve({ text: 'ciao' }));
+  let prevented = 0;
+  let stopped = 0;
+  h.click({
+    isTrusted: false,
+    target: h.sendButton,
+    composedPath: () => [h.sendButton],
+    preventDefault() { prevented += 1; },
+    stopImmediatePropagation() { stopped += 1; },
+  });
+  await flush();
+  assert.equal(h.translationRequests(), 0, 'programmatic LINE submit must bypass outgoing translation interception');
+  assert.equal(prevented, 0, 'programmatic LINE submit must not be prevented by the translation owner');
+  assert.equal(stopped, 0, 'programmatic LINE submit must not stop propagation in the translation owner');
+  assert.equal(h.context.window.__geekLineSendLock, false, 'programmatic LINE submit must not acquire the translation send lock');
 }
 
 async function verifyLineSwitchBeforeTranslationCommit() {
@@ -383,6 +411,7 @@ async function verifyNativeInputOwnerUsesRequestScopedLease() {
 
   await verifyTelegramSwitchBeforeTranslationCommit();
   await verifyTelegramSwitchDuringNativeFill();
+  await verifyLineProgrammaticClickBypassesTranslation();
   await verifyLineSwitchBeforeTranslationCommit();
   await verifyLineSwitchAfterNativeFillBeforeSubmit();
   await verifyLineNativeFillAndButtonSubmit();
