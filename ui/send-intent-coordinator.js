@@ -173,6 +173,14 @@
       return setState(record, 'committing');
     }
 
+    function beginCommitOwned(intentId, currentBinding = {}) {
+      const record = getRecord(intentId);
+      return beginCommit(intentId, {
+        ...currentBinding,
+        submitPermitId: record.binding.submitPermitId,
+      });
+    }
+
     function markSent(intentId) {
       const record = getRecord(intentId);
       ensureState(record, 'committing');
@@ -213,6 +221,7 @@
       startTransform,
       markReady,
       beginCommit,
+      beginCommitOwned,
       markSent,
       cancel,
       fail,
