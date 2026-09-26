@@ -125,9 +125,9 @@
 
         const classified = classifySendOutcome(sendOutcome) || {};
         if (classified.ok !== true) {
-          const code = requiredText(
-            classified.code || 'SEND_INTENT_SEND_FAILED',
-            'sendOutcome.code',
+          const code = failureCode(
+            { code: classified.code },
+            'SEND_INTENT_SEND_FAILED',
           );
           throw executorError(code);
         }
