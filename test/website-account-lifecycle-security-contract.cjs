@@ -15,6 +15,7 @@ const main = readText('src/main.cjs');
 const owner = readText('src/account-state.cjs');
 const catalog = readText('src/platform-catalog.cjs');
 const renderer = readText('ui/app.js');
+const platformCapabilities = readText('ui/platform-capabilities.js');
 const html = readText('ui/index.html');
 
 assert.match(catalog, /website:\s*freezeConfig\(\{\s*name:\s*'自定义网站',\s*short:\s*'WEB',\s*navigationKind:\s*'website',?\s*\}\)/, 'Website is a first-class platform without a fake default URL');
@@ -54,7 +55,7 @@ assert.match(renderer, /else if \(bridgePreloadPath && !isLineAccount && account
 assert.match(renderer, /if \(account\.type !== 'website'\) wv\.setAttribute\('allowpopups'/, 'Website must not opt into renderer popup capability');
 assert.match(renderer, /key: 'website', label: '网站'[\s\S]*types: \['website'\]/, 'Website gets its own platform family');
 assert.match(renderer, /if \(type === 'website'\) return 'p-icon-website'/, 'Website gets an independent icon class');
-assert.match(renderer, /if \(account\.type === 'website'\) throw new Error\('自定义网站暂不支持 Geek 平台增强功能'\)/, 'Website must not receive WA/TG/LINE transport adapters');
+assert.match(platformCapabilities, /account\.type === 'website'[\s\S]*throw new Error/, 'Website must not receive WA/TG/LINE transport adapters');
 assert.match(renderer, /\['btn-broadcast', 'btn-translation', 'btn-contact-notes'\]/, 'Website activation gates unsupported product enhancements');
 assert.match(renderer, /if \(account\.type === 'website'\) \{\s*updateUnread\(id, titleUnread\);\s*return;/, 'Website unread fallback reads title only and does not inject DOM scanning scripts');
 assert.doesNotMatch(renderer, /if \(p\.type === 'website'\) return/, 'App Center must not hide Website');

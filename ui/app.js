@@ -1369,7 +1369,7 @@
 
   // ---------- 群发消息（多平台） ----------
   // 平台适配器：读取聊天列表 / 切换聊天 / 输入消息 / 发送（webview DOM 操作）
-  const BROADCAST_ADAPTERS = {
+  const PLATFORM_CAPABILITY_DEFINITIONS = {
     'telegram-z': {
       getChats: `(() => {
         const out = [];
@@ -1668,12 +1668,7 @@
       })()`,
     },
   };
-  function platformTransportFor(account, wv) {
-    if (!account || !wv) throw new Error('平台账号不可用');
-    if (account.type === 'website') throw new Error('自定义网站暂不支持 Geek 平台增强功能');
-    const family = familyOf(account.type).key;
-    const transport = family === 'telegram' ? BROADCAST_ADAPTERS['telegram-z'] : BROADCAST_ADAPTERS[family];
-    if (!transport) throw new Error(`平台不支持群发：${family}`);
+  function buildPlatformAdapter({ account, webview: wv, family, definition: transport }) {
     const currentChatScripts = {
       whatsapp: `(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`,
       telegram: `(() => String(location.hash || '').replace(/^#/, '').split('?')[0] || null)()`,
@@ -1739,10 +1734,21 @@
         return wv.executeJavaScript(script);
       },
     });
-    return window.GeekPlatformAdapterContract.validate(adapter, window.GeekPlatformAdapterContract.hostRequired);
+    return adapter;
   }
-  window.GeekPlatformTransports = Object.freeze({ forAccount: platformTransportFor });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const platformCapabilities = window.GeekPlatformCapabilities.create({
+    familyOf,
+    definitions: PLATFORM_CAPABILITY_DEFINITIONS,
+    contract: window.GeekPlatformAdapterContract,
+    buildAdapter: buildPlatformAdapter,
+  });
+  function platformTransportFor(account, wv) {
+    return platformCapabilities.forAccount(account, wv);
+  }
+  window.GeekPlatformCapabilitiesRuntime = platformCapabilities;
+  // Compatibility alias while existing Broadcast/diagnostic consumers migrate to the neutral owner.
+  window.GeekPlatformTransports = platformCapabilities;
   let broadcastChats = [];      // 全部聊天
   let broadcastSelected = new Set(); // 勾选 id
   let broadcastFiles = [];      // 附件 [{name, base64, mime}]
