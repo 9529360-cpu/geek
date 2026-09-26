@@ -7,6 +7,14 @@
 
   const PROTOCOL_VERSION = 1;
 
+  function trustedGeneration(value, field) {
+    const number = Number(value);
+    if (!Number.isSafeInteger(number) || number < 0) {
+      throw runtimeError('TRUSTED_SUBMIT_RUNTIME_INVALID', field);
+    }
+    return number;
+  }
+
   function runtimeError(code, field = '') {
     const error = new Error(String(code || 'TRUSTED_SUBMIT_RUNTIME_FAILED'));
     error.code = String(code || 'TRUSTED_SUBMIT_RUNTIME_FAILED');
@@ -79,11 +87,13 @@
         throw runtimeError('TRUSTED_SUBMIT_RUNTIME_PLATFORM');
       }
       const kind = String(payload.kind || '').trim();
+      const composerGeneration = trustedGeneration(payload.composerGeneration, 'composerGeneration');
       const issued = authority.issue({ ...binding, kind });
       state.latest = {
         permitId: issued.permitId,
         expiresAt: issued.expiresAt,
         kind,
+        composerGeneration,
         generation: state.generation,
       };
       return Object.freeze({
@@ -91,6 +101,7 @@
         kind,
         expiresAt: issued.expiresAt,
         webviewGeneration: state.generation,
+        composerGeneration,
       });
     }
 
@@ -110,6 +121,7 @@
         permitId: latest.permitId,
         kind: latest.kind,
         webviewGeneration: state.generation,
+        composerGeneration: latest.composerGeneration,
       });
     }
 
