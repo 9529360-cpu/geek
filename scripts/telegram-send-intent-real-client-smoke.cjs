@@ -147,6 +147,7 @@ function projectEvidence(input = {}) {
     generationRebound: input.generationRebound === true,
     commitGuardPassed: input.commitGuardPassed === true,
     nativeCommitCount: input.nativeCommitCount === 'one' ? 'one' : (input.nativeCommitCount === 'unknown' ? 'unknown' : 'zero'),
+    cleanupComplete: input.cleanupComplete === true || (mode === 'preflight' && input.cleanupComplete !== false),
     ownerState,
     sendResult,
     recipientReceipt: input.recipientReceipt === 'manual-pass' || input.recipientReceipt === 'manual-fail'
@@ -281,7 +282,7 @@ function buildHostPrepareExpression(mode, smokeText) {
     '    const composerBeforeStage = await adapter.getComposerText();',
     '    if (activeIdBeforeStage !== activeId || String(currentChatBeforeStage || "") !== activeChatId || String(composerBeforeStage || "").trim()) {',
     '      await webview.executeJavaScript("(() => { const s=window.__geekTelegramSendIntentSmokeObserver; if(!s)return false; if(window.__geekTranslationRequest===s.wrappedRequest)window.__geekTranslationRequest=s.originalRequest; if(window.__geekResolveTranslation===s.wrappedResolve)window.__geekResolveTranslation=s.originalResolve; delete window.__geekTelegramSendIntentSmokeObserver; return true; })()", false);',
-    '      return { ...out, ready: false, code: "CONTEXT_CHANGED" };',
+    '      return { ...out, ready: false, code: "CONTEXT_CHANGED", context: { accountId: String(account.id), chatId: activeChatId } };',
     '    }',
     '    try { await window.api.webviewInput.insertText(account.id, webview.getWebContentsId(), ' + messageValue + ', bridgeToken); } catch { return { ...out, ready: false, composerPrepared: false, code: "COMPOSER_STAGE_FAILED", context: { accountId: String(account.id), chatId: activeChatId } }; }',
     '    const staged = String(await adapter.getComposerText() || "").trim() === ' + messageValue + '.trim();',
@@ -303,24 +304,26 @@ function buildHostPollExpression(context, smokeText) {
     '  const expected = ' + contextValue + ';',
     '  const out = { kind: "POLL_RESULT", contextStable: false, requestSeen: false, terminal: null, code: "WAITING_FOR_OPERATOR" };',
     '  try {',
-    '    const activeId = String(document.querySelector(".nav-account.active[data-id]")?.dataset.id || "");',
-    '    if (activeId !== expected.accountId) return { ...out, code: "CONTEXT_CHANGED" };',
     '    const listed = await window.api?.accounts?.list?.();',
     '    const accounts = Array.isArray(listed?.accounts) ? listed.accounts : (Array.isArray(listed) ? listed : []);',
     '    const account = accounts.find(item => String(item?.id || "") === expected.accountId);',
-    '    if (!account || !["telegram-z", "telegram-k"].includes(String(account.type || ""))) return { ...out, code: "CONTEXT_CHANGED" };',
+    '    if (!account) return { ...out, code: "CONTEXT_CHANGED" };',
     '    const partition = String(account.partition || "");',
     '    const webview = Array.from(document.querySelectorAll("webview")).find(item => String(item.partition || item.getAttribute?.("partition") || "") === partition) || null;',
     '    if (!webview || typeof webview.executeJavaScript !== "function") return { ...out, code: "CONTEXT_CHANGED" };',
+    '    const state = await webview.executeJavaScript(' + guestStateExpression + ', false);',
+    '    if (state) {',
+    '      out.requestSeen = state.requestSeen === true;',
+    '      out.terminal = state.terminal || null;',
+    '    }',
+    '    const activeId = String(document.querySelector(".nav-account.active[data-id]")?.dataset.id || "");',
+    '    if (activeId !== expected.accountId || !["telegram-z", "telegram-k"].includes(String(account.type || ""))) return { ...out, code: "CONTEXT_CHANGED" };',
     '    const capabilities = window.GeekPlatformCapabilitiesRuntime;',
     '    const adapter = typeof capabilities?.forAccount === "function" ? capabilities.forAccount(account, webview) : null;',
     '    const currentChatId = adapter && typeof adapter.getCurrentChat === "function" ? await adapter.getCurrentChat() : null;',
     '    if (String(currentChatId || "") !== expected.chatId) return { ...out, code: "CONTEXT_CHANGED" };',
-    '    const state = await webview.executeJavaScript(' + guestStateExpression + ', false);',
     '    if (!state) return { ...out, code: "OWNER_RESULT_INVALID" };',
     '    out.contextStable = true;',
-    '    out.requestSeen = state.requestSeen === true;',
-    '    out.terminal = state.terminal || null;',
     '    out.code = state.terminal ? "OWNER_RESULT" : "WAITING_FOR_OPERATOR";',
     '    return out;',
     '  } catch { return { ...out, code: "SMOKE_FAILED" }; }',
@@ -358,6 +361,12 @@ function buildHostCleanupExpression(context, smokeText, clearStaged) {
     '  } catch { return { kind: "CLEANUP_RESULT", cleared: false, observerRemoved: false }; }',
     '})()',
   ].join('\n');
+}
+
+function classifyUnobservedExecution(operatorWindowOpened) {
+  return operatorWindowOpened
+    ? { sendResult: 'ambiguous', ownerState: 'uncertain', nativeCommitCount: 'unknown', code: 'OWNER_AMBIGUOUS' }
+    : { sendResult: 'blocked', ownerState: 'not-started', nativeCommitCount: 'zero', code: 'OPERATOR_TIMEOUT' };
 }
 
 function classifyOwnerTerminal(terminal) {
@@ -415,15 +424,15 @@ function classifyOwnerTerminal(terminal) {
     };
   }
   return {
-    sendResult: 'failed',
-    ownerState: terminal.owner === true ? terminal.state : 'unknown',
+    sendResult: 'ambiguous',
+    ownerState: 'uncertain',
     trustedAdmission: terminal.owner === true,
     transformComplete: terminal.owner === true && terminal.textReady === true,
     composerWriteComplete: false,
     generationRebound: false,
     commitGuardPassed: false,
-    nativeCommitCount: 'zero',
-    code: 'OWNER_RESULT_INVALID',
+    nativeCommitCount: 'unknown',
+    code: 'OWNER_AMBIGUOUS',
   };
 }
 
@@ -440,6 +449,8 @@ async function runSmoke(mode = 'preflight', env = process.env) {
   let prepared = null;
   let finalState = null;
   let cleanupState = null;
+  let outputEvidence = null;
+  let operatorWindowOpened = false;
 
   try {
     prepared = await evaluateTarget(hostTarget, buildHostPrepareExpression(mode, smokeText));
@@ -470,27 +481,29 @@ async function runSmoke(mode = 'preflight', env = process.env) {
     }
     const deadline = Date.now() + MAX_WAIT_MS;
     let lastPoll = null;
+    operatorWindowOpened = true;
     process.stdout.write(JSON.stringify(projectEvidence({ ...base, sendResult: 'waiting-for-operator', code: 'WAITING_FOR_OPERATOR' })) + '\n');
 
     while (Date.now() < deadline) {
       lastPoll = await evaluateTarget(hostTarget, buildHostPollExpression(context, smokeText));
       if (!lastPoll || lastPoll.kind !== 'POLL_RESULT') throw codedError('PROBE_RESULT_INVALID');
+      if (lastPoll.terminal) {
+        const owner = classifyOwnerTerminal(lastPoll.terminal);
+        if (!owner) throw codedError('OWNER_RESULT_INVALID');
+        finalState = { ...base, ...owner, operatorActionRequired: false };
+        break;
+      }
+      if (lastPoll.code === 'SMOKE_FAILED' || lastPoll.code === 'OWNER_RESULT_INVALID') {
+        throw codedError('CDP_COMMAND_FAILED');
+      }
       if (lastPoll.code === 'CONTEXT_CHANGED') {
         finalState = {
           ...base,
           preflightReady: false,
           operatorActionRequired: false,
-          sendResult: lastPoll.requestSeen ? 'ambiguous' : 'blocked',
-          ownerState: lastPoll.requestSeen ? 'uncertain' : 'not-started',
-          nativeCommitCount: lastPoll.requestSeen ? 'unknown' : 'zero',
-          code: 'CONTEXT_CHANGED',
+          ...classifyUnobservedExecution(true),
+          code: 'OWNER_AMBIGUOUS',
         };
-        break;
-      }
-      if (lastPoll.terminal) {
-        const owner = classifyOwnerTerminal(lastPoll.terminal);
-        if (!owner) throw codedError('OWNER_RESULT_INVALID');
-        finalState = { ...base, ...owner, operatorActionRequired: false };
         break;
       }
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -508,11 +521,24 @@ async function runSmoke(mode = 'preflight', env = process.env) {
       };
     }
 
-    return projectEvidence({
+    outputEvidence = projectEvidence({
       ...finalState,
       recipientReceipt: 'manual-pending',
       durationBucket: timingBucket(Date.now() - startedAt),
     });
+    return outputEvidence;
+  } catch (error) {
+    const outcome = classifyUnobservedExecution(operatorWindowOpened);
+    outputEvidence = projectEvidence({
+      mode,
+      ...outcome,
+      code: operatorWindowOpened
+        ? 'OWNER_AMBIGUOUS'
+        : (SAFE_ERROR_CODES.has(error?.code) ? error.code : 'SMOKE_FAILED'),
+      cleanupComplete: mode !== 'execute',
+      durationBucket: timingBucket(Date.now() - startedAt),
+    });
+    return outputEvidence;
   } finally {
     if (mode === 'execute' && prepared?.context && typeof smokeText === 'string' && smokeText) {
       const requestSeen = finalState?.sendResult === 'sent'
@@ -521,10 +547,14 @@ async function runSmoke(mode = 'preflight', env = process.env) {
       try {
         cleanupState = await evaluateTarget(
           hostTarget,
-          buildHostCleanupExpression(prepared.context, smokeText, !requestSeen),
+          buildHostCleanupExpression(prepared.context, smokeText, !requestSeen && (!operatorWindowOpened || finalState?.sendResult === 'blocked')),
         );
       } catch {
         cleanupState = null;
+      }
+      if (outputEvidence) {
+        outputEvidence.cleanupComplete = cleanupState?.kind === 'CLEANUP_RESULT'
+          && cleanupState.observerRemoved === true;
       }
       // Cleanup evidence is intentionally kept in memory only; it contains no account/chat data.
     }
@@ -532,19 +562,23 @@ async function runSmoke(mode = 'preflight', env = process.env) {
 }
 
 async function main(argv = process.argv.slice(2), env = process.env) {
-  const mode = parseMode(argv);
-  assertExecutionAllowed(mode, env);
-  const result = await runSmoke(mode, env);
-  process.stdout.write(JSON.stringify(projectEvidence(result)) + '\n');
-  return result;
+  let mode = 'preflight';
+  try {
+    mode = parseMode(argv);
+    assertExecutionAllowed(mode, env);
+    const result = await runSmoke(mode, env);
+    process.stdout.write(JSON.stringify(projectEvidence(result)) + '\n');
+    return result;
+  } catch (error) {
+    const code = SAFE_ERROR_CODES.has(error?.code) ? error.code : 'SMOKE_FAILED';
+    process.stderr.write(JSON.stringify(projectEvidence({ mode, code, sendResult: 'blocked' })) + '\n');
+    process.exitCode = 1;
+    return null;
+  }
 }
 
 if (require.main === module) {
-  main().catch(error => {
-    const code = SAFE_ERROR_CODES.has(error?.code) ? error.code : 'SMOKE_FAILED';
-    process.stderr.write(JSON.stringify(projectEvidence({ mode: 'preflight', code, sendResult: 'blocked' })) + '\n');
-    process.exitCode = 1;
-  });
+  main();
 }
 
 module.exports = {
@@ -556,4 +590,5 @@ module.exports = {
   parseMode,
   projectEvidence,
   timingBucket,
+  classifyUnobservedExecution,
 };

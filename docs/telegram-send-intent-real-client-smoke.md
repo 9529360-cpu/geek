@@ -26,7 +26,7 @@ Remove-Item Env:GEEK_TELEGRAM_SEND_INTENT_SMOKE_CONFIRM
 
 The script generates one fixed-format test message. It prepares that text in the currently selected composer, installs temporary result observation, then waits for the maintainer to press Enter or click Send in the Geek window. It never uses CDP to create a trusted gesture or call the send transport. The production submit-permit, SendIntent executor, composer rebind, commit guard, native send, and outcome classifier remain the owners of the send.
 
-The production commit guard rechecks account, partition, platform, WebView generation, conversation, composer generation, and composer text immediately before the native send. The harness itself does not attempt another send after any owner result. An ambiguous result remains ambiguous; inspect Telegram manually before taking any action. The script may clear its own exact staged text only when no outgoing request was observed and the same account, chat, and exact text are still active.
+The production commit guard rechecks account, partition, platform, WebView generation, conversation, composer generation, and composer text immediately before the native send. The harness itself does not attempt another send after any owner result. If the context changes or CDP observation is lost after the operator prompt, the result is reported as ambiguous with an unknown commit count; inspect Telegram manually before taking any action. The script may clear its exact staged text only after a stable observation window ends without a request and the same account, chat, and exact text are still active. The summary includes a cleanupComplete boolean; if false, close or reload the test client before another smoke run.
 
 ## Evidence and receipt
 

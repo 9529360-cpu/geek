@@ -62,6 +62,25 @@ assert.equal(ambiguous.sendResult, 'ambiguous');
 assert.equal(ambiguous.nativeCommitCount, 'one');
 assert.equal(ambiguous.code, 'OWNER_AMBIGUOUS');
 
+assert.deepEqual(smoke.classifyUnobservedExecution(true), {
+  sendResult: 'ambiguous',
+  ownerState: 'uncertain',
+  nativeCommitCount: 'unknown',
+  code: 'OWNER_AMBIGUOUS',
+});
+assert.deepEqual(smoke.classifyUnobservedExecution(false), {
+  sendResult: 'blocked',
+  ownerState: 'not-started',
+  nativeCommitCount: 'zero',
+  code: 'OPERATOR_TIMEOUT',
+});
+assert.equal(smoke.classifyOwnerTerminal({
+  owner: true,
+  state: 'unknown',
+  textReady: true,
+  error: 'other',
+}).nativeCommitCount, 'unknown');
+
 const projected = smoke.projectEvidence({
   mode: 'execute',
   preflightReady: true,
@@ -100,6 +119,7 @@ assert.deepEqual(Object.keys(projected), [
   'generationRebound',
   'commitGuardPassed',
   'nativeCommitCount',
+  'cleanupComplete',
   'ownerState',
   'sendResult',
   'recipientReceipt',
@@ -110,6 +130,7 @@ assert.deepEqual(Object.keys(projected), [
 assert.equal(JSON.stringify(projected).includes('private-'), false);
 assert.equal(JSON.stringify(projected).includes('https://'), false);
 assert.equal(projected.recipientReceipt, 'manual-pass');
+assert.equal(projected.cleanupComplete, false);
 assert.equal(projected.schemaVersion, 'v1');
 
 const executeGuard = "if (' + modeValue + ' !== \"execute\") return out;";
@@ -122,6 +143,12 @@ assert.ok(source.includes('rawError === "SEND_INTENT_OUTCOME_UNCERTAIN"'));
 for (const forbidden of ['submitButton.click(', 'dispatchEvent(', 'SendKeys', 'transport.sendText', 'adapter.sendText']) {
   assert.equal(source.includes(forbidden), false, 'the smoke must not synthesize or directly call a send gesture/transport');
 }
-assert.ok(source.includes('buildHostCleanupExpression(prepared.context, smokeText, !requestSeen)'));
+assert.ok(source.includes('buildHostCleanupExpression(prepared.context, smokeText, !requestSeen && (!operatorWindowOpened || finalState?.sendResult === \'blocked\'))'));
+assert.ok(source.includes('outputEvidence.cleanupComplete = cleanupState?.kind === \'CLEANUP_RESULT\''));
+assert.ok(source.includes('...classifyUnobservedExecution(true)'));
+assert.ok(source.includes('throw codedError(\'CDP_COMMAND_FAILED\')'));
+assert.ok(source.includes('const activeId = String(document.querySelector'));
+assert.ok(source.indexOf('out.requestSeen = state.requestSeen === true;')
+  < source.indexOf('if (activeId !== expected.accountId'));
 
 console.log('TELEGRAM_SEND_INTENT_REAL_CLIENT_SMOKE_CONTRACT_OK');
