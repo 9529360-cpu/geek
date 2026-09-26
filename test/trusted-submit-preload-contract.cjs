@@ -78,16 +78,26 @@ assert.equal(typeof keydown, 'function');
 assert.equal(typeof click, 'function');
 
 focusin({ isTrusted: true, target: composerA });
+assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.shift())), {
+  channel: 'geek-trusted-composer-context',
+  payload: { protocolVersion: 1, platform: 'telegram', composerGeneration: 1 },
+});
 beforeinput({ isTrusted: true, target: composerA });
+assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.shift())), {
+  channel: 'geek-trusted-composer-context',
+  payload: { protocolVersion: 1, platform: 'telegram', composerGeneration: 2 },
+});
 keydown(keyEvent());
-assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.pop())), {
+assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.shift())), {
   channel: 'geek-trusted-submit',
   payload: { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 2 },
 });
+assert.equal(hostMessages.length, 0);
 
 beforeinput({ isTrusted: false, target: composerA });
+assert.equal(hostMessages.length, 0, 'synthetic edit must not emit trusted composer context');
 keydown(keyEvent());
-assert.equal(hostMessages.pop().payload.composerGeneration, 2, 'synthetic edit must not advance trusted composer generation');
+assert.equal(hostMessages.shift().payload.composerGeneration, 2, 'synthetic edit must not advance trusted composer generation');
 
 for (const event of [
   keyEvent({ isTrusted: false }),
@@ -103,9 +113,13 @@ for (const event of [
 assert.equal(hostMessages.length, 0, 'untrusted/modified/non-composer keyboard events must not mint a host gesture');
 
 focusin({ isTrusted: true, target: composerB });
+assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.shift())), {
+  channel: 'geek-trusted-composer-context',
+  payload: { protocolVersion: 1, platform: 'telegram', composerGeneration: 3 },
+});
 activeComposer = composerB;
 click({ isTrusted: true, target: target('button') });
-assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.pop())), {
+assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.shift())), {
   channel: 'geek-trusted-submit',
   payload: { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 3 },
 });
