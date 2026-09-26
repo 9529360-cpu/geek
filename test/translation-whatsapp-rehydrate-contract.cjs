@@ -17,6 +17,10 @@ assert.match(adapter, /__geekRefreshTranslationView/, 'chat changes must reuse t
 assert.match(adapter, /MutationObserver/, 'chat navigation must be observed without an unbounded polling loop');
 assert.match(adapter, /clearTimeout\(refreshTimer\)/, 'chat-change refreshes must be debounced');
 assert.match(adapter, /rootObserver\?\.disconnect/, 'rebinding a recreated WhatsApp main view must dispose the old observer');
+assert.match(adapter, /WAWebSocketModel/, 'rehydration must observe WhatsApp internal sync lifecycle when the socket store is available');
+assert.match(adapter, /nextSocket\.on\('change:hasSynced'/, 'rehydration must subscribe to the internal hasSynced transition');
+assert.match(adapter, /if \(nextSocket\.hasSynced === true\) socketHasSyncedHandler\(\)/, 'listener registration must atomically compensate when WhatsApp already synced');
+assert.match(adapter, /socketModel\.off\('change:hasSynced'/, 'rehydration disposal/rebind must remove the previous socket listener');
 assert.doesNotMatch(adapter, /setInterval\s*\(/, 'rehydration must not add a permanent polling loop');
 assert.doesNotMatch(adapter, /localStorage|sessionStorage/, 'translation text must not be cached in renderer storage');
 assert.doesNotMatch(adapter, /api\.translation|fetch\s*\(/, 'rehydration must not introduce a second translation transport');

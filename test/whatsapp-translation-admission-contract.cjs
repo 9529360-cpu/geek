@@ -24,7 +24,7 @@ function loadHostModule() {
   return context.window.GeekWhatsAppTranslationRehydrate;
 }
 
-function createGuestHarness(originalTranslate) {
+function createGuestHarness(originalTranslate, options = {}) {
   let chatId = 'chat-a';
   const timers = [];
   const observers = [];
@@ -42,11 +42,30 @@ function createGuestHarness(originalTranslate) {
     observe() {}
     disconnect() {}
   }
+  const socketHandlers = new Map();
+  const socket = {
+    hasSynced: options.hasSynced === true,
+    on(event, handler) {
+      if (!socketHandlers.has(event)) socketHandlers.set(event, new Set());
+      socketHandlers.get(event).add(handler);
+    },
+    off(event, handler) {
+      socketHandlers.get(event)?.delete(handler);
+    },
+    emit(event) {
+      for (const handler of [...(socketHandlers.get(event) || [])]) handler(this);
+    },
+    listenerCount(event) {
+      return socketHandlers.get(event)?.size || 0;
+    },
+  };
+  let refreshCount = 0;
   const window = {
     WPP: { chat: { getActiveChat: () => ({ id: { _serialized: chatId } }) } },
+    require(name) { return name === 'WAWebSocketModel' ? { Socket: socket } : undefined; },
     __geekTranslateVisibleMessage: originalTranslate,
     __geekGetTranslationSetting: () => ({ displayTranslation: true, translationMode: 'auto' }),
-    __geekRefreshTranslationView() {},
+    __geekRefreshTranslationView() { refreshCount += 1; },
   };
   const context = vm.createContext({
     window,
@@ -74,6 +93,8 @@ function createGuestHarness(originalTranslate) {
     observers,
     flushTimers,
     setChat(next) { chatId = next; },
+    socket,
+    getRefreshCount() { return refreshCount; },
   };
 }
 
@@ -151,6 +172,20 @@ function tick() {
   await historyHarness.window.__geekTranslateVisibleMessage({ id: 'history-1', dataset: { geekTranslationInitialHistory: '1' } });
   assert.equal(capturedMode, 'click', 'pre-existing history rows must not silently start automatic cloud translation');
   assert.equal(historyHarness.window.__geekGetTranslationSetting('chat-a').translationMode, 'auto', 'history compatibility shim must restore the user setting immediately');
+
+  const lifecycleHarness = createGuestHarness(() => Promise.resolve(true), { hasSynced: false });
+  assert.equal(lifecycleHarness.socket.listenerCount('change:hasSynced'), 1, 'WhatsApp sync lifecycle must have exactly one listener after install');
+  for (const observer of lifecycleHarness.observers) observer.callback([]);
+  assert.equal(lifecycleHarness.socket.listenerCount('change:hasSynced'), 1, 'DOM churn must not accumulate duplicate WhatsApp sync listeners');
+  lifecycleHarness.flushTimers();
+  const refreshBeforeSync = lifecycleHarness.getRefreshCount();
+  lifecycleHarness.setChat('chat-b');
+  lifecycleHarness.socket.hasSynced = true;
+  lifecycleHarness.socket.emit('change:hasSynced');
+  lifecycleHarness.flushTimers();
+  assert.ok(lifecycleHarness.getRefreshCount() > refreshBeforeSync, 'a late WhatsApp hasSynced transition must trigger rehydration');
+  lifecycleHarness.window.__geekTranslationRehydrateDispose();
+  assert.equal(lifecycleHarness.socket.listenerCount('change:hasSynced'), 0, 'disposing rehydration must remove the WhatsApp sync listener');
 
   console.log('WHATSAPP_TRANSLATION_ADMISSION_CONTRACT_OK');
 })().catch(error => {
