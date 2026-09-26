@@ -74,6 +74,39 @@ assert.throws(() => h.coordinator.cancel(created.intentId), error => error?.code
 assert.equal(h.coordinator.forget(created.intentId), true);
 assert.equal(h.coordinator.size(), 0);
 assert.throws(() => h.coordinator.get(created.intentId), error => error?.code === 'SEND_INTENT_NOT_FOUND');
+
+const ownedCommit = harness();
+const ownedIntent = ownedCommit.coordinator.begin({
+  ...binding(),
+  sourceSnapshot: 'owned',
+  transformPolicy: {},
+  deadlineAt: 5000,
+});
+ownedCommit.coordinator.startTransform(ownedIntent.intentId);
+ownedCommit.coordinator.markReady(ownedIntent.intentId);
+const { submitPermitId: _privatePermit, ...ownedContext } = binding();
+assert.equal(
+  ownedCommit.coordinator.beginCommitOwned(ownedIntent.intentId, ownedContext).state,
+  'committing',
+  'host-owned commit authorization must preserve the private permit internally',
+);
+assert.equal(JSON.stringify(ownedCommit.coordinator.get(ownedIntent.intentId)).includes('permit-private'), false);
+
+const ownedMismatch = harness();
+const mismatchIntent = ownedMismatch.coordinator.begin({
+  ...binding(),
+  sourceSnapshot: 'owned-mismatch',
+  transformPolicy: {},
+  deadlineAt: 5000,
+});
+ownedMismatch.coordinator.startTransform(mismatchIntent.intentId);
+ownedMismatch.coordinator.markReady(mismatchIntent.intentId);
+assert.throws(
+  () => ownedMismatch.coordinator.beginCommitOwned(mismatchIntent.intentId, { ...ownedContext, conversationId: 'other-chat' }),
+  error => error?.code === 'SEND_INTENT_STALE_CONTEXT' && error?.field === 'conversationId',
+);
+assert.equal(ownedMismatch.coordinator.get(mismatchIntent.intentId).state, 'ready');
+
 const deadline = harness();
 const expiredBeforeTransform = deadline.coordinator.begin({ ...binding(), sourceSnapshot: 'x', deadlineAt: 1100 });
 deadline.setTime(1100);
