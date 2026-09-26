@@ -67,3 +67,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-real-clien
 - `release-client` 生产 workflow 成功：才代表对应正式客户端发布链完成。
 
 不要用任意一层绿色结果替代另一层证据。
+
+## LINE context-isolation controlled text-send smoke
+
+`scripts/line-controlled-send-smoke.cjs` is a maintainer-only real-client gate for Issue #16. It reuses the product `GeekPlatformTransports` path; it does not select a chat, enumerate contacts, accept a chat/account/partition ID, or accept arbitrary message text.
+
+Before any send attempt:
+
+1. Start an unpackaged LINE isolation candidate with local CDP on port 9344.
+2. In Geek, manually select a LINE account and open a chat that the maintainer explicitly controls. Never use a customer chat as a smoke target.
+3. Make sure the composer is empty.
+4. Run preflight first:
+
+```powershell
+node .\scripts\line-controlled-send-smoke.cjs --preflight
+```
+
+Preflight is read-only. It requires the active account to be LINE, the isolation candidate bridge to be present, all privacy-safe LINE auth capabilities to be ready, the active WebView to be visible, a current chat to exist, the product transport to be ready, the composer to be empty, and the active account to remain stable. Output contains only booleans/enums; it never prints account IDs, partitions, chat IDs, URLs, token/HMAC values, contact names, message bodies, or the generated smoke text.
+
+Execution is fail-closed and is forbidden when `CI` is set. It requires both `--execute` and the exact explicit confirmation below:
+
+```powershell
+$env:GEEK_LINE_CONTROLLED_SEND_CONFIRM='I_CONFIRM_ACTIVE_LINE_CHAT_IS_MAINTAINER_CONTROLLED'
+node .\scripts\line-controlled-send-smoke.cjs --execute
+Remove-Item Env:GEEK_LINE_CONTROLLED_SEND_CONFIRM
+```
+
+The script generates its own fixed timestamped smoke text, inserts it through the existing account-bound WebView input IPC, rechecks that the active account and current chat have not changed, and then calls the existing LINE product `sendText()` transport once. It never retries an unconfirmed send. `sendConfirmed=true` means the local LINE UI observed the existing transport's success condition; recipient-side receipt is still a separate manual confirmation and must be recorded only as pass/fail, without copying chat content or identifiers.
