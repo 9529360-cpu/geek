@@ -38,7 +38,7 @@
       }
       let state = states.get(webview);
       if (!state) {
-        state = { generation: 0, latest: null };
+        state = { generation: 0, composerGeneration: 0, latest: null };
         states.set(webview, state);
       }
       return state;
@@ -68,12 +68,42 @@
       return stateFor(webview).generation;
     }
 
+    function composerGenerationFor(webview) {
+      return stateFor(webview).composerGeneration;
+    }
+
     function advanceGeneration(webview) {
       const state = stateFor(webview);
       state.generation += 1;
+      state.composerGeneration = 0;
       state.latest = null;
       if (typeof authority.sweep === 'function') authority.sweep();
       return state.generation;
+    }
+
+    function observeComposer(account, webview, payload = {}) {
+      const state = stateFor(webview);
+      if (Number(payload.protocolVersion) !== PROTOCOL_VERSION) {
+        throw runtimeError('TRUSTED_SUBMIT_RUNTIME_PROTOCOL');
+      }
+      const binding = bindingFor(account, webview, state);
+      const platform = String(payload.platform || '').trim();
+      if (binding.platform !== 'telegram' || platform !== binding.platform) {
+        throw runtimeError('TRUSTED_SUBMIT_RUNTIME_PLATFORM');
+      }
+      const composerGeneration = trustedGeneration(payload.composerGeneration, 'composerGeneration');
+      if (composerGeneration < state.composerGeneration) {
+        throw runtimeError('TRUSTED_SUBMIT_RUNTIME_STALE_COMPOSER', 'composerGeneration');
+      }
+      if (composerGeneration > state.composerGeneration) {
+        state.composerGeneration = composerGeneration;
+        state.latest = null;
+      }
+      return Object.freeze({
+        accepted: true,
+        composerGeneration: state.composerGeneration,
+        webviewGeneration: state.generation,
+      });
     }
 
     function observeGesture(account, webview, payload = {}) {
@@ -88,6 +118,13 @@
       }
       const kind = String(payload.kind || '').trim();
       const composerGeneration = trustedGeneration(payload.composerGeneration, 'composerGeneration');
+      if (composerGeneration < state.composerGeneration) {
+        throw runtimeError('TRUSTED_SUBMIT_RUNTIME_STALE_COMPOSER', 'composerGeneration');
+      }
+      if (composerGeneration > state.composerGeneration) {
+        state.composerGeneration = composerGeneration;
+        state.latest = null;
+      }
       const issued = authority.issue({ ...binding, kind });
       state.latest = {
         permitId: issued.permitId,
@@ -116,6 +153,9 @@
       }
       const binding = bindingFor(account, webview, state);
       if (binding.platform !== 'telegram') throw runtimeError('TRUSTED_SUBMIT_RUNTIME_PLATFORM');
+      if (latest.composerGeneration !== state.composerGeneration) {
+        throw runtimeError('TRUSTED_SUBMIT_RUNTIME_STALE_COMPOSER', 'composerGeneration');
+      }
       authority.consume(latest.permitId, binding);
       return Object.freeze({
         permitId: latest.permitId,
@@ -132,7 +172,9 @@
     return Object.freeze({
       registerWebview,
       generationFor,
+      composerGenerationFor,
       advanceGeneration,
+      observeComposer,
       observeGesture,
       takeLatest,
       clearWebview,
