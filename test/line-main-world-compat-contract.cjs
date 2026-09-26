@@ -8,8 +8,10 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 const compatPath = path.join(root, 'resources/extensions/line-3.5.1/static/js/geek-main-world-compat.js');
 const indexPath = path.join(root, 'resources/extensions/line-3.5.1/index.html');
+const bundlePath = path.join(root, 'resources/extensions/line-3.5.1/static/js/main.js');
 const source = fs.readFileSync(compatPath, 'utf8');
 const index = fs.readFileSync(indexPath, 'utf8');
+const bundle = fs.readFileSync(bundlePath, 'utf8');
 
 for (const forbidden of [
   /\brequire\s*\(/,
@@ -27,6 +29,12 @@ const mainIndex = index.indexOf('/static/js/main.js');
 assert.ok(compatIndex >= 0, 'LINE page must load the main-world compatibility shim');
 assert.ok(authIndex > compatIndex, 'authenticated EventSource shim must load after compatibility globals');
 assert.ok(mainIndex > authIndex, 'LINE application bundle must load last');
+
+assert.match(
+  bundle,
+  /URL\.createObjectURL\([^)]*\)[\s\S]{0,2600}\.downloads\s*\.download\(\{\s*url:\s*[^,\n]+,\s*filename:\s*[^,\n]+,\s*saveAs:\s*[^}\n]+/,
+  'LINE 3.5.1 file saves must continue to materialize a Blob URL and call chrome.downloads.download with url/filename/saveAs',
+);
 
 const nativeStorage = { local: { get() {} } };
 const nativeRuntime = { sendMessage() {} };
