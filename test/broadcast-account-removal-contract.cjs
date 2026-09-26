@@ -132,7 +132,12 @@ function createRemovalEvent() {
   assert.match(safetyLoader, /账号删除功能正在初始化，请稍后重试。/, 'pre-ready fail-closed path must give user-visible feedback');
   assert.match(safetyLoader, /broadcast-account-removal\.js/);
 
-  assert.match(main, /beforeAccountRemove: \(\{ accountId \}\) => scheduledAttachmentBoundary\.cleanupAccount\(accountId\)/, 'main composition must connect account deletion to scheduled attachment cleanup');
+  assert.match(
+    main,
+    /const cleanupCommittedAccountDependents = async \(\{ accountId \}\) => \{[\s\S]*?await scheduledAttachmentBoundary\.cleanupAccount\(accountId\);[\s\S]*?await configStore\.removeLegacyBroadcastGroupsForAccount\(accountId\);[\s\S]*?\};/,
+    'main composition must replay all durable account-owned child cleanup through one post-commit finalizer',
+  );
+  assert.match(main, /beforeAccountRemove: cleanupCommittedAccountDependents/, 'account deletion must inject the composed committed cleanup owner');
   assert.match(main, /accountDataBoundary\.runAccountRemoval\(event, accountId, removeAccount\)/, 'accounts:remove must explicitly enter the account-data lifecycle');
 
   const beginDeleteAt = accountBoundary.indexOf('await store.beginDelete(partition)');
