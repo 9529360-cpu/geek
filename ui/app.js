@@ -661,7 +661,7 @@
     });
     if (account.type !== 'website') {
       wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
-      wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); handleTrustedSubmitGesture(wv, event); });
+      wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); handleTrustedComposerContext(wv, event); handleTrustedSubmitGesture(wv, event); });
     }
     wvContainer.appendChild(wv);
     setTimeout(() => {
@@ -726,6 +726,7 @@
   const NATIVE_INPUT_REQUEST_PREFIX = '__GEEK_NATIVE_INPUT_REQUEST__:';
   const BRIDGE_CHANNEL = 'geek-bridge';
   const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit';
+  const TRUSTED_COMPOSER_CHANNEL = 'geek-trusted-composer-context';
 
   async function processNativeInputRequest(wv, requestId, suppliedToken) {
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
@@ -777,6 +778,15 @@
     } else if (message.type === 'native-input-request') {
       await processNativeInputRequest(wv, requestId, suppliedToken);
     }
+  }
+
+  function handleTrustedComposerContext(wv, event) {
+    if (event?.channel !== TRUSTED_COMPOSER_CHANNEL) return;
+    const payload = event.args?.[0];
+    if (!payload || typeof payload !== 'object') return;
+    const account = accounts.find(item => wvMap.get(item.id) === wv);
+    if (!account) return;
+    try { trustedSubmitRuntime.observeComposer(account, wv, payload); } catch { /* fail closed */ }
   }
 
   function handleTrustedSubmitGesture(wv, event) {
