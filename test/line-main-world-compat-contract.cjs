@@ -16,7 +16,6 @@ for (const forbidden of [
   /\bipcRenderer\b/,
   /\bcontextBridge\b/,
   /\bXMLHttpRequest\b/,
-  /\bfetch\s*\(/,
   /\beval\s*\(/,
 ]) {
   assert.doesNotMatch(source, forbidden, `main-world compatibility shim must stay unprivileged: ${forbidden}`);
@@ -33,15 +32,37 @@ const nativeStorage = { local: { get() {} } };
 const nativeRuntime = { sendMessage() {} };
 const nativeTabs = { query() {} };
 const nativeAction = { setBadgeText() {} };
+const blob = { size: 5 };
+const fetchCalls = [];
+const saveCalls = [];
 const window = {
+  location: { origin: 'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc' },
   chrome: {
     storage: nativeStorage,
     runtime: nativeRuntime,
     tabs: nativeTabs,
     action: nativeAction,
   },
+  async fetch(url) {
+    fetchCalls.push(url);
+    return { async blob() { return blob; } };
+  },
+  GeekLineDownloads: {
+    async saveBlob(value, filename, saveAs) {
+      saveCalls.push({ value, filename, saveAs });
+      return 1;
+    },
+  },
 };
-vm.runInNewContext(source, { window, globalThis: window, Promise, Object });
+
+vm.runInNewContext(source, {
+  window,
+  globalThis: window,
+  Promise,
+  Object,
+  Error,
+  String,
+});
 
 assert.strictEqual(window.chrome.storage, nativeStorage);
 assert.strictEqual(window.chrome.runtime, nativeRuntime);
@@ -60,8 +81,38 @@ assert.equal(typeof window.chrome.notifications.create, 'function');
 assert.equal(typeof window.chrome.notifications.onClicked.addListener, 'function');
 assert.equal(typeof window.chrome.cookies.remove, 'function');
 assert.equal(typeof window.chrome.downloads.download, 'function');
-assert.match(source, /LINE_CONTEXT_ISOLATION_DOWNLOAD_UNAVAILABLE/, 'candidate download must fail closed instead of pretending success');
 assert.equal(typeof window.chrome.downloads.ok, 'function');
 assert.equal(typeof window.chrome.downloads.onChanged.addListener, 'function');
 
-console.log('LINE_MAIN_WORLD_COMPAT_CONTRACT_OK');
+(async () => {
+  const blobUrl = 'blob:chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/probe';
+  const id = await window.chrome.downloads.download({
+    url: blobUrl,
+    filename: '../probe.txt',
+    saveAs: true,
+  });
+  assert.equal(id, 1);
+  assert.deepEqual(fetchCalls, [blobUrl]);
+  assert.equal(saveCalls.length, 1);
+  assert.strictEqual(saveCalls[0].value, blob);
+  assert.equal(saveCalls[0].filename, 'probe.txt');
+  assert.equal(saveCalls[0].saveAs, true);
+
+  for (const url of [
+    'https://example.com/file',
+    'data:text/plain,probe',
+    'file:///tmp/probe',
+    'blob:https://example.com/probe',
+  ]) {
+    await assert.rejects(
+      window.chrome.downloads.download({ url, filename: 'probe.txt' }),
+      error => error?.code === 'LINE_CONTEXT_ISOLATION_DOWNLOAD_URL_REJECTED',
+    );
+  }
+  assert.equal(fetchCalls.length, 1, 'rejected URLs must never reach fetch');
+
+  console.log('LINE_MAIN_WORLD_COMPAT_CONTRACT_OK');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

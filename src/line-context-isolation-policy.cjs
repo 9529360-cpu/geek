@@ -16,7 +16,9 @@ function applyLineContextIsolationPolicy(options = {}) {
   }
 
   if (options.candidateEnabled === true) {
-    delete webPreferences.preload;
+    const candidatePreloadPath = String(options.candidatePreloadPath || '').trim();
+    if (!candidatePreloadPath) throw new TypeError('candidatePreloadPath is required');
+    webPreferences.preload = candidatePreloadPath;
     webPreferences.contextIsolation = true;
     return Object.freeze({ candidateEnabled: true, contextIsolation: true });
   }
