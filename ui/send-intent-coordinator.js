@@ -140,7 +140,7 @@
       const binding = normalizeBinding(input);
       const controller = new AbortControllerImpl();
       const record = {
-        intentId, binding, sourceSnapshot: input.sourceSnapshot,
+        intentId, binding, commitBinding: binding, sourceSnapshot: input.sourceSnapshot,
         transformPolicy: clonePolicy(input.transformPolicy || {}),
         createdAt, deadlineAt, updatedAt: createdAt, terminalAt: null,
         state: 'created', failureCode: '', cancellationCode: '', controller,
@@ -162,13 +162,36 @@
       return setState(record, 'ready');
     }
 
+    function rebindComposerGenerationOwned(intentId, currentBinding = {}) {
+      const record = getRecord(intentId);
+      ensureState(record, 'transforming');
+      ensureBeforeDeadline(record);
+      const current = normalizeBinding({
+        ...currentBinding,
+        submitPermitId: record.binding.submitPermitId,
+      });
+      for (const field of BINDING_FIELDS) {
+        if (field === 'composerGeneration' || field === 'submitPermitId') continue;
+        if (current[field] !== record.binding[field]) throw intentError('SEND_INTENT_STALE_CONTEXT', field);
+      }
+      if (current.composerGeneration < record.commitBinding.composerGeneration) {
+        throw intentError('SEND_INTENT_STALE_CONTEXT', 'composerGeneration');
+      }
+      record.commitBinding = Object.freeze({
+        ...record.binding,
+        composerGeneration: current.composerGeneration,
+      });
+      record.updatedAt = now();
+      return project(record);
+    }
+
     function beginCommit(intentId, currentBinding) {
       const record = getRecord(intentId);
       ensureState(record, 'ready');
       ensureBeforeDeadline(record);
       const current = normalizeBinding(currentBinding);
       for (const field of BINDING_FIELDS) {
-        if (current[field] !== record.binding[field]) throw intentError('SEND_INTENT_STALE_CONTEXT', field);
+        if (current[field] !== record.commitBinding[field]) throw intentError('SEND_INTENT_STALE_CONTEXT', field);
       }
       return setState(record, 'committing');
     }
@@ -219,6 +242,7 @@
       readTransformPolicy: intentId => getRecord(intentId).transformPolicy,
       signal: intentId => getRecord(intentId).controller.signal,
       startTransform,
+      rebindComposerGenerationOwned,
       markReady,
       beginCommit,
       beginCommitOwned,
