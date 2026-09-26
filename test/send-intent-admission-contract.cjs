@@ -58,7 +58,6 @@ function input(accountValue, webviewValue, overrides = {}) {
     webview: webviewValue,
     expectedKind: 'keyboard',
     conversationId: 'conversation-private',
-    composerGeneration: 4,
     sourceSnapshot: 'PRIVATE-SOURCE-TEXT',
     transformPolicy: { enabled: true, target: 'it' },
     deadlineAt: 5000,
@@ -74,8 +73,9 @@ happy.trustedSubmitRuntime.observeGesture(a, wv, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'keyboard',
+  composerGeneration: 4,
 });
-const created = happy.admission.begin(input(a, wv));
+const created = happy.admission.begin(input(a, wv, { composerGeneration: 999 }));
 assert.equal(created.intentId, 'intent-1');
 assert.equal(created.state, 'created');
 assert.equal(created.platform, 'telegram');
@@ -115,6 +115,7 @@ wrongKind.trustedSubmitRuntime.observeGesture(wkAccount, wkWebview, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'button',
+  composerGeneration: 5,
 });
 assert.throws(
   () => wrongKind.admission.begin(input(wkAccount, wkWebview)),
@@ -134,6 +135,7 @@ staleAccount.trustedSubmitRuntime.observeGesture(sa, saWebview, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'keyboard',
+  composerGeneration: 4,
 });
 assert.throws(
   () => staleAccount.admission.begin(input(account({ id: 'account-B' }), saWebview)),
@@ -149,6 +151,7 @@ staleWebview.trustedSubmitRuntime.observeGesture(swAccount, movingWebview, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'keyboard',
+  composerGeneration: 4,
 });
 currentWebContentsId = 78;
 assert.throws(
@@ -164,6 +167,7 @@ staleGeneration.trustedSubmitRuntime.observeGesture(sgAccount, sgWebview, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'keyboard',
+  composerGeneration: 4,
 });
 staleGeneration.trustedSubmitRuntime.advanceGeneration(sgWebview);
 assert.throws(
@@ -179,6 +183,7 @@ expired.trustedSubmitRuntime.observeGesture(exAccount, exWebview, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'keyboard',
+  composerGeneration: 4,
 });
 expired.setTime(1500);
 assert.throws(
@@ -207,6 +212,7 @@ capacity.trustedSubmitRuntime.observeGesture(capAccount, capWebview, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'keyboard',
+  composerGeneration: 4,
 });
 assert.throws(
   () => capacity.admission.begin(input(capAccount, capWebview)),
@@ -226,6 +232,7 @@ badDeadline.trustedSubmitRuntime.observeGesture(bdAccount, bdWebview, {
   protocolVersion: 1,
   platform: 'telegram',
   kind: 'keyboard',
+  composerGeneration: 4,
 });
 assert.throws(
   () => badDeadline.admission.begin(input(bdAccount, bdWebview, { deadlineAt: 1000 })),
@@ -237,7 +244,7 @@ assert.throws(
 );
 
 assert.doesNotMatch(source, /querySelector|executeJavaScript|ipcRenderer|sendToHost|window\.WPP|GeekBroadcast|translation\.translate/, 'admission must not own platform, bridge, Broadcast or transform mechanics');
-assert.doesNotMatch(source, /input\.(accountId|partition|platform|webviewId|webviewGeneration|submitPermitId)/, 'private binding identity must be derived from trusted host owners');
+assert.doesNotMatch(source, /input\.(accountId|partition|platform|webviewId|webviewGeneration|submitPermitId|composerGeneration)/, 'private binding identity and composer generation must be derived from trusted host owners');
 assert.match(html, /trusted-submit-permits\.js[\s\S]*trusted-submit-runtime\.js[\s\S]*send-intent-coordinator\.js[\s\S]*send-intent-admission\.js[\s\S]*app\.js/);
 
 console.log('SEND_INTENT_ADMISSION_CONTRACT_OK');

@@ -48,7 +48,7 @@
         webviewId: String(webview.getWebContentsId()),
         webviewGeneration: permit.webviewGeneration,
         conversationId: input.conversationId,
-        composerGeneration: input.composerGeneration,
+        composerGeneration: permit.composerGeneration,
         submitPermitId: permit.permitId,
         sourceSnapshot: input.sourceSnapshot,
         transformPolicy: input.transformPolicy,

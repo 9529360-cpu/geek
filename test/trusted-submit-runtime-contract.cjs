@@ -26,10 +26,10 @@ const account = { id: 'account-private', partition: 'persist:webview-page-privat
 
 assert.equal(runtime.registerWebview(webview), 0);
 assert.equal(runtime.generationFor(webview), 0);
-const observed = runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard' });
+const observed = runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 4 });
 assert.deepEqual(
-  { accepted: observed.accepted, kind: observed.kind, expiresAt: observed.expiresAt, webviewGeneration: observed.webviewGeneration },
-  { accepted: true, kind: 'keyboard', expiresAt: 3000, webviewGeneration: 0 },
+  { accepted: observed.accepted, kind: observed.kind, expiresAt: observed.expiresAt, webviewGeneration: observed.webviewGeneration, composerGeneration: observed.composerGeneration },
+  { accepted: true, kind: 'keyboard', expiresAt: 3000, webviewGeneration: 0, composerGeneration: 4 },
 );
 const observedJson = JSON.stringify(observed);
 for (const forbidden of ['gesture-permit-1', 'account-private', 'persist:webview-page-private', '77']) {
@@ -38,14 +38,15 @@ for (const forbidden of ['gesture-permit-1', 'account-private', 'persist:webview
 const taken = runtime.takeLatest(account, webview, 'keyboard');
 assert.equal(taken.permitId, 'gesture-permit-1');
 assert.equal(taken.kind, 'keyboard');
+assert.equal(taken.composerGeneration, 4);
 assert.throws(() => runtime.takeLatest(account, webview), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT');
 
-runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button' });
+runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 5 });
 assert.equal(runtime.advanceGeneration(webview), 1);
 assert.equal(runtime.generationFor(webview), 1);
 assert.throws(() => runtime.takeLatest(account, webview), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT', 'navigation generation must invalidate the previous latest permit');
 
-runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard' });
+runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 6 });
 const staleAccount = { ...account, id: 'other-account' };
 assert.throws(
   () => runtime.takeLatest(staleAccount, webview),
@@ -54,15 +55,19 @@ assert.throws(
 assert.throws(() => runtime.takeLatest(account, webview), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT', 'failed consume stays fail-closed and does not restore latest authority');
 
 assert.throws(
-  () => runtime.observeGesture(account, webview, { protocolVersion: 2, platform: 'telegram', kind: 'keyboard' }),
+  () => runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: -1 }),
+  error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_INVALID' && error?.field === 'composerGeneration',
+);
+assert.throws(
+  () => runtime.observeGesture(account, webview, { protocolVersion: 2, platform: 'telegram', kind: 'keyboard', composerGeneration: 4 }),
   error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_PROTOCOL',
 );
 assert.throws(
-  () => runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'whatsapp', kind: 'button' }),
+  () => runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'whatsapp', kind: 'button', composerGeneration: 5 }),
   error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_PLATFORM',
 );
 assert.throws(
-  () => runtime.observeGesture({ ...account, type: 'whatsapp' }, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button' }),
+  () => runtime.observeGesture({ ...account, type: 'whatsapp' }, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 5 }),
   error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_PLATFORM',
 );
 
