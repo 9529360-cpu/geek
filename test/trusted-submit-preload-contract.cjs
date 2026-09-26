@@ -10,10 +10,14 @@ const source = fs.readFileSync(path.join(root, 'resources', 'bridge-preload.cjs'
 const listeners = new Map();
 const hostMessages = [];
 const rootElement = { setAttribute() {} };
+let activeComposer = null;
 const document = {
   documentElement: rootElement,
   head: null,
   addEventListener(type, handler) { listeners.set(type, handler); },
+  querySelector(selector) {
+    return selector.includes('#editable-message-text') ? activeComposer : null;
+  },
 };
 const windowObject = {
   location: { origin: 'https://web.telegram.org', protocol: 'https:', hostname: 'web.telegram.org' },
@@ -45,6 +49,10 @@ function target(kind) {
     },
   };
 }
+const composerA = target('composer');
+const composerB = target('composer');
+activeComposer = composerA;
+
 function keyEvent(overrides = {}) {
   return {
     isTrusted: true,
@@ -55,21 +63,31 @@ function keyEvent(overrides = {}) {
     metaKey: false,
     isComposing: false,
     repeat: false,
-    target: target('composer'),
+    target: composerA,
     ...overrides,
   };
 }
 
+const focusin = listeners.get('focusin');
+const beforeinput = listeners.get('beforeinput');
 const keydown = listeners.get('keydown');
 const click = listeners.get('click');
+assert.equal(typeof focusin, 'function');
+assert.equal(typeof beforeinput, 'function');
 assert.equal(typeof keydown, 'function');
 assert.equal(typeof click, 'function');
 
+focusin({ isTrusted: true, target: composerA });
+beforeinput({ isTrusted: true, target: composerA });
 keydown(keyEvent());
 assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.pop())), {
   channel: 'geek-trusted-submit',
-  payload: { protocolVersion: 1, platform: 'telegram', kind: 'keyboard' },
+  payload: { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 2 },
 });
+
+beforeinput({ isTrusted: false, target: composerA });
+keydown(keyEvent());
+assert.equal(hostMessages.pop().payload.composerGeneration, 2, 'synthetic edit must not advance trusted composer generation');
 
 for (const event of [
   keyEvent({ isTrusted: false }),
@@ -84,10 +102,12 @@ for (const event of [
 ]) keydown(event);
 assert.equal(hostMessages.length, 0, 'untrusted/modified/non-composer keyboard events must not mint a host gesture');
 
+focusin({ isTrusted: true, target: composerB });
+activeComposer = composerB;
 click({ isTrusted: true, target: target('button') });
 assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.pop())), {
   channel: 'geek-trusted-submit',
-  payload: { protocolVersion: 1, platform: 'telegram', kind: 'button' },
+  payload: { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 3 },
 });
 click({ isTrusted: false, target: target('button') });
 click({ isTrusted: true, target: target('other') });
