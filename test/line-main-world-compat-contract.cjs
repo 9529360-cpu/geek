@@ -32,6 +32,11 @@ assert.ok(mainIndex > authIndex, 'LINE application bundle must load last');
 
 assert.match(
   bundle,
+  /dp = 2 \*\* 30,\s*pp = 1 \* dp/,
+  'LINE 3.5.1 bundle file-size contract must remain 1 GiB',
+);
+assert.match(
+  bundle,
   /URL\.createObjectURL\([^)]*\)[\s\S]{0,2600}\.downloads\s*\.download\(\{\s*url:\s*[^,\n]+,\s*filename:\s*[^,\n]+,\s*saveAs:\s*[^}\n]+/,
   'LINE 3.5.1 file saves must continue to materialize a Blob URL and call chrome.downloads.download with url/filename/saveAs',
 );

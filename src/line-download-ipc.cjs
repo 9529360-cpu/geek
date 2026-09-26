@@ -12,7 +12,7 @@ const LINE_DOWNLOAD_IPC_CHANNELS = Object.freeze([
 ]);
 
 const LINE_EXTENSION_URL = /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//;
-const MAX_LINE_DOWNLOAD_BYTES = 512 * 1024 * 1024;
+const MAX_LINE_DOWNLOAD_BYTES = 2 ** 30;
 const MAX_LINE_DOWNLOAD_CHUNK_BYTES = 1024 * 1024;
 const MAX_ACTIVE_PER_GUEST = 2;
 const TRANSFER_IDLE_TIMEOUT_MS = 2 * 60 * 1000;

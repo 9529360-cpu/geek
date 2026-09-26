@@ -2,7 +2,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-const MAX_LINE_DOWNLOAD_BYTES = 512 * 1024 * 1024;
+const MAX_LINE_DOWNLOAD_BYTES = 2 ** 30;
 const MAX_LINE_DOWNLOAD_CHUNK_BYTES = 1024 * 1024;
 
 function downloadError(code, message) {

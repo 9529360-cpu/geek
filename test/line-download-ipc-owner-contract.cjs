@@ -6,6 +6,7 @@ const path = require('node:path');
 const { createOwnershipRegistry } = require('../src/webview-ownership.cjs');
 const {
   LINE_DOWNLOAD_IPC_CHANNELS,
+  MAX_LINE_DOWNLOAD_BYTES,
   installLineDownloadIpc,
   sanitizeLineDownloadFilename,
 } = require('../src/line-download-ipc.cjs');
@@ -127,6 +128,7 @@ async function rejects(promise, predicate) {
 }
 
 (async () => {
+  assert.equal(MAX_LINE_DOWNLOAD_BYTES, 2 ** 30, 'LINE 3.5.1 supports files up to 1 GiB');
   assert.equal(sanitizeLineDownloadFilename('../probe.txt'), 'probe.txt');
   assert.equal(sanitizeLineDownloadFilename('..\\nested\\report?.txt'), 'report_.txt');
   assert.equal(sanitizeLineDownloadFilename('CON'), '_CON');
@@ -173,6 +175,32 @@ async function rejects(promise, predicate) {
       h.ipcMain.invoke('line-download:begin', h.guest, { filename: 'a.txt', size: 1 }),
       error => error?.code === 'LINE_DOWNLOAD_SENDER_UNAUTHORIZED',
     );
+  }
+
+  {
+    const h = createHarness();
+    h.register();
+    const max = await h.ipcMain.invoke('line-download:begin', h.guest, {
+      filename: 'max.bin',
+      size: MAX_LINE_DOWNLOAD_BYTES,
+      saveAs: false,
+    });
+    assert.ok(max.id);
+    await h.ipcMain.invoke('line-download:cancel', h.guest, { id: max.id });
+  }
+
+  {
+    const h = createHarness();
+    h.register();
+    await assert.rejects(
+      h.ipcMain.invoke('line-download:begin', h.guest, {
+        filename: 'too-large.bin',
+        size: MAX_LINE_DOWNLOAD_BYTES + 1,
+        saveAs: false,
+      }),
+      error => error?.code === 'LINE_DOWNLOAD_SIZE_INVALID',
+    );
+    assert.equal(h.fs.opened.length, 0);
   }
 
   {

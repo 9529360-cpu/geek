@@ -53,6 +53,15 @@ async function loadPreload({ failChunk = false } = {}) {
   return { calls, api: exposed };
 }
 
+function createSizedEmptyBlob(size) {
+  return {
+    size,
+    stream() {
+      return { getReader: () => ({ async read() { return { done: true, value: undefined }; } }) };
+    },
+  };
+}
+
 function createBlob(chunks) {
   const normalized = chunks.map(value => new Uint8Array(value));
   return {
@@ -98,6 +107,23 @@ function createBlob(chunks) {
     assert.deepEqual(Array.from(calls[2][1].bytes), [3, 4, 5]);
     assert.equal(calls[3][1].id, 'download-1');
     assert.equal(calls[3][1].seq, 2);
+  }
+
+  {
+    const { calls, api } = await loadPreload();
+    const result = await api.saveBlob(createSizedEmptyBlob(2 ** 30), 'max.bin', false);
+    assert.equal(result, 1);
+    assert.equal(calls[0][0], 'line-download:begin');
+    assert.equal(calls[0][1].size, 2 ** 30);
+  }
+
+  {
+    const { calls, api } = await loadPreload();
+    await assert.rejects(
+      api.saveBlob(createSizedEmptyBlob((2 ** 30) + 1), 'too-large.bin', false),
+      error => error?.code === 'LINE_DOWNLOAD_BLOB_INVALID',
+    );
+    assert.equal(calls.length, 0);
   }
 
   {
