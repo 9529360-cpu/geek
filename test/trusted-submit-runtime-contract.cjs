@@ -26,10 +26,20 @@ const account = { id: 'account-private', partition: 'persist:webview-page-privat
 
 assert.equal(runtime.registerWebview(webview), 0);
 assert.equal(runtime.generationFor(webview), 0);
-const observed = runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 4 });
+assert.equal(runtime.composerGenerationFor(webview), 0);
+assert.deepEqual(
+  runtime.observeComposer(account, webview, { protocolVersion: 1, platform: 'telegram', composerGeneration: 1 }),
+  { accepted: true, composerGeneration: 1, webviewGeneration: 0 },
+);
+assert.deepEqual(
+  runtime.observeComposer(account, webview, { protocolVersion: 1, platform: 'telegram', composerGeneration: 2 }),
+  { accepted: true, composerGeneration: 2, webviewGeneration: 0 },
+);
+assert.equal(runtime.composerGenerationFor(webview), 2);
+const observed = runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 2 });
 assert.deepEqual(
   { accepted: observed.accepted, kind: observed.kind, expiresAt: observed.expiresAt, webviewGeneration: observed.webviewGeneration, composerGeneration: observed.composerGeneration },
-  { accepted: true, kind: 'keyboard', expiresAt: 3000, webviewGeneration: 0, composerGeneration: 4 },
+  { accepted: true, kind: 'keyboard', expiresAt: 3000, webviewGeneration: 0, composerGeneration: 2 },
 );
 const observedJson = JSON.stringify(observed);
 for (const forbidden of ['gesture-permit-1', 'account-private', 'persist:webview-page-private', '77']) {
@@ -38,12 +48,30 @@ for (const forbidden of ['gesture-permit-1', 'account-private', 'persist:webview
 const taken = runtime.takeLatest(account, webview, 'keyboard');
 assert.equal(taken.permitId, 'gesture-permit-1');
 assert.equal(taken.kind, 'keyboard');
-assert.equal(taken.composerGeneration, 4);
+assert.equal(taken.composerGeneration, 2);
 assert.throws(() => runtime.takeLatest(account, webview), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT');
 
-runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 5 });
+runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 3 });
+runtime.observeComposer(account, webview, { protocolVersion: 1, platform: 'telegram', composerGeneration: 4 });
+assert.equal(runtime.composerGenerationFor(webview), 4);
+assert.throws(
+  () => runtime.takeLatest(account, webview),
+  error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT',
+  'trusted edit after submit must invalidate the old unconsumed permit',
+);
+assert.throws(
+  () => runtime.observeComposer(account, webview, { protocolVersion: 1, platform: 'telegram', composerGeneration: 3 }),
+  error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_STALE_COMPOSER' && error?.field === 'composerGeneration',
+);
+assert.throws(
+  () => runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 3 }),
+  error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_STALE_COMPOSER' && error?.field === 'composerGeneration',
+);
+
+runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 4 });
 assert.equal(runtime.advanceGeneration(webview), 1);
 assert.equal(runtime.generationFor(webview), 1);
+assert.equal(runtime.composerGenerationFor(webview), 0);
 assert.throws(() => runtime.takeLatest(account, webview), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT', 'navigation generation must invalidate the previous latest permit');
 
 runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 6 });
@@ -76,8 +104,11 @@ assert.match(app, /GeekTrustedSubmitRuntime\.create\(\{[\s\S]*authority: trusted
 assert.match(app, /trustedSubmitRuntime\.registerWebview\(wv\);[\s\S]*did-start-navigation[\s\S]*trustedSubmitRuntime\.advanceGeneration\(wv\)/);
 assert.match(app, /render-process-gone[\s\S]*trustedSubmitRuntime\.advanceGeneration\(wv\)/);
 assert.match(app, /const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit'/);
+assert.match(app, /const TRUSTED_COMPOSER_CHANNEL = 'geek-trusted-composer-context'/);
+assert.match(app, /handleTrustedComposerContext\(wv, event\)/);
+assert.match(app, /trustedSubmitRuntime\.observeComposer\(account, wv, payload\)/);
 assert.match(app, /handleTrustedSubmitGesture\(wv, event\)/);
-assert.match(app, /handleLineTranslationIpc\(wv, event\); handleGeekBridgeIpc\(wv, event\); handleTrustedSubmitGesture\(wv, event\);/);
+assert.match(app, /handleLineTranslationIpc\(wv, event\); handleGeekBridgeIpc\(wv, event\); handleTrustedComposerContext\(wv, event\); handleTrustedSubmitGesture\(wv, event\);/);
 assert.match(html, /trusted-submit-permits\.js[\s\S]*trusted-submit-runtime\.js[\s\S]*send-intent-coordinator\.js[\s\S]*app\.js/);
 
 console.log('TRUSTED_SUBMIT_RUNTIME_CONTRACT_OK');
