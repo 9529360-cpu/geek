@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const ui = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
-const adaptersStart = ui.indexOf('const BROADCAST_ADAPTERS = {');
+const adaptersStart = ui.indexOf('const PLATFORM_CAPABILITY_DEFINITIONS = {');
 const lineStart = ui.indexOf('    line: {', adaptersStart);
 const sendStart = ui.indexOf('      send: `(async () => {', lineStart);
 const sendEnd = ui.indexOf('      })()`,', sendStart);
