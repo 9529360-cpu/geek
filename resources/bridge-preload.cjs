@@ -42,30 +42,65 @@ function eventElement(event) {
   return target && target.nodeType === 1 && typeof target.closest === 'function' ? target : null;
 }
 
-function emitTrustedSubmit(kind) {
+let telegramComposerGeneration = 0;
+let telegramComposerElement = null;
+
+function observeTelegramComposer(element, advance = false) {
+  if (!element) return telegramComposerGeneration;
+  if (telegramComposerElement !== element) {
+    telegramComposerElement = element;
+    telegramComposerGeneration += 1;
+  } else if (advance) {
+    telegramComposerGeneration += 1;
+  }
+  return telegramComposerGeneration;
+}
+
+function emitTrustedSubmit(kind, composerGeneration) {
   try {
     ipcRenderer.sendToHost(TRUSTED_SUBMIT_CHANNEL, {
       protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION,
       platform: 'telegram',
       kind,
+      composerGeneration,
     });
   } catch { /* trusted gesture observation must never break native page behavior */ }
 }
+
+document.addEventListener('focusin', (event) => {
+  if (!isTelegramPage() || event?.isTrusted !== true) return;
+  const target = eventElement(event);
+  const composer = target?.closest(TELEGRAM_COMPOSER_SELECTOR);
+  if (!composer) return;
+  observeTelegramComposer(composer, false);
+}, true);
+
+document.addEventListener('beforeinput', (event) => {
+  if (!isTelegramPage() || event?.isTrusted !== true) return;
+  const target = eventElement(event);
+  const composer = target?.closest(TELEGRAM_COMPOSER_SELECTOR);
+  if (!composer) return;
+  observeTelegramComposer(composer, true);
+}, true);
 
 document.addEventListener('keydown', (event) => {
   if (!isTelegramPage() || event?.isTrusted !== true) return;
   if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
   if (event.isComposing || event.repeat) return;
   const target = eventElement(event);
-  if (!target || !target.closest(TELEGRAM_COMPOSER_SELECTOR)) return;
-  emitTrustedSubmit('keyboard');
+  const composer = target?.closest(TELEGRAM_COMPOSER_SELECTOR);
+  if (!composer) return;
+  const composerGeneration = observeTelegramComposer(composer, false);
+  emitTrustedSubmit('keyboard', composerGeneration);
 }, true);
 
 document.addEventListener('click', (event) => {
   if (!isTelegramPage() || event?.isTrusted !== true) return;
   const target = eventElement(event);
   if (!target || !target.closest(TELEGRAM_SEND_SELECTOR)) return;
-  emitTrustedSubmit('button');
+  const composer = document.querySelector?.(TELEGRAM_COMPOSER_SELECTOR) || telegramComposerElement;
+  const composerGeneration = observeTelegramComposer(composer, false);
+  emitTrustedSubmit('button', composerGeneration);
 }, true);
 
 window.addEventListener('message', (event) => {
