@@ -25,7 +25,9 @@
     const familyOf = options.familyOf;
     const normalizeComposerText = options.normalizeComposerText;
 
-    if (!coordinator || typeof coordinator.beginCommitOwned !== 'function') {
+    if (!coordinator
+      || typeof coordinator.beginCommitOwned !== 'function'
+      || typeof coordinator.rebindComposerGenerationOwned !== 'function') {
       throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'coordinator');
     }
     if (!trustedSubmitRuntime
