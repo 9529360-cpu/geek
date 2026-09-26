@@ -14,6 +14,7 @@ const expectedChannels = [
   'app:get-version',
   'platforms:list',
   'bridge:get-preload-path',
+  'line:get-context-isolation-preload-path',
   'window:relaunch',
   'updater:install',
   'window:minimize',
@@ -31,6 +32,7 @@ assert.match(main, /getMainWindow:\s*\(\) => mainWindow/, 'main must retain Brow
 assert.match(main, /platformCatalog:\s*PLATFORM_CATALOG/, 'main must inject the canonical Platform Catalog');
 assert.match(main, /runtimeAssetAllowed,/, 'main must inject the existing runtime integrity authority');
 assert.match(main, /resourcesDir:\s*RESOURCES_DIR/, 'main must inject the resolved runtime resources directory');
+assert.match(main, /lineContextIsolationCandidate:\s*LINE_CONTEXT_ISOLATION_CANDIDATE/, 'main must inject candidate mode into Desktop IPC owner');
 assert.match(main, /quitAndInstallForUpdate,/, 'main must inject the existing updater install callback');
 assert.match(main, /desktopIpcBoundary\?\.dispose\(\)/, 'before-quit lifecycle must dispose Desktop IPC owner');
 
@@ -66,6 +68,7 @@ const preloadContracts = [
   /app:\s*Object\.freeze\(\{\s*version:\s*\(\) => ipcRenderer\.invoke\('app:get-version'\)/,
   /platforms:\s*Object\.freeze\(\{\s*list:\s*\(\) => ipcRenderer\.invoke\('platforms:list'\)/,
   /bridge:\s*Object\.freeze\(\{\s*preloadPath:\s*\(\) => ipcRenderer\.invoke\('bridge:get-preload-path'\)/,
+  /line:\s*Object\.freeze\(\{[\s\S]*?contextIsolationPreloadPath:\s*\(\) => ipcRenderer\.invoke\('line:get-context-isolation-preload-path'\)/,
   /relaunch:\s*\(\) => ipcRenderer\.invoke\('window:relaunch'\)/,
   /install:\s*\(\) => ipcRenderer\.invoke\('updater:install'\)/,
   /minimize:\s*\(\) => ipcRenderer\.invoke\('window:minimize'\)/,

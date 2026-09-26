@@ -50,7 +50,7 @@ assert.match(securitySource, /params\.src = isWebsite \? normalizeWebsiteUrl\(ac
 assert.match(securitySource, /isWebsite[\s\S]*'contextIsolation=yes,sandbox=true,nativeWindowOpen=no,spellcheck=no'/, 'Website renderer preferences remain hardened');
 assert.match(securitySource, /ownerIsWhatsApp[\s\S]*did-finish-load[\s\S]*ownerIsWhatsApp &&/, 'WPP injection must be gated by the owning account type, not URL alone');
 
-assert.match(renderer, /account\.type !== 'line' && account\.type !== 'line-business' && account\.type !== 'website'[\s\S]*setAttribute\('preload'/, 'renderer must not attach Geek bridge preload to Website');
+assert.match(renderer, /else if \(bridgePreloadPath && !isLineAccount && account\.type !== 'website'\) \{[\s\S]*?wv\.setAttribute\('preload', bridgePreloadPath\)/, 'renderer must not attach Geek bridge preload to Website');
 assert.match(renderer, /if \(account\.type !== 'website'\) wv\.setAttribute\('allowpopups'/, 'Website must not opt into renderer popup capability');
 assert.match(renderer, /key: 'website', label: '网站'[\s\S]*types: \['website'\]/, 'Website gets its own platform family');
 assert.match(renderer, /if \(type === 'website'\) return 'p-icon-website'/, 'Website gets an independent icon class');

@@ -572,6 +572,7 @@ function registerIpcHandlers() {
     platformCatalog: PLATFORM_CATALOG,
     runtimeAssetAllowed,
     resourcesDir: RESOURCES_DIR,
+    lineContextIsolationCandidate: LINE_CONTEXT_ISOLATION_CANDIDATE,
     quitAndInstallForUpdate,
     Notification,
     nativeTheme,

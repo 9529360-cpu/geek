@@ -8,6 +8,7 @@ const DESKTOP_IPC_CHANNELS = Object.freeze([
   'app:get-version',
   'platforms:list',
   'bridge:get-preload-path',
+  'line:get-context-isolation-preload-path',
   'window:relaunch',
   'updater:install',
   'window:minimize',
@@ -27,6 +28,7 @@ function installDesktopIpc(options = {}) {
     platformCatalog,
     runtimeAssetAllowed,
     resourcesDir,
+    lineContextIsolationCandidate = false,
     quitAndInstallForUpdate,
     Notification,
     nativeTheme,
@@ -83,6 +85,16 @@ function installDesktopIpc(options = {}) {
   register('bridge:get-preload-path', () => {
     if (!runtimeAssetAllowed('bridge')) throw new Error('翻译桥完整性校验失败，已阻止加载');
     return pathToFileURLImpl(pathModule.join(resourcesDir, 'bridge-preload.cjs')).href;
+  });
+  register('line:get-context-isolation-preload-path', () => {
+    if (lineContextIsolationCandidate !== true) return '';
+    if (!runtimeAssetAllowed('lineExtension')) throw new Error('LINE 扩展完整性校验失败，已阻止加载');
+    return pathToFileURLImpl(pathModule.join(
+      resourcesDir,
+      'extensions',
+      'line-3.5.1',
+      'geek-isolated-preload.cjs',
+    )).href;
   });
   register('window:relaunch', () => {
     app.relaunch();
