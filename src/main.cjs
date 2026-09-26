@@ -474,6 +474,10 @@ function registerIpcHandlers() {
     ephemeralRegistry: broadcastFileBoundary.registry,
     getUserDataDir: () => app.getPath('userData'),
   });
+  const cleanupCommittedAccountDependents = async ({ accountId }) => {
+    await scheduledAttachmentBoundary.cleanupAccount(accountId);
+    await configStore.removeLegacyBroadcastGroupsForAccount(accountId);
+  };
   const accountDataBoundary = installAccountDataBoundary({
     ipcMain,
     BrowserWindow,
@@ -483,7 +487,7 @@ function registerIpcHandlers() {
     uiEntryPath,
     allowedKeys: [...ACCOUNT_DATA_KEYS, ...BROADCAST_ACCOUNT_DATA_KEYS],
     resolveAccountPartition: accountId => accountState.resolvePartition(accountId),
-    beforeAccountRemove: ({ accountId }) => scheduledAttachmentBoundary.cleanupAccount(accountId),
+    beforeAccountRemove: cleanupCommittedAccountDependents,
     isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
     encrypt: (value) => safeStorage.encryptString(String(value)).toString('base64'),
     decrypt: (value) => safeStorage.decryptString(Buffer.from(String(value), 'base64')),
@@ -1423,6 +1427,14 @@ app.whenReady().then(async () => {
   }
   await accountState.load();
   await configStore.load();
+  try {
+    const liveAccountIds = accountState.getSnapshot().accounts.map(account => account.id);
+    const reconciliation = await configStore.removeOrphanedLegacyBroadcastGroups(liveAccountIds);
+    diagnostics.log('legacy-broadcast-groups-reconciled', { removed: reconciliation.removed });
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : String(error?.name || 'UNKNOWN');
+    console.error('[config] legacy broadcast group cleanup retry required:', code.slice(0, 80));
+  }
   proxyRuntime.installAuthenticationHandler();
   await proxyRuntime.applyAccounts(accountState.getSnapshot().accounts, configStore.getSnapshot());
   applyLoginItemSettings(configStore.getSnapshot());
