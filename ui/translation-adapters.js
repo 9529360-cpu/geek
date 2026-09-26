@@ -21,10 +21,11 @@
           } else {
             console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
           }
+          const requestTimeoutMs = intent === 'outgoing-send' ? 55000 : 35000;
           setTimeout(() => {
             const pending = window.__geekTranslationPending.get(id);
             if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); }
-          }, 35000);
+          }, requestTimeoutMs);
         });
       };
       window.__geekTakeTranslationRequest = id => {
@@ -42,6 +43,10 @@
     const translationSendErrorMessage = error => {
       const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
       const raw = String(error?.message || error || '');
+      if (raw === 'SEND_INTENT_OUTCOME_UNCERTAIN') return '发送结果不确定，请先检查聊天记录；系统不会自动重发';
+      if (raw === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT' || raw === 'SUBMIT_PERMIT_EXPIRED') return '发送操作已过期，请重新点击发送';
+      if (/SEND_INTENT_(STALE_CONTEXT|COMPOSER_MISMATCH)/.test(raw)) return '聊天或草稿已变化，发送已取消';
+      if (/^SEND_INTENT_/.test(raw)) return '消息未发送，请确认当前聊天和草稿后重试';
       if (!raw.startsWith(prefix)) return '翻译失败，原文未发送';
       let detail;
       try { detail = JSON.parse(raw.slice(prefix.length)); } catch { return '翻译失败，原文未发送'; }
@@ -211,6 +216,11 @@
       try {
         const result = await window.__geekTranslationRequest({ text: original, source: setting.source || 'auto', target: setting.target || 'en', provider: setting.provider, route: setting.route, chatId: cid, intent: 'outgoing-send' });
         if (!result?.text) throw new Error('翻译失败');
+        if (result?.delivery?.owner === 'send-intent') {
+          if (!keepWebKContenteditable) editor.setAttribute('contenteditable', 'true');
+          if (result.delivery.state !== 'sent') throw new Error('SEND_INTENT_SEND_FAILED');
+          return;
+        }
         assertSendContext();
         if (!keepWebKContenteditable) editor.setAttribute('contenteditable', 'true');
         editor.focus();
