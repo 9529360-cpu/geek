@@ -24,6 +24,8 @@
         let admissionRetryCount = 0;
         let rootObserver = null;
         let bodyObserver = null;
+        let socketModel = null;
+        let socketHasSyncedHandler = null;
         let backgroundGeneration = 0;
         let backgroundActive = 0;
         const backgroundQueue = [];
@@ -177,12 +179,47 @@
           return true;
         };
 
+        const unbindSocketLifecycle = () => {
+          try {
+            if (socketModel && socketHasSyncedHandler && typeof socketModel.off === 'function') {
+              socketModel.off('change:hasSynced', socketHasSyncedHandler);
+            }
+          } catch (_) {}
+          socketModel = null;
+          socketHasSyncedHandler = null;
+        };
+
+        const bindSocketLifecycle = () => {
+          let nextSocket = null;
+          try { nextSocket = window.require?.('WAWebSocketModel')?.Socket || null; }
+          catch (_) { return false; }
+          if (!nextSocket || typeof nextSocket.on !== 'function' || typeof nextSocket.off !== 'function') return false;
+          if (socketModel === nextSocket && socketHasSyncedHandler) return true;
+
+          unbindSocketLifecycle();
+          socketModel = nextSocket;
+          socketHasSyncedHandler = () => {
+            if (socketModel !== nextSocket || nextSocket.hasSynced !== true) return;
+            bindMain();
+            scheduleAdmissionInstall();
+            scheduleRefresh();
+          };
+
+          // Keep registration + current-state check atomic. WhatsApp Web can finish
+          // synchronization before an SPA reinjection observes a new transition.
+          nextSocket.on('change:hasSynced', socketHasSyncedHandler);
+          if (nextSocket.hasSynced === true) socketHasSyncedHandler();
+          return true;
+        };
+
         bodyObserver = new MutationObserver(() => {
+          bindSocketLifecycle();
           bindMain();
           scheduleAdmissionInstall();
           scheduleRefresh();
         });
         bodyObserver.observe(document.documentElement, { childList: true, subtree: true });
+        bindSocketLifecycle();
         bindMain();
         scheduleAdmissionInstall();
         scheduleRefresh();
@@ -194,6 +231,7 @@
           clearQueuedBackground();
           rootObserver?.disconnect();
           bodyObserver?.disconnect();
+          unbindSocketLifecycle();
           delete window.${INSTALL_MARKER};
           delete window.__geekTranslationRehydrateRoot;
           delete window.__geekWhatsAppTranslationAdmission;
