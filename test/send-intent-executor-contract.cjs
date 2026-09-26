@@ -207,7 +207,7 @@ function input(h, overrides = {}) {
   assert.equal(thrownAfterCommit.coordinator.get(thrownAfterCommit.intentId()).state, 'failed');
   assert.equal(thrownAfterCommit.coordinator.get(thrownAfterCommit.intentId()).failureCode, 'SEND_INTENT_OUTCOME_UNCERTAIN');
 
-  assert.doesNotMatch(source, /querySelector|executeJavaScript|ipcRenderer|sendToHost|telegram|whatsapp|line/i, 'executor must remain platform/DOM/Electron neutral');
+  assert.doesNotMatch(source, /querySelector|executeJavaScript|ipcRenderer|sendToHost|\btelegram\b|\bwhatsapp\b|\bline\b/i, 'executor must remain platform/DOM/Electron neutral');
   assert.doesNotMatch(source, /Math\.random/, 'executor must not mint transaction identity');
   assert.match(source, /adapter\.sendText\(''\)/, 'native commit must have one explicit executor-owned send point');
 
