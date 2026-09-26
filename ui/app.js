@@ -573,6 +573,7 @@
 
   // ---------- WebView 创建 ----------
   let bridgePreloadPath = '';
+  let lineContextIsolationPreloadPath = '';
   // webview 崩溃自动重载限频（每账号1分钟内最多2次，防一个账号耗尽其他账号预算）
   const webviewCrashLimiter = (() => {
     const timestampsByAccount = new Map();
@@ -593,12 +594,15 @@
   function getWebview(account) {
     if (wvMap.has(account.id)) return wvMap.get(account.id);
     const wv = document.createElement('webview');
-    wv.src = account.url || '';
     wv.partition = account.partition;
-    // WA/TG 页面翻译/原生输入桥：guest preload（sendToHost）；LINE 用自己的扩展 preload，不叠加
-    if (bridgePreloadPath && account.type !== 'line' && account.type !== 'line-business' && account.type !== 'website') {
+    const isLineAccount = account.type === 'line' || account.type === 'line-business';
+    // Preload 必须在首次 guest 导航前固定到 webview 标签；否则 LINE candidate reload 后会丢失 isolated bridge。
+    if (isLineAccount && lineContextIsolationPreloadPath) {
+      wv.setAttribute('preload', lineContextIsolationPreloadPath);
+    } else if (bridgePreloadPath && !isLineAccount && account.type !== 'website') {
       wv.setAttribute('preload', bridgePreloadPath);
     }
+    wv.src = account.url || '';
     if (account.userAgent) {
       wv.setAttribute('useragent', account.userAgent);
     }
@@ -3909,6 +3913,7 @@
     } catch (e) { /* 主题应用失败不影响 */ }
     try { await loadPlatforms(); } catch (e) { console.error('加载平台列表失败', e); }
     try { bridgePreloadPath = await window.api.bridge.preloadPath(); } catch (e) { console.error('获取桥preload路径失败', e); }
+    try { lineContextIsolationPreloadPath = await window.api.line.contextIsolationPreloadPath(); } catch (e) { console.error('获取LINE candidate preload路径失败', e); }
     // 更新状态提示：available/downloading 系统通知；downloaded 顶栏提示条（点击重启安装）
     try {
       window.api.updater.onStatus((status) => {

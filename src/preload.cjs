@@ -258,6 +258,7 @@ contextBridge.exposeInMainWorld(
       list: () => ipcRenderer.invoke('platforms:list'),
     }),
     line: Object.freeze({
+      contextIsolationPreloadPath: () => ipcRenderer.invoke('line:get-context-isolation-preload-path'),
       onExtensionReady: (callback) => {
         ipcRenderer.on('line:extension-ready', (_event, partition) => callback(partition));
       },

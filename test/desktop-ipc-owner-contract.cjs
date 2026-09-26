@@ -13,6 +13,7 @@ function createHarness(options = {}) {
   const notificationErrors = [];
   let trusted = options.trusted !== false;
   let bridgeAllowed = options.bridgeAllowed !== false;
+  let lineExtensionAllowed = options.lineExtensionAllowed !== false;
   let notificationSupported = options.notificationSupported !== false;
   let notificationFailure = options.notificationFailure || null;
   let dark = options.dark === true;
@@ -92,9 +93,11 @@ function createHarness(options = {}) {
     platformCatalog,
     runtimeAssetAllowed: (component) => {
       calls.push(['runtimeAssetAllowed', component]);
+      if (component === 'lineExtension') return lineExtensionAllowed;
       return bridgeAllowed;
     },
     resourcesDir: '/runtime/resources',
+    lineContextIsolationCandidate: options.lineContextIsolationCandidate === true,
     quitAndInstallForUpdate: () => { calls.push(['quitAndInstallForUpdate']); return 'UPDATE_RESULT'; },
     Notification: FakeNotification,
     nativeTheme,
@@ -117,6 +120,7 @@ function createHarness(options = {}) {
     mainWindow,
     boundary,
     setBridgeAllowed: value => { bridgeAllowed = value; },
+    setLineExtensionAllowed: value => { lineExtensionAllowed = value; },
     setNotificationSupported: value => { notificationSupported = value; },
     setNotificationFailure: value => { notificationFailure = value; },
     setDark: value => { dark = value; },
@@ -138,6 +142,7 @@ async function invokeChildFrame(harness, channel, ...args) {
     'app:get-version',
     'platforms:list',
     'bridge:get-preload-path',
+    'line:get-context-isolation-preload-path',
     'window:relaunch',
     'updater:install',
     'window:minimize',
@@ -226,6 +231,16 @@ async function invokeChildFrame(harness, channel, ...args) {
     await assert.rejects(invoke(harness, 'bridge:get-preload-path'), /翻译桥完整性校验失败，已阻止加载/);
     harness.setBridgeAllowed(true);
     assert.equal(await invoke(harness, 'bridge:get-preload-path'), 'file:///runtime/resources/bridge-preload.cjs');
+    assert.equal(await invoke(harness, 'line:get-context-isolation-preload-path'), '', 'production mode must not expose candidate preload');
+
+    const lineHarness = createHarness({ lineContextIsolationCandidate: true, lineExtensionAllowed: false });
+    await assert.rejects(invoke(lineHarness, 'line:get-context-isolation-preload-path'), /LINE.*完整性|完整性.*LINE/);
+    lineHarness.setLineExtensionAllowed(true);
+    assert.equal(
+      await invoke(lineHarness, 'line:get-context-isolation-preload-path'),
+      'file:///runtime/resources/extensions/line-3.5.1/geek-isolated-preload.cjs',
+    );
+    lineHarness.boundary.dispose();
 
     await invoke(harness, 'window:relaunch');
     assert.deepEqual(harness.calls.filter(call => call[0] === 'relaunch' || call[0] === 'exit'), [
