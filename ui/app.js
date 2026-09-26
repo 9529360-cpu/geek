@@ -338,6 +338,11 @@
   function familyOf(type) {
     return PLATFORM_FAMILIES.find(f => f.types.includes(type)) || PLATFORM_FAMILIES[0];
   }
+  const trustedSubmitPermitAuthority = window.GeekTrustedSubmitPermits.createAuthority();
+  const trustedSubmitRuntime = window.GeekTrustedSubmitRuntime.create({
+    authority: trustedSubmitPermitAuthority,
+    familyOf,
+  });
 
   // ---------- 平台品牌图标（simple-icons，内联 SVG path） ----------
   const ICON_PATHS = {
@@ -594,6 +599,11 @@
   function getWebview(account) {
     if (wvMap.has(account.id)) return wvMap.get(account.id);
     const wv = document.createElement('webview');
+    trustedSubmitRuntime.registerWebview(wv);
+    wv.addEventListener('did-start-navigation', (event) => {
+      if (event?.isMainFrame === false || event?.isInPlace === true) return;
+      trustedSubmitRuntime.advanceGeneration(wv);
+    });
     wv.partition = account.partition;
     const isLineAccount = account.type === 'line' || account.type === 'line-business';
     // Preload 必须在首次 guest 导航前固定到 webview 标签；否则 LINE candidate reload 后会丢失 isolated bridge。
@@ -635,6 +645,7 @@
     });
     // 崩溃自动恢复：限频重载（防崩溃循环），超限停止并记录
     wv.addEventListener('render-process-gone', () => {
+      trustedSubmitRuntime.advanceGeneration(wv);
       if (webviewCrashLimiter.allow(account.id)) {
         console.warn('[crash] webview 崩溃，1分钟内限频2次内自动重载');
         try { wv.reload(); } catch (e) { console.error('[crash] webview 重载失败:', e.message); }
@@ -650,7 +661,7 @@
     });
     if (account.type !== 'website') {
       wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
-      wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); });
+      wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); handleTrustedSubmitGesture(wv, event); });
     }
     wvContainer.appendChild(wv);
     setTimeout(() => {
@@ -714,6 +725,7 @@
   const TRANSLATION_REQUEST_PREFIX = '__GEEK_TRANSLATION_REQUEST__:';
   const NATIVE_INPUT_REQUEST_PREFIX = '__GEEK_NATIVE_INPUT_REQUEST__:';
   const BRIDGE_CHANNEL = 'geek-bridge';
+  const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit';
 
   async function processNativeInputRequest(wv, requestId, suppliedToken) {
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
@@ -765,6 +777,15 @@
     } else if (message.type === 'native-input-request') {
       await processNativeInputRequest(wv, requestId, suppliedToken);
     }
+  }
+
+  function handleTrustedSubmitGesture(wv, event) {
+    if (event?.channel !== TRUSTED_SUBMIT_CHANNEL) return;
+    const payload = event.args?.[0];
+    if (!payload || typeof payload !== 'object') return;
+    const account = accounts.find(item => wvMap.get(item.id) === wv);
+    if (!account) return;
+    try { trustedSubmitRuntime.observeGesture(account, wv, payload); } catch { /* fail closed */ }
   }
 
   async function handleNativeInputConsole(wv, event) {

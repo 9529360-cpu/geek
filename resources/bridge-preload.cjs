@@ -6,6 +6,8 @@
 const { ipcRenderer } = require('electron');
 
 const HOST_CHANNEL = 'geek-bridge';
+const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit';
+const TRUSTED_SUBMIT_PROTOCOL_VERSION = 1;
 const MARKER = 'data-geek-bridge';
 
 // preload 时机 documentElement 可能尚未就绪：先标记 document，元素就绪后再补标记
@@ -23,6 +25,48 @@ markReady();
 document.addEventListener('readystatechange', () => markReady());
 document.addEventListener('DOMContentLoaded', () => markReady());
 setTimeout(markReady, 50);
+
+const TELEGRAM_COMPOSER_SELECTOR = '#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)';
+const TELEGRAM_SEND_SELECTOR = 'button.Button.send.main-button, button[aria-label="Send"], .btn-send';
+
+function isTelegramPage() {
+  try {
+    return window.location.protocol === 'https:' && String(window.location.hostname || '').toLowerCase() === 'web.telegram.org';
+  } catch {
+    return false;
+  }
+}
+
+function eventElement(event) {
+  const target = event && event.target;
+  return target && target.nodeType === 1 && typeof target.closest === 'function' ? target : null;
+}
+
+function emitTrustedSubmit(kind) {
+  try {
+    ipcRenderer.sendToHost(TRUSTED_SUBMIT_CHANNEL, {
+      protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION,
+      platform: 'telegram',
+      kind,
+    });
+  } catch { /* trusted gesture observation must never break native page behavior */ }
+}
+
+document.addEventListener('keydown', (event) => {
+  if (!isTelegramPage() || event?.isTrusted !== true) return;
+  if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (event.isComposing || event.repeat) return;
+  const target = eventElement(event);
+  if (!target || !target.closest(TELEGRAM_COMPOSER_SELECTOR)) return;
+  emitTrustedSubmit('keyboard');
+}, true);
+
+document.addEventListener('click', (event) => {
+  if (!isTelegramPage() || event?.isTrusted !== true) return;
+  const target = eventElement(event);
+  if (!target || !target.closest(TELEGRAM_SEND_SELECTOR)) return;
+  emitTrustedSubmit('button');
+}, true);
 
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
