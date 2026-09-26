@@ -61,7 +61,7 @@ function installAccountDataBoundary(options = {}) {
   const platform = options.platform || process.platform;
   const store = options.store || createAccountDataStore(options);
   const resolveAccountPartition = options.resolveAccountPartition || createAccountPartitionResolver(options);
-  // Compatibility option name retained; live caller performs irreversible scheduled-attachment cleanup.
+  // Compatibility option name retained; live caller composes durable account-owned child cleanup.
   // It must therefore run only after authoritative account deletion is known to have committed.
   const committedAccountCleanup = options.beforeAccountRemove || (async () => {});
   const cleanupJournal = options.cleanupJournal || (
