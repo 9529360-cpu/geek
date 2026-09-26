@@ -5,16 +5,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   OUTPUT_KEYS,
+  SUMMARY_KEYS,
   collectAuthenticatedLineState,
   buildProbeExpression,
   buildHostBridgeExpression,
+  buildHostSummaryExpression,
   projectProbeState,
+  projectProbeSummary,
   formatProbeOutput,
+  formatProbeSummary,
   isGeekHostTarget,
   isLocalDebuggerSocket,
   parseTargetIndex,
   evaluateTarget,
   probeLineWebviewState,
+  probeLineWebviewSummary,
 } = require('../scripts/line-auth-regression-probe.cjs');
 
 (async () => {
@@ -65,6 +70,37 @@ const {
   assert.match(hostExpression, /ophjlpahpchlmihnnnihgmmeilfjmjjc/);
   assert.match(hostExpression, /PROBE_RESULT/);
   assert.doesNotMatch(hostExpression, /console\.|document\.cookie|localStorage|textContent|innerHTML|outerHTML/);
+
+  const hostSummaryExpression = buildHostSummaryExpression();
+  assert.match(hostSummaryExpression, /querySelectorAll\('webview'\)/);
+  assert.match(hostSummaryExpression, /executeJavaScript/);
+  assert.match(hostSummaryExpression, /getAttribute\('partition'\)/);
+  assert.match(hostSummaryExpression, /new Set\(completePartitions\)/);
+  assert.match(hostSummaryExpression, /SUMMARY_RESULT/);
+  assert.doesNotMatch(hostSummaryExpression, /console\.|document\.cookie|localStorage|textContent|innerHTML|outerHTML/);
+
+  const rawSummary = {
+    targetCount: 2,
+    authenticatedCount: 2,
+    fullyReadyCount: 1,
+    uniquePartitionCount: 2,
+    allPartitionsDistinct: true,
+    partitions: ['persist:private-a', 'persist:private-b'],
+    accountId: 'private-account-id',
+  };
+  const projectedSummary = projectProbeSummary(rawSummary);
+  assert.deepEqual(Object.keys(projectedSummary), SUMMARY_KEYS);
+  assert.deepEqual(projectedSummary, {
+    targetCount: 2,
+    authenticatedCount: 2,
+    fullyReadyCount: 1,
+    uniquePartitionCount: 2,
+    allAuthenticated: true,
+    allFullyReady: false,
+    allPartitionsDistinct: true,
+  });
+  const summaryOutput = formatProbeSummary(rawSummary);
+  assert.doesNotMatch(summaryOutput, /persist:private|private-account-id/);
 
   assert.equal(isGeekHostTarget({
     type: 'page',
@@ -143,8 +179,33 @@ const {
   assert.doesNotMatch(JSON.stringify(probed), /secret-access-token-value|secret-hmac-value|example\.invalid|private-account-id/);
   assert.match(evaluateParams.expression, /executeJavaScript/);
 
+  nextValue = {
+    kind: 'SUMMARY_RESULT',
+    summary: {
+      targetCount: 2,
+      authenticatedCount: 2,
+      fullyReadyCount: 2,
+      uniquePartitionCount: 2,
+      allPartitionsDistinct: true,
+      secret: fakeToken,
+    },
+  };
+  const summary = await probeLineWebviewSummary([hostTarget], { WebSocketCtor: FakeWebSocket });
+  assert.deepEqual(summary, {
+    targetCount: 2,
+    authenticatedCount: 2,
+    fullyReadyCount: 2,
+    uniquePartitionCount: 2,
+    allAuthenticated: true,
+    allFullyReady: true,
+    allPartitionsDistinct: true,
+  });
+  assert.doesNotMatch(JSON.stringify(summary), /secret-access-token-value/);
+  assert.match(evaluateParams.expression, /getAttribute\('partition'\)/);
+
   nextValue = { kind: 'LINE_TARGET_NOT_FOUND', secret: fakeToken };
   await assert.rejects(() => probeLineWebviewState([hostTarget], 0, { WebSocketCtor: FakeWebSocket }), /LINE_TARGET_NOT_FOUND/);
+  await assert.rejects(() => probeLineWebviewSummary([hostTarget], { WebSocketCtor: FakeWebSocket }), /LINE_TARGET_NOT_FOUND/);
   nextValue = { kind: 'TARGET_INDEX_OUT_OF_RANGE', accountId: 'private-account-id' };
   await assert.rejects(() => probeLineWebviewState([hostTarget], 3, { WebSocketCtor: FakeWebSocket }), /TARGET_INDEX_OUT_OF_RANGE/);
   nextValue = { kind: 'PROBE_EVALUATION_FAILED', detail: fakeHmac };
