@@ -55,7 +55,7 @@ function harness(overrides = {}) {
     ...overrides.binding,
   });
   coordinator.startTransform(created.intentId);
-  coordinator.markReady(created.intentId);
+  if (overrides.ready !== false) coordinator.markReady(created.intentId);
 
   const trustedSubmitRuntime = {
     generationFor: () => state.webviewGeneration,
@@ -96,6 +96,44 @@ async function expectReadyFailure(h, code, field) {
 }
 
 (async () => {
+  const rebind = harness({
+    ready: false,
+    state: { composerGeneration: 12 },
+  });
+  assert.equal(
+    (await rebind.guard.rebindComposerGeneration({
+      intentId: rebind.intentId,
+      account: rebind.account,
+      webview: rebind.webview,
+    })).state,
+    'transforming',
+  );
+  rebind.coordinator.markReady(rebind.intentId);
+  assert.throws(
+    () => rebind.coordinator.beginCommitOwned(rebind.intentId, {
+      accountId: rebind.account.id,
+      partition: rebind.account.partition,
+      platform: 'telegram',
+      webviewId: '77',
+      webviewGeneration: 7,
+      conversationId: 'chat-A',
+      composerGeneration: 11,
+    }),
+    error => error?.code === 'SEND_INTENT_STALE_CONTEXT' && error?.field === 'composerGeneration',
+  );
+  assert.equal(
+    rebind.coordinator.beginCommitOwned(rebind.intentId, {
+      accountId: rebind.account.id,
+      partition: rebind.account.partition,
+      platform: 'telegram',
+      webviewId: '77',
+      webviewGeneration: 7,
+      conversationId: 'chat-A',
+      composerGeneration: 12,
+    }).state,
+    'committing',
+  );
+
   const happy = harness();
   const committed = await happy.guard.beginCommit({
     intentId: happy.intentId,
@@ -131,6 +169,8 @@ async function expectReadyFailure(h, code, field) {
   assert.doesNotMatch(source, /sendText\s*\(/, 'guard must not execute native send');
   assert.doesNotMatch(source, /translation|querySelector|executeJavaScript|ipcRenderer|sendToHost/, 'guard must not own transform, DOM or Electron transport');
   assert.doesNotMatch(source, /submitPermitId/, 'guard must not receive or expose the private submit permit id');
+  assert.match(source, /rebindComposerGenerationOwned/);
+  assert.match(source, /return Object\.freeze\(\{ rebindComposerGeneration, beginCommit \}\)/);
   assert.match(html, /send-intent-admission\.js[\s\S]*send-intent-commit-guard\.js[\s\S]*broadcast-safety\.js/);
 
   console.log('SEND_INTENT_COMMIT_GUARD_CONTRACT_OK');
