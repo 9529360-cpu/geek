@@ -345,20 +345,24 @@ function buildHostCleanupExpression(context, smokeText, clearStaged) {
     '    const account = accounts.find(item => String(item?.id || "") === expected.accountId);',
     '    const partition = String(account?.partition || "");',
     '    const webview = Array.from(document.querySelectorAll("webview")).find(item => String(item.partition || item.getAttribute?.("partition") || "") === partition) || null;',
-    '    if (!webview || typeof webview.executeJavaScript !== "function") return { kind: "CLEANUP_RESULT", cleared: false, observerRemoved: false };',
+    '    if (!webview || typeof webview.executeJavaScript !== "function") return { kind: "CLEANUP_RESULT", cleared: false, observerRemoved: false, composerVerified: false, stagedTextPresent: false, requestSeen: false };',
     '    const guestCleanup = await webview.executeJavaScript("(() => { const s=window.__geekTelegramSendIntentSmokeObserver; if(!s)return {removed:false,requestSeen:false}; const requestSeen=s.requestSeen===true; if(window.__geekTranslationRequest===s.wrappedRequest)window.__geekTranslationRequest=s.originalRequest; if(window.__geekResolveTranslation===s.wrappedResolve)window.__geekResolveTranslation=s.originalResolve; delete window.__geekTelegramSendIntentSmokeObserver; return {removed:true,requestSeen}; })()", false);',
     '    let cleared = false;',
+    '    let composerVerified = false;',
+    '    let stagedTextPresent = false;',
     '    if (shouldClear && guestCleanup?.requestSeen !== true && String(document.querySelector(".nav-account.active[data-id]")?.dataset.id || "") === expected.accountId) {',
     '      const capabilities = window.GeekPlatformCapabilitiesRuntime;',
     '      const adapter = typeof capabilities?.forAccount === "function" ? capabilities.forAccount(account, webview) : null;',
     '      const currentChatId = adapter && typeof adapter.getCurrentChat === "function" ? await adapter.getCurrentChat() : null;',
     '      const composerText = adapter && typeof adapter.getComposerText === "function" ? await adapter.getComposerText() : null;',
-    '      if (String(currentChatId || "") === expected.chatId && String(composerText || "").trim() === ' + messageValue + '.trim()) {',
-    '        cleared = await adapter.clearComposerText() === true;',
+    '      if (String(currentChatId || "") === expected.chatId && typeof composerText === "string") {',
+    '        composerVerified = true;',
+    '        stagedTextPresent = composerText.trim() === ' + messageValue + '.trim();',
+    '        if (stagedTextPresent) cleared = await adapter.clearComposerText() === true;',
     '      }',
     '    }',
-    '    return { kind: "CLEANUP_RESULT", cleared, observerRemoved: guestCleanup?.removed === true };',
-    '  } catch { return { kind: "CLEANUP_RESULT", cleared: false, observerRemoved: false }; }',
+    '    return { kind: "CLEANUP_RESULT", cleared, observerRemoved: guestCleanup?.removed === true, composerVerified, stagedTextPresent, requestSeen: guestCleanup?.requestSeen === true };',
+    '  } catch { return { kind: "CLEANUP_RESULT", cleared: false, observerRemoved: false, composerVerified: false, stagedTextPresent: false, requestSeen: false }; }',
     '})()',
   ].join('\n');
 }
@@ -367,6 +371,13 @@ function classifyUnobservedExecution(operatorWindowOpened) {
   return operatorWindowOpened
     ? { sendResult: 'ambiguous', ownerState: 'uncertain', nativeCommitCount: 'unknown', code: 'OWNER_AMBIGUOUS' }
     : { sendResult: 'blocked', ownerState: 'not-started', nativeCommitCount: 'zero', code: 'OPERATOR_TIMEOUT' };
+}
+
+function isCleanupComplete(clearRequested, cleanupState) {
+  if (cleanupState?.kind !== 'CLEANUP_RESULT' || cleanupState.observerRemoved !== true) return false;
+  if (clearRequested !== true) return true;
+  return cleanupState.composerVerified === true
+    && (cleanupState.stagedTextPresent !== true || cleanupState.cleared === true);
 }
 
 function classifyOwnerTerminal(terminal) {
@@ -451,6 +462,7 @@ async function runSmoke(mode = 'preflight', env = process.env) {
   let cleanupState = null;
   let outputEvidence = null;
   let operatorWindowOpened = false;
+  let cleanupRequested = false;
 
   try {
     prepared = await evaluateTarget(hostTarget, buildHostPrepareExpression(mode, smokeText));
@@ -545,16 +557,25 @@ async function runSmoke(mode = 'preflight', env = process.env) {
         || finalState?.sendResult === 'failed'
         || finalState?.sendResult === 'ambiguous';
       try {
+        cleanupRequested = !requestSeen && (!operatorWindowOpened || finalState?.sendResult === 'blocked');
         cleanupState = await evaluateTarget(
           hostTarget,
-          buildHostCleanupExpression(prepared.context, smokeText, !requestSeen && (!operatorWindowOpened || finalState?.sendResult === 'blocked')),
+          buildHostCleanupExpression(prepared.context, smokeText, cleanupRequested),
         );
       } catch {
         cleanupState = null;
       }
       if (outputEvidence) {
-        outputEvidence.cleanupComplete = cleanupState?.kind === 'CLEANUP_RESULT'
-          && cleanupState.observerRemoved === true;
+        if (cleanupState?.requestSeen === true && finalState?.code === 'OPERATOR_TIMEOUT') {
+          Object.assign(outputEvidence, projectEvidence({
+            ...outputEvidence,
+            sendResult: 'ambiguous',
+            ownerState: 'uncertain',
+            nativeCommitCount: 'unknown',
+            code: 'OWNER_AMBIGUOUS',
+          }));
+        }
+        outputEvidence.cleanupComplete = isCleanupComplete(cleanupRequested, cleanupState);
       }
       // Cleanup evidence is intentionally kept in memory only; it contains no account/chat data.
     }
@@ -591,4 +612,5 @@ module.exports = {
   projectEvidence,
   timingBucket,
   classifyUnobservedExecution,
+  isCleanupComplete,
 };
