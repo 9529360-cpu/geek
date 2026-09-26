@@ -8,6 +8,7 @@ const { initAutoUpdater } = require('./updater.cjs');
 const { quitAndInstallForUpdate, isUpdateInstalling } = require('./updater.cjs');
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
 const { installWebviewIpc } = require('./webview-ipc.cjs');
+const { installLineDownloadIpc } = require('./line-download-ipc.cjs');
 const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
@@ -415,6 +416,7 @@ let configIpcBoundary = null;
 let translationRuntime = null;
 let desktopIpcBoundary = null;
 let webviewIpcBoundary = null;
+let lineDownloadIpcBoundary = null;
 let whatsappRuntimeRecovery = null;
 
 async function updateAccount(event, accountId, patchData) {
@@ -524,6 +526,19 @@ function registerIpcHandlers() {
     getWebContentsById: (guestId) => webContents.fromId(guestId),
     getSessionForPartition: (partition) => session.fromPartition(partition),
   });
+
+  if (LINE_CONTEXT_ISOLATION_CANDIDATE) {
+    lineDownloadIpcBoundary = installLineDownloadIpc({
+      ipcMain,
+      accountState,
+      webviewOwnership,
+      getSessionForPartition: (partition) => session.fromPartition(partition),
+      getMainWindow: () => mainWindow,
+      dialog,
+      fs,
+      getDownloadsDir: () => app.getPath('downloads'),
+    });
+  }
 
   whatsappRuntimeRecovery = createWhatsappRuntimeRecovery({
     ipcMain,
@@ -1011,6 +1026,7 @@ function configureWebviewSecurity(window) {
         webPreferences,
         candidateEnabled: LINE_CONTEXT_ISOLATION_CANDIDATE,
         legacyPreloadPath: path.join(__dirname, '..', 'resources', 's3loYR.js'),
+        candidatePreloadPath: path.join(__dirname, '..', 'resources', 'extensions', 'line-3.5.1', 'geek-isolated-preload.cjs'),
       });
     } else if (isWebsite) {
       delete webPreferences.preload;
@@ -1471,6 +1487,8 @@ app.on('before-quit', () => {
   translationRuntime = null;
   subscriptionIpcBoundary?.dispose();
   subscriptionIpcBoundary = null;
+  lineDownloadIpcBoundary?.dispose();
+  lineDownloadIpcBoundary = null;
   webviewIpcBoundary?.dispose();
   webviewIpcBoundary = null;
   whatsappRuntimeRecovery?.dispose();

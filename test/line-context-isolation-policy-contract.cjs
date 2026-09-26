@@ -48,10 +48,11 @@ assert.equal(
     webPreferences,
     candidateEnabled: true,
     legacyPreloadPath: 'legacy.js',
+    candidatePreloadPath: 'C:/app/resources/extensions/line-3.5.1/geek-isolated-preload.cjs',
   });
   assert.equal(result.candidateEnabled, true);
   assert.equal(webPreferences.contextIsolation, true);
-  assert.equal(Object.hasOwn(webPreferences, 'preload'), false);
+  assert.equal(webPreferences.preload, 'C:/app/resources/extensions/line-3.5.1/geek-isolated-preload.cjs');
   assert.equal(webPreferences.sandbox, true);
 }
 
@@ -68,6 +69,10 @@ assert.equal(
   assert.equal(webPreferences.sandbox, true);
 }
 
+assert.throws(
+  () => applyLineContextIsolationPolicy({ webPreferences: {}, candidateEnabled: true }),
+  /candidatePreloadPath is required/,
+);
 assert.throws(
   () => applyLineContextIsolationPolicy({ webPreferences: {}, candidateEnabled: false }),
   /legacyPreloadPath is required/,
