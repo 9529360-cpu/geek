@@ -23,6 +23,16 @@ const OUTPUT_KEYS = Object.freeze([
   'chromeRuntimeAvailable',
 ]);
 
+const SUMMARY_KEYS = Object.freeze([
+  'targetCount',
+  'authenticatedCount',
+  'fullyReadyCount',
+  'uniquePartitionCount',
+  'allAuthenticated',
+  'allFullyReady',
+  'allPartitionsDistinct',
+]);
+
 const ALLOWED_ERROR_CODES = new Set([
   'TARGET_INDEX_INVALID',
   'DEBUG_PORT_UNAVAILABLE',
@@ -103,6 +113,36 @@ function formatProbeOutput(input) {
   return JSON.stringify(projectProbeState(input));
 }
 
+function projectProbeSummary(input) {
+  const targetCount = Number.isSafeInteger(Number(input?.targetCount)) && Number(input.targetCount) >= 0
+    ? Number(input.targetCount)
+    : 0;
+  const authenticatedCount = Number.isSafeInteger(Number(input?.authenticatedCount)) && Number(input.authenticatedCount) >= 0
+    ? Math.min(Number(input.authenticatedCount), targetCount)
+    : 0;
+  const fullyReadyCount = Number.isSafeInteger(Number(input?.fullyReadyCount)) && Number(input.fullyReadyCount) >= 0
+    ? Math.min(Number(input.fullyReadyCount), targetCount)
+    : 0;
+  const uniquePartitionCount = Number.isSafeInteger(Number(input?.uniquePartitionCount)) && Number(input.uniquePartitionCount) >= 0
+    ? Math.min(Number(input.uniquePartitionCount), targetCount)
+    : 0;
+  return {
+    targetCount,
+    authenticatedCount,
+    fullyReadyCount,
+    uniquePartitionCount,
+    allAuthenticated: targetCount > 0 && authenticatedCount === targetCount,
+    allFullyReady: targetCount > 0 && fullyReadyCount === targetCount,
+    allPartitionsDistinct: targetCount > 0
+      && uniquePartitionCount === targetCount
+      && input?.allPartitionsDistinct === true,
+  };
+}
+
+function formatProbeSummary(input) {
+  return JSON.stringify(projectProbeSummary(input));
+}
+
 function isLocalDebuggerSocket(value) {
   try {
     const url = new URL(String(value || ''));
@@ -167,6 +207,62 @@ function buildHostBridgeExpression(targetIndex) {
   })()`;
 }
 
+function buildHostSummaryExpression() {
+  const guestExpression = JSON.stringify(buildProbeExpression());
+  const outputKeys = JSON.stringify(OUTPUT_KEYS);
+  return `(async () => {
+    const extensionId = ${JSON.stringify(LINE_EXTENSION_ID)};
+    const extensionPage = ${JSON.stringify(LINE_EXTENSION_PAGE)};
+    const outputKeys = ${outputKeys};
+    const lineWebviews = Array.from(document.querySelectorAll('webview')).filter((webview) => {
+      if (typeof webview?.executeJavaScript !== 'function') return false;
+      let currentUrl = '';
+      try { currentUrl = typeof webview.getURL === 'function' ? webview.getURL() : ''; } catch {}
+      if (!currentUrl) {
+        try { currentUrl = webview.getAttribute('src') || ''; } catch {}
+      }
+      try {
+        const parsed = new URL(currentUrl);
+        return parsed.protocol === 'chrome-extension:'
+          && parsed.hostname === extensionId
+          && parsed.pathname === extensionPage;
+      } catch {
+        return false;
+      }
+    });
+    if (!lineWebviews.length) return { kind: 'LINE_TARGET_NOT_FOUND' };
+
+    const states = await Promise.all(lineWebviews.map(async (webview) => {
+      try {
+        return await webview.executeJavaScript(${guestExpression}, false);
+      } catch {
+        return null;
+      }
+    }));
+    const authenticatedCount = states.filter((state) =>
+      state?.accessTokenPresent === true && state?.hmacProduced === true
+    ).length;
+    const fullyReadyCount = states.filter((state) =>
+      state && outputKeys.every((key) => state[key] === true)
+    ).length;
+    const partitions = lineWebviews.map((webview) => {
+      try { return String(webview.getAttribute('partition') || ''); } catch { return ''; }
+    });
+    const completePartitions = partitions.filter(Boolean);
+    const uniquePartitionCount = new Set(completePartitions).size;
+    return {
+      kind: 'SUMMARY_RESULT',
+      summary: {
+        targetCount: lineWebviews.length,
+        authenticatedCount,
+        fullyReadyCount,
+        uniquePartitionCount,
+        allPartitionsDistinct: completePartitions.length === lineWebviews.length
+          && uniquePartitionCount === lineWebviews.length,
+      },
+    };
+  })()`;
+}
 function getDebugTargets({ httpModule = http } = {}) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -339,9 +435,26 @@ async function probeLineWebviewState(targets, targetIndex, options = {}) {
   return projectProbeState(result.state);
 }
 
+async function probeLineWebviewSummary(targets, options = {}) {
+  const hostTarget = Array.isArray(targets) ? targets.find(isGeekHostTarget) : null;
+  if (!hostTarget) throw codedError('GEEK_HOST_TARGET_NOT_FOUND');
+  const result = await evaluateTarget(hostTarget, buildHostSummaryExpression(), options);
+  if (result.kind === 'LINE_TARGET_NOT_FOUND') throw codedError('LINE_TARGET_NOT_FOUND');
+  if (result.kind !== 'SUMMARY_RESULT' || !result.summary || typeof result.summary !== 'object' || Array.isArray(result.summary)) {
+    throw codedError('PROBE_RESULT_INVALID');
+  }
+  return projectProbeSummary(result.summary);
+}
+
 async function main(argv = process.argv.slice(2)) {
-  const targetIndex = parseTargetIndex(argv[0]);
+  const selector = argv[0];
   const targets = await getDebugTargets();
+  if (selector === 'all') {
+    const summary = await probeLineWebviewSummary(targets);
+    process.stdout.write(`${formatProbeSummary(summary)}\n`);
+    return;
+  }
+  const targetIndex = parseTargetIndex(selector);
   const state = await probeLineWebviewState(targets, targetIndex);
   process.stdout.write(`${formatProbeOutput(state)}\n`);
 }
@@ -356,15 +469,20 @@ if (require.main === module) {
 
 module.exports = {
   OUTPUT_KEYS,
+  SUMMARY_KEYS,
   collectAuthenticatedLineState,
   buildProbeExpression,
   buildHostBridgeExpression,
+  buildHostSummaryExpression,
   projectProbeState,
+  projectProbeSummary,
   formatProbeOutput,
+  formatProbeSummary,
   isGeekHostTarget,
   isLocalDebuggerSocket,
   parseTargetIndex,
   getDebugTargets,
   evaluateTarget,
   probeLineWebviewState,
+  probeLineWebviewSummary,
 };
