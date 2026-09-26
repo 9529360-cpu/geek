@@ -25,7 +25,9 @@
     const familyOf = options.familyOf;
     const normalizeComposerText = options.normalizeComposerText;
 
-    if (!coordinator || typeof coordinator.beginCommitOwned !== 'function') {
+    if (!coordinator
+      || typeof coordinator.beginCommitOwned !== 'function'
+      || typeof coordinator.rebindComposerGenerationOwned !== 'function') {
       throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'coordinator');
     }
     if (!trustedSubmitRuntime
@@ -41,6 +43,38 @@
       throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'normalizeComposerText');
     }
 
+    function hostContext(account, webview, conversationId) {
+      const platform = requiredText(familyOf(account.type)?.key, 'platform');
+      return {
+        accountId: requiredText(account.id, 'accountId'),
+        partition: requiredText(account.partition, 'partition'),
+        platform,
+        webviewId: String(webview.getWebContentsId()),
+        webviewGeneration: trustedSubmitRuntime.generationFor(webview),
+        conversationId: requiredText(conversationId, 'conversationId'),
+        composerGeneration: trustedSubmitRuntime.composerGenerationFor(webview),
+      };
+    }
+
+    async function rebindComposerGeneration(input = {}) {
+      const intentId = requiredText(input.intentId, 'intentId');
+      const account = input.account;
+      const webview = input.webview;
+      if (!account || typeof account !== 'object') throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'account');
+      if (!webview || typeof webview.getWebContentsId !== 'function') {
+        throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'webview');
+      }
+      const adapter = platformCapabilities.forAccount(account, webview);
+      if (!adapter || typeof adapter.getCurrentChat !== 'function') {
+        throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'platformCapabilities');
+      }
+      const currentChat = await adapter.getCurrentChat();
+      return coordinator.rebindComposerGenerationOwned(
+        intentId,
+        hostContext(account, webview, currentChat),
+      );
+    }
+
     async function beginCommit(input = {}) {
       const intentId = requiredText(input.intentId, 'intentId');
       const account = input.account;
@@ -53,7 +87,6 @@
         throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'expectedComposerText');
       }
 
-      const platform = requiredText(familyOf(account.type)?.key, 'platform');
       const adapter = platformCapabilities.forAccount(account, webview);
       if (!adapter || typeof adapter.getCurrentChat !== 'function' || typeof adapter.getComposerText !== 'function') {
         throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'platformCapabilities');
@@ -67,18 +100,13 @@
         throw guardError('SEND_INTENT_COMPOSER_MISMATCH', 'composerText');
       }
 
-      return coordinator.beginCommitOwned(intentId, {
-        accountId: requiredText(account.id, 'accountId'),
-        partition: requiredText(account.partition, 'partition'),
-        platform,
-        webviewId: String(webview.getWebContentsId()),
-        webviewGeneration: trustedSubmitRuntime.generationFor(webview),
-        conversationId: requiredText(currentChat, 'conversationId'),
-        composerGeneration: trustedSubmitRuntime.composerGenerationFor(webview),
-      });
+      return coordinator.beginCommitOwned(
+        intentId,
+        hostContext(account, webview, currentChat),
+      );
     }
 
-    return Object.freeze({ beginCommit });
+    return Object.freeze({ rebindComposerGeneration, beginCommit });
   }
 
   return Object.freeze({ create });

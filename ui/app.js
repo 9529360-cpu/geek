@@ -343,6 +343,12 @@
     authority: trustedSubmitPermitAuthority,
     familyOf,
   });
+  const sendIntentCoordinator = window.GeekSendIntentCoordinator.createCoordinator();
+  const sendIntentAdmission = window.GeekSendIntentAdmission.create({
+    trustedSubmitRuntime,
+    coordinator: sendIntentCoordinator,
+    familyOf,
+  });
 
   // ---------- 平台品牌图标（simple-icons，内联 SVG path） ----------
   const ICON_PATHS = {
@@ -757,7 +763,9 @@
       const account = accounts.find(item => wvMap.get(item.id) === wv);
       if (!account) throw new Error('翻译账号沙箱不存在');
       const { bridgeToken: _bridgeToken, ...safePayload } = payload;
-      const result = await window.api.translation.translate({ ...safePayload, accountId: account.id });
+      const result = safePayload.intent === 'outgoing-send' && familyOf(account.type).key === 'telegram'
+        ? await executeTelegramOutgoingSendIntent(account, wv, safePayload)
+        : await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
     } catch (error) {
       try { await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, null, ${JSON.stringify(String(error?.message || error))})`); } catch {}
@@ -1741,12 +1749,16 @@
       },
       async setComposerText(text) {
         if (family === 'telegram') {
-          const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
+          const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; window.__geekTelegramNativeInputCommit=true; editor.setAttribute('contenteditable','true'); editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
           if (!focused) return 'NO_EDITOR';
-          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv));
-          await sleep(50);
-          const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText?.trim() || ''`);
-          return actual === String(text).trim() ? 'OK' : 'EMPTY';
+          try {
+            await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv));
+            await sleep(50);
+            const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText?.trim() || ''`);
+            return actual === String(text).trim() ? 'OK' : 'EMPTY';
+          } finally {
+            try { await wv.executeJavaScript(`window.__geekTelegramNativeInputCommit=false`); } catch {}
+          }
         }
         if (family === 'line') {
           const focused = await wv.executeJavaScript(`(() => { const textarea=document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea'); if(!textarea)return false; textarea.focus(); textarea.select(); return true; })()`);
@@ -1778,6 +1790,58 @@
     return platformCapabilities.forAccount(account, wv);
   }
   window.GeekPlatformCapabilitiesRuntime = platformCapabilities;
+
+  const classifySendIntentOutcome = outcome => {
+    const value = String(outcome || '');
+    if (value === 'SENT' || value === 'CLICKED') return { ok: true, code: '' };
+    if (value === 'MAYBE') return { ok: false, code: 'SEND_INTENT_OUTCOME_UNCERTAIN' };
+    return { ok: false, code: 'SEND_INTENT_SEND_FAILED' };
+  };
+  const sendIntentCommitGuard = window.GeekSendIntentCommitGuard.create({
+    coordinator: sendIntentCoordinator,
+    trustedSubmitRuntime,
+    platformCapabilities,
+    familyOf,
+    normalizeComposerText: window.GeekBroadcastSafety.normalizeComposerText,
+  });
+  const sendIntentExecutor = window.GeekSendIntentExecutor.create({
+    admission: sendIntentAdmission,
+    coordinator: sendIntentCoordinator,
+    commitGuard: sendIntentCommitGuard,
+    platformCapabilities,
+    classifySendOutcome: classifySendIntentOutcome,
+  });
+
+  async function executeTelegramOutgoingSendIntent(account, wv, safePayload) {
+    const execution = await sendIntentExecutor.execute({
+      account,
+      webview: wv,
+      conversationId: String(safePayload.chatId || ''),
+      sourceSnapshot: String(safePayload.text || ''),
+      transformPolicy: {
+        source: safePayload.source || 'auto',
+        target: safePayload.target || 'en',
+        provider: safePayload.provider || '',
+        route: safePayload.route || '',
+      },
+      deadlineAt: Date.now() + 50000,
+      transform: async ({ signal }) => {
+        if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
+        const result = await window.api.translation.translate({ ...safePayload, accountId: account.id });
+        if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
+        return result;
+      },
+    });
+    return {
+      ...execution.transformResult,
+      delivery: {
+        owner: 'send-intent',
+        state: execution.intent.state,
+        intentId: execution.intent.intentId,
+      },
+    };
+  }
+
   // Compatibility alias while existing Broadcast/diagnostic consumers migrate to the neutral owner.
   window.GeekPlatformTransports = platformCapabilities;
   let broadcastChats = [];      // 全部聊天
