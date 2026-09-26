@@ -7,6 +7,7 @@ const { ipcRenderer } = require('electron');
 
 const HOST_CHANNEL = 'geek-bridge';
 const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit';
+const TRUSTED_COMPOSER_CHANNEL = 'geek-trusted-composer-context';
 const TRUSTED_SUBMIT_PROTOCOL_VERSION = 1;
 const MARKER = 'data-geek-bridge';
 
@@ -56,6 +57,16 @@ function observeTelegramComposer(element, advance = false) {
   return telegramComposerGeneration;
 }
 
+function emitTrustedComposerContext(composerGeneration) {
+  try {
+    ipcRenderer.sendToHost(TRUSTED_COMPOSER_CHANNEL, {
+      protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION,
+      platform: 'telegram',
+      composerGeneration,
+    });
+  } catch { /* trusted composer observation must never break native page behavior */ }
+}
+
 function emitTrustedSubmit(kind, composerGeneration) {
   try {
     ipcRenderer.sendToHost(TRUSTED_SUBMIT_CHANNEL, {
@@ -72,7 +83,7 @@ document.addEventListener('focusin', (event) => {
   const target = eventElement(event);
   const composer = target?.closest(TELEGRAM_COMPOSER_SELECTOR);
   if (!composer) return;
-  observeTelegramComposer(composer, false);
+  emitTrustedComposerContext(observeTelegramComposer(composer, false));
 }, true);
 
 document.addEventListener('beforeinput', (event) => {
@@ -80,7 +91,7 @@ document.addEventListener('beforeinput', (event) => {
   const target = eventElement(event);
   const composer = target?.closest(TELEGRAM_COMPOSER_SELECTOR);
   if (!composer) return;
-  observeTelegramComposer(composer, true);
+  emitTrustedComposerContext(observeTelegramComposer(composer, true));
 }, true);
 
 document.addEventListener('keydown', (event) => {
