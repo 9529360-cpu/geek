@@ -27,7 +27,8 @@
 
     if (!coordinator
       || typeof coordinator.beginCommitOwned !== 'function'
-      || typeof coordinator.rebindComposerGenerationOwned !== 'function') {
+      || typeof coordinator.rebindComposerGenerationOwned !== 'function'
+      || typeof coordinator.assertInitialContextOwned !== 'function') {
       throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'coordinator');
     }
     if (!trustedSubmitRuntime
@@ -54,6 +55,34 @@
         conversationId: requiredText(conversationId, 'conversationId'),
         composerGeneration: trustedSubmitRuntime.composerGenerationFor(webview),
       };
+    }
+
+    async function assertBeforeMutation(input = {}) {
+      const intentId = requiredText(input.intentId, 'intentId');
+      const account = input.account;
+      const webview = input.webview;
+      const expectedConversationId = requiredText(input.expectedConversationId, 'expectedConversationId');
+      if (typeof input.expectedComposerText !== 'string') {
+        throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'expectedComposerText');
+      }
+      const adapter = platformCapabilities.forAccount(account, webview);
+      if (!adapter || typeof adapter.getCurrentChat !== 'function' || typeof adapter.getComposerText !== 'function') {
+        throw guardError('SEND_INTENT_COMMIT_GUARD_INVALID', 'platformCapabilities');
+      }
+      const [currentChat, currentComposerText] = await Promise.all([
+        adapter.getCurrentChat(),
+        adapter.getComposerText(),
+      ]);
+      if (String(currentChat || '') !== expectedConversationId) {
+        throw guardError('SEND_INTENT_STALE_CONTEXT', 'conversationId');
+      }
+      if (normalizeComposerText(currentComposerText) !== normalizeComposerText(input.expectedComposerText)) {
+        throw guardError('SEND_INTENT_COMPOSER_MISMATCH', 'composerText');
+      }
+      return coordinator.assertInitialContextOwned(
+        intentId,
+        hostContext(account, webview, currentChat),
+      );
     }
 
     async function rebindComposerGeneration(input = {}) {
@@ -106,7 +135,7 @@
       );
     }
 
-    return Object.freeze({ rebindComposerGeneration, beginCommit });
+    return Object.freeze({ assertBeforeMutation, rebindComposerGeneration, beginCommit });
   }
 
   return Object.freeze({ create });

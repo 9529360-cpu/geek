@@ -12,7 +12,7 @@ const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8').replac
 assert.match(
   app,
   /safePayload\.intent === 'outgoing-send' && familyOf\(account\.type\)\.key === 'telegram'[\s\S]{0,260}executeTelegramOutgoingSendIntent\(account, wv, safePayload\)/,
-  'only Telegram outgoing-send translation requests should enter the SendIntent owner',
+  'all Telegram outgoing-send requests should enter the SendIntent owner',
 );
 assert.match(
   app,
@@ -27,8 +27,13 @@ assert.match(app, /GeekSendIntentExecutor\.create\(\{[\s\S]*admission: sendInten
 
 assert.match(
   app,
-  /async function executeTelegramOutgoingSendIntent\(account, wv, safePayload\)[\s\S]*sendIntentExecutor\.execute\(\{[\s\S]*conversationId: String\(safePayload\.chatId \|\| ''\)[\s\S]*sourceSnapshot: String\(safePayload\.text \|\| ''\)[\s\S]*window\.api\.translation\.translate\(\{ \.\.\.safePayload, accountId: account\.id \}\)/,
-  'Telegram outgoing send must use the generic executor with the existing translation runtime as transform',
+  /async function executeTelegramOutgoingSendIntent\(account, wv, safePayload\)[\s\S]*const sourceSnapshot = String\(await adapter\.getComposerText\(\) \|\| ''\)[\s\S]*transformPolicy: \{[\s\S]*mode: translate \? 'translation' : 'identity'[\s\S]*window\.api\.translation\.translate\(\{[\s\S]*requestId: intentId/,
+  'Telegram ordinary and translated sends must use the same executor; host policy chooses identity versus translation',
+);
+assert.match(
+  app,
+  /if \(!translate\) return \{ text: sourceSnapshot, mode: 'identity', rewriteComposer: false \}/,
+  'ordinary Telegram sends must preserve the native composer while still using SendIntent ownership',
 );
 assert.match(
   app,
@@ -69,6 +74,23 @@ assert.match(
   html,
   /send-intent-commit-guard\.js[\s\S]*send-intent-executor\.js[\s\S]*broadcast-safety\.js/,
   'executor must load after commit guard and before app.js consumers',
+);
+
+
+assert.match(
+  app,
+  /const webviewGuestIds = new WeakMap\(\)[\s\S]*did-start-navigation[\s\S]*cancelSendIntentsForWebview\(wv, 'SEND_INTENT_WEBVIEW_RELOADED'\)[\s\S]*trustedSubmitRuntime\.advanceGeneration\(wv\)/,
+  'reload cancellation must use the last safely attached guest id before advancing trusted generation',
+);
+assert.doesNotMatch(
+  app,
+  /did-start-navigation[\s\S]{0,260}getWebContentsId\(\)/,
+  'navigation-start must not call getWebContentsId before Electron guarantees an attached guest',
+);
+assert.match(
+  app,
+  /render-process-gone[\s\S]{0,260}cancelSendIntentsForWebview\(wv, 'SEND_INTENT_WEBVIEW_RELOADED'\)/,
+  'renderer loss must cancel active SendIntents through the remembered guest owner',
 );
 
 const route = app.match(/const result = safePayload\.intent === 'outgoing-send'[\s\S]{0,420}?;/)?.[0] || '';

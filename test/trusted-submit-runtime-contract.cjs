@@ -49,6 +49,11 @@ const taken = runtime.takeLatest(account, webview, 'keyboard');
 assert.equal(taken.permitId, 'gesture-permit-1');
 assert.equal(taken.kind, 'keyboard');
 assert.equal(taken.composerGeneration, 2);
+assert.throws(() => runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 2 }), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_BUSY', 'an active send rejects rapid duplicate gestures');
+const firstLease = { generation: taken.webviewGeneration, permitId: taken.permitId };
+assert.equal(firstLease.generation, 0);
+assert.equal(firstLease.permitId, taken.permitId);
+assert.equal(runtime.release(webview, firstLease), true);
 assert.throws(() => runtime.takeLatest(account, webview), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT');
 
 runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 3 });
@@ -111,4 +116,11 @@ assert.match(app, /handleTrustedSubmitGesture\(wv, event\)/);
 assert.match(app, /handleLineTranslationIpc\(wv, event\); handleGeekBridgeIpc\(wv, event\); handleTrustedComposerContext\(wv, event\); handleTrustedSubmitGesture\(wv, event\);/);
 assert.match(html, /trusted-submit-permits\.js[\s\S]*trusted-submit-runtime\.js[\s\S]*send-intent-coordinator\.js[\s\S]*app\.js/);
 
+runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 7 });
+const currentTaken = runtime.takeLatest(account, webview);
+const currentLease = { generation: currentTaken.webviewGeneration, permitId: currentTaken.permitId };
+assert.equal(currentLease.generation, 1);
+assert.equal(runtime.release(webview, firstLease), false, 'stale release lease cannot clear a newer active generation');
+assert.throws(() => runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'button', composerGeneration: 7 }), error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_BUSY');
+assert.equal(runtime.release(webview, currentLease), true);
 console.log('TRUSTED_SUBMIT_RUNTIME_CONTRACT_OK');

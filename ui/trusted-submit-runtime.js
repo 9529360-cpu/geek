@@ -38,7 +38,7 @@
       }
       let state = states.get(webview);
       if (!state) {
-        state = { generation: 0, composerGeneration: 0, latest: null };
+        state = { generation: 0, composerGeneration: 0, latest: null, active: false, activePermitId: '' };
         states.set(webview, state);
       }
       return state;
@@ -77,6 +77,8 @@
       state.generation += 1;
       state.composerGeneration = 0;
       state.latest = null;
+      state.active = false;
+      state.activePermitId = '';
       if (typeof authority.sweep === 'function') authority.sweep();
       return state.generation;
     }
@@ -125,6 +127,7 @@
         state.composerGeneration = composerGeneration;
         state.latest = null;
       }
+      if (state.active || state.latest) throw runtimeError('TRUSTED_SUBMIT_RUNTIME_BUSY');
       const issued = authority.issue({ ...binding, kind });
       state.latest = {
         permitId: issued.permitId,
@@ -157,12 +160,23 @@
         throw runtimeError('TRUSTED_SUBMIT_RUNTIME_STALE_COMPOSER', 'composerGeneration');
       }
       authority.consume(latest.permitId, binding);
+      state.active = true;
+      state.activePermitId = latest.permitId;
       return Object.freeze({
         permitId: latest.permitId,
         kind: latest.kind,
         webviewGeneration: state.generation,
         composerGeneration: latest.composerGeneration,
       });
+    }
+
+    function release(webview, lease) {
+      const state = stateFor(webview);
+      if (!lease || lease.generation !== state.generation || lease.permitId !== state.activePermitId) return false;
+      state.active = false;
+      state.activePermitId = '';
+      state.latest = null;
+      return true;
     }
 
     function clearWebview(webview) {
@@ -177,6 +191,7 @@
       observeComposer,
       observeGesture,
       takeLatest,
+      release,
       clearWebview,
     });
   }

@@ -102,10 +102,32 @@ assert.equal(
 );
 assert.equal(happy.coordinator.markSent(created.intentId).state, 'sent');
 assert.throws(
+  () => happy.trustedSubmitRuntime.observeGesture(a, wv, {
+    protocolVersion: 1,
+    platform: 'telegram',
+    kind: 'keyboard',
+    composerGeneration: 4,
+  }),
+  error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_BUSY',
+  'an admitted intent must retain the exact submit lease until its owner releases it',
+);
+assert.throws(
   () => happy.admission.begin(input(a, wv)),
   error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT',
   'one trusted gesture must admit at most one intent',
 );
+assert.equal(happy.admission.release(created.intentId), true);
+assert.equal(happy.admission.release(created.intentId), false, 'release must be idempotent by intent ownership');
+happy.trustedSubmitRuntime.observeGesture(a, wv, {
+  protocolVersion: 1,
+  platform: 'telegram',
+  kind: 'keyboard',
+  composerGeneration: 4,
+});
+const followup = happy.admission.begin(input(a, wv));
+assert.equal(followup.intentId, 'intent-2');
+assert.equal(happy.admission.release(followup.intentId), true);
+
 
 const wrongKind = harness();
 const wkAccount = account();
@@ -223,6 +245,13 @@ assert.throws(
   error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT',
   'coordinator failure must not restore consumed authority',
 );
+assert.doesNotThrow(() => capacity.trustedSubmitRuntime.observeGesture(capAccount, capWebview, {
+  protocolVersion: 1,
+  platform: 'telegram',
+  kind: 'keyboard',
+  composerGeneration: 4,
+}), 'coordinator rejection must release the active lease for a fresh gesture');
+
 
 const badDeadline = harness();
 const bdAccount = account();
@@ -242,9 +271,17 @@ assert.throws(
   () => badDeadline.admission.begin(input(bdAccount, bdWebview, { deadlineAt: 5000 })),
   error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT',
 );
+assert.doesNotThrow(() => badDeadline.trustedSubmitRuntime.observeGesture(bdAccount, bdWebview, {
+  protocolVersion: 1,
+  platform: 'telegram',
+  kind: 'keyboard',
+  composerGeneration: 4,
+}), 'invalid deadline must not leave the webview permanently busy');
+
 
 assert.doesNotMatch(source, /querySelector|executeJavaScript|ipcRenderer|sendToHost|window\.WPP|GeekBroadcast|translation\.translate/, 'admission must not own platform, bridge, Broadcast or transform mechanics');
 assert.doesNotMatch(source, /input\.(accountId|partition|platform|webviewId|webviewGeneration|submitPermitId|composerGeneration)/, 'private binding identity and composer generation must be derived from trusted host owners');
+assert.match(source, /activeLeases[\s\S]*trustedSubmitRuntime\.release/, 'admission must privately bind each consumed permit to exactly one intent lifecycle');
 assert.match(html, /trusted-submit-permits\.js[\s\S]*trusted-submit-runtime\.js[\s\S]*send-intent-coordinator\.js[\s\S]*send-intent-admission\.js[\s\S]*app\.js/);
 
 console.log('SEND_INTENT_ADMISSION_CONTRACT_OK');

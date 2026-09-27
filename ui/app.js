@@ -303,6 +303,7 @@
   const wvMap = new Map(); // accountId -> webview element
   const webviewBridgeTokens = new WeakMap();
   const webviewBridgeInflight = new WeakMap();
+  const webviewGuestIds = new WeakMap();
   function bridgeTokenFor(wv) {
     let token = webviewBridgeTokens.get(wv);
     if (!token) {
@@ -321,6 +322,19 @@
   }
   function changeWebviewBridgeInflight(wv, delta) {
     webviewBridgeInflight.set(wv, Math.max(0, (webviewBridgeInflight.get(wv) || 0) + delta));
+  }
+  function rememberWebviewGuestId(wv) {
+    try {
+      const id = String(wv.getWebContentsId());
+      if (id) webviewGuestIds.set(wv, id);
+      return id;
+    } catch {
+      return '';
+    }
+  }
+  function cancelSendIntentsForWebview(wv, code) {
+    const id = webviewGuestIds.get(wv);
+    return id ? sendIntentCoordinator.cancelForWebview(id, code) : 0;
   }
   async function registerWebviewBridge(wv, account) {
     const family = familyOf(account.type).key;
@@ -608,6 +622,7 @@
     trustedSubmitRuntime.registerWebview(wv);
     wv.addEventListener('did-start-navigation', (event) => {
       if (event?.isMainFrame === false || event?.isInPlace === true) return;
+      cancelSendIntentsForWebview(wv, 'SEND_INTENT_WEBVIEW_RELOADED');
       trustedSubmitRuntime.advanceGeneration(wv);
     });
     wv.partition = account.partition;
@@ -645,12 +660,14 @@
       });
     });
     wv.addEventListener('dom-ready', () => {
+      rememberWebviewGuestId(wv);
       resizeWebviews();
       setTimeout(resizeWebviews, 100);
       registerWebviewBridge(wv, account).catch(error => console.error('WebView安全登记失败:', error.message));
     });
     // 崩溃自动恢复：限频重载（防崩溃循环），超限停止并记录
     wv.addEventListener('render-process-gone', () => {
+      cancelSendIntentsForWebview(wv, 'SEND_INTENT_WEBVIEW_RELOADED');
       trustedSubmitRuntime.advanceGeneration(wv);
       if (webviewCrashLimiter.allow(account.id)) {
         console.warn('[crash] webview 崩溃，1分钟内限频2次内自动重载');
@@ -1771,8 +1788,8 @@
         const script = typeof transport.setMessage === 'function' ? transport.setMessage(text) : transport.setMessage;
         return wv.executeJavaScript(script);
       },
-      async sendText(text = '') {
-        if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const editor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); const before=(editor?.innerText||'').trim(); if(!before)return 'EMPTY'; const messageCount=()=>document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length; const count=messageCount(); const button=document.querySelector('button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"], .btn-send'); if(!button)return 'NO_SEND_BUTTON'; button.click(); for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,250)); if(messageCount()>count && !(editor?.innerText||'').trim())return 'SENT';} return 'MAYBE';})()`);
+      async sendText(text = '', commit = {}) {
+        if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const expected=${JSON.stringify({ conversationId: String(commit.expectedConversationId || ""), composerText: String(commit.expectedComposerText || "") })}; const chat=String(location.hash||"").replace(/^#/, "").split("?")[0]; const norm=v=>String(v||"").replace(/\n[\t ]*\n+/g,"\n").trim(); if(!expected.conversationId||chat!==expected.conversationId)return "STALE_CONTEXT"; const guardedEditor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!guardedEditor||norm(guardedEditor.innerText)!==norm(expected.composerText))return "COMPOSER_MISMATCH"; const editor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); const before=(editor?.innerText||'').trim(); if(!before)return 'EMPTY'; const messageCount=()=>document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length; const count=messageCount(); const button=document.querySelector('button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"], .btn-send'); if(!button)return 'NO_SEND_BUTTON'; const chatBefore=String(location.hash||"").replace(/^#/, "").split("?")[0]; const editorBefore=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(chatBefore!==expected.conversationId)return 'STALE_CONTEXT'; if(!editorBefore||norm(editorBefore.innerText)!==norm(expected.composerText))return 'COMPOSER_MISMATCH'; button.click(); for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,250)); if(messageCount()>count && !(editor?.innerText||'').trim())return 'SENT';} return 'MAYBE';})()`);
         const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;
         return wv.executeJavaScript(script);
       },
@@ -1795,6 +1812,8 @@
     const value = String(outcome || '');
     if (value === 'SENT' || value === 'CLICKED') return { ok: true, code: '' };
     if (value === 'MAYBE') return { ok: false, code: 'SEND_INTENT_OUTCOME_UNCERTAIN' };
+    if (value === 'STALE_CONTEXT') return { ok: false, code: 'SEND_INTENT_STALE_CONTEXT' };
+    if (value === 'COMPOSER_MISMATCH') return { ok: false, code: 'SEND_INTENT_COMPOSER_MISMATCH' };
     return { ok: false, code: 'SEND_INTENT_SEND_FAILED' };
   };
   const sendIntentCommitGuard = window.GeekSendIntentCommitGuard.create({
@@ -1813,24 +1832,59 @@
   });
 
   async function executeTelegramOutgoingSendIntent(account, wv, safePayload) {
+    const adapter = platformCapabilities.forAccount(account, wv);
+    const conversationId = String(await adapter.getCurrentChat() || '');
+    const sourceSnapshot = String(await adapter.getComposerText() || '');
+    const guestChatId = String(safePayload.chatId || '');
+    const guestText = String(safePayload.text || '');
+    const normalize = window.GeekBroadcastSafety.normalizeComposerText;
+    if (!conversationId || conversationId !== guestChatId
+      || normalize(sourceSnapshot) !== normalize(guestText)) {
+      throw Object.assign(new Error('SEND_INTENT_STALE_CONTEXT'), { code: 'SEND_INTENT_STALE_CONTEXT' });
+    }
+
+    let globalConfig = {};
+    let chatConfigs = {};
+    try {
+      globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}');
+      chatConfigs = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}');
+    } catch {
+      throw Object.assign(new Error('SEND_INTENT_POLICY_UNAVAILABLE'), { code: 'SEND_INTENT_POLICY_UNAVAILABLE' });
+    }
+    const policy = window.GeekTranslationCore.normalizeConfig(globalConfig, chatConfigs[conversationId] || {});
+    const translate = policy.enabled === true
+      && policy.autoSend !== false
+      && !(policy.includeZh === false && /[\u3400-\u9fff]/.test(sourceSnapshot));
     const execution = await sendIntentExecutor.execute({
-      account,
-      webview: wv,
-      conversationId: String(safePayload.chatId || ''),
-      sourceSnapshot: String(safePayload.text || ''),
-      transformPolicy: {
-        source: safePayload.source || 'auto',
-        target: safePayload.target || 'en',
-        provider: safePayload.provider || '',
-        route: safePayload.route || '',
-      },
-      deadlineAt: Date.now() + 50000,
-      transform: async ({ signal }) => {
-        if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
-        const result = await window.api.translation.translate({ ...safePayload, accountId: account.id });
-        if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
-        return result;
-      },
+        account,
+        webview: wv,
+        conversationId,
+        sourceSnapshot,
+        transformPolicy: {
+          mode: translate ? 'translation' : 'identity',
+          source: policy.source || 'auto',
+          target: policy.target || 'en',
+          provider: policy.provider || 'auto',
+          route: policy.route || 'default',
+        },
+        deadlineAt: Date.now() + 50000,
+        transform: async ({ signal, intentId }) => {
+          if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
+          if (!translate) return { text: sourceSnapshot, mode: 'identity', rewriteComposer: false };
+          const result = await window.api.translation.translate({
+            text: sourceSnapshot,
+            source: policy.source || 'auto',
+            target: policy.target || 'en',
+            provider: policy.provider || 'auto',
+            route: policy.route || 'default',
+            chatId: conversationId,
+            accountId: account.id,
+            requestId: intentId,
+            intent: 'outgoing-send',
+          });
+          if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
+          return result;
+        },
     });
     return {
       ...execution.transformResult,
