@@ -7,6 +7,11 @@ const path = require('node:path');
 const smokePath = path.join(__dirname, '..', 'scripts', 'telegram-send-intent-real-client-smoke.cjs');
 const source = fs.readFileSync(smokePath, 'utf8');
 const smoke = require(smokePath);
+for (const mode of ['preflight', 'execute']) {
+  const message = mode === 'execute' ? smoke.buildSmokeMessage(Date.parse('2026-09-26T12:34:56.789Z')) : '';
+  const expression = smoke.buildHostPrepareExpression(mode, message);
+  assert.doesNotThrow(() => new Function('return ' + expression), `${mode} host prepare expression must parse`);
+}
 
 assert.equal(smoke.parseMode([]), 'preflight');
 assert.equal(smoke.parseMode(['--preflight']), 'preflight');

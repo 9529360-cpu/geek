@@ -273,7 +273,7 @@ function buildHostPrepareExpression(mode, smokeText) {
     '    out.code = "READY";',
     '    if (' + modeValue + ' !== "execute") return out;',
     '    const activeChatId = String(chatId);',
-    '    const bridgeToken = String(await webview.executeJavaScript("String(window.__geekTranslationBridgeToken || \\"\")", false) || "");',
+    '    const bridgeToken = String(await webview.executeJavaScript(' + JSON.stringify('String(window.__geekTranslationBridgeToken || "")') + ', false) || "");',
     '    if (!bridgeToken) return { ...out, ready: false, code: "BRIDGE_NOT_READY" };',
     '    const installed = await webview.executeJavaScript(' + guestObserver + ', false);',
     '    if (installed !== true) return { ...out, ready: false, code: "OBSERVER_INSTALL_FAILED" };',
@@ -603,6 +603,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildHostPrepareExpression,
   CONFIRMATION_ENV,
   CONFIRMATION_VALUE,
   assertExecutionAllowed,
