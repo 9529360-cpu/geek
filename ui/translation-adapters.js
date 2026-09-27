@@ -232,6 +232,10 @@
     const translationSendErrorMessage = error => {
       const prefix = '__GEEK_TRANSLATION_ERROR_V1__:';
       const raw = String(error?.message || error || '');
+      if (raw === 'SEND_INTENT_OUTCOME_UNCERTAIN') return '发送结果不确定，请先检查聊天记录；系统不会自动重发';
+      if (raw === 'TRUSTED_SUBMIT_RUNTIME_NO_PERMIT' || raw === 'SUBMIT_PERMIT_EXPIRED') return '发送操作已过期，请重新发送';
+      if (/SEND_INTENT_(STALE_CONTEXT|COMPOSER_MISMATCH)/.test(raw)) return '聊天或草稿已变化，发送已取消';
+      if (/^SEND_INTENT_/.test(raw)) return '消息未发送，请确认当前聊天和草稿后重试';
       if (!raw.startsWith(prefix)) return '翻译失败，原文未发送';
       let detail;
       try { detail = JSON.parse(raw.slice(prefix.length)); } catch { return '翻译失败，原文未发送'; }
@@ -248,47 +252,15 @@
       if (category === 'gateway' || category === 'rate-limit' || status >= 500) return '翻译服务暂时不可用，请稍后重试；原文未发送';
       return '翻译失败，原文未发送';
     };
-    const nativeInputEnvelopePrefix = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
-    const encodeNativeInputRequest = (text, expectedChatId) => nativeInputEnvelopePrefix + JSON.stringify({
-      token: String(window.__geekTranslationBridgeToken || ''),
-      expectedChatId: String(expectedChatId || ''),
-      text: String(text ?? ''),
-    });
-    window.__geekNativeInputPending = window.__geekNativeInputPending || new Map();
-    window.__geekTakeNativeInputRequest = id => {
-      const p = window.__geekNativeInputPending.get(id);
-      return p ? JSON.stringify({ accountId: config.accountId, bridgeToken: window.__geekTranslationBridgeToken, text: p.wireText || '' }) : null;
-    };
-    window.__geekResolveNativeInput = (id, ok, error) => {
-      const p = window.__geekNativeInputPending.get(id);
-      if (!p) return false;
-      window.__geekNativeInputPending.delete(id);
-      if (ok) p.resolve(true); else p.reject(new Error(error || '原生输入失败'));
-      return true;
-    };
-    const nativeInsertText = (text, expectedChatId = '') => {
-      const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-      const expected = String(expectedChatId || '');
-      const wireText = encodeNativeInputRequest(text, expected);
-      return new Promise((resolve, reject) => {
-        window.__geekNativeInputPending.set(id, { resolve, reject, wireText, expectedChatId: expected });
-        if (window.$electron?.send2Host) window.$electron.send2Host({ type: 'geek-native-input-request', id, token: window.__geekTranslationBridgeToken });
-        else console.log('__GEEK_NATIVE_INPUT_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
-        setTimeout(() => {
-          const p = window.__geekNativeInputPending.get(id);
-          if (p) {
-            window.__geekNativeInputPending.delete(id);
-            p.reject(new Error('原生输入请求超时'));
-          }
-        }, 10000);
-      });
-    };
     const generation = window.__geekLineTranslationGeneration = (window.__geekLineTranslationGeneration || 0) + 1;
     window.__geekLineTranslationObserver?.disconnect();
     document.querySelectorAll('.geek-translation-result[data-geek-platform="line"]').forEach(node => node.remove());
     document.querySelectorAll('[data-geek-line-translation-state]').forEach(node => delete node.dataset.geekLineTranslationState);
     const chatId = () => {
       try {
+        const selected = document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]');
+        const selectedId = String(selected?.getAttribute('data-mid') || '');
+        if (selectedId) return selectedId;
         const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
         const match = pathname.match(/^\/[^/]+\/([^/]+)\/?$/);
         return match ? decodeURIComponent(match[1]) : '';
@@ -333,63 +305,46 @@
       return true;
     };
     const liveComposerHost = () => document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
-    const sendButton = () => document.querySelector('button[aria-label="Send"],button[aria-label="发送"],button[type="submit"],[class*="chatroomEditor-module__editor_area__"] button[data-action="send"]');
     const composerHost = event => {
       const path = event.composedPath?.() || [];
       return path.find(node => node?.tagName === 'TEXTAREA-EX') || liveComposerHost();
     };
-    const translateAndSend = async (event, host, button = null) => {
-      // Keep the synthetic verified-text submit alive, but never let a second
-      // trusted Enter/click fall through to LINE while translation is pending.
+    const submitThroughOwner = async (event, host) => {
       if (window.__geekLineSendLock) { blockRepeatedUserSend(event); return; }
       if (!host) return;
-      const cid = chatId(); const setting = settingFor(cid || '');
-      if (!setting.enabled || !setting.autoSend) return;
+      const cid = chatId();
       const values = Array.isArray(host.value) ? host.value : [host.value];
       const original = values.filter(value => typeof value === 'string').join('').trim();
-      if (!original || /^[-+]?\d+(?:[.,]\d+)?$/.test(original)) return;
+      if (!cid || !original) return;
       event.preventDefault(); event.stopImmediatePropagation(); window.__geekLineSendLock = true;
-      const assertSendContext = () => {
-        if (chatId() !== cid) throw new Error('聊天已切换，翻译发送已取消');
-        const liveHost = liveComposerHost();
-        if (liveHost !== host || host.isConnected === false) throw new Error('消息输入框已变化，翻译发送已取消');
-      };
       try {
-        if (!cid || !window.__geekTranslationRequest) throw new Error('翻译尚未就绪');
-        const result = await window.__geekTranslationRequest({ text: original, source: setting.sendFrom || 'auto', target: setting.target || setting.sendTo || 'en', provider: setting.provider, route: setting.route, chatId: cid, intent: 'outgoing-send' });
-        if (!result?.text) throw new Error('翻译失败');
-        assertSendContext();
-        const textarea = host.shadowRoot?.querySelector('textarea'); if (!textarea) throw new Error('LINE输入组件不可用');
-        textarea.focus(); textarea.select();
-        await nativeInsertText(result.text, cid);
-        await new Promise(resolve => setTimeout(resolve, 100));
-        assertSendContext();
-        const after = String(textarea.value || '').trim();
-        if (after !== result.text.trim()) throw new Error('LINE编辑器回填校验失败');
-        if (!setting.includeZh && window.GeekTranslationCore?.isChinese(after)) throw new Error('译文仍包含中文，已阻止发送');
-        assertSendContext();
-        const submitButton = (button && button.isConnected !== false) ? button : sendButton();
-        if (!submitButton) throw new Error('LINE发送按钮不可用');
-        submitButton.click();
+        if (!window.__geekTranslationRequest) throw new Error('SEND_INTENT_OWNER_UNAVAILABLE');
+        const result = await window.__geekTranslationRequest({ text: original, chatId: cid, intent: 'outgoing-send' });
+        if (!result?.text) throw new Error('SEND_INTENT_RESULT_EMPTY');
+        if (result?.delivery?.owner !== 'send-intent') throw new Error('SEND_INTENT_OWNER_REQUIRED');
+        if (result.delivery.state !== 'sent') throw new Error('SEND_INTENT_SEND_FAILED');
       } catch (error) {
-        console.error('[geek-line-translation-send]', error);
-        const cancelled = /聊天已切换|输入框已变化/.test(String(error?.message || error));
-        notifySendBlocked(cancelled ? '聊天已切换，翻译发送已取消' : translationSendErrorMessage(error));
+        console.error('[geek-line-send-intent]', error);
+        const cancelled = /SEND_INTENT_STALE_CONTEXT|聊天已切换|输入框已变化/.test(String(error?.message || error));
+        notifySendBlocked(cancelled ? '聊天已切换，发送已取消' : translationSendErrorMessage(error));
+      } finally {
+        window.__geekLineSendLock = false;
       }
-      finally { window.__geekLineSendLock = false; }
     };
     document.addEventListener('keydown', event => {
-      if (!event.isTrusted || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+      if (document.documentElement?.getAttribute?.('data-geek-native-submit-commit') === '1') return;
+      if (!event.isTrusted || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || event.repeat) return;
       const path = event.composedPath?.() || [];
       const host = composerHost(event);
       if (!host || !path.some(node => node === host || node === host.shadowRoot?.querySelector('textarea'))) return;
-      translateAndSend(event, host);
+      submitThroughOwner(event, host);
     }, { capture: true, signal: window.__geekLineSendAbort.signal });
     document.addEventListener('click', event => {
+      if (document.documentElement?.getAttribute?.('data-geek-native-submit-commit') === '1') return;
       if (!event.isTrusted) return;
-      const button = event.target?.closest?.('button[aria-label="Send"],button[aria-label="发送"],button[type="submit"],[class*="chatroomEditor-module__editor_area__"] button[data-action="send"]');
+      const button = event.target?.closest?.('button[aria-label*="send" i],button[aria-label="发送"],button[type="submit"],[class*="chatroomEditor-module__editor_area__"] button[data-action="send"]');
       if (!button || !button.closest?.('[class*="chatroomEditor-module__editor_area__"]')) return;
-      translateAndSend(event, composerHost(event), button);
+      submitThroughOwner(event, composerHost(event));
     }, { capture: true, signal: window.__geekLineSendAbort.signal });
     const scan = root => { if (root?.matches?.('[class*="message-module__message__"][data-mid]')) process(root); root?.querySelectorAll?.('[class*="message-module__message__"][data-mid]').forEach(process); };
     window.__geekLineTranslationObserver = new MutationObserver(records => { for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) scan(node); });

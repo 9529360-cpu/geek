@@ -319,11 +319,39 @@ async function rejects(promise, pattern) {
   {
     const h = createHarness();
     const linePartition = h.accounts.get('line-a').partition;
-    const guest = createGuest({ id: 9, host: h.trustedSender, session: h.sessions.get(linePartition), url: LINE_URL, focused: 'READY' });
+    const guest = createGuest({
+      id: 9,
+      host: h.trustedSender,
+      session: h.sessions.get(linePartition),
+      url: LINE_URL,
+      focused: script => script.includes("return 'READY'") ? 'READY' : true,
+    });
     h.guests.set(9, guest);
     await h.ipcMain.invoke('webview:register', h.trustedSender, 'line-a', 9, TOKEN_A);
-    await rejects(h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'line-a', 9, 'abc', 'hello', TOKEN_A), /提交上下文不合法/);
-    assert.deepEqual(guest.inputEvents, [], 'non-Telegram account must never receive native submit input');
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'line-a', 9, 'chat-a', 'hello', TOKEN_A), 'SUBMITTED');
+    assert.deepEqual(guest.inputEvents, [
+      { type: 'keyDown', keyCode: 'Enter' },
+      { type: 'keyUp', keyCode: 'Enter' },
+    ]);
+    assert.equal(guest.focusCalls.length, 1);
+    assert.equal(guest.scripts.length, 2, 'LINE native commit must run exact precommit guard and marker cleanup');
+    assert.match(guest.scripts[0], /aria-current=\"true\"/);
+    assert.match(guest.scripts[0], /textarea-ex/);
+    assert.match(guest.scripts[0], /chat-a/);
+    assert.match(guest.scripts[0], /hello/);
+    assert.match(guest.scripts[0], /data-geek-native-submit-commit/);
+    assert.match(guest.scripts[1], /removeAttribute\('data-geek-native-submit-commit'\)/);
+  }
+
+  {
+    const h = createHarness();
+    const linePartition = h.accounts.get('line-a').partition;
+    const guest = createGuest({ id: 9, host: h.trustedSender, session: h.sessions.get(linePartition), url: LINE_URL, focused: 'STALE_CONTEXT' });
+    h.guests.set(9, guest);
+    await h.ipcMain.invoke('webview:register', h.trustedSender, 'line-a', 9, TOKEN_A);
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'line-a', 9, 'chat-a', 'hello', TOKEN_A), 'STALE_CONTEXT');
+    assert.deepEqual(guest.inputEvents, [], 'stale LINE context must fail before native input');
+    assert.equal(guest.focusCalls.length, 0);
   }
 
   {

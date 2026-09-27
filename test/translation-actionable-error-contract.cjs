@@ -108,7 +108,7 @@ function adapterFailureMapper(platform) {
   const helperStart = block.indexOf('const translationSendErrorMessage = error => {');
   const helperEndMarker = platform === 'telegram'
     ? 'const generation = window.__geekTelegramTranslationGeneration'
-    : "const nativeInputEnvelopePrefix = '\\u001eGEEK_NATIVE_INPUT_V1\\u001e';";
+    : 'const generation = window.__geekLineTranslationGeneration';
   const helperEnd = block.indexOf(helperEndMarker, helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart, `${platform} actionable error mapper must stay self-contained inside the injected installer`);
   const context = { Error, JSON, String, Number };

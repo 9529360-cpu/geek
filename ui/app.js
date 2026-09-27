@@ -683,7 +683,7 @@
       updateUnread(account.id, m ? parseInt(m[1], 10) : 0);
     });
     if (account.type !== 'website') {
-      wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); handleNativeInputConsole(wv, event); });
+      wv.addEventListener('console-message', (event) => { handleTranslationConsole(wv, event); });
       wv.addEventListener('ipc-message', (event) => { handleLineTranslationIpc(wv, event); handleGeekBridgeIpc(wv, event); handleTrustedComposerContext(wv, event); handleTrustedSubmitGesture(wv, event); });
     }
     wvContainer.appendChild(wv);
@@ -746,28 +746,9 @@
   }
 
   const TRANSLATION_REQUEST_PREFIX = '__GEEK_TRANSLATION_REQUEST__:';
-  const NATIVE_INPUT_REQUEST_PREFIX = '__GEEK_NATIVE_INPUT_REQUEST__:';
   const BRIDGE_CHANNEL = 'geek-bridge';
   const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit';
   const TRUSTED_COMPOSER_CHANNEL = 'geek-trusted-composer-context';
-
-  async function processNativeInputRequest(wv, requestId, suppliedToken) {
-    const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
-    if (!authorization.ok) return;
-    changeWebviewBridgeInflight(wv, 1);
-    try {
-      const raw = await wv.executeJavaScript(`window.__geekTakeNativeInputRequest?.(${JSON.stringify(requestId)}) || null`);
-      const text = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      const account = accounts.find(item => wvMap.get(item.id) === wv);
-      if (!account || account.id !== text?.accountId || text?.bridgeToken !== suppliedToken) throw new Error('输入账号或令牌不匹配');
-      await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text.text || ''), suppliedToken);
-      await wv.executeJavaScript(`window.__geekResolveNativeInput?.(${JSON.stringify(requestId)}, true, null)`);
-    } catch (error) {
-      try { await wv.executeJavaScript(`window.__geekResolveNativeInput?.(${JSON.stringify(requestId)}, false, ${JSON.stringify(String(error?.message || error))})`); } catch {}
-    } finally {
-      changeWebviewBridgeInflight(wv, -1);
-    }
-  }
 
   async function processTranslationRequest(wv, requestId, suppliedToken) {
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
@@ -780,8 +761,9 @@
       const account = accounts.find(item => wvMap.get(item.id) === wv);
       if (!account) throw new Error('翻译账号沙箱不存在');
       const { bridgeToken: _bridgeToken, ...safePayload } = payload;
-      const result = safePayload.intent === 'outgoing-send' && familyOf(account.type).key === 'telegram'
-        ? await executeTelegramOutgoingSendIntent(account, wv, safePayload)
+      const family = familyOf(account.type).key;
+      const result = safePayload.intent === 'outgoing-send' && (family === 'telegram' || family === 'line')
+        ? await executePlatformOutgoingSendIntent(account, wv, safePayload)
         : await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
     } catch (error) {
@@ -800,8 +782,6 @@
     const suppliedToken = String(message.token || '');
     if (message.type === 'translation-request') {
       await processTranslationRequest(wv, requestId, suppliedToken);
-    } else if (message.type === 'native-input-request') {
-      await processNativeInputRequest(wv, requestId, suppliedToken);
     }
   }
 
@@ -823,14 +803,6 @@
     try { trustedSubmitRuntime.observeGesture(account, wv, payload); } catch { /* fail closed */ }
   }
 
-  async function handleNativeInputConsole(wv, event) {
-    const message = String(event?.message || '');
-    if (!message.startsWith(NATIVE_INPUT_REQUEST_PREFIX)) return;
-    const parts = message.slice(NATIVE_INPUT_REQUEST_PREFIX.length).split(':');
-    const requestId = parts.shift();
-    const suppliedToken = parts.shift() || '';
-    await processNativeInputRequest(wv, requestId, suppliedToken);
-  }
   async function handleTranslationConsole(wv, event) {
     const message = String(event?.message || '');
     if (!message.startsWith(TRANSLATION_REQUEST_PREFIX)) return;
@@ -846,10 +818,6 @@
     if (!message || typeof message !== 'object') return;
     const requestId = String(message.id || '');
     const suppliedToken = String(message.token || '');
-    if (message.type === 'geek-native-input-request') {
-      await processNativeInputRequest(wv, requestId, suppliedToken);
-      return;
-    }
     if (message.type !== 'geek-translation-request') return;
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
     if (!authorization.ok) return;
@@ -861,7 +829,9 @@
       const account = accounts.find(item => wvMap.get(item.id) === wv);
       if (!account || (account.type !== 'line' && account.type !== 'line-business')) throw new Error('LINE翻译账号沙箱不存在');
       const { bridgeToken: _bridgeToken, ...safePayload } = payload;
-      const result = await window.api.translation.translate({ ...safePayload, accountId: account.id });
+      const result = safePayload.intent === 'outgoing-send'
+        ? await executePlatformOutgoingSendIntent(account, wv, safePayload)
+        : await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
     } catch (error) {
       try { await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, null, ${JSON.stringify(String(error?.message || error))})`); } catch {}
@@ -1715,7 +1685,7 @@
         const before = (Array.isArray(host.value) ? host.value : [host.value]).filter(v => typeof v === 'string').join('').trim();
         if (!before) return 'EMPTY';
         const editorArea = host.closest?.('[class*="chatroomEditor-module__editor_area__"]') || document.querySelector('[class*="chatroomEditor-module__editor_area__"]');
-        const submitButton = editorArea?.querySelector('button[aria-label="Send"],button[type="submit"],button[data-action="send"]');
+        const submitButton = editorArea?.querySelector('button[aria-label*="send" i],button[type="submit"],button[data-action="send"]');
         if (!submitButton) return 'NO_SEND_BUTTON';
         const count = document.querySelectorAll('[class*="message-module__message__"][data-mid]').length;
         submitButton.click();
@@ -1730,6 +1700,9 @@
       telegram: `(() => String(location.hash || '').replace(/^#/, '').split('?')[0] || null)()`,
       line: `(() => {
         try {
+          const selected = document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]');
+          const selectedId = String(selected?.getAttribute('data-mid') || '');
+          if (selectedId) return selectedId;
           const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
           const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
           return match ? decodeURIComponent(match[1]) : null;
@@ -1764,12 +1737,12 @@
         if (family === 'line') return wv.executeJavaScript(`(() => { const host=document.querySelector('textarea-ex'); const textarea=host?.shadowRoot?.querySelector('textarea'); if(!host||!textarea||typeof host.insertValue!=='function')return false; textarea.focus(); textarea.select(); host.insertValue([]); return !(textarea.value||'').trim(); })()`);
         return true;
       },
-      async setComposerText(text) {
+      async setComposerText(text, mutation = {}) {
         if (family === 'telegram') {
           const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; window.__geekTelegramNativeInputCommit=true; editor.setAttribute('contenteditable','true'); editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
           if (!focused) return 'NO_EDITOR';
           try {
-            await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv));
+            await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv), String(mutation.expectedConversationId || ''));
             await sleep(50);
             const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText?.trim() || ''`);
             return actual === String(text).trim() ? 'OK' : 'EMPTY';
@@ -1780,7 +1753,7 @@
         if (family === 'line') {
           const focused = await wv.executeJavaScript(`(() => { const textarea=document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea'); if(!textarea)return false; textarea.focus(); textarea.select(); return true; })()`);
           if (!focused) return 'NO_EDITOR';
-          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv));
+          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv), String(mutation.expectedConversationId || ''));
           await sleep(50);
           const actual = await wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value?.trim() || ''`);
           return actual === String(text).trim() ? 'OK' : 'EMPTY';
@@ -1828,6 +1801,60 @@
           }
           return 'MAYBE';
         }
+        if (family === 'line' && commit.expectedConversationId && commit.expectedComposerText) {
+          const expected = {
+            conversationId: String(commit.expectedConversationId || ''),
+            composerText: String(commit.expectedComposerText || ''),
+          };
+          const baseline = await wv.executeJavaScript(`(() => {
+            const expected=${JSON.stringify({ conversationId: String(commit.expectedConversationId || ''), composerText: String(commit.expectedComposerText || '') })};
+            const norm=value=>String(value||'').replace(/\\n[\\t ]*\\n+/g,'\\n').trim();
+            let currentChat=String(document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]')?.getAttribute('data-mid')||'');
+            if(!currentChat){
+              try {
+                const pathname=String(location.hash||'').replace(/^#/,'').split('?')[0];
+                const match=pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
+                currentChat=match?decodeURIComponent(match[1]):'';
+              } catch {}
+            }
+            if(!expected.conversationId||currentChat!==expected.conversationId)return {status:'STALE_CONTEXT',count:0};
+            const host=document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+            const value=(Array.isArray(host?.value)?host.value:[host?.value]).filter(v=>typeof v==='string').join('');
+            if(!host||norm(value)!==norm(expected.composerText))return {status:'COMPOSER_MISMATCH',count:0};
+            return {status:'READY',count:document.querySelectorAll('[class*="message-module__message__"][data-mid]').length};
+          })()`);
+          if (!baseline || baseline.status !== 'READY') return String(baseline?.status || 'COMMIT_NOT_READY');
+          const submitted = await window.api.webviewInput.commitSubmit(
+            account.id,
+            wv.getWebContentsId(),
+            expected.conversationId,
+            expected.composerText,
+            bridgeTokenFor(wv),
+          );
+          if (submitted !== 'SUBMITTED') return String(submitted || 'MAYBE');
+          for (let i = 0; i < 60; i++) {
+            await sleep(250);
+            const state = await wv.executeJavaScript(`(() => {
+              const expectedChat=${JSON.stringify(String(commit.expectedConversationId || ''))};
+              let currentChat=String(document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]')?.getAttribute('data-mid')||'');
+              if(!currentChat){
+                try {
+                  const pathname=String(location.hash||'').replace(/^#/,'').split('?')[0];
+                  const match=pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
+                  currentChat=match?decodeURIComponent(match[1]):'';
+                } catch {}
+              }
+              if(currentChat!==expectedChat)return {status:'STALE_CONTEXT',count:0,empty:false};
+              const host=document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+              const value=(Array.isArray(host?.value)?host.value:[host?.value]).filter(v=>typeof v==='string').join('').trim();
+              const count=document.querySelectorAll('[class*="message-module__message__"][data-mid]').length;
+              return {status:'OK',count,empty:!value};
+            })()`);
+            if (state?.status === 'STALE_CONTEXT') return 'STALE_CONTEXT';
+            if (state?.count > baseline.count && state?.empty === true) return 'SENT';
+          }
+          return 'MAYBE';
+        }
         const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;
         return wv.executeJavaScript(script);
       },
@@ -1869,7 +1896,11 @@
     classifySendOutcome: classifySendIntentOutcome,
   });
 
-  async function executeTelegramOutgoingSendIntent(account, wv, safePayload) {
+  async function executePlatformOutgoingSendIntent(account, wv, safePayload) {
+    const family = String(familyOf(account.type)?.key || '');
+    if (family !== 'telegram' && family !== 'line') {
+      throw Object.assign(new Error('SEND_INTENT_PLATFORM_UNSUPPORTED'), { code: 'SEND_INTENT_PLATFORM_UNSUPPORTED' });
+    }
     const adapter = platformCapabilities.forAccount(account, wv);
     const conversationId = String(await adapter.getCurrentChat() || '');
     const sourceSnapshot = String(await adapter.getComposerText() || '');

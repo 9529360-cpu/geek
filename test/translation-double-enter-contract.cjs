@@ -22,16 +22,18 @@ assert.doesNotMatch(telegram, /submitButton\.click\(\)/, 'Telegram guest must no
 assert.doesNotMatch(telegram, /nativeInsertText|__geekNativeInputPending/, 'Telegram guest must not retain the retired native-fill compatibility tail');
 assert.match(telegram, /SEND_INTENT_OWNER_REQUIRED/, 'Telegram guest must fail closed instead of falling back to a second send path');
 
-const lineSubmit = line.indexOf('submitButton.click();');
-const lineFinalGuard = line.lastIndexOf('assertSendContext();', lineSubmit);
-assert.ok(lineSubmit >= 0, 'LINE 必须保留译文的程序化提交');
-assert.ok(lineFinalGuard >= 0 && lineFinalGuard < lineSubmit && lineSubmit - lineFinalGuard < 520, 'LINE 程序化提交前必须执行最终聊天上下文校验');
-assert.equal((line.match(/submitButton\.click\(\);/g) || []).length, 1, 'LINE 每次译文流程只能保留一个最终程序化 click 提交点');
-assert.doesNotMatch(line, /dispatchEvent\(new KeyboardEvent\(['"]keydown['"]/, 'LINE 译文提交不得回退到不受信任的 synthetic Enter');
+const lineOwnerStart = line.indexOf('const submitThroughOwner');
+const lineOwnerEnd = line.indexOf("document.addEventListener('keydown'", lineOwnerStart);
+assert.ok(lineOwnerStart >= 0 && lineOwnerEnd > lineOwnerStart, 'LINE must expose one guest-to-host SendIntent submission owner');
+const lineOwner = line.slice(lineOwnerStart, lineOwnerEnd);
+assert.equal((lineOwner.match(/__geekTranslationRequest\(/g) || []).length, 1, 'one trusted LINE gesture may create only one host owner request');
+assert.doesNotMatch(lineOwner, /nativeInsertText|submitButton\.click|button\.click|dispatchEvent\(/, 'LINE guest must not create a second native commit while SendIntent owns delivery');
+assert.match(lineOwner, /window\.__geekLineSendLock = true[\s\S]*await window\.__geekTranslationRequest/, 'LINE duplicate-send lock must be acquired before awaiting the owner');
+assert.match(lineOwner, /finally \{[\s\S]{0,100}window\.__geekLineSendLock = false/, 'LINE duplicate-send lock must release only after the owner reaches a terminal response');
 
 assert.match(
   line,
-  /document\.addEventListener\('click', event => \{\s*if \(!event\.isTrusted\) return;/,
+  /document\.addEventListener\('click', event => \{[\s\S]{0,180}data-geek-native-submit-commit[\s\S]{0,180}if \(!event\.isTrusted\) return;/,
   'LINE translation must intercept only trusted user clicks so verified programmatic submits bypass translation'
 );
 

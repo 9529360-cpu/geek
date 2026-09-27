@@ -11,7 +11,6 @@ const rootDir = path.resolve(__dirname, '..');
 const adapterSource = fs.readFileSync(path.join(rootDir, 'ui', 'translation-adapters.js'), 'utf8');
 const webviewIpcSource = fs.readFileSync(path.join(rootDir, 'src', 'webview-ipc.cjs'), 'utf8');
 const appSource = fs.readFileSync(path.join(rootDir, 'ui', 'app.js'), 'utf8');
-const NATIVE_INPUT_ENVELOPE_PREFIX = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
 
 function deferred() {
   let resolve;
@@ -157,7 +156,7 @@ function createLineHarness(translationPromise) {
     activeElement: host,
     querySelector(selector) {
       if (selector.includes('textarea-ex')) return host;
-      if (selector.includes('button[aria-label="Send"]') || selector.includes('button[type="submit"]')) return sendButton;
+      if (selector.includes('aria-label*="send" i') || selector.includes('button[type="submit"]')) return sendButton;
       return null;
     },
     querySelectorAll() { return []; },
@@ -190,11 +189,7 @@ function createLineHarness(translationPromise) {
   context.window = context;
   let translationRequests = 0;
   context.window.__geekTranslationRequest = () => { translationRequests += 1; return translationPromise; };
-  context.window.$electron = {
-    send2Host(message) {
-      if (message?.type === 'geek-native-input-request') context.onNativeInputRequest?.(message);
-    },
-  };
+  context.window.$electron = { send2Host() {} };
   vm.createContext(context);
   vm.runInContext(adapterSource, context, { filename: 'translation-adapters.js' });
   context.window.GeekTranslationAdapters.line({
@@ -264,8 +259,8 @@ async function verifyTelegramOwnerFailureHasNoGuestCommit() {
   assert.equal(h.context.window.__geekTelegramSendLock, false);
   assert.match(h.notices.at(-1)?.textContent || '', /未发送|发送/, 'failed owner result must remain visibly fail-closed');
 }
-async function verifyLineProgrammaticClickBypassesTranslation() {
-  const h = createLineHarness(Promise.resolve({ text: 'ciao' }));
+async function verifyLineProgrammaticClickBypassesOwner() {
+  const h = createLineHarness(Promise.resolve({ text: 'hello', delivery: { owner: 'send-intent', state: 'sent' } }));
   let prevented = 0;
   let stopped = 0;
   h.click({
@@ -276,73 +271,64 @@ async function verifyLineProgrammaticClickBypassesTranslation() {
     stopImmediatePropagation() { stopped += 1; },
   });
   await flush();
-  assert.equal(h.translationRequests(), 0, 'programmatic LINE submit must bypass outgoing translation interception');
-  assert.equal(prevented, 0, 'programmatic LINE submit must not be prevented by the translation owner');
-  assert.equal(stopped, 0, 'programmatic LINE submit must not stop propagation in the translation owner');
-  assert.equal(h.context.window.__geekLineSendLock, false, 'programmatic LINE submit must not acquire the translation send lock');
+  assert.equal(h.translationRequests(), 0, 'programmatic LINE submit must not manufacture a trusted SendIntent');
+  assert.equal(prevented, 0);
+  assert.equal(stopped, 0);
+  assert.equal(h.context.window.__geekLineSendLock, false);
 }
 
-async function verifyLineSwitchBeforeTranslationCommit() {
-  const translation = deferred();
-  const h = createLineHarness(translation.promise);
+async function verifyLineOwnerSuccessHasNoGuestCommit() {
+  const h = createLineHarness(Promise.resolve({
+    text: 'hello',
+    delivery: { owner: 'send-intent', state: 'sent' },
+  }));
+  let nativeRequests = 0;
+  let prevented = 0;
+  let stopped = 0;
+  h.context.onNativeInputRequest = () => { nativeRequests += 1; };
+  const event = h.makeEvent();
+  event.preventDefault = () => { prevented += 1; };
+  event.stopImmediatePropagation = () => { stopped += 1; };
+  h.keydown(event);
+  await flush();
+  assert.equal(h.translationRequests(), 1, 'one trusted LINE submit must create exactly one outgoing owner request');
+  assert.equal(prevented, 1);
+  assert.equal(stopped, 1);
+  assert.equal(nativeRequests, 0, 'owner-delivered success must not fall back to guest native fill');
+  assert.equal(h.sendClicks(), 0, 'owner-delivered success must not create a second guest submit');
+  assert.equal(h.textarea.value, 'hello');
+  assert.deepEqual(Array.from(h.host.value), ['hello']);
+  assert.equal(h.context.window.__geekLineSendLock, false);
+  assert.equal(h.notices.length, 0);
+}
+
+async function verifyLineOwnerFailureHasNoGuestCommit() {
+  const h = createLineHarness(Promise.resolve({
+    text: 'hello',
+    delivery: { owner: 'send-intent', state: 'failed' },
+  }));
   let nativeRequests = 0;
   h.context.onNativeInputRequest = () => { nativeRequests += 1; };
   h.keydown(h.makeEvent());
-  assert.equal(h.context.window.__geekLineSendLock, true);
-  h.location.hash = '#/chats/chat-b';
-  translation.resolve({ text: 'ciao' });
   await flush();
-  assert.equal(nativeRequests, 0, 'LINE chat switch before translation resolution must prevent native composer mutation');
-  assert.equal(h.sendClicks(), 0, 'LINE chat switch before translation resolution must prevent send');
+  assert.equal(nativeRequests, 0, 'failed LINE owner result must not fall back to guest native fill');
+  assert.equal(h.sendClicks(), 0, 'failed LINE owner result must not fall back to a guest submit');
+  assert.equal(h.textarea.value, 'hello');
   assert.equal(h.context.window.__geekLineSendLock, false);
-  assert.match(h.notices.at(-1)?.textContent || '', /聊天已切换/);
+  assert.match(h.notices.at(-1)?.textContent || '', /未发送|发送/);
 }
 
-async function verifyLineSwitchAfterNativeFillBeforeSubmit() {
-  const h = createLineHarness(Promise.resolve({ text: 'ciao' }));
+async function verifyLineOwnerStaleContextFailsClosed() {
+  const error = Object.assign(new Error('SEND_INTENT_STALE_CONTEXT'), { code: 'SEND_INTENT_STALE_CONTEXT' });
+  const h = createLineHarness(Promise.reject(error));
   let nativeRequests = 0;
-  h.context.onNativeInputRequest = message => {
-    nativeRequests += 1;
-    const raw = h.context.window.__geekTakeNativeInputRequest(message.id);
-    const request = JSON.parse(raw);
-    assert.equal(request.text.startsWith(NATIVE_INPUT_ENVELOPE_PREFIX), true, 'LINE native fill must use a request-scoped lease envelope');
-    const envelope = JSON.parse(request.text.slice(NATIVE_INPUT_ENVELOPE_PREFIX.length));
-    assert.equal(envelope.expectedChatId, 'chat-a');
-    assert.equal(envelope.text, 'ciao');
-    assert.equal(envelope.token, 'b'.repeat(32));
-    h.textarea.value = 'ciao';
-    h.host.value = ['ciao'];
-    h.location.hash = '#/chats/chat-b';
-    h.context.window.__geekResolveNativeInput(message.id, true, null);
-  };
+  h.context.onNativeInputRequest = () => { nativeRequests += 1; };
   h.keydown(h.makeEvent());
   await flush();
-  assert.equal(nativeRequests, 1, 'control must reach the LINE native-fill race window');
-  assert.equal(h.sendClicks(), 0, 'LINE chat switch after native fill must still prevent final submit');
-  assert.equal(h.syntheticKeyDispatches(), 0, 'LINE translated send must not synthesize a keyboard event');
+  assert.equal(nativeRequests, 0);
+  assert.equal(h.sendClicks(), 0);
   assert.equal(h.context.window.__geekLineSendLock, false);
-  assert.match(h.notices.at(-1)?.textContent || '', /聊天已切换/);
-}
-
-async function verifyLineNativeFillAndButtonSubmit() {
-  const h = createLineHarness(Promise.resolve({ text: 'ciao' }));
-  let nativeRequests = 0;
-  h.context.onNativeInputRequest = message => {
-    nativeRequests += 1;
-    const request = JSON.parse(h.context.window.__geekTakeNativeInputRequest(message.id));
-    const envelope = JSON.parse(request.text.slice(NATIVE_INPUT_ENVELOPE_PREFIX.length));
-    assert.equal(envelope.expectedChatId, 'chat-a');
-    assert.equal(envelope.text, 'ciao');
-    h.textarea.value = 'ciao';
-    h.host.value = ['ciao'];
-    h.context.window.__geekResolveNativeInput(message.id, true, null);
-  };
-  h.keydown(h.makeEvent());
-  await flush();
-  assert.equal(nativeRequests, 1, 'LINE translated send must use one native input request');
-  assert.equal(h.sendClicks(), 1, 'LINE Enter send must commit through the live send button after verified native fill');
-  assert.equal(h.syntheticKeyDispatches(), 0, 'LINE translated send must never depend on an untrusted synthetic Enter');
-  assert.equal(h.context.window.__geekLineSendLock, false);
+  assert.match(h.notices.at(-1)?.textContent || '', /聊天已切换|发送已取消/);
 }
 
 async function verifyNativeInputOwnerUsesRequestScopedLease() {
@@ -387,16 +373,15 @@ async function verifyNativeInputOwnerUsesRequestScopedLease() {
   const invoke = (channel, ...args) => handlers.get(channel)({ sender, senderFrame: mainFrame }, ...args);
   const token = 'a'.repeat(32);
   assert.equal(await invoke('webview:register', 'acc-a', 7, token), true);
-  const leasedText = NATIVE_INPUT_ENVELOPE_PREFIX + JSON.stringify({ token, expectedChatId: 'chat-a', text: 'ciao' });
   await assert.rejects(
-    invoke('webview:insert-text', 'acc-a', 7, leasedText, token),
+    invoke('webview:insert-text', 'acc-a', 7, 'ciao', token, 'chat-a'),
     /聊天已切换/,
   );
-  assert.deepEqual(guest.inserted, [], 'stale request-scoped chat lease must reject before insertText');
+  assert.deepEqual(guest.inserted, [], 'stale explicit conversation binding must reject before insertText');
   assert.match(scripts.at(-1), /const expectedChatId = "chat-a"/);
 
   assert.equal(await invoke('webview:insert-text', 'acc-a', 7, 'broadcast-compatible raw text', token), true);
-  assert.deepEqual(guest.inserted, ['broadcast-compatible raw text'], 'a previous translated-send lease must not cross-couple a later raw/native-input user');
+  assert.deepEqual(guest.inserted, ['broadcast-compatible raw text'], 'an explicit SendIntent mutation binding must not cross-couple a later raw/native-input user');
   assert.match(scripts.at(-1), /const expectedChatId = ""/);
   owner.dispose();
 }
@@ -410,26 +395,27 @@ async function verifyNativeInputOwnerUsesRequestScopedLease() {
   assert.doesNotMatch(telegramSource, /GEEK_NATIVE_INPUT_V1|nativeInsertText|__geekNativeInputPending|submitButton\.click\(\)/, 'Telegram must not retain the retired guest native-input/synthetic-submit path');
   assert.match(telegramSource, /SEND_INTENT_OWNER_REQUIRED/, 'Telegram must fail closed when SendIntent ownership is missing');
   assert.match(appSource, /webviewInput\.commitSubmit\([\s\S]{0,240}expected\.conversationId[\s\S]{0,180}expected\.composerText/, 'Telegram final commit must remain owned by the host WebView IPC boundary');
-  assert.match(lineSource, /GEEK_NATIVE_INPUT_V1/, 'LINE native input requests must carry a versioned request-scoped chat lease');
-  assert.match(lineSource, /geek-native-input-request/, 'LINE must route translated composer fill through the host native-input owner');
-  assert.doesNotMatch(lineSource, /document\.execCommand\('selectAll',[\s\S]{0,160}host\.insertValue\(\[result\.text\]\)/, 'LINE translated send must not mutate the custom editor through execCommand + insertValue');
-  assert.match(appSource, /message\.type === 'geek-native-input-request'[\s\S]{0,180}processNativeInputRequest/, 'LINE send2Host ingress must delegate native fill to the existing host owner');
-  assert.match(lineSource, /expectedChatId/, 'LINE native input request must capture expected chat identity');
-  assert.doesNotMatch(adapterSource, /__geekNativeInputExpectedChatId/, 'chat lease must never live in shared page-global state');
-  assert.match(lineSource, /assertSendContext[\s\S]*chatId\(\) !== cid/, 'LINE send adapter must guard active chat identity');
-  assert.match(webviewIpcSource, /decodeNativeInputRequest/, 'native input owner must decode the request-scoped lease');
-  assert.match(webviewIpcSource, /focusedComposerScript\(expectedChatId\)/, 'native input owner must bind final focus/chat validation to this request lease');
-  assert.doesNotMatch(webviewIpcSource, /__geekNativeInputExpectedChatId/, 'main-process input validation must not depend on page-global lease state');
+  assert.doesNotMatch(lineSource, /GEEK_NATIVE_INPUT_V1|nativeInsertText|__geekNativeInputPending|geek-native-input-request/, 'LINE guest must not retain the retired native-fill lease or bridge');
+  assert.doesNotMatch(appSource, /processNativeInputRequest|NATIVE_INPUT_REQUEST_PREFIX|geek-native-input-request/, 'host renderer must not retain legacy guest native-input ingress');
+  assert.doesNotMatch(lineSource, /document\.execCommand\('selectAll',[\s\S]{0,160}host\.insertValue\(\[result\.text\]\)/, 'LINE SendIntent path must not mutate the custom editor through execCommand + insertValue');
+  assert.doesNotMatch(adapterSource, /__geekNativeInputExpectedChatId/, 'chat binding must never live in shared page-global state');
+  assert.match(appSource, /conversationId !== guestChatId[\s\S]{0,180}normalize\(sourceSnapshot\) !== normalize\(guestText\)/, 'host SendIntent admission must reject stale LINE chat or composer snapshots');
+  assert.match(appSource, /async setComposerText\(text, mutation = \{\}\)/, 'platform composer mutation must accept SendIntent context');
+  assert.match(appSource, /webviewInput\.insertText\(account\.id, wv\.getWebContentsId\(\), String\(text\), bridgeTokenFor\(wv\), String\(mutation\.expectedConversationId \|\| ''\)\)/, 'composer mutation must forward the SendIntent conversation binding explicitly');
+  assert.match(webviewIpcSource, /register\('webview:insert-text', async \(event, accountId, guestId, text, token, expectedChatId = ''\)/, 'main-process input owner must accept the explicit conversation binding');
+  assert.match(webviewIpcSource, /focusedComposerScript\(chatId\)/, 'main-process input owner must validate the explicit conversation binding before mutation');
+  assert.doesNotMatch(webviewIpcSource, /GEEK_NATIVE_INPUT_V1|decodeNativeInputRequest/, 'main-process input owner must not retain the retired lease envelope');
   assert.match(webviewIpcSource, /CHAT_CHANGED/, 'native input owner must expose a distinct stale-chat rejection');
-  assert.match(appSource, /webviewInput\.insertText\(account\.id, wv\.getWebContentsId\(\), String\(text\.text \|\| ''\), suppliedToken\)/, 'host bridge must continue to pass the native-input wire value through unchanged for remaining users');
+  assert.match(appSource, /if \(family === 'line'\)[\s\S]*currentChat!==expected\.conversationId[\s\S]*COMPOSER_MISMATCH/, 'LINE final platform commit must revalidate exact chat and composer before native submit');
+  assert.match(appSource, /if\(currentChat!==expectedChat\)return \{status:'STALE_CONTEXT'/, 'LINE post-commit observation must stop if the chat changes');
 
   await verifyTelegramRequiresSendIntentOwner();
   await verifyTelegramOwnerSuccessHasNoGuestCommit();
   await verifyTelegramOwnerFailureHasNoGuestCommit();
-  await verifyLineProgrammaticClickBypassesTranslation();
-  await verifyLineSwitchBeforeTranslationCommit();
-  await verifyLineSwitchAfterNativeFillBeforeSubmit();
-  await verifyLineNativeFillAndButtonSubmit();
+  await verifyLineProgrammaticClickBypassesOwner();
+  await verifyLineOwnerSuccessHasNoGuestCommit();
+  await verifyLineOwnerFailureHasNoGuestCommit();
+  await verifyLineOwnerStaleContextFailsClosed();
   await verifyNativeInputOwnerUsesRequestScopedLease();
 
   console.log('TRANSLATION_SEND_CHAT_SWITCH_CONTRACT_OK');

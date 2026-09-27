@@ -1,0 +1,28 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {EventEmitter}=require('node:events');
+const {installWebviewIpc}=require('../src/webview-ipc.cjs');
+const TOKEN='a'.repeat(32);
+(async()=>{
+ const handlers=new Map(),ipcMain={handle:(c,h)=>handlers.set(c,h),removeHandler:c=>handlers.delete(c)};
+ const mainFrame={},sender={id:91,mainFrame},session={},scripts=[];
+ let stale=true;
+ const guest=Object.assign(new EventEmitter(),{id:7,hostWebContents:sender,session,isDestroyed:()=>false,getURL:()=> 'https://web.telegram.org/a/',executeJavaScript:async script=>{scripts.push(script);if(script.includes('const expectedChatId = "chat-a"'))return stale?'CHAT_CHANGED':true;return true;},inserted:[],async insertText(value){this.inserted.push(value)}});
+ let registered=false;
+ const owner=installWebviewIpc({ipcMain,assertTrustedSender:e=>assert.equal(e.sender,sender),accountState:{resolvePartition:()=> 'persist:tg-a',findById:()=>({id:'acc-a',type:'telegram',partition:'persist:tg-a'})},webviewOwnership:{register(){registered=true},authorize(){return registered},remove(){}},getWebContentsById:id=>id===7?guest:null,getSessionForPartition:()=>session});
+ const invoke=(channel,...args)=>handlers.get(channel)({sender,senderFrame:mainFrame},...args);
+ assert.equal(await invoke('webview:register','acc-a',7,TOKEN),true);
+ await assert.rejects(invoke('webview:insert-text','acc-a',7,'ciao',TOKEN,'chat-a'),/聊天已切换/);
+ assert.deepEqual(guest.inserted,[],'explicit stale conversation binding must fail before composer mutation');
+ assert.match(scripts.at(-1),/const expectedChatId = "chat-a"/);
+ stale=false;
+ assert.equal(await invoke('webview:insert-text','acc-a',7,'ciao',TOKEN,'chat-a'),true);
+ assert.deepEqual(guest.inserted,['ciao']);
+ assert.match(scripts.at(-1),/const expectedChatId = "chat-a"/);
+ assert.equal(await invoke('webview:insert-text','acc-a',7,'plain native input',TOKEN),true);
+ assert.deepEqual(guest.inserted,['ciao','plain native input']);
+ assert.match(scripts.at(-1),/const expectedChatId = ""/);
+ await assert.rejects(invoke('webview:insert-text','acc-a',7,'x',TOKEN,'c'.repeat(2049)),/输入文本不合法/);
+ owner.dispose();
+ console.log('NATIVE_INPUT_CHAT_BINDING_CONTRACT_OK');
+})().catch(error=>{console.error(error?.stack||error);process.exit(1)});

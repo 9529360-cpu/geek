@@ -107,6 +107,7 @@ assert.match(appSource, /live\.sendTextMsgToChat !== window\.__geekWhatsAppWrapp
 assert.match(appSource, /__geekWhatsAppDirectComposerController[\s\S]*handleNativeSend\(chat, args, original, this\)/, 'WhatsApp legacy text wrapper must delegate translated private sends to the single direct-composer owner');
 assert.match(directComposerSource, /const translated = await translate\(\{[\s\S]*intent: 'outgoing-send'/, 'WhatsApp translated private sends must enter the interactive Translation Runtime QoS class');
 assert.match(adapterSource, /geek-telegram-translation-send[\s\S]*翻译失败，原文未发送/, 'Telegram 翻译失败必须保留原文且提示');
-assert.match(adapterSource, /button\[aria-label="Send"\][\s\S]*translateAndSend\(event, composerHost\(event\), button\)/, 'LINE 必须覆盖发送按钮路径');
+assert.match(adapterSource, /button\[aria-label="Send"\][\s\S]*submitThroughOwner\(event, composerHost\(event\)\)/, 'LINE 发送按钮必须进入统一 SendIntent owner');
+assert.match(adapterSource, /addEventListener\('keydown'[\s\S]*submitThroughOwner\(event, host\)/, 'LINE Enter 发送也必须进入统一 SendIntent owner');
 
 console.log('TRANSLATION_SEND_SAFETY_CONTRACT_OK');

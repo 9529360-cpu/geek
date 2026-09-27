@@ -56,11 +56,11 @@ assert.match(owner, /webviewOwnership\.authorize\(/, 'insert ingress must delega
 assert.match(owner, /webviewOwnership\.remove\(/, 'guest lifecycle cleanup must delegate ownership removal');
 
 assert.match(preload, /register:\s*\(accountId, guestId, token\) => ipcRenderer\.invoke\('webview:register', accountId, guestId, token\)/, 'preload register channel/API must remain unchanged');
-assert.match(preload, /insertText:\s*\(accountId, guestId, text, token\) => ipcRenderer\.invoke\('webview:insert-text', accountId, guestId, text, token\)/, 'preload insert channel/API must remain unchanged');
+assert.match(preload, /insertText:\s*\(accountId, guestId, text, token, expectedChatId = ''\) => ipcRenderer\.invoke\('webview:insert-text', accountId, guestId, text, token, expectedChatId\)/, 'preload insert API must carry optional explicit conversation binding');
 assert.match(preload, /commitSubmit:\s*\(accountId, guestId, expectedChatId, expectedComposerText, token\) => ipcRenderer\.invoke\('webview:commit-submit', accountId, guestId, expectedChatId, expectedComposerText, token\)/, 'preload must expose only the bounded native submit commit ingress');
 assert.match(ui, /window\.api\.webviewInput\.register\(account\.id, wv\.getWebContentsId\(\), bridgeTokenFor\(wv\)\)/, 'renderer register call contract must remain unchanged');
 assert.match(ui, /window\.api\.webviewInput\.insertText\(account\.id, wv\.getWebContentsId\(\)/, 'renderer insert call contract must remain unchanged');
-assert.match(ui, /window\.api\.webviewInput\.commitSubmit\([\s\S]{0,220}account\.id,[\s\S]{0,220}wv\.getWebContentsId\(\)/, 'Telegram SendIntent commit must delegate native submit to the main-process WebView IPC owner');
+assert.match(ui, /window\.api\.webviewInput\.commitSubmit\([\s\S]{0,220}account\.id,[\s\S]{0,220}wv\.getWebContentsId\(\)/, 'Telegram and LINE SendIntent commits must delegate native submit to the main-process WebView IPC owner');
 
 assert.match(entry, /installAccountScopedWebviewNavigationBoundary\(\{/, 'early WebView Navigation authority must remain installed');
 assert.match(navigation, /contents\.on\?\.\('will-navigate'/, 'navigation boundary must retain navigation authority');
@@ -73,9 +73,11 @@ assert.match(owner, /String\(account\.partition \|\| ''\) !== partition/, 'accou
 assert.match(owner, /guest\.hostWebContents !== event\.sender/, 'register must bind guest to trusted host WebContents');
 assert.match(owner, /guest\.session !== getSessionForPartition\(partition\)/, 'guest session must match account partition authority');
 assert.match(owner, /webviewOwnership\.authorize\(\{[\s\S]*senderId: event\.sender\.id/, 'native-input ingresses must authorize owner and sender through existing ownership registry');
-assert.match(owner, /register\('webview:commit-submit'[\s\S]*TELEGRAM_TYPES\.has\(account\.type\)[\s\S]*TELEGRAM_URL\.test\(guestUrl\(guest\)\)/, 'commit-submit must be Telegram-only and revalidate the live guest URL');
-assert.match(owner, /telegramCommitGuardScript\(chatId, composerText\)[\s\S]*sendInputEvent\(\{ type: 'keyDown', keyCode: 'Enter' \}\)[\s\S]*sendInputEvent\(\{ type: 'keyUp', keyCode: 'Enter' \}\)/, 'commit-submit must guard exact chat/composer before native Enter delivery');
-assert.match(owner, /data-geek-native-submit-commit[\s\S]*clearTelegramCommitMarkerScript/, 'native commit must bracket the Enter event with the recursion-bypass marker');
+assert.match(owner, /const LINE_TYPES = new Set\(\['line', 'line-business'\]\)/, 'LINE account types must be explicit at the native commit boundary');
+assert.match(owner, /const allowedCommitPage = \(isTelegram && TELEGRAM_URL\.test\(url\)\)[\s\S]*\|\| \(isLine && LINE_URL\.test\(url\)\)/, 'commit-submit must bind each supported platform to its exact live guest URL');
+assert.match(owner, /isTelegram[\s\S]*\? telegramCommitGuardScript\(chatId, composerText\)[\s\S]*: lineCommitGuardScript\(chatId, composerText\)/, 'commit-submit must use platform-specific exact context/composer guards under one owner');
+assert.match(owner, /sendInputEvent\(\{ type: 'keyDown', keyCode: 'Enter' \}\)[\s\S]*sendInputEvent\(\{ type: 'keyUp', keyCode: 'Enter' \}\)/, 'commit-submit must deliver exactly one native Enter sequence');
+assert.match(owner, /data-geek-native-submit-commit[\s\S]*clearNativeCommitMarkerScript/, 'native commit must bracket Enter with the shared recursion-bypass marker');
 assert.match(owner, /guest\.isDestroyed\(\)/, 'destroyed guests must fail closed');
 assert.match(owner, /for \(const channel of registeredChannels\) ipcMain\.removeHandler\(channel\)/, 'WebView IPC owner must own complete channel teardown');
 

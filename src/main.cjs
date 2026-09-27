@@ -9,6 +9,7 @@ const { quitAndInstallForUpdate, isUpdateInstalling } = require('./updater.cjs')
 const { createOwnershipRegistry } = require('./webview-ownership.cjs');
 const { installWebviewIpc } = require('./webview-ipc.cjs');
 const { installLineDownloadIpc } = require('./line-download-ipc.cjs');
+const { ensureLineTrustedSubmitPreload } = require('./line-trusted-submit-session.cjs');
 const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
@@ -229,6 +230,10 @@ async function loadLineExtension(partition) {
   }
   try {
     const ses = session.fromPartition(partition, { cache: true });
+    ensureLineTrustedSubmitPreload(
+      ses,
+      path.join(LINE_EXTENSION_PATH, 'geek-trusted-submit-preload.cjs'),
+    );
     try {
       ses.webRequest.onBeforeSendHeaders((details, callback) => {
         if (/checkQrCodeVerified/.test(details.url)) {
