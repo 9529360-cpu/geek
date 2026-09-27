@@ -11,7 +11,7 @@ const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8').replac
 
 assert.match(
   app,
-  /safePayload\.intent === 'outgoing-send' && familyOf\(account\.type\)\.key === 'telegram'[\s\S]{0,260}executeTelegramOutgoingSendIntent\(account, wv, safePayload\)/,
+  /safePayload\.intent === 'outgoing-send' && \(family === 'telegram' \|\| family === 'line'\)[\s\S]{0,260}executePlatformOutgoingSendIntent\(account, wv, safePayload\)/,
   'all Telegram outgoing-send requests should enter the SendIntent owner',
 );
 assert.match(
@@ -27,7 +27,7 @@ assert.match(app, /GeekSendIntentExecutor\.create\(\{[\s\S]*admission: sendInten
 
 assert.match(
   app,
-  /async function executeTelegramOutgoingSendIntent\(account, wv, safePayload\)[\s\S]*const sourceSnapshot = String\(await adapter\.getComposerText\(\) \|\| ''\)[\s\S]*transformPolicy: \{[\s\S]*mode: translate \? 'translation' : 'identity'[\s\S]*window\.api\.translation\.translate\(\{[\s\S]*requestId: intentId/,
+  /async function executePlatformOutgoingSendIntent\(account, wv, safePayload\)[\s\S]*const sourceSnapshot = String\(await adapter\.getComposerText\(\) \|\| ''\)[\s\S]*transformPolicy: \{[\s\S]*mode: translate \? 'translation' : 'identity'[\s\S]*window\.api\.translation\.translate\(\{[\s\S]*requestId: intentId/,
   'Telegram ordinary and translated sends must use the same executor; host policy chooses identity versus translation',
 );
 assert.match(
@@ -81,9 +81,9 @@ assert.match(
   'Telegram owner commit must delegate the native Enter to the main-process WebView IPC owner with exact chat/composer binding',
 );
 const ownerSendTextStart = app.indexOf("async sendText(text = '', commit = {})");
-const ownerSendTextEnd = app.indexOf("const script = typeof transport.send", ownerSendTextStart);
-assert.ok(ownerSendTextStart >= 0 && ownerSendTextEnd > ownerSendTextStart);
-const ownerSendTextRegion = app.slice(ownerSendTextStart, ownerSendTextEnd);
+const telegramOwnerEnd = app.indexOf("if (family === 'line' && commit.expectedConversationId", ownerSendTextStart);
+assert.ok(ownerSendTextStart >= 0 && telegramOwnerEnd > ownerSendTextStart);
+const ownerSendTextRegion = app.slice(ownerSendTextStart, telegramOwnerEnd);
 assert.doesNotMatch(ownerSendTextRegion, /button\.click\(\)/, 'SendIntent owner commit must not synthesize a Telegram DOM button click');
 assert.doesNotMatch(ownerSendTextRegion, /sendInputEvent\(/, 'renderer must not bypass the main-process native-input owner');
 assert.match(ownerSendTextRegion, /state\?\.count > baseline\.count && state\?\.empty === true/, 'owner must only confirm sent after a new message appears and the composer clears');
@@ -122,6 +122,7 @@ assert.match(
 );
 
 const route = app.match(/const result = safePayload\.intent === 'outgoing-send'[\s\S]{0,420}?;/)?.[0] || '';
-assert.doesNotMatch(route, /line|whatsapp/i, 'live SendIntent migration must not broaden to LINE or WhatsApp in this slice');
+assert.match(route, /family === 'telegram' \|\| family === 'line'/, 'current migration must explicitly include only Telegram and LINE');
+assert.doesNotMatch(route, /whatsapp/i, 'WhatsApp must remain outside this SendIntent migration slice');
 
 console.log('TELEGRAM_SEND_INTENT_OWNER_CONTRACT_OK');

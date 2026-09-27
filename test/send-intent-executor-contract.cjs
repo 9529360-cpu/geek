@@ -58,9 +58,10 @@ function harness(overrides = {}) {
     ...overrides.state,
   };
   const adapter = {
-    async setComposerText(text) {
+    async setComposerText(text, mutation) {
       state.setCalls += 1;
       state.setText = text;
+      state.mutation = mutation;
       calls.push('set');
       if (overrides.setThrows) throw overrides.setThrows;
       return state.setResult;
@@ -203,6 +204,7 @@ function input(h, overrides = {}) {
   assert.equal(happy.state.setCalls, 1);
   assert.equal(happy.state.sendCalls, 1);
   assert.equal(happy.state.setText, 'translated text');
+  assert.deepEqual(happy.state.mutation, { expectedConversationId: 'chat-A' });
   assert.equal(happy.state.sendArg, '');
   assert.deepEqual(happy.state.commit, { expectedConversationId: 'chat-A', expectedComposerText: 'translated text' });
   assert.equal(JSON.stringify(result.intent).includes('private original'), false);

@@ -115,6 +115,35 @@ assert.match(app, /trustedSubmitRuntime\.observeComposer\(account, wv, payload\)
 assert.match(app, /handleTrustedSubmitGesture\(wv, event\)/);
 assert.match(app, /handleLineTranslationIpc\(wv, event\); handleGeekBridgeIpc\(wv, event\); handleTrustedComposerContext\(wv, event\); handleTrustedSubmitGesture\(wv, event\);/);
 assert.match(html, /trusted-submit-permits\.js[\s\S]*trusted-submit-runtime\.js[\s\S]*send-intent-coordinator\.js[\s\S]*app\.js/);
+assert.doesNotMatch(fs.readFileSync(path.join(root, 'ui', 'trusted-submit-runtime.js'), 'utf8'), /binding\.platform !== 'telegram'/, 'trusted runtime must bind exact platform identity rather than hard-code Telegram');
+
+let lineSeq = 0;
+const lineAuthority = permits.createAuthority({
+  now: () => 5000,
+  idFactory: () => 'line-permit-' + (++lineSeq),
+  ttlMs: 2000,
+  maxRecords: 4,
+});
+const lineRuntime = runtimeApi.create({
+  authority: lineAuthority,
+  familyOf: type => ({ key: String(type).startsWith('line') ? 'line' : String(type) }),
+});
+const lineWebview = { getWebContentsId: () => 88 };
+const lineAccount = { id: 'line-private', partition: 'persist:line-private', type: 'line' };
+assert.equal(lineRuntime.registerWebview(lineWebview), 0);
+assert.deepEqual(
+  lineRuntime.observeComposer(lineAccount, lineWebview, { protocolVersion: 1, platform: 'line', composerGeneration: 1 }),
+  { accepted: true, composerGeneration: 1, webviewGeneration: 0 },
+);
+const lineObserved = lineRuntime.observeGesture(lineAccount, lineWebview, { protocolVersion: 1, platform: 'line', kind: 'keyboard', composerGeneration: 1 });
+assert.equal(lineObserved.accepted, true);
+const lineTaken = lineRuntime.takeLatest(lineAccount, lineWebview, 'keyboard');
+assert.equal(lineTaken.permitId, 'line-permit-1');
+assert.equal(lineRuntime.release(lineWebview, { generation: lineTaken.webviewGeneration, permitId: lineTaken.permitId }), true);
+assert.throws(
+  () => lineRuntime.observeGesture(lineAccount, lineWebview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 1 }),
+  error => error?.code === 'TRUSTED_SUBMIT_RUNTIME_PLATFORM',
+);
 
 runtime.observeGesture(account, webview, { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 7 });
 const currentTaken = runtime.takeLatest(account, webview);

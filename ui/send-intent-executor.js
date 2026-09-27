@@ -136,7 +136,7 @@
         });
         let commitText = input.sourceSnapshot;
         if (rewriteComposer) {
-          const composerResult = await adapter.setComposerText(transformedText);
+          const composerResult = await adapter.setComposerText(transformedText, { expectedConversationId: conversationId });
           if (composerResult !== 'OK') {
             const error = executorError('SEND_INTENT_COMPOSER_WRITE_FAILED');
             error.outcome = String(composerResult || '');

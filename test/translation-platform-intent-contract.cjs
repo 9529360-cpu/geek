@@ -27,8 +27,13 @@ assert.match(
 );
 assert.match(
   adapters,
-  /text: original, source: setting\.sendFrom[^}]+intent: 'outgoing-send'/,
-  'LINE translated send must carry explicit outgoing intent',
+  /window\.__geekTranslationRequest\(\{ text: original, chatId: cid, intent: 'outgoing-send' \}\)/,
+  'LINE send gesture must declare outgoing intent while leaving translation policy ownership to the host',
+);
+assert.doesNotMatch(
+  adapters,
+  /window\.__geekTranslationRequest\(\{ text: original, source: setting\.sendFrom[^}]+intent: 'outgoing-send'/,
+  'LINE guest must not own outgoing translation policy after SendIntent migration',
 );
 assert.match(
   adapters,

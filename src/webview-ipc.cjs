@@ -9,33 +9,9 @@ const WEBVIEW_IPC_CHANNELS = Object.freeze([
 ]);
 
 const TELEGRAM_TYPES = new Set(['telegram-z', 'telegram', 'telegram-pure', 'telegram-k']);
+const LINE_TYPES = new Set(['line', 'line-business']);
 const TELEGRAM_URL = /^https:\/\/web\.telegram\.org\//;
 const LINE_URL = /^chrome-extension:\/\/ophjlpahpchlmihnnnihgmmeilfjmjjc\//;
-const NATIVE_INPUT_ENVELOPE_PREFIX = '\u001eGEEK_NATIVE_INPUT_V1\u001e';
-
-function decodeNativeInputRequest(text, token) {
-  const wireValue = String(text ?? '');
-  if (!wireValue.startsWith(NATIVE_INPUT_ENVELOPE_PREFIX)) {
-    return { value: wireValue, expectedChatId: '' };
-  }
-  let payload;
-  try {
-    payload = JSON.parse(wireValue.slice(NATIVE_INPUT_ENVELOPE_PREFIX.length));
-  } catch {
-    throw new Error('输入请求格式不合法');
-  }
-  if (!payload || typeof payload !== 'object' || String(payload.token || '') !== String(token || '')) {
-    throw new Error('输入请求令牌不匹配');
-  }
-  if (typeof payload.text !== 'string' || typeof payload.expectedChatId !== 'string') {
-    throw new Error('输入请求格式不合法');
-  }
-  const value = payload.text;
-  const expectedChatId = payload.expectedChatId;
-  if (!expectedChatId || expectedChatId.length > 2048) throw new Error('聊天标识不合法');
-  return { value, expectedChatId };
-}
-
 function focusedComposerScript(expectedChatId = '') {
   const expected = JSON.stringify(String(expectedChatId || ''));
   return `(() => {
@@ -49,17 +25,18 @@ function focusedComposerScript(expectedChatId = '') {
         return !!editor && (document.activeElement === editor || editor.contains(document.activeElement));
       }
       if (/^chrome-extension:\\/\\/ophjlpahpchlmihnnnihgmmeilfjmjjc\\//.test(location.href)) {
-        if (expectedChatId) {
+        let currentChatId = String(document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]')?.getAttribute('data-mid') || '');
+        if (!currentChatId) {
           try {
             const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
             const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
-            const currentChatId = match ? decodeURIComponent(match[1]) : '';
-            if (currentChatId !== expectedChatId) return 'CHAT_CHANGED';
-          } catch { return 'CHAT_CHANGED'; }
+            currentChatId = match ? decodeURIComponent(match[1]) : '';
+          } catch {}
         }
+        if (expectedChatId && currentChatId !== expectedChatId) return 'CHAT_CHANGED';
         const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
         const textarea = host?.shadowRoot?.querySelector('textarea');
-        return /#\\/chats\\/[^/?#]+/.test(location.hash) && !!textarea && (document.activeElement === host || host.shadowRoot?.activeElement === textarea);
+        return !!currentChatId && !!textarea && (document.activeElement === host || host.shadowRoot?.activeElement === textarea);
       }
       return false;
     })()`;
@@ -84,7 +61,38 @@ function telegramCommitGuardScript(expectedChatId = '', expectedComposerText = '
     })()`;
 }
 
-function clearTelegramCommitMarkerScript() {
+function lineCommitGuardScript(expectedChatId = '', expectedComposerText = '') {
+  const expected = JSON.stringify({
+    conversationId: String(expectedChatId || ''),
+    composerText: String(expectedComposerText || ''),
+  });
+  return `(() => {
+      const expected = ${expected};
+      const norm = value => String(value || '').replace(/\\n[\\t ]*\\n+/g, '\\n').trim();
+      let currentChat = String(document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]')?.getAttribute('data-mid') || '');
+      if (!currentChat) {
+        try {
+          const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
+          const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
+          currentChat = match ? decodeURIComponent(match[1]) : '';
+        } catch {}
+      }
+      if (!expected.conversationId || currentChat !== expected.conversationId) return 'STALE_CONTEXT';
+      const host = document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
+      const textarea = host?.shadowRoot?.querySelector('textarea');
+      const value = (Array.isArray(host?.value) ? host.value : [host?.value]).filter(item => typeof item === 'string').join('');
+      if (!host || !textarea || norm(value) !== norm(expected.composerText)) return 'COMPOSER_MISMATCH';
+      document.documentElement?.setAttribute('data-geek-native-submit-commit', '1');
+      textarea.focus();
+      if (!(document.activeElement === host || host.shadowRoot?.activeElement === textarea)) {
+        document.documentElement?.removeAttribute('data-geek-native-submit-commit');
+        return 'COMPOSER_NOT_FOCUSED';
+      }
+      return 'READY';
+    })()`;
+}
+
+function clearNativeCommitMarkerScript() {
   return `document.documentElement?.removeAttribute('data-geek-native-submit-commit')`;
 }
 
@@ -179,10 +187,11 @@ function installWebviewIpc(options = {}) {
     return true;
   });
 
-  register('webview:insert-text', async (event, accountId, guestId, text, token) => {
+  register('webview:insert-text', async (event, accountId, guestId, text, token, expectedChatId = '') => {
     const { partition } = resolveAccountBinding(accountId, '账号输入页面不可用');
-    const { value, expectedChatId } = decodeNativeInputRequest(text, token);
-    if (!value || value.length > 10000) throw new Error('输入文本不合法');
+    const value = String(text ?? '');
+    const chatId = String(expectedChatId || '');
+    if (!value || value.length > 10000 || chatId.length > 2048) throw new Error('输入文本不合法');
     const guest = resolveLiveGuest(guestId);
     const url = guestUrl(guest);
     const allowedInputPage = TELEGRAM_URL.test(url) || LINE_URL.test(url);
@@ -202,7 +211,7 @@ function installWebviewIpc(options = {}) {
       || typeof guest.insertText !== 'function') {
       throw new Error('账号输入页面不可用');
     }
-    const focusedComposer = await guest.executeJavaScript(focusedComposerScript(expectedChatId));
+    const focusedComposer = await guest.executeJavaScript(focusedComposerScript(chatId));
     if (focusedComposer === 'CHAT_CHANGED') throw new Error('聊天已切换，翻译发送已取消');
     if (!focusedComposer) throw new Error('消息输入框未获得焦点');
     await guest.insertText(value);
@@ -213,12 +222,17 @@ function installWebviewIpc(options = {}) {
     const { account, partition } = resolveAccountBinding(accountId, '账号提交页面不可用');
     const chatId = String(expectedChatId || '');
     const composerText = String(expectedComposerText || '');
-    if (!TELEGRAM_TYPES.has(account.type)
+    const isTelegram = TELEGRAM_TYPES.has(account.type);
+    const isLine = LINE_TYPES.has(account.type);
+    if ((!isTelegram && !isLine)
       || !chatId || chatId.length > 2048
       || !composerText || composerText.length > 10000) {
       throw new Error('提交上下文不合法');
     }
     const guest = resolveLiveGuest(guestId);
+    const url = guestUrl(guest);
+    const allowedCommitPage = (isTelegram && TELEGRAM_URL.test(url))
+      || (isLine && LINE_URL.test(url));
     const ownershipOk = webviewOwnership.authorize({
       guestId,
       accountId,
@@ -229,14 +243,17 @@ function installWebviewIpc(options = {}) {
     if (!guest
       || guest === event.sender
       || guest.session !== getSessionForPartition(partition)
-      || !TELEGRAM_URL.test(guestUrl(guest))
+      || !allowedCommitPage
       || !ownershipOk
       || typeof guest.executeJavaScript !== 'function'
       || typeof guest.sendInputEvent !== 'function'
       || typeof guest.focus !== 'function') {
       throw new Error('账号提交页面不可用');
     }
-    const prepared = await guest.executeJavaScript(telegramCommitGuardScript(chatId, composerText));
+    const guardScript = isTelegram
+      ? telegramCommitGuardScript(chatId, composerText)
+      : lineCommitGuardScript(chatId, composerText);
+    const prepared = await guest.executeJavaScript(guardScript);
     if (prepared !== 'READY') return String(prepared || 'COMMIT_NOT_READY');
     let keyDownDispatched = false;
     try {
@@ -249,7 +266,7 @@ function installWebviewIpc(options = {}) {
       return keyDownDispatched ? 'MAYBE' : 'COMMIT_FAILED';
     } finally {
       await new Promise(resolve => setTimeout(resolve, 80));
-      try { await guest.executeJavaScript(clearTelegramCommitMarkerScript()); } catch {}
+      try { await guest.executeJavaScript(clearNativeCommitMarkerScript()); } catch {}
     }
   });
 

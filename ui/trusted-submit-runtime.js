@@ -90,7 +90,7 @@
       }
       const binding = bindingFor(account, webview, state);
       const platform = String(payload.platform || '').trim();
-      if (binding.platform !== 'telegram' || platform !== binding.platform) {
+      if (!platform || platform !== binding.platform) {
         throw runtimeError('TRUSTED_SUBMIT_RUNTIME_PLATFORM');
       }
       const composerGeneration = trustedGeneration(payload.composerGeneration, 'composerGeneration');
@@ -115,7 +115,7 @@
       }
       const binding = bindingFor(account, webview, state);
       const platform = String(payload.platform || '').trim();
-      if (binding.platform !== 'telegram' || platform !== binding.platform) {
+      if (!platform || platform !== binding.platform) {
         throw runtimeError('TRUSTED_SUBMIT_RUNTIME_PLATFORM');
       }
       const kind = String(payload.kind || '').trim();
@@ -155,7 +155,6 @@
         throw runtimeError('TRUSTED_SUBMIT_RUNTIME_KIND_MISMATCH');
       }
       const binding = bindingFor(account, webview, state);
-      if (binding.platform !== 'telegram') throw runtimeError('TRUSTED_SUBMIT_RUNTIME_PLATFORM');
       if (latest.composerGeneration !== state.composerGeneration) {
         throw runtimeError('TRUSTED_SUBMIT_RUNTIME_STALE_COMPOSER', 'composerGeneration');
       }
