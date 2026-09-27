@@ -8,6 +8,9 @@ const {
 
 const CONFIRMATION_ENV = 'GEEK_TELEGRAM_SEND_INTENT_SMOKE_CONFIRM';
 const CONFIRMATION_VALUE = 'I_CONFIRM_ONE_TEST_MESSAGE_TO_ACTIVE_MAINTAINER_CONTROLLED_TELEGRAM_CHAT';
+const ORDINARY_CONFIRMATION_ENV = 'GEEK_TELEGRAM_ORDINARY_SEND_INTENT_SMOKE_CONFIRM';
+const ORDINARY_CONFIRMATION_VALUE = 'I_CONFIRM_ONE_ORDINARY_TEST_MESSAGE_TO_ACTIVE_MAINTAINER_CONTROLLED_TELEGRAM_CHAT';
+const ALLOWED_SCENARIOS = new Set(['translated', 'ordinary']);
 const MAX_WAIT_MS = 120000;
 const POLL_INTERVAL_MS = 1500;
 const SAFE_ERROR_CODES = new Set([
@@ -22,6 +25,7 @@ const SAFE_ERROR_CODES = new Set([
   'TELEGRAM_WEBVIEW_NOT_FOUND',
   'TELEGRAM_CONTEXT_NOT_READY',
   'TRANSLATION_SEND_DISABLED',
+  'ORDINARY_POLICY_NOT_READY',
   'CURRENT_CHAT_NOT_READY',
   'COMPOSER_NOT_EMPTY',
   'OWNER_RUNTIME_NOT_READY',
@@ -59,6 +63,7 @@ const ALLOWED_CODES = new Set([
   'WEBVIEW_NOT_FOUND',
   'BRIDGE_NOT_READY',
   'SEND_TRANSLATION_DISABLED',
+  'ORDINARY_POLICY_NOT_READY',
   'NO_CURRENT_CHAT',
   'COMPOSER_NOT_EMPTY',
   'OWNER_RUNTIME_NOT_READY',
@@ -94,20 +99,26 @@ function parseMode(argv = []) {
   throw codedError('ARGUMENTS_INVALID');
 }
 
-function assertExecutionAllowed(mode, env = process.env) {
-  if (!ALLOWED_MODES.has(mode)) throw codedError('ARGUMENTS_INVALID');
+function assertExecutionAllowed(mode, env = process.env, scenario = 'translated') {
+  if (!ALLOWED_MODES.has(mode) || !ALLOWED_SCENARIOS.has(scenario)) throw codedError('ARGUMENTS_INVALID');
   if (mode !== 'execute') return true;
   if (env && Object.prototype.hasOwnProperty.call(env, 'CI')) throw codedError('CI_FORBIDDEN');
-  if (String(env?.[CONFIRMATION_ENV] || '') !== CONFIRMATION_VALUE) {
+  const confirmationEnv = scenario === 'ordinary' ? ORDINARY_CONFIRMATION_ENV : CONFIRMATION_ENV;
+  const confirmationValue = scenario === 'ordinary' ? ORDINARY_CONFIRMATION_VALUE : CONFIRMATION_VALUE;
+  if (String(env?.[confirmationEnv] || '') !== confirmationValue) {
     throw codedError('CONFIRMATION_REQUIRED');
   }
   return true;
 }
 
-function buildSmokeMessage(now = Date.now()) {
+function buildSmokeMessage(now = Date.now(), scenario = 'translated') {
+  if (!ALLOWED_SCENARIOS.has(scenario)) throw codedError('ARGUMENTS_INVALID');
   const date = new Date(now);
   if (!Number.isFinite(date.getTime())) throw codedError('SMOKE_FAILED');
-  return 'GEEK TELEGRAM SEND INTENT SMOKE ' + date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const prefix = scenario === 'ordinary'
+    ? 'GEEK TELEGRAM ORDINARY SEND INTENT SMOKE '
+    : 'GEEK TELEGRAM SEND INTENT SMOKE ';
+  return prefix + date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function timingBucket(durationMs) {
@@ -130,7 +141,12 @@ function projectEvidence(input = {}) {
     ? String(input.durationBucket)
     : 'unknown';
   return {
-    schemaVersion: 'v1',
+    schemaVersion: input.scenario === 'ordinary' ? 'v1-ordinary' : 'v1',
+    ...(input.scenario === 'ordinary' ? {
+      scenario: 'ordinary',
+      ordinaryPolicyReady: input.ordinaryPolicyReady === true,
+      identityTransformObserved: input.identityTransformObserved === true,
+    } : {}),
     mode,
     preflightReady: input.preflightReady === true,
     telegramAccount: input.telegramAccount === true,
@@ -159,7 +175,8 @@ function projectEvidence(input = {}) {
   };
 }
 
-function buildGuestReadinessExpression() {
+function buildGuestReadinessExpression(smokeText) {
+  const expected = JSON.stringify(String(smokeText || ''));
   return [
     '(() => {',
     '  const hash = String(location.hash || "").replace(/^#/, "");',
@@ -167,16 +184,18 @@ function buildGuestReadinessExpression() {
     '  const config = window.__geekTranslationConfig || null;',
     '  const globalSettings = config && config.global && typeof config.global === "object" ? config.global : {};',
     '  const chatSettings = config && config.chats && typeof config.chats === "object" ? config.chats[chatId] || {} : {};',
-    '  const sendEnabled = Object.prototype.hasOwnProperty.call(chatSettings, "send") ? chatSettings.send === true : globalSettings.send === true;',
+    '  const base = { enabled: globalSettings.send === true, autoSend: globalSettings.send === true, includeZh: globalSettings.includeZh !== false };',
+    '  const policy = { ...base, ...chatSettings };',
+    '  const text = ' + expected + ';',
+    '  const wouldTranslate = policy.enabled === true && policy.autoSend !== false && !(policy.includeZh === false && /[\u3400-\u9fff]/.test(text));',
     '  const bridgeReady = document.documentElement?.getAttribute?.("data-geek-bridge") === "1"',
     '    && typeof window.__geekTranslationRequest === "function"',
     '    && typeof window.__geekTranslationBridgeToken === "string"',
     '    && window.__geekTranslationBridgeToken.length > 0;',
-    '  return { bridgeReady, sendEnabled };',
+    '  return { bridgeReady, wouldTranslate };',
     '})()',
   ].join('\n');
 }
-
 function buildGuestObserverExpression(smokeText) {
   const expected = JSON.stringify(String(smokeText || ''));
   return [
@@ -201,6 +220,7 @@ function buildGuestObserverExpression(smokeText) {
     '        owner,',
     '        state: owner ? safeState(result?.delivery?.state) : "unknown",',
     '        textReady: typeof result?.text === "string" && result.text.length > 0,',
+    '        identity: result?.mode === \"identity\" && result?.rewriteComposer === false,',
     '        error: rawError === "SEND_INTENT_OUTCOME_UNCERTAIN" ? "uncertain"',
     '          : rawError === "SEND_INTENT_SEND_FAILED" ? "send-failed"',
     '            : rawError ? "other" : "none",',
@@ -220,14 +240,17 @@ function buildGuestObserverExpression(smokeText) {
   ].join('\n');
 }
 
-function buildHostPrepareExpression(mode, smokeText) {
+function buildHostPrepareExpression(mode, smokeText, scenario = 'translated') {
+  if (!ALLOWED_SCENARIOS.has(scenario)) throw codedError('ARGUMENTS_INVALID');
   const modeValue = JSON.stringify(mode);
+  const scenarioValue = JSON.stringify(scenario);
   const messageValue = JSON.stringify(String(smokeText || ''));
-  const guestReady = JSON.stringify(buildGuestReadinessExpression());
+  const guestReady = JSON.stringify(buildGuestReadinessExpression(smokeText));
   const guestObserver = JSON.stringify(buildGuestObserverExpression(smokeText));
   return [
     '(async () => {',
-    '  const out = { kind: "PREPARE_RESULT", mode: ' + modeValue + ', ready: false, telegramAccount: false, webviewReady: false, translationBridgeReady: false, trustedOwnerRuntimeReady: false, translationSendEnabled: false, currentChatReady: false, composerEmpty: false, composerPrepared: false, code: "PREFLIGHT_BLOCKED" };',
+    '  const scenario = ' + scenarioValue + ';',
+    '  const out = { kind: "PREPARE_RESULT", mode: ' + modeValue + ', scenario, ready: false, telegramAccount: false, webviewReady: false, translationBridgeReady: false, trustedOwnerRuntimeReady: false, translationSendEnabled: false, ordinaryPolicyReady: false, currentChatReady: false, composerEmpty: false, composerPrepared: false, code: "PREFLIGHT_BLOCKED" };',
     '  try {',
     '    const activeId = String(document.querySelector(".nav-account.active[data-id]")?.dataset.id || "");',
     '    if (!activeId) return { ...out, code: "NO_ACTIVE_ACCOUNT" };',
@@ -251,23 +274,26 @@ function buildHostPrepareExpression(mode, smokeText) {
     '    out.composerEmpty = typeof composerText === "string" && composerText.trim().length === 0;',
     '    const guest = await webview.executeJavaScript(' + guestReady + ', false);',
     '    out.translationBridgeReady = guest?.bridgeReady === true',
-    '      && typeof window.api?.translation?.translate === "function"',
-    '      && typeof window.api?.webviewInput?.insertText === "function";',
-    '    out.translationSendEnabled = guest?.sendEnabled === true;',
+    '      && typeof window.api?.webviewInput?.insertText === "function"',
+    '      && (scenario === "ordinary" || typeof window.api?.translation?.translate === "function");',
+    '    out.translationSendEnabled = guest?.wouldTranslate === true;',
+    '    out.ordinaryPolicyReady = guest?.wouldTranslate === false;',
     '    out.trustedOwnerRuntimeReady = typeof window.GeekTrustedSubmitRuntime?.create === "function"',
     '      && typeof window.GeekTrustedSubmitPermits?.createAuthority === "function"',
     '      && typeof window.GeekSendIntentExecutor?.create === "function"',
     '      && typeof window.GeekSendIntentCommitGuard?.create === "function"',
     '      && typeof capabilities?.forAccount === "function";',
+    '    const policyReady = scenario === "ordinary" ? out.ordinaryPolicyReady : out.translationSendEnabled;',
     '    out.ready = out.telegramAccount && out.webviewReady && out.translationBridgeReady',
-    '      && out.trustedOwnerRuntimeReady && out.translationSendEnabled && out.currentChatReady && out.composerEmpty;',
+    '      && out.trustedOwnerRuntimeReady && policyReady && out.currentChatReady && out.composerEmpty;',
     '    if (!out.ready) {',
     '      out.code = !out.webviewReady ? "WEBVIEW_NOT_FOUND"',
     '        : !out.translationBridgeReady ? "BRIDGE_NOT_READY"',
     '          : !out.trustedOwnerRuntimeReady ? "OWNER_RUNTIME_NOT_READY"',
-    '            : !out.translationSendEnabled ? "SEND_TRANSLATION_DISABLED"',
-    '              : !out.currentChatReady ? "NO_CURRENT_CHAT"',
-    '                : !out.composerEmpty ? "COMPOSER_NOT_EMPTY" : "PREFLIGHT_BLOCKED";',
+    '            : scenario === "ordinary" && !out.ordinaryPolicyReady ? "ORDINARY_POLICY_NOT_READY"',
+    '              : scenario !== "ordinary" && !out.translationSendEnabled ? "SEND_TRANSLATION_DISABLED"',
+    '                : !out.currentChatReady ? "NO_CURRENT_CHAT"',
+    '                  : !out.composerEmpty ? "COMPOSER_NOT_EMPTY" : "PREFLIGHT_BLOCKED";',
     '      return out;',
     '    }',
     '    out.code = "READY";',
@@ -294,11 +320,10 @@ function buildHostPrepareExpression(mode, smokeText) {
     '})()',
   ].join('\n');
 }
-
 function buildHostPollExpression(context, smokeText) {
   const contextValue = JSON.stringify({ accountId: String(context?.accountId || ''), chatId: String(context?.chatId || '') });
   const messageValue = JSON.stringify(String(smokeText || ''));
-  const guestStateExpression = JSON.stringify('(() => { const s=window.__geekTelegramSendIntentSmokeObserver; return s ? { requestSeen:s.requestSeen===true, terminal:s.terminal && { owner:s.terminal.owner===true, state:String(s.terminal.state||"unknown"), textReady:s.terminal.textReady===true, error:String(s.terminal.error||"other") } } : null; })()');
+  const guestStateExpression = JSON.stringify('(() => { const s=window.__geekTelegramSendIntentSmokeObserver; return s ? { requestSeen:s.requestSeen===true, terminal:s.terminal && { owner:s.terminal.owner===true, state:String(s.terminal.state||"unknown"), textReady:s.terminal.textReady===true, identity:s.terminal.identity===true, error:String(s.terminal.error||"other") } } : null; })()');
   return [
     '(async () => {',
     '  const expected = ' + contextValue + ';',
@@ -380,16 +405,22 @@ function isCleanupComplete(clearRequested, cleanupState) {
     && (cleanupState.stagedTextPresent !== true || cleanupState.cleared === true);
 }
 
-function classifyOwnerTerminal(terminal) {
-  if (!terminal || typeof terminal !== 'object') return null;
+function classifyOwnerTerminal(terminal, scenario = 'translated') {
+  if (!terminal || typeof terminal !== 'object' || !ALLOWED_SCENARIOS.has(scenario)) return null;
+  const ordinary = scenario === 'ordinary';
+  if (ordinary && terminal.owner === true && terminal.state === 'sent' && terminal.identity !== true) return null;
+  const rewriteEvidence = {
+    composerWriteComplete: ordinary ? false : true,
+    generationRebound: ordinary ? false : true,
+    ...(ordinary ? { identityTransformObserved: terminal.identity === true } : {}),
+  };
   if (terminal.owner === true && terminal.state === 'sent' && terminal.textReady === true && terminal.error === 'none') {
     return {
       sendResult: 'sent',
       ownerState: 'sent',
       trustedAdmission: true,
       transformComplete: true,
-      composerWriteComplete: true,
-      generationRebound: true,
+      ...rewriteEvidence,
       commitGuardPassed: true,
       nativeCommitCount: 'one',
       code: 'OWNER_SENT',
@@ -401,8 +432,7 @@ function classifyOwnerTerminal(terminal) {
       ownerState: 'uncertain',
       trustedAdmission: terminal.owner === true,
       transformComplete: terminal.owner === true && terminal.textReady === true,
-      composerWriteComplete: true,
-      generationRebound: true,
+      ...rewriteEvidence,
       commitGuardPassed: true,
       nativeCommitCount: 'one',
       code: 'OWNER_AMBIGUOUS',
@@ -414,8 +444,7 @@ function classifyOwnerTerminal(terminal) {
       ownerState: 'failed',
       trustedAdmission: terminal.owner === true,
       transformComplete: terminal.owner === true && terminal.textReady === true,
-      composerWriteComplete: true,
-      generationRebound: true,
+      ...rewriteEvidence,
       commitGuardPassed: true,
       nativeCommitCount: 'one',
       code: 'OWNER_FAILED',
@@ -429,6 +458,7 @@ function classifyOwnerTerminal(terminal) {
       transformComplete: false,
       composerWriteComplete: false,
       generationRebound: false,
+      ...(ordinary ? { identityTransformObserved: false } : {}),
       commitGuardPassed: false,
       nativeCommitCount: 'zero',
       code: 'OWNER_CANCELLED',
@@ -441,21 +471,21 @@ function classifyOwnerTerminal(terminal) {
     transformComplete: terminal.owner === true && terminal.textReady === true,
     composerWriteComplete: false,
     generationRebound: false,
+    ...(ordinary ? { identityTransformObserved: terminal.identity === true } : {}),
     commitGuardPassed: false,
     nativeCommitCount: 'unknown',
     code: 'OWNER_AMBIGUOUS',
   };
 }
-
-async function runSmoke(mode = 'preflight', env = process.env) {
-  assertExecutionAllowed(mode, env);
+async function runSmoke(mode = 'preflight', env = process.env, scenario = 'translated') {
+  assertExecutionAllowed(mode, env, scenario);
   const targets = await getDebugTargets();
   const hostTargets = Array.isArray(targets) ? targets.filter(isGeekHostTarget) : [];
   if (hostTargets.length === 0) throw codedError('GEEK_HOST_TARGET_NOT_FOUND');
   if (hostTargets.length !== 1) throw codedError('GEEK_HOST_TARGET_AMBIGUOUS');
 
   const startedAt = Date.now();
-  const smokeText = mode === 'execute' ? buildSmokeMessage(startedAt) : '';
+  const smokeText = (mode === 'execute' || scenario === 'ordinary') ? buildSmokeMessage(startedAt, scenario) : '';
   const hostTarget = hostTargets[0];
   let prepared = null;
   let finalState = null;
@@ -465,10 +495,12 @@ async function runSmoke(mode = 'preflight', env = process.env) {
   let cleanupRequested = false;
 
   try {
-    prepared = await evaluateTarget(hostTarget, buildHostPrepareExpression(mode, smokeText));
+    prepared = await evaluateTarget(hostTarget, buildHostPrepareExpression(mode, smokeText, scenario));
     if (!prepared || prepared.kind !== 'PREPARE_RESULT') throw codedError('PROBE_RESULT_INVALID');
     const base = {
       mode,
+      scenario,
+      ordinaryPolicyReady: prepared.ordinaryPolicyReady === true,
       preflightReady: prepared.ready === true,
       telegramAccount: prepared.telegramAccount === true,
       webviewReady: prepared.webviewReady === true,
@@ -500,7 +532,7 @@ async function runSmoke(mode = 'preflight', env = process.env) {
       lastPoll = await evaluateTarget(hostTarget, buildHostPollExpression(context, smokeText));
       if (!lastPoll || lastPoll.kind !== 'POLL_RESULT') throw codedError('PROBE_RESULT_INVALID');
       if (lastPoll.terminal) {
-        const owner = classifyOwnerTerminal(lastPoll.terminal);
+        const owner = classifyOwnerTerminal(lastPoll.terminal, scenario);
         if (!owner) throw codedError('OWNER_RESULT_INVALID');
         finalState = { ...base, ...owner, operatorActionRequired: false };
         break;
@@ -543,6 +575,8 @@ async function runSmoke(mode = 'preflight', env = process.env) {
     const outcome = classifyUnobservedExecution(operatorWindowOpened);
     outputEvidence = projectEvidence({
       mode,
+      scenario,
+      ordinaryPolicyReady: prepared?.ordinaryPolicyReady === true,
       ...outcome,
       code: operatorWindowOpened
         ? 'OWNER_AMBIGUOUS'
@@ -606,6 +640,8 @@ module.exports = {
   buildHostPrepareExpression,
   CONFIRMATION_ENV,
   CONFIRMATION_VALUE,
+  ORDINARY_CONFIRMATION_ENV,
+  ORDINARY_CONFIRMATION_VALUE,
   assertExecutionAllowed,
   buildSmokeMessage,
   classifyOwnerTerminal,
@@ -614,4 +650,5 @@ module.exports = {
   timingBucket,
   classifyUnobservedExecution,
   isCleanupComplete,
+  runSmoke,
 };
