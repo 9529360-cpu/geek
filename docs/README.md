@@ -34,6 +34,7 @@
 - [`github-control-plane.md`](github-control-plane.md)：GitHub Actions、Cloudflare validation/deploy、生产证据与 control-plane 边界。
 - [`release-security.md`](release-security.md)：Windows 客户端构建、免费 unsigned 发布策略、版本标记、正式发布与回滚边界。
 - [`windows-real-client-runner.md`](windows-real-client-runner.md)：真实 Windows 客户端人工证据边界；不把 GitHub-hosted CI 冒充持久真实 profile。
+- [`telegram-send-intent-real-client-smoke.md`](telegram-send-intent-real-client-smoke.md)：Telegram SendIntent owner 的受控真实客户端 smoke；默认只读，真实发送需显式确认并由维护者手动完成。
 - [`account-password-reset-operations.md`](account-password-reset-operations.md)：账户、忘记密码、Resend、D1 与生产验证 runbook。
 - [`account-number-rollout.md`](account-number-rollout.md)：`account_no` 两阶段 D1 迁移/repair runbook。执行前必须先确认生产已应用到哪一步，不能因为文件存在就重跑 migration。
 - [`translation-gateway-auth-design.md`](translation-gateway-auth-design.md)：翻译鉴权/计费安全边界；具体 provider/model/配额实现必须以当前 Worker 和 contract 为准。
