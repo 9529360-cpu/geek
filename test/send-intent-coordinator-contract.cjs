@@ -161,4 +161,13 @@ assert.throws(
 assert.doesNotMatch(source, /querySelector|executeJavaScript|window\.WPP|GeekBroadcast/, 'coordinator must not own platform or Broadcast mechanics');
 assert.doesNotMatch(source, /Math\.random/, 'transaction identity must not use Math.random');
 
+const reload = harness();
+const reloadIntent = reload.coordinator.begin({ ...binding({ webviewId: 'reload-view' }), sourceSnapshot: 'x', transformPolicy: {}, deadlineAt: 5000 });
+reload.coordinator.startTransform(reloadIntent.intentId);
+const reloadSignal = reload.coordinator.signal(reloadIntent.intentId);
+assert.equal(reload.coordinator.cancelForWebview('reload-view'), 1);
+assert.equal(reload.coordinator.get(reloadIntent.intentId).state, 'cancelled');
+assert.equal(reloadSignal.aborted, true);
+assert.equal(reload.coordinator.cancelForWebview('unrelated-view'), 0);
+
 console.log('SEND_INTENT_COORDINATOR_CONTRACT_OK');

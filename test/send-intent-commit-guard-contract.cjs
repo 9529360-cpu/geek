@@ -134,6 +134,15 @@ async function expectReadyFailure(h, code, field) {
     'committing',
   );
 
+  const preMutation = harness({ ready: false, state: { composerText: 'private source' } });
+  assert.equal((await preMutation.guard.assertBeforeMutation({ intentId: preMutation.intentId, account: preMutation.account, webview: preMutation.webview, expectedConversationId: 'chat-A', expectedComposerText: 'private source' })).state, 'transforming');
+  const switchedBeforeWrite = harness({ ready: false, state: { currentChat: 'chat-B', composerText: 'private source' } });
+  await assert.rejects(() => switchedBeforeWrite.guard.assertBeforeMutation({ intentId: switchedBeforeWrite.intentId, account: switchedBeforeWrite.account, webview: switchedBeforeWrite.webview, expectedConversationId: 'chat-A', expectedComposerText: 'private source' }), error => error?.code === 'SEND_INTENT_STALE_CONTEXT');
+  const editedBeforeWrite = harness({ ready: false, state: { composerText: 'new draft' } });
+  await assert.rejects(() => editedBeforeWrite.guard.assertBeforeMutation({ intentId: editedBeforeWrite.intentId, account: editedBeforeWrite.account, webview: editedBeforeWrite.webview, expectedConversationId: 'chat-A', expectedComposerText: 'private source' }), error => error?.code === 'SEND_INTENT_COMPOSER_MISMATCH');
+  assert.equal(switchedBeforeWrite.state.sendCalls, 0);
+  assert.equal(editedBeforeWrite.state.sendCalls, 0);
+
   const happy = harness();
   const committed = await happy.guard.beginCommit({
     intentId: happy.intentId,
@@ -170,7 +179,7 @@ async function expectReadyFailure(h, code, field) {
   assert.doesNotMatch(source, /translation|querySelector|executeJavaScript|ipcRenderer|sendToHost/, 'guard must not own transform, DOM or Electron transport');
   assert.doesNotMatch(source, /submitPermitId/, 'guard must not receive or expose the private submit permit id');
   assert.match(source, /rebindComposerGenerationOwned/);
-  assert.match(source, /return Object\.freeze\(\{ rebindComposerGeneration, beginCommit \}\)/);
+  assert.match(source, /assertBeforeMutation, rebindComposerGeneration, beginCommit/);
   assert.match(html, /send-intent-admission\.js[\s\S]*send-intent-commit-guard\.js[\s\S]*broadcast-safety\.js/);
 
   console.log('SEND_INTENT_COMMIT_GUARD_CONTRACT_OK');

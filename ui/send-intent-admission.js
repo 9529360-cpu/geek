@@ -17,7 +17,9 @@
     const coordinator = options.coordinator;
     const familyOf = options.familyOf;
 
-    if (!trustedSubmitRuntime || typeof trustedSubmitRuntime.takeLatest !== 'function') {
+    if (!trustedSubmitRuntime
+      || typeof trustedSubmitRuntime.takeLatest !== 'function'
+      || typeof trustedSubmitRuntime.release !== 'function') {
       throw admissionError('SEND_INTENT_ADMISSION_INVALID', 'trustedSubmitRuntime');
     }
     if (!coordinator || typeof coordinator.begin !== 'function') {
@@ -26,6 +28,8 @@
     if (typeof familyOf !== 'function') {
       throw admissionError('SEND_INTENT_ADMISSION_INVALID', 'familyOf');
     }
+
+    const activeLeases = new Map();
 
     function begin(input = {}) {
       const account = input.account;
@@ -38,25 +42,43 @@
       }
 
       const permit = trustedSubmitRuntime.takeLatest(account, webview, input.expectedKind);
-      const platform = String(familyOf(account.type)?.key || '').trim();
-      if (!platform) throw admissionError('SEND_INTENT_ADMISSION_INVALID', 'platform');
-
-      return coordinator.begin({
-        accountId: String(account.id || ''),
-        partition: String(account.partition || ''),
-        platform,
-        webviewId: String(webview.getWebContentsId()),
-        webviewGeneration: permit.webviewGeneration,
-        conversationId: input.conversationId,
-        composerGeneration: permit.composerGeneration,
-        submitPermitId: permit.permitId,
-        sourceSnapshot: input.sourceSnapshot,
-        transformPolicy: input.transformPolicy,
-        deadlineAt: input.deadlineAt,
+      const lease = Object.freeze({
+        generation: permit.webviewGeneration,
+        permitId: permit.permitId,
       });
+      try {
+        const platform = String(familyOf(account.type)?.key || '').trim();
+        if (!platform) throw admissionError('SEND_INTENT_ADMISSION_INVALID', 'platform');
+        const created = coordinator.begin({
+          accountId: String(account.id || ''),
+          partition: String(account.partition || ''),
+          platform,
+          webviewId: String(webview.getWebContentsId()),
+          webviewGeneration: permit.webviewGeneration,
+          conversationId: input.conversationId,
+          composerGeneration: permit.composerGeneration,
+          submitPermitId: permit.permitId,
+          sourceSnapshot: input.sourceSnapshot,
+          transformPolicy: input.transformPolicy,
+          deadlineAt: input.deadlineAt,
+        });
+        activeLeases.set(created.intentId, { webview, lease });
+        return created;
+      } catch (error) {
+        trustedSubmitRuntime.release(webview, lease);
+        throw error;
+      }
     }
 
-    return Object.freeze({ begin });
+    function release(intentId) {
+      const key = String(intentId || '');
+      const active = activeLeases.get(key);
+      if (!active) return false;
+      activeLeases.delete(key);
+      return trustedSubmitRuntime.release(active.webview, active.lease);
+    }
+
+    return Object.freeze({ begin, release });
   }
 
   return Object.freeze({ create });

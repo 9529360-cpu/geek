@@ -192,16 +192,15 @@
       return true;
     };
     const translateAndSend = async (event, editor, button) => {
-      // A synthetic click is how the verified translation is finally submitted.
-      // Only swallow repeated trusted user input while that translation is pending.
+      // All trusted Telegram submits are admitted by the host SendIntent owner.
+      // Keep the legacy path below only as a bounded compatibility fallback.
       if (window.__geekTelegramSendLock) { blockRepeatedUserSend(event); return; }
       const cid = chatId(); const setting = settingFor(cid || '');
-      if (!setting?.enabled || setting.autoSend === false) return;
       const original = messageText(editor).replace(/\n$/, '').trim();
-      if (!original || (setting.includeZh === false && /[\u3400-\u9fff]/.test(original))) return;
+      if (!original) return;
       event?.preventDefault?.(); event?.stopImmediatePropagation?.();
       if (!cid || !window.__geekTranslationRequest) {
-        notifySendBlocked('翻译尚未就绪，已阻止原文发送');
+        notifySendBlocked('发送通道尚未就绪，已阻止发送');
         editor.focus();
         return;
       }

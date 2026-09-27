@@ -38,6 +38,12 @@ function harness(overrides = {}) {
       calls.push('admit');
       return created;
     },
+    release(intentId) {
+      state.releaseCalls += 1;
+      calls.push('release');
+      assert.equal(intentId, latestIntentId);
+      return true;
+    },
   };
   const account = { id: 'account-A', partition: 'persist:account-A', type: 'telegram-k' };
   const webview = { getWebContentsId: () => 77 };
@@ -48,6 +54,7 @@ function harness(overrides = {}) {
     sendCalls: 0,
     rebindCalls: 0,
     commitCalls: 0,
+    releaseCalls: 0,
     ...overrides.state,
   };
   const adapter = {
@@ -58,9 +65,10 @@ function harness(overrides = {}) {
       if (overrides.setThrows) throw overrides.setThrows;
       return state.setResult;
     },
-    async sendText(text) {
+    async sendText(text, commit) {
       state.sendCalls += 1;
       state.sendArg = text;
+      state.commit = commit;
       calls.push('send');
       if (overrides.sendThrows) throw overrides.sendThrows;
       return state.sendResult;
@@ -68,6 +76,14 @@ function harness(overrides = {}) {
   };
   const platformCapabilities = { forAccount: () => adapter };
   const commitGuard = {
+    async assertBeforeMutation({ intentId, expectedConversationId, expectedComposerText }) {
+      calls.push('pre-write-guard');
+      if (overrides.preMutationThrows) throw overrides.preMutationThrows;
+      assert.equal(expectedConversationId, 'chat-A');
+      assert.equal(expectedComposerText, 'private original');
+      assert.equal(coordinator.get(intentId).state, 'transforming');
+      return true;
+    },
     async rebindComposerGeneration({ intentId }) {
       state.rebindCalls += 1;
       calls.push('rebind');
@@ -82,10 +98,11 @@ function harness(overrides = {}) {
         composerGeneration: 10,
       });
     },
-    async beginCommit({ intentId }) {
+    async beginCommit({ intentId, expectedComposerText }) {
       state.commitCalls += 1;
       calls.push('guard');
       if (overrides.commitThrows) throw overrides.commitThrows;
+      assert.equal(expectedComposerText, state.rebindCalls > 0 ? 'translated text' : 'private original');
       return coordinator.beginCommitOwned(intentId, {
         accountId: 'account-A',
         partition: 'persist:account-A',
@@ -93,7 +110,7 @@ function harness(overrides = {}) {
         webviewId: '77',
         webviewGeneration: 4,
         conversationId: 'chat-A',
-        composerGeneration: 10,
+        composerGeneration: state.rebindCalls > 0 ? 10 : 9,
       });
     },
   };
@@ -108,6 +125,7 @@ function harness(overrides = {}) {
     commitGuard,
     platformCapabilities,
     classifySendOutcome,
+    now: () => now,
   });
 
   return {
@@ -137,18 +155,83 @@ function input(h, overrides = {}) {
 }
 
 (async () => {
+  let finishReloadTransform;
+  let reloadSignal;
+  const reload = harness();
+  reload.setNow(Date.now());
+  const reloadRun = reload.executor.execute(input(reload, {
+    deadlineAt: Date.now() + 5000,
+    transform: ({ signal }) => {
+      reloadSignal = signal;
+      return new Promise(resolve => { finishReloadTransform = resolve; });
+    },
+  }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reload.coordinator.cancelForWebview(String(reload.webview.getWebContentsId())), 1);
+  await assert.rejects(reloadRun, error => error?.code === 'SEND_INTENT_WEBVIEW_RELOADED');
+  assert.equal(reloadSignal.aborted, true);
+  finishReloadTransform({ text: 'late reload result' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reload.state.setCalls, 0, 'reload-cancelled transform cannot write composer');
+  assert.equal(reload.state.sendCalls, 0, 'reload-cancelled transform cannot commit');
+
+  let finishLateTransform;
+  let deadlineSignal;
+  const timed = harness();
+  timed.setNow(Date.now());
+  const timedRun = timed.executor.execute(input(timed, {
+    deadlineAt: Date.now() + 25,
+    transform: ({ signal }) => {
+      deadlineSignal = signal;
+      return new Promise(resolve => { finishLateTransform = resolve; });
+    },
+  }));
+  await assert.rejects(timedRun, error => error?.code === 'SEND_INTENT_DEADLINE_EXCEEDED');
+  assert.equal(deadlineSignal.aborted, true);
+  assert.equal(timed.coordinator.get(timed.intentId()).state, 'cancelled');
+  finishLateTransform({ text: 'late result' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(timed.state.setCalls, 0, 'late transform completion cannot write the composer');
+  assert.equal(timed.state.sendCalls, 0, 'late transform completion cannot commit a send');
+
   const happy = harness();
   const result = await happy.executor.execute(input(happy));
   assert.equal(result.intent.state, 'sent');
   assert.equal(result.transformResult.text, 'translated text');
   assert.equal(result.sendOutcome, 'SENT');
-  assert.deepEqual(happy.calls, ['admit', 'transform', 'set', 'rebind', 'guard', 'send']);
+  assert.deepEqual(happy.calls, ['admit', 'transform', 'pre-write-guard', 'set', 'rebind', 'guard', 'send', 'release']);
   assert.equal(happy.state.setCalls, 1);
   assert.equal(happy.state.sendCalls, 1);
   assert.equal(happy.state.setText, 'translated text');
   assert.equal(happy.state.sendArg, '');
+  assert.deepEqual(happy.state.commit, { expectedConversationId: 'chat-A', expectedComposerText: 'translated text' });
   assert.equal(JSON.stringify(result.intent).includes('private original'), false);
   assert.equal(JSON.stringify(result.intent).includes('private-permit'), false);
+  assert.equal(happy.state.releaseCalls, 1);
+
+  const identity = harness();
+  const identityResult = await identity.executor.execute(input(identity, {
+    transform: async () => {
+      identity.calls.push('transform');
+      return { text: 'private original', mode: 'identity', rewriteComposer: false };
+    },
+  }));
+  assert.equal(identityResult.intent.state, 'sent');
+  assert.deepEqual(identity.calls, ['admit', 'transform', 'pre-write-guard', 'guard', 'send', 'release']);
+  assert.equal(identity.state.setCalls, 0, 'identity send must preserve the native composer');
+  assert.equal(identity.state.rebindCalls, 0, 'identity send must preserve composer generation');
+  assert.deepEqual(identity.state.commit, { expectedConversationId: 'chat-A', expectedComposerText: 'private original' });
+
+  const invalidIdentity = harness();
+  await assert.rejects(
+    () => invalidIdentity.executor.execute(input(invalidIdentity, {
+      transform: async () => ({ text: 'changed without rewrite', rewriteComposer: false }),
+    })),
+    error => error?.code === 'SEND_INTENT_IDENTITY_MISMATCH',
+  );
+  assert.equal(invalidIdentity.state.setCalls, 0);
+  assert.equal(invalidIdentity.state.sendCalls, 0);
+  assert.equal(invalidIdentity.state.releaseCalls, 1);
 
   const transformFailure = harness();
   await assert.rejects(
@@ -160,6 +243,7 @@ function input(h, overrides = {}) {
   assert.equal(transformFailure.coordinator.get(transformFailure.intentId()).state, 'failed');
   assert.equal(transformFailure.state.setCalls, 0);
   assert.equal(transformFailure.state.sendCalls, 0);
+  assert.equal(transformFailure.state.releaseCalls, 1);
 
   const composerFailure = harness({ state: { setResult: 'EMPTY' } });
   await assert.rejects(
@@ -209,7 +293,7 @@ function input(h, overrides = {}) {
 
   assert.doesNotMatch(source, /querySelector|executeJavaScript|ipcRenderer|sendToHost|\btelegram\b|\bwhatsapp\b|\bline\b/i, 'executor must remain platform/DOM/Electron neutral');
   assert.doesNotMatch(source, /Math\.random/, 'executor must not mint transaction identity');
-  assert.match(source, /adapter\.sendText\(''\)/, 'native commit must have one explicit executor-owned send point');
+  assert.match(source, /adapter\.sendText\('', \{/, 'native commit must have one explicit executor-owned send point');
 
   console.log('SEND_INTENT_EXECUTOR_CONTRACT_OK');
 })().catch(error => {

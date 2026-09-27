@@ -162,6 +162,20 @@
       return setState(record, 'ready');
     }
 
+    function assertInitialContextOwned(intentId, currentBinding = {}) {
+      const record = getRecord(intentId);
+      ensureState(record, 'transforming');
+      ensureBeforeDeadline(record);
+      const current = normalizeBinding({
+        ...currentBinding,
+        submitPermitId: record.binding.submitPermitId,
+      });
+      for (const field of BINDING_FIELDS) {
+        if (current[field] !== record.binding[field]) throw intentError('SEND_INTENT_STALE_CONTEXT', field);
+      }
+      return project(record);
+    }
+
     function rebindComposerGenerationOwned(intentId, currentBinding = {}) {
       const record = getRecord(intentId);
       ensureState(record, 'transforming');
@@ -229,6 +243,17 @@
       return setState(record, 'failed');
     }
 
+    function cancelForWebview(webviewId, code = 'SEND_INTENT_WEBVIEW_RELOADED') {
+      const id = requiredText(webviewId, 'webviewId');
+      let cancelled = 0;
+      for (const record of records.values()) {
+        if (record.binding.webviewId !== id || !['created', 'transforming', 'ready'].includes(record.state)) continue;
+        cancel(record.intentId, code);
+        cancelled += 1;
+      }
+      return cancelled;
+    }
+
     function forget(intentId) {
       const record = getRecord(intentId);
       if (!TERMINAL_STATES.has(record.state)) throw intentError('SEND_INTENT_NOT_TERMINAL');
@@ -242,12 +267,14 @@
       readTransformPolicy: intentId => getRecord(intentId).transformPolicy,
       signal: intentId => getRecord(intentId).controller.signal,
       startTransform,
+      assertInitialContextOwned,
       rebindComposerGenerationOwned,
       markReady,
       beginCommit,
       beginCommitOwned,
       markSent,
       cancel,
+      cancelForWebview,
       fail,
       forget,
       size: () => records.size,

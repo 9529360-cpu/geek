@@ -29,8 +29,11 @@
     const commitGuard = options.commitGuard;
     const platformCapabilities = options.platformCapabilities;
     const classifySendOutcome = options.classifySendOutcome;
+    const now = typeof options.now === 'function' ? options.now : () => Date.now();
 
-    if (!admission || typeof admission.begin !== 'function') {
+    if (!admission
+      || typeof admission.begin !== 'function'
+      || typeof admission.release !== 'function') {
       throw executorError('SEND_INTENT_EXECUTOR_INVALID', 'admission');
     }
     if (!coordinator
@@ -43,7 +46,8 @@
     }
     if (!commitGuard
       || typeof commitGuard.rebindComposerGeneration !== 'function'
-      || typeof commitGuard.beginCommit !== 'function') {
+      || typeof commitGuard.beginCommit !== 'function'
+      || typeof commitGuard.assertBeforeMutation !== 'function') {
       throw executorError('SEND_INTENT_EXECUTOR_INVALID', 'commitGuard');
     }
     if (!platformCapabilities || typeof platformCapabilities.forAccount !== 'function') {
@@ -82,13 +86,39 @@
         coordinator.startTransform(intentId);
         phase = 'transforming';
 
-        const transformResult = await input.transform({
+        const remainingMs = deadlineAt - now();
+        if (remainingMs <= 0) throw executorError('SEND_INTENT_DEADLINE_EXCEEDED');
+        let deadlineTimer;
+        const signal = coordinator.signal(intentId);
+        let rejectCancellation;
+        const cancellationOperation = new Promise((_, reject) => { rejectCancellation = reject; });
+        const onAbort = () => rejectCancellation(signal.reason || executorError('SEND_INTENT_CANCELLED'));
+        signal.addEventListener('abort', onAbort, { once: true });
+        const transformOperation = Promise.resolve().then(() => input.transform({
           sourceSnapshot: input.sourceSnapshot,
           transformPolicy: input.transformPolicy || {},
-          signal: coordinator.signal(intentId),
+          signal,
           intentId,
+        }));
+        const deadlineOperation = new Promise((_, reject) => {
+          deadlineTimer = setTimeout(() => {
+            const error = executorError('SEND_INTENT_DEADLINE_EXCEEDED');
+            try { coordinator.cancel(intentId, error.code); } catch {}
+            reject(error);
+          }, remainingMs);
         });
+        let transformResult;
+        try {
+          transformResult = await Promise.race([transformOperation, deadlineOperation, cancellationOperation]);
+        } finally {
+          clearTimeout(deadlineTimer);
+          signal.removeEventListener('abort', onAbort);
+        }
         const transformedText = requiredText(transformResult?.text, 'transformResult.text');
+        const rewriteComposer = transformResult?.rewriteComposer !== false;
+        if (!rewriteComposer && transformedText !== input.sourceSnapshot) {
+          throw executorError('SEND_INTENT_IDENTITY_MISMATCH');
+        }
 
         const adapter = platformCapabilities.forAccount(account, webview);
         if (!adapter
@@ -97,14 +127,24 @@
           throw executorError('SEND_INTENT_EXECUTOR_INVALID', 'platformCapabilities');
         }
 
-        const composerResult = await adapter.setComposerText(transformedText);
-        if (composerResult !== 'OK') {
-          const error = executorError('SEND_INTENT_COMPOSER_WRITE_FAILED');
-          error.outcome = String(composerResult || '');
-          throw error;
+        await commitGuard.assertBeforeMutation({
+          intentId,
+          account,
+          webview,
+          expectedConversationId: conversationId,
+          expectedComposerText: input.sourceSnapshot,
+        });
+        let commitText = input.sourceSnapshot;
+        if (rewriteComposer) {
+          const composerResult = await adapter.setComposerText(transformedText);
+          if (composerResult !== 'OK') {
+            const error = executorError('SEND_INTENT_COMPOSER_WRITE_FAILED');
+            error.outcome = String(composerResult || '');
+            throw error;
+          }
+          await commitGuard.rebindComposerGeneration({ intentId, account, webview });
+          commitText = transformedText;
         }
-
-        await commitGuard.rebindComposerGeneration({ intentId, account, webview });
         coordinator.markReady(intentId);
         phase = 'ready';
 
@@ -112,13 +152,16 @@
           intentId,
           account,
           webview,
-          expectedComposerText: transformedText,
+          expectedComposerText: commitText,
         });
         phase = 'committing';
 
         let sendOutcome;
         try {
-          sendOutcome = await adapter.sendText('');
+          sendOutcome = await adapter.sendText('', {
+            expectedConversationId: conversationId,
+            expectedComposerText: commitText,
+          });
         } catch (error) {
           throw executorError('SEND_INTENT_OUTCOME_UNCERTAIN');
         }
@@ -151,6 +194,8 @@
           try { coordinator.fail(intentId, code); } catch {}
         }
         throw error;
+      } finally {
+        try { admission.release(intentId); } catch {}
       }
     }
 
