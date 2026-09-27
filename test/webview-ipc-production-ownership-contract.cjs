@@ -14,7 +14,7 @@ const entry = read('src/main-entry.cjs');
 const navigation = read('src/webview-navigation-boundary.cjs');
 const ui = read('ui/app.js');
 
-const channels = ['webview:register', 'webview:insert-text'];
+const channels = ['webview:register', 'webview:insert-text', 'webview:commit-submit'];
 
 assert.match(main, /const \{ installWebviewIpc \} = require\('\.\/webview-ipc\.cjs'\)/, 'main must import WebView IPC owner');
 assert.match(main, /webviewIpcBoundary = installWebviewIpc\(\{/, 'main must compose WebView IPC owner');
@@ -57,8 +57,10 @@ assert.match(owner, /webviewOwnership\.remove\(/, 'guest lifecycle cleanup must 
 
 assert.match(preload, /register:\s*\(accountId, guestId, token\) => ipcRenderer\.invoke\('webview:register', accountId, guestId, token\)/, 'preload register channel/API must remain unchanged');
 assert.match(preload, /insertText:\s*\(accountId, guestId, text, token\) => ipcRenderer\.invoke\('webview:insert-text', accountId, guestId, text, token\)/, 'preload insert channel/API must remain unchanged');
+assert.match(preload, /commitSubmit:\s*\(accountId, guestId, expectedChatId, expectedComposerText, token\) => ipcRenderer\.invoke\('webview:commit-submit', accountId, guestId, expectedChatId, expectedComposerText, token\)/, 'preload must expose only the bounded native submit commit ingress');
 assert.match(ui, /window\.api\.webviewInput\.register\(account\.id, wv\.getWebContentsId\(\), bridgeTokenFor\(wv\)\)/, 'renderer register call contract must remain unchanged');
 assert.match(ui, /window\.api\.webviewInput\.insertText\(account\.id, wv\.getWebContentsId\(\)/, 'renderer insert call contract must remain unchanged');
+assert.match(ui, /window\.api\.webviewInput\.commitSubmit\([\s\S]{0,220}account\.id,[\s\S]{0,220}wv\.getWebContentsId\(\)/, 'Telegram SendIntent commit must delegate native submit to the main-process WebView IPC owner');
 
 assert.match(entry, /installAccountScopedWebviewNavigationBoundary\(\{/, 'early WebView Navigation authority must remain installed');
 assert.match(navigation, /contents\.on\?\.\('will-navigate'/, 'navigation boundary must retain navigation authority');
@@ -70,7 +72,10 @@ assert.match(owner, /ipcMain\.handle\(channel, async \(event, \.\.\.args\) => \{
 assert.match(owner, /String\(account\.partition \|\| ''\) !== partition/, 'account record partition must exactly match authoritative resolved partition');
 assert.match(owner, /guest\.hostWebContents !== event\.sender/, 'register must bind guest to trusted host WebContents');
 assert.match(owner, /guest\.session !== getSessionForPartition\(partition\)/, 'guest session must match account partition authority');
-assert.match(owner, /webviewOwnership\.authorize\(\{[\s\S]*senderId: event\.sender\.id/, 'insert-text must authorize owner and sender through existing ownership registry');
+assert.match(owner, /webviewOwnership\.authorize\(\{[\s\S]*senderId: event\.sender\.id/, 'native-input ingresses must authorize owner and sender through existing ownership registry');
+assert.match(owner, /register\('webview:commit-submit'[\s\S]*TELEGRAM_TYPES\.has\(account\.type\)[\s\S]*TELEGRAM_URL\.test\(guestUrl\(guest\)\)/, 'commit-submit must be Telegram-only and revalidate the live guest URL');
+assert.match(owner, /telegramCommitGuardScript\(chatId, composerText\)[\s\S]*sendInputEvent\(\{ type: 'keyDown', keyCode: 'Enter' \}\)[\s\S]*sendInputEvent\(\{ type: 'keyUp', keyCode: 'Enter' \}\)/, 'commit-submit must guard exact chat/composer before native Enter delivery');
+assert.match(owner, /data-geek-native-submit-commit[\s\S]*clearTelegramCommitMarkerScript/, 'native commit must bracket the Enter event with the recursion-bypass marker');
 assert.match(owner, /guest\.isDestroyed\(\)/, 'destroyed guests must fail closed');
 assert.match(owner, /for \(const channel of registeredChannels\) ipcMain\.removeHandler\(channel\)/, 'WebView IPC owner must own complete channel teardown');
 

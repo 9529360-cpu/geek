@@ -87,6 +87,7 @@ document.addEventListener('focusin', (event) => {
 }, true);
 
 document.addEventListener('beforeinput', (event) => {
+  if (document.documentElement?.getAttribute?.('data-geek-native-submit-commit') === '1') return;
   if (!isTelegramPage() || event?.isTrusted !== true) return;
   const target = eventElement(event);
   const composer = target?.closest(TELEGRAM_COMPOSER_SELECTOR);
@@ -95,6 +96,7 @@ document.addEventListener('beforeinput', (event) => {
 }, true);
 
 document.addEventListener('keydown', (event) => {
+  if (document.documentElement?.getAttribute?.('data-geek-native-submit-commit') === '1') return;
   if (!isTelegramPage() || event?.isTrusted !== true) return;
   if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
   if (event.isComposing || event.repeat) return;

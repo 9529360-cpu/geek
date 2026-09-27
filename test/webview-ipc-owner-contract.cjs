@@ -44,20 +44,26 @@ function createGuest({ id, host, session, url = TG_URL, focused = true, destroye
   let destroyedState = destroyed;
   const scripts = [];
   const inserted = [];
+  const inputEvents = [];
+  const focusCalls = [];
   return Object.assign(emitter, {
     id,
     hostWebContents: host,
     session,
     scripts,
     inserted,
+    inputEvents,
+    focusCalls,
     getURL: () => url,
     isDestroyed: () => destroyedState,
     setDestroyed(value) { destroyedState = value; },
+    focus() { focusCalls.push(true); },
     executeJavaScript: async (script) => {
       scripts.push(script);
-      return typeof focused === 'function' ? focused() : focused;
+      return typeof focused === 'function' ? focused(script) : focused;
     },
     insertText: async (value) => { inserted.push(value); },
+    sendInputEvent: (event) => { inputEvents.push({ ...event }); },
   });
 }
 
@@ -129,7 +135,7 @@ async function rejects(promise, pattern) {
 (async () => {
   {
     const h = createHarness();
-    assert.deepEqual([...h.ipcMain.handlers.keys()], WEBVIEW_IPC_CHANNELS, 'owner must register exactly the two WebView invoke channels');
+    assert.deepEqual([...h.ipcMain.handlers.keys()], WEBVIEW_IPC_CHANNELS, 'owner must register exactly its declared WebView invoke channels');
   }
 
   {
@@ -142,6 +148,9 @@ async function rejects(promise, pattern) {
     const beforeInsert = h.calls.length;
     await rejects(h.ipcMain.invoke('webview:insert-text', h.untrustedSender, 'acc-a', 7, 'x', TOKEN_A), /未授权/);
     assert.deepEqual(h.calls.slice(beforeInsert), [['sender.guard', h.untrustedSender.id]], 'untrusted insert-text must stop at sender guard');
+    const beforeCommit = h.calls.length;
+    await rejects(h.ipcMain.invoke('webview:commit-submit', h.untrustedSender, 'acc-a', 7, 'chat-a', 'hello', TOKEN_A), /未授权/);
+    assert.deepEqual(h.calls.slice(beforeCommit), [['sender.guard', h.untrustedSender.id]], 'untrusted commit-submit must stop at sender guard');
   }
 
   {
@@ -149,6 +158,7 @@ async function rejects(promise, pattern) {
     for (const [channel, args] of [
       ['webview:register', ['acc-a', 7, TOKEN_A]],
       ['webview:insert-text', ['acc-a', 7, 'x', TOKEN_A]],
+      ['webview:commit-submit', ['acc-a', 7, 'chat-a', 'hello', TOKEN_A]],
     ]) {
       const before = h.calls.length;
       await rejects(
@@ -280,6 +290,44 @@ async function rejects(promise, pattern) {
 
   {
     const h = createHarness();
+    const guest = createGuest({ id: 7, host: h.trustedSender, session: h.sessions.get(PART_A), focused: script => script.includes('removeAttribute') ? true : 'READY' });
+    h.guests.set(7, guest);
+    await h.ipcMain.invoke('webview:register', h.trustedSender, 'acc-a', 7, TOKEN_A);
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'acc-a', 7, 'chat-a', 'hello world', TOKEN_A), 'SUBMITTED');
+    assert.deepEqual(guest.inputEvents, [
+      { type: 'keyDown', keyCode: 'Enter' },
+      { type: 'keyUp', keyCode: 'Enter' },
+    ]);
+    assert.equal(guest.focusCalls.length, 1);
+    assert.equal(guest.scripts.length, 2, 'native commit must run exact precommit guard and marker cleanup');
+    assert.match(guest.scripts[0], /chat-a/);
+    assert.match(guest.scripts[0], /hello world/);
+    assert.match(guest.scripts[0], /data-geek-native-submit-commit/);
+    assert.match(guest.scripts[1], /removeAttribute\('data-geek-native-submit-commit'\)/);
+  }
+
+  {
+    const h = createHarness();
+    const guest = createGuest({ id: 7, host: h.trustedSender, session: h.sessions.get(PART_A), focused: 'STALE_CONTEXT' });
+    h.guests.set(7, guest);
+    await h.ipcMain.invoke('webview:register', h.trustedSender, 'acc-a', 7, TOKEN_A);
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'acc-a', 7, 'chat-a', 'hello world', TOKEN_A), 'STALE_CONTEXT');
+    assert.deepEqual(guest.inputEvents, [], 'stale context must fail before native input');
+    assert.equal(guest.focusCalls.length, 0);
+  }
+
+  {
+    const h = createHarness();
+    const linePartition = h.accounts.get('line-a').partition;
+    const guest = createGuest({ id: 9, host: h.trustedSender, session: h.sessions.get(linePartition), url: LINE_URL, focused: 'READY' });
+    h.guests.set(9, guest);
+    await h.ipcMain.invoke('webview:register', h.trustedSender, 'line-a', 9, TOKEN_A);
+    await rejects(h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'line-a', 9, 'abc', 'hello', TOKEN_A), /提交上下文不合法/);
+    assert.deepEqual(guest.inputEvents, [], 'non-Telegram account must never receive native submit input');
+  }
+
+  {
+    const h = createHarness();
     const guest = createGuest({ id: 7, host: h.trustedSender, session: h.sessions.get(PART_A) });
     h.guests.set(7, guest);
     await h.ipcMain.invoke('webview:register', h.trustedSender, 'acc-a', 7, TOKEN_A);
@@ -302,6 +350,7 @@ async function rejects(promise, pattern) {
     h.owner.dispose();
     assert.equal(h.ipcMain.handlers.has('webview:register'), false);
     assert.equal(h.ipcMain.handlers.has('webview:insert-text'), false);
+    assert.equal(h.ipcMain.handlers.has('webview:commit-submit'), false);
     assert.equal(h.ipcMain.handlers.has('foreign:keep'), true, 'foreign handler must survive WebView owner disposal');
     assert.deepEqual(h.ipcMain.removed, WEBVIEW_IPC_CHANNELS);
     h.owner.dispose();
