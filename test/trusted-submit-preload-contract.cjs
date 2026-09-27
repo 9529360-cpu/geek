@@ -9,7 +9,12 @@ const source = fs.readFileSync(path.join(root, 'resources', 'bridge-preload.cjs'
 
 const listeners = new Map();
 const hostMessages = [];
-const rootElement = { setAttribute() {} };
+const rootAttributes = new Map();
+const rootElement = {
+  setAttribute(name, value) { rootAttributes.set(String(name), String(value)); },
+  getAttribute(name) { return rootAttributes.get(String(name)) || null; },
+  removeAttribute(name) { rootAttributes.delete(String(name)); },
+};
 let activeComposer = null;
 const document = {
   documentElement: rootElement,
@@ -93,6 +98,11 @@ assert.deepEqual(JSON.parse(JSON.stringify(hostMessages.shift())), {
   payload: { protocolVersion: 1, platform: 'telegram', kind: 'keyboard', composerGeneration: 2 },
 });
 assert.equal(hostMessages.length, 0);
+rootElement.setAttribute('data-geek-native-submit-commit', '1');
+keydown(keyEvent());
+beforeinput({ isTrusted: true, target: composerA });
+assert.equal(hostMessages.length, 0, 'owner-native commit must not mint a second trusted-submit permit or composer generation');
+rootElement.removeAttribute('data-geek-native-submit-commit');
 
 beforeinput({ isTrusted: false, target: composerA });
 assert.equal(hostMessages.length, 0, 'synthetic edit must not emit trusted composer context');

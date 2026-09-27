@@ -250,6 +250,7 @@
       } finally { window.__geekTelegramNativeInputCommit = false; window.__geekTelegramSendLock = false; }
     };
     document.addEventListener('beforeinput', event => {
+      if (document.documentElement?.getAttribute?.('data-geek-native-submit-commit') === '1') return;
       if (!window.__geekTelegramSendLock || !event.isTrusted || window.__geekTelegramNativeInputCommit) return;
       const editor = event.target?.closest?.('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
       if (!editor) return;
@@ -257,6 +258,7 @@
       event.stopImmediatePropagation();
     }, { capture: true, signal: window.__geekTelegramSendAbort.signal });
     document.addEventListener('keydown', event => {
+      if (document.documentElement?.getAttribute?.('data-geek-native-submit-commit') === '1') return;
       const editor = event.target?.closest?.('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
       if (!editor || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
       translateAndSend(event, editor, sendButton());

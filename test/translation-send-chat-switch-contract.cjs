@@ -64,7 +64,7 @@ function createTelegramHarness(translationPromise) {
 
   const document = {
     body: root,
-    documentElement: { getAttribute: () => '1' },
+    documentElement: { getAttribute: name => name === 'data-geek-bridge' ? '1' : null },
     activeElement: editor,
     getAttribute: () => null,
     querySelector(selector) {

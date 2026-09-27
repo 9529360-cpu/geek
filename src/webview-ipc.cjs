@@ -5,6 +5,7 @@ const { assertMainFrameIpcSender } = require('./main-frame-ipc-boundary.cjs');
 const WEBVIEW_IPC_CHANNELS = Object.freeze([
   'webview:register',
   'webview:insert-text',
+  'webview:commit-submit',
 ]);
 
 const TELEGRAM_TYPES = new Set(['telegram-z', 'telegram', 'telegram-pure', 'telegram-k']);
@@ -62,6 +63,29 @@ function focusedComposerScript(expectedChatId = '') {
       }
       return false;
     })()`;
+}
+
+function telegramCommitGuardScript(expectedChatId = '', expectedComposerText = '') {
+  const expected = JSON.stringify({
+    conversationId: String(expectedChatId || ''),
+    composerText: String(expectedComposerText || ''),
+  });
+  return `(() => {
+      const expected = ${expected};
+      const chat = String(location.hash || '').replace(/^#/, '').split('?')[0];
+      const norm = value => String(value || '').replace(/\\n[\\t ]*\\n+/g, '\\n').trim();
+      if (!expected.conversationId || chat !== expected.conversationId) return 'STALE_CONTEXT';
+      const editor = document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
+      if (!editor || norm(editor.innerText) !== norm(expected.composerText)) return 'COMPOSER_MISMATCH';
+      editor.focus();
+      if (!(document.activeElement === editor || editor.contains(document.activeElement))) return 'COMPOSER_NOT_FOCUSED';
+      document.documentElement?.setAttribute('data-geek-native-submit-commit', '1');
+      return 'READY';
+    })()`;
+}
+
+function clearTelegramCommitMarkerScript() {
+  return `document.documentElement?.removeAttribute('data-geek-native-submit-commit')`;
 }
 
 function installWebviewIpc(options = {}) {
@@ -183,6 +207,50 @@ function installWebviewIpc(options = {}) {
     if (!focusedComposer) throw new Error('消息输入框未获得焦点');
     await guest.insertText(value);
     return true;
+  });
+
+  register('webview:commit-submit', async (event, accountId, guestId, expectedChatId, expectedComposerText, token) => {
+    const { account, partition } = resolveAccountBinding(accountId, '账号提交页面不可用');
+    const chatId = String(expectedChatId || '');
+    const composerText = String(expectedComposerText || '');
+    if (!TELEGRAM_TYPES.has(account.type)
+      || !chatId || chatId.length > 2048
+      || !composerText || composerText.length > 10000) {
+      throw new Error('提交上下文不合法');
+    }
+    const guest = resolveLiveGuest(guestId);
+    const ownershipOk = webviewOwnership.authorize({
+      guestId,
+      accountId,
+      partition,
+      token,
+      senderId: event.sender.id,
+    });
+    if (!guest
+      || guest === event.sender
+      || guest.session !== getSessionForPartition(partition)
+      || !TELEGRAM_URL.test(guestUrl(guest))
+      || !ownershipOk
+      || typeof guest.executeJavaScript !== 'function'
+      || typeof guest.sendInputEvent !== 'function'
+      || typeof guest.focus !== 'function') {
+      throw new Error('账号提交页面不可用');
+    }
+    const prepared = await guest.executeJavaScript(telegramCommitGuardScript(chatId, composerText));
+    if (prepared !== 'READY') return String(prepared || 'COMMIT_NOT_READY');
+    let keyDownDispatched = false;
+    try {
+      guest.focus();
+      guest.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+      keyDownDispatched = true;
+      guest.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+      return 'SUBMITTED';
+    } catch {
+      return keyDownDispatched ? 'MAYBE' : 'COMMIT_FAILED';
+    } finally {
+      await new Promise(resolve => setTimeout(resolve, 80));
+      try { await guest.executeJavaScript(clearTelegramCommitMarkerScript()); } catch {}
+    }
   });
 
   return Object.freeze({

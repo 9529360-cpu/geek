@@ -1789,7 +1789,45 @@
         return wv.executeJavaScript(script);
       },
       async sendText(text = '', commit = {}) {
-        if (family === 'telegram') return wv.executeJavaScript(`(async()=>{ const expected=${JSON.stringify({ conversationId: String(commit.expectedConversationId || ""), composerText: String(commit.expectedComposerText || "") })}; const chat=String(location.hash||"").replace(/^#/, "").split("?")[0]; const norm=v=>String(v||"").replace(/\n[\t ]*\n+/g,"\n").trim(); if(!expected.conversationId||chat!==expected.conversationId)return "STALE_CONTEXT"; const guardedEditor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!guardedEditor||norm(guardedEditor.innerText)!==norm(expected.composerText))return "COMPOSER_MISMATCH"; const editor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); const before=(editor?.innerText||'').trim(); if(!before)return 'EMPTY'; const messageCount=()=>document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length; const count=messageCount(); const button=document.querySelector('button.Button.send.main-button, button[aria-label="发送消息"], button[aria-label="Send"], .btn-send'); if(!button)return 'NO_SEND_BUTTON'; const chatBefore=String(location.hash||"").replace(/^#/, "").split("?")[0]; const editorBefore=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(chatBefore!==expected.conversationId)return 'STALE_CONTEXT'; if(!editorBefore||norm(editorBefore.innerText)!==norm(expected.composerText))return 'COMPOSER_MISMATCH'; button.click(); for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,250)); if(messageCount()>count && !(editor?.innerText||'').trim())return 'SENT';} return 'MAYBE';})()`);
+        if (family === 'telegram') {
+          const expected = {
+            conversationId: String(commit.expectedConversationId || ''),
+            composerText: String(commit.expectedComposerText || ''),
+          };
+          const baseline = await wv.executeJavaScript(`(() => {
+            const expected=${JSON.stringify({ conversationId: String(commit.expectedConversationId || ''), composerText: String(commit.expectedComposerText || '') })};
+            const chat=String(location.hash||'').replace(/^#/, '').split('?')[0];
+            const norm=value=>String(value||'').replace(/\\n[\\t ]*\\n+/g,'\\n').trim();
+            if(!expected.conversationId||chat!==expected.conversationId)return {status:'STALE_CONTEXT',count:0};
+            const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
+            if(!editor||norm(editor.innerText)!==norm(expected.composerText))return {status:'COMPOSER_MISMATCH',count:0};
+            const count=document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length;
+            return {status:'READY',count};
+          })()`);
+          if (!baseline || baseline.status !== 'READY') return String(baseline?.status || 'COMMIT_NOT_READY');
+          const submitted = await window.api.webviewInput.commitSubmit(
+            account.id,
+            wv.getWebContentsId(),
+            expected.conversationId,
+            expected.composerText,
+            bridgeTokenFor(wv),
+          );
+          if (submitted !== 'SUBMITTED') return String(submitted || 'MAYBE');
+          for (let i = 0; i < 60; i++) {
+            await sleep(250);
+            const state = await wv.executeJavaScript(`(() => {
+              const expectedChat=${JSON.stringify(String(commit.expectedConversationId || ''))};
+              const chat=String(location.hash||'').replace(/^#/, '').split('?')[0];
+              if(chat!==expectedChat)return {status:'STALE_CONTEXT',count:0,empty:false};
+              const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
+              const count=document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length;
+              return {status:'OK',count,empty:!String(editor?.innerText||'').trim()};
+            })()`);
+            if (state?.status === 'STALE_CONTEXT') return 'STALE_CONTEXT';
+            if (state?.count > baseline.count && state?.empty === true) return 'SENT';
+          }
+          return 'MAYBE';
+        }
         const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;
         return wv.executeJavaScript(script);
       },
