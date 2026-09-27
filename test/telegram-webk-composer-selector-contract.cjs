@@ -15,13 +15,18 @@ for (const [name, source] of [['translation adapter', adapter], ['broadcast adap
   assert.ok(source.includes('#editable-message-text'), name + ' must retain the Telegram Web A composer fallback');
 }
 
-assert.ok(adapter.includes('.btn-send'), 'ordinary Telegram translated send must recognize the live Web K send button');
+const telegramStart = adapter.indexOf('function installTelegramTranslation');
+const lineStart = adapter.indexOf('function installLineTranslation');
+assert.ok(telegramStart >= 0 && lineStart > telegramStart);
+const telegram = adapter.slice(telegramStart, lineStart);
+assert.ok(telegram.includes('.btn-send'), 'Telegram trusted click interception must recognize the live Web K send button');
 assert.ok(app.includes('.btn-send'), 'Telegram broadcast must recognize the live Web K send button');
 assert.ok(app.includes('.bubble:not(.service):not(.is-date)'), 'Telegram broadcast delivery observation must recognize Web K message bubbles');
 assert.ok(app.includes('.Message'), 'Telegram broadcast delivery observation must retain Web A message support');
-assert.match(adapter, /const isWebKEditor = editor =>/, 'Telegram translation owner must distinguish the controlled Web K composer');
-assert.match(adapter, /if \(!keepWebKContenteditable\) editor\.setAttribute\('contenteditable', 'false'\)/, 'Web K composer must not be disabled through contenteditable during translation');
-assert.match(adapter, /__geekTelegramNativeInputCommit/, 'trusted editing guard must allow the request-scoped native fill and release the bypass afterward');
-assert.match(adapter, /addEventListener\('beforeinput'/, 'Telegram send lock must block concurrent trusted edits without mutating Web K contenteditable state');
+assert.doesNotMatch(telegram, /isWebKEditor|keepWebKContenteditable|setAttribute\('contenteditable', 'false'\)/, 'Telegram guest must not own composer mutability for Web K or Web A');
+assert.doesNotMatch(telegram, /nativeInsertText|__geekNativeInputPending|submitButton\.click\(\)/, 'Telegram guest must not retain the retired native-fill/synthetic-submit tail');
+assert.match(telegram, /SEND_INTENT_OWNER_REQUIRED/, 'Telegram guest must require host SendIntent ownership');
+assert.match(telegram, /__geekTelegramNativeInputCommit/, 'trusted editing guard must still yield to the host-owned composer rewrite');
+assert.match(telegram, /addEventListener\('beforeinput'/, 'Telegram send lock must block concurrent trusted edits without mutating Web K contenteditable state');
 
 console.log('TELEGRAM_WEBK_COMPOSER_SELECTOR_CONTRACT_OK');

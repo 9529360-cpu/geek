@@ -106,7 +106,10 @@ function adapterFailureMapper(platform) {
   assert.ok(blockStart >= 0 && blockEnd > blockStart, `${platform} installer must remain extractable`);
   const block = adapterSource.slice(blockStart, blockEnd);
   const helperStart = block.indexOf('const translationSendErrorMessage = error => {');
-  const helperEnd = block.indexOf("const nativeInputEnvelopePrefix = '\\u001eGEEK_NATIVE_INPUT_V1\\u001e';", helperStart);
+  const helperEndMarker = platform === 'telegram'
+    ? 'const generation = window.__geekTelegramTranslationGeneration'
+    : "const nativeInputEnvelopePrefix = '\\u001eGEEK_NATIVE_INPUT_V1\\u001e';";
+  const helperEnd = block.indexOf(helperEndMarker, helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart, `${platform} actionable error mapper must stay self-contained inside the injected installer`);
   const context = { Error, JSON, String, Number };
   vm.createContext(context);

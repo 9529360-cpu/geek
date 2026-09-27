@@ -18,11 +18,9 @@ for (const [platform, block, lock] of [
   assert.match(block, new RegExp(`if \\(window\\.${lock}\\) \\{ blockRepeatedUserSend\\(event\\); return; \\}`), `${platform} 发送锁判断必须先拦截重复回车/点击再返回`);
 }
 
-const telegramSubmit = telegram.indexOf('submitButton.click();');
-const telegramFinalGuard = telegram.lastIndexOf('assertSendContext();', telegramSubmit);
-assert.ok(telegramSubmit >= 0, 'Telegram 必须保留译文的程序化提交');
-assert.ok(telegramFinalGuard >= 0 && telegramFinalGuard < telegramSubmit && telegramSubmit - telegramFinalGuard < 420, 'Telegram 程序化提交前必须执行最终聊天上下文校验');
-assert.equal((telegram.match(/submitButton\.click\(\);/g) || []).length, 1, 'Telegram 每次译文流程只能保留一个最终程序化 click 提交点');
+assert.doesNotMatch(telegram, /submitButton\.click\(\)/, 'Telegram guest must not perform a second programmatic submit after SendIntent owns delivery');
+assert.doesNotMatch(telegram, /nativeInsertText|__geekNativeInputPending/, 'Telegram guest must not retain the retired native-fill compatibility tail');
+assert.match(telegram, /SEND_INTENT_OWNER_REQUIRED/, 'Telegram guest must fail closed instead of falling back to a second send path');
 
 const lineSubmit = line.indexOf('submitButton.click();');
 const lineFinalGuard = line.lastIndexOf('assertSendContext();', lineSubmit);

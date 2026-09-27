@@ -41,17 +41,23 @@ assert.match(
   'host must report SendIntent-owned delivery back to the guest',
 );
 
-const ownerCheck = adapters.indexOf("if (result?.delivery?.owner === 'send-intent')");
-const legacyNativeFill = adapters.indexOf('await nativeInsertText(result.text, cid)', ownerCheck);
-const legacySyntheticSubmit = adapters.indexOf('submitButton.click();', ownerCheck);
-assert.ok(ownerCheck >= 0, 'Telegram guest must recognize SendIntent-owned delivery');
-assert.ok(legacyNativeFill > ownerCheck, 'legacy native fill must remain only after owner short-circuit');
-assert.ok(legacySyntheticSubmit > ownerCheck, 'legacy synthetic submit must remain only after owner short-circuit');
+const telegramStart = adapters.indexOf('function installTelegramTranslation');
+const lineStart = adapters.indexOf('function installLineTranslation');
+assert.ok(telegramStart >= 0 && lineStart > telegramStart);
+const telegramGuest = adapters.slice(telegramStart, lineStart);
 assert.match(
-  adapters.slice(ownerCheck, legacyNativeFill),
-  /if \(result\.delivery\.state !== 'sent'\) throw new Error\('SEND_INTENT_SEND_FAILED'\);[\s\S]*return;/,
-  'owner-delivered success must return before the legacy guest send tail',
+  telegramGuest,
+  /result\?\.delivery\?\.owner !== 'send-intent'[\s\S]{0,120}SEND_INTENT_OWNER_REQUIRED/,
+  'Telegram guest must fail closed when the host does not return SendIntent ownership',
 );
+assert.match(
+  telegramGuest,
+  /result\.delivery\.state !== 'sent'[\s\S]{0,120}SEND_INTENT_SEND_FAILED/,
+  'Telegram guest must accept only a terminal sent result from the SendIntent owner',
+);
+assert.doesNotMatch(telegramGuest, /nativeInsertText|__geekNativeInputPending|__geekTakeNativeInputRequest|__geekResolveNativeInput/, 'Telegram guest must not keep a second native composer mutation path');
+assert.doesNotMatch(telegramGuest, /submitButton\.click\(\)/, 'Telegram guest must not keep a synthetic send-button commit tail');
+assert.doesNotMatch(telegramGuest, /setAttribute\('contenteditable', 'false'\)/, 'Telegram guest must not own composer mutability while SendIntent is active');
 
 assert.match(
   adapters,
