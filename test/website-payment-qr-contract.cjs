@@ -51,6 +51,11 @@ const releaseWorker = fs.readFileSync(path.join(root, 'scripts', 'geek-release-w
   assert.match(workerSource, /path === '\/payment-qr'/, '官网必须提供同源支付二维码路由');
   assert.match(workerSource, /id="usdt-qr-fallback"/, '二维码加载失败时必须保留复制地址提示');
   assert.doesNotMatch(releaseWorker, /usdt-qr\.png/, 'release Worker 不得扩展为支付静态资源服务');
+  assert.doesNotMatch(workerSource, /usdtPollTimer\s*=\s*setInterval/, 'USDT account polling must not use overlapping setInterval');
+  assert.match(workerSource, /const deadlineAt = Date\.now\(\) \+ 20 \* 60 \* 1000/, 'USDT polling must own one absolute 20-minute deadline');
+  assert.match(workerSource, /attempts >= maxAttempts \|\| Date\.now\(\) >= deadlineAt/, 'USDT polling must stop on either attempt or time budget');
+  assert.match(workerSource, /if \(generation !== usdtPollGeneration\) return;/, 'late polling responses must be fenced by generation');
+  assert.match(workerSource, /setTimeout\(poll, Math\.min\(pollDelayMs, remaining\)\)/, 'next poll must be scheduled only after the current request settles');
 
   const executable = workerSource
     .replace(/^import \{ isTronAddress, renderTronAddressQrSvg \} from '\.\/website-payment-qr\.mjs';\r?\n/m, '')
