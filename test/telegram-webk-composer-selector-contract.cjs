@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const adapter = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
+const transportDefinitions = fs.readFileSync(path.join(root, 'ui', 'platform-transport-definitions.js'), 'utf8');
 const hostAdapters = fs.readFileSync(path.join(root, 'ui', 'platform-host-adapters.js'), 'utf8');
 const ipc = fs.readFileSync(path.join(root, 'src', 'webview-ipc.cjs'), 'utf8');
 
@@ -21,7 +22,7 @@ const lineStart = adapter.indexOf('function installLineTranslation');
 assert.ok(telegramStart >= 0 && lineStart > telegramStart);
 const telegram = adapter.slice(telegramStart, lineStart);
 assert.ok(telegram.includes('.btn-send'), 'Telegram trusted click interception must recognize the live Web K send button');
-assert.ok(app.includes('.btn-send'), 'Telegram broadcast must recognize the live Web K send button');
+assert.ok(transportDefinitions.includes('.btn-send'), 'Telegram broadcast transport must recognize the live Web K send button');
 assert.ok(hostAdapters.includes('.bubble:not(.service):not(.is-date)'), 'Telegram SendIntent delivery observation must recognize Web K message bubbles');
 assert.ok(hostAdapters.includes('.Message'), 'Telegram SendIntent delivery observation must retain Web A message support');
 assert.doesNotMatch(telegram, /isWebKEditor|keepWebKContenteditable|setAttribute\('contenteditable', 'false'\)/, 'Telegram guest must not own composer mutability for Web K or Web A');

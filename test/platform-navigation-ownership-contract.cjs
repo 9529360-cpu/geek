@@ -12,16 +12,25 @@ const desktopIpc = read('src/desktop-ipc.cjs');
 const catalog = read('src/platform-catalog.cjs');
 const boundary = read('src/webview-navigation-boundary.cjs');
 const entry = read('src/main-entry.cjs');
+const app = read('ui/app.js');
+const rendererFamilies = read('ui/platform-family-registry.js');
 
 assert.match(main, /require\('\.\/platform-catalog\.cjs'\)/, 'main must consume platform catalog');
 assert.match(main, /resolveTypeConfig:\s*platformConfig/, 'Account State must validate against platform catalog');
 assert.match(main, /platformCatalog:\s*PLATFORM_CATALOG/, 'main must inject the canonical platform catalog into Desktop IPC');
 assert.match(desktopIpc, /Object\.entries\(platformCatalog\)/, 'platform listing must consume the injected platform catalog');
+assert.match(desktopIpc, /family:\s*cfg\.navigationKind \|\| type/, 'renderer family metadata must be projected from the canonical catalog');
+assert.match(desktopIpc, /cfg\.familyLabel/, 'optional family display labels must be projected from the canonical catalog');
 assert.doesNotMatch(desktopIpc, /PLATFORM_CATALOG\s*=|require\('\.\/platform-catalog\.cjs'\)/, 'Desktop IPC must not copy or import a second platform catalog authority');
 assert.match(main, /isAccountNavigationAllowed\(account, partition, parsedSource\.href\)/, 'pre-attach URL checks must share the navigation policy authority');
 assert.doesNotMatch(main, /\bconst\s+APP_TYPES\s*=/, 'main must not reintroduce a second platform metadata table');
 assert.doesNotMatch(main, /\bfunction\s+appTypeConfig\s*\(/, 'main must not reintroduce a second platform resolver');
 assert.doesNotMatch(main, /\bhostAllowed\b/, 'legacy global navigation allowlist must stay removed');
+assert.match(app, /GeekPlatformFamilyRegistry\.create\(\)/, 'renderer must consume a generic family registry');
+assert.match(app, /platformFamilyRegistry\.replace\(platforms\)/, 'renderer family registry must hydrate from platforms:list before accounts load');
+assert.doesNotMatch(app, /const PLATFORM_FAMILIES = \[/, 'renderer must not own a duplicate type-to-family catalog');
+assert.doesNotMatch(app, /const PLATFORM_GROUPS = \[/, 'add-platform grouping must not own a second platform catalog');
+assert.doesNotMatch(rendererFamilies, /whatsapp|telegram|line-business/i, 'generic renderer family registry must not hardcode current platforms');
 
 // Scan every production CommonJS module so a later refactor cannot hide a second catalog elsewhere.
 const srcDir = path.join(root, 'src');

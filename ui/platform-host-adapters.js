@@ -22,6 +22,23 @@
     })()`,
   });
 
+  const BUILTIN_FAMILIES = new Set(['telegram', 'line', 'whatsapp']);
+  const extensionFactories = new Map();
+
+  function normalizeFamily(value) {
+    const family = String(value || '').trim();
+    if (!family) throw new TypeError('platform host adapter family is required');
+    return family;
+  }
+
+  function registerExtension(family, factory) {
+    const key = normalizeFamily(family);
+    if (typeof factory !== 'function') throw new TypeError('platform host adapter registration is invalid');
+    if (BUILTIN_FAMILIES.has(key) || extensionFactories.has(key)) {
+      throw new Error('platform host adapter already registered: ' + key);
+    }
+    extensionFactories.set(key, factory);
+  }
   function create(options = {}) {
     const api = options.api;
     const bridgeTokenFor = options.bridgeTokenFor;
@@ -45,6 +62,7 @@
       || typeof whatsapp.sendText !== 'function') {
       throw new TypeError('platform host adapters require WhatsApp capability');
     }
+    const services = Object.freeze({ api, bridgeTokenFor, sleep, sameChat, telegramBroadcastRoute, whatsapp });
 
     const factories = new Map();
 
@@ -255,9 +273,11 @@
       },
     }));
 
-    function register(family, factory) {
-      const key = String(family || '').trim();
-      if (!key || typeof factory !== 'function') throw new TypeError('platform host adapter registration is invalid');
+    for (const [family, factory] of extensionFactories) factories.set(family, factory);
+
+    function registerRuntime(family, factory) {
+      const key = normalizeFamily(family);
+      if (typeof factory !== 'function') throw new TypeError('platform host adapter registration is invalid');
       if (factories.has(key)) throw new Error('platform host adapter already registered: ' + key);
       factories.set(key, factory);
     }
@@ -266,7 +286,7 @@
       if (!account || !webview || !transport) throw new TypeError('platform host adapter input is incomplete');
       const factory = factories.get(String(family || ''));
       if (!factory) throw new Error('platform host adapter unavailable: ' + family);
-      const mechanics = factory({ account, webview, family, transport });
+      const mechanics = factory({ account, webview, family, transport, services });
       let adapter = null;
       adapter = Object.freeze({
         family,
@@ -303,12 +323,13 @@
       build,
       hasFamily: family => factories.has(String(family || '')),
       families: () => Object.freeze(Array.from(factories.keys())),
-      register,
+      register: registerRuntime,
     });
   }
 
   window.GeekPlatformHostAdapters = Object.freeze({
     create,
+    register: registerExtension,
     currentChatScripts,
   });
 })();

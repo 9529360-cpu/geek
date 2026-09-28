@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-const ui = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
-const adaptersStart = ui.indexOf('const PLATFORM_CAPABILITY_DEFINITIONS = {');
+const ui = fs.readFileSync(path.join(root, 'ui', 'platform-transport-definitions.js'), 'utf8').replace(/\r\n?/g, '\n');
+const adaptersStart = ui.indexOf('const BUILTIN_DEFINITIONS = {');
 const lineStart = ui.indexOf('    line: {', adaptersStart);
 const sendStart = ui.indexOf('      send: `(async () => {', lineStart);
 const sendEnd = ui.indexOf('      })()`,', sendStart);

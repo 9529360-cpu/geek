@@ -12,12 +12,22 @@ vm.createContext(context);
 vm.runInContext(source, context, { filename: 'platform-host-adapters.js' });
 
 assert.equal(typeof context.window.GeekPlatformHostAdapters?.create, 'function');
+assert.equal(typeof context.window.GeekPlatformHostAdapters?.register, 'function');
 assert.deepEqual(
   Object.keys(context.window.GeekPlatformHostAdapters.currentChatScripts).sort(),
   ['line', 'telegram', 'whatsapp'],
 );
 
 (async () => {
+const preloadFactory = ({ webview, transport }) => ({
+  async getCurrentChat() { return 'preload-1'; },
+  async getComposerText() { return 'preload-text'; },
+  async clearComposerText() { return true; },
+  async setComposerText(text) { return webview.executeJavaScript(transport.setMessage(text)); },
+  async sendText(text) { return webview.executeJavaScript(transport.send(text)); },
+});
+context.window.GeekPlatformHostAdapters.register('preload-chat', preloadFactory);
+assert.throws(() => context.window.GeekPlatformHostAdapters.register('whatsapp', preloadFactory), /already registered/);
 const inputCalls = [];
 const whatsappCalls = [];
 const api = {
@@ -40,7 +50,7 @@ const registry = context.window.GeekPlatformHostAdapters.create({
   },
 });
 
-assert.deepEqual(Array.from(registry.families()).sort(), ['line', 'telegram', 'whatsapp']);
+assert.deepEqual(Array.from(registry.families()).sort(), ['line', 'preload-chat', 'telegram', 'whatsapp']);
 assert.equal(registry.hasFamily('telegram'), true);
 assert.equal(registry.hasFamily('future-chat'), false);
 
@@ -99,6 +109,14 @@ assert.equal(
 );
 assert.deepEqual(whatsappCalls, ['get', 'clear', ['set', 'wa-next'], ['send', 'wa-next']]);
 
+const preload = registry.build({
+  account: { id: 'preload-1' },
+  webview: makeWebview(),
+  family: 'preload-chat',
+  definition: transport,
+});
+assert.equal(await preload.getCurrentChat(), 'preload-1');
+assert.equal(await preload.setComposerText('hello'), 'SET_OK');
 registry.register('future-chat', ({ webview: futureWebview, transport: futureTransport }) => ({
   async getCurrentChat() { return 'future-1'; },
   async getComposerText() { return 'future-text'; },
@@ -125,6 +143,8 @@ assert.throws(
 assert.match(source, /factories\.set\('telegram'/);
 assert.match(source, /factories\.set\('line'/);
 assert.match(source, /factories\.set\('whatsapp'/);
+assert.match(source, /extensionFactories/);
+assert.match(source, /register:\s*registerExtension/);
 assert.match(source, /webviewInput\.commitSubmit/);
 assert.match(source, /data-mid.*aria-current="true"/);
 assert.doesNotMatch(source, /sendInputEvent\(/, 'renderer platform adapters must not bypass the main-process native-input owner');

@@ -9,7 +9,10 @@
     const buildAdapter = options.buildAdapter;
 
     if (typeof familyOf !== 'function') throw new TypeError('platform capability family resolver is required');
-    if (!definitions || typeof definitions !== 'object') throw new TypeError('platform capability definitions are required');
+    const resolveDefinition = typeof definitions?.definitionFor === 'function'
+      ? family => definitions.definitionFor({ family })
+      : family => family === 'telegram' ? definitions?.['telegram-z'] : definitions?.[family];
+    if (!definitions || (typeof definitions !== 'object' && typeof definitions !== 'function')) throw new TypeError('platform capability definitions are required');
     if (!contract || typeof contract.validate !== 'function' || !Array.isArray(contract.hostRequired)) {
       throw new TypeError('platform capability contract is required');
     }
@@ -19,7 +22,7 @@
       if (!account || !webview) throw new Error("平台账号不可用");
       if (account.type === 'website') throw new Error("自定义网站暂不支持 Geek 平台增强功能");
       const family = familyOf(account.type).key;
-      const definition = family === 'telegram' ? definitions['telegram-z'] : definitions[family];
+      const definition = resolveDefinition(family);
       if (!definition) throw new Error("平台不支持群发：" + family);
 
       const adapter = buildAdapter({ account, webview, family, definition });
