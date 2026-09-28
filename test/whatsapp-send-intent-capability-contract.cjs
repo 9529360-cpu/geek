@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const capability = require('D:/远程工作区/geek-veteran-acceptance-20260925/ui/whatsapp-send-intent-capability.js');
+const capability = require('../ui/whatsapp-send-intent-capability.js');
 
 function makeWebview({ advance = true } = {}) {
   const calls = [];
