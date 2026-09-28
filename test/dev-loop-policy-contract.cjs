@@ -81,6 +81,11 @@ const controlPlan = planDevChanges(['src/dev-loop-control.cjs']);
 assert.equal(controlPlan.runtimeAction, DEV_ACTION.RESTART_ELECTRON);
 assert.equal(controlPlan.requiresLoopRestart, true);
 
+const watchStatePlan = planDevChanges(['scripts/dev-loop-watch-state.cjs']);
+assert.equal(watchStatePlan.runtimeAction, DEV_ACTION.IGNORE);
+assert.equal(watchStatePlan.requiresLoopRestart, true);
+assert.deepEqual(watchStatePlan.feedbackSyntaxFiles, ['scripts/dev-loop-watch-state.cjs']);
+
 const recoveryPlan = planDevChanges(['scripts/dev-loop-recovery.cjs']);
 assert.equal(recoveryPlan.runtimeAction, DEV_ACTION.IGNORE);
 assert.equal(recoveryPlan.requiresLoopRestart, true);

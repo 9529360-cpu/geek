@@ -1,60 +1,93 @@
-// CDP eval helper: node cdp-eval.js <title-substring> <js-file-or-'-'>
-// 连接 9344 端口的某个 target，在页面执行 JS，打印返回值
-const http = require('http');
+'use strict';
+
+const fs = require('node:fs');
+const http = require('node:http');
+
+const ALLOWED_TARGET_TYPES = new Set(['page', 'webview']);
 
 function getJson(url) {
   return new Promise((resolve, reject) => {
     http.get(url, (res) => {
-      let d = '';
-      res.on('data', (c) => (d += c));
-      res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } });
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); } catch (error) { reject(error); }
+      });
     }).on('error', reject);
   });
 }
 
-async function main() {
-  const [titleSub, jsFile] = process.argv.slice(2);
-  if (!titleSub || !jsFile) { console.error('usage: node cdp-eval.js <title-sub> <jsfile|->'); process.exit(1); }
-  const targets = await getJson('http://127.0.0.1:9344/json');
-  const t = targets.find(x => (x.title || '').includes(titleSub) && x.type === 'page');
-  if (!t) { console.error('NO_TARGET for: ' + titleSub); process.exit(2); }
-  const code = jsFile === '-' ? require('fs').readFileSync(0, 'utf8') : require('fs').readFileSync(jsFile, 'utf8');
+function parseTargetType(value) {
+  const type = String(value || 'page').toLowerCase();
+  if (!ALLOWED_TARGET_TYPES.has(type)) throw new Error('TARGET_TYPE_INVALID');
+  return type;
+}
 
-  const WebSocket = globalThis.WebSocket;
-  const ws = new WebSocket(t.webSocketDebuggerUrl);
+function selectTarget(targets, titleSub, targetType = 'page') {
+  const type = parseTargetType(targetType);
+  return (Array.isArray(targets) ? targets : []).find(
+    target => target?.type === type && String(target.title || '').includes(String(titleSub || '')),
+  ) || null;
+}
+
+async function main(argv = process.argv.slice(2)) {
+  const [titleSub, jsFile, rawTargetType] = argv;
+  if (!titleSub || !jsFile) {
+    console.error('usage: node cdp-eval.cjs <title-sub> <jsfile|-> [page|webview]');
+    process.exit(1);
+  }
+  const targetType = parseTargetType(rawTargetType);
+  const targets = await getJson('http://127.0.0.1:9344/json');
+  const target = selectTarget(targets, titleSub, targetType);
+  if (!target) {
+    console.error('NO_TARGET for: ' + titleSub + ' type=' + targetType);
+    process.exit(2);
+  }
+  const code = jsFile === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(jsFile, 'utf8');
+
+  const WebSocketCtor = globalThis.WebSocket;
+  const ws = new WebSocketCtor(target.webSocketDebuggerUrl);
   let id = 0;
   const pending = new Map();
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.id && pending.has(msg.id)) {
-      const { resolve, reject } = pending.get(msg.id);
-      pending.delete(msg.id);
-      msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result);
+  ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.id && pending.has(message.id)) {
+      const entry = pending.get(message.id);
+      pending.delete(message.id);
+      message.error ? entry.reject(new Error(JSON.stringify(message.error))) : entry.resolve(message.result);
     }
   };
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
   function send(method, params = {}) {
     return new Promise((resolve, reject) => {
-      const mid = ++id;
-      pending.set(mid, { resolve, reject });
-      ws.send(JSON.stringify({ id: mid, method, params }));
+      const messageId = ++id;
+      pending.set(messageId, { resolve, reject });
+      ws.send(JSON.stringify({ id: messageId, method, params }));
     });
   }
   await send('Runtime.enable');
-  const r = await send('Runtime.evaluate', {
+  const response = await send('Runtime.evaluate', {
     expression: code,
     awaitPromise: true,
     returnByValue: true,
     userGesture: true,
   });
-  if (r.exceptionDetails) {
-    console.error('EXCEPTION:', JSON.stringify(r.exceptionDetails.exception?.description || r.exceptionDetails.text));
+  if (response.exceptionDetails) {
+    console.error('EXCEPTION:', JSON.stringify(response.exceptionDetails.exception?.description || response.exceptionDetails.text));
     process.exit(3);
   }
-  const v = r.result && r.result.value;
-  console.log(typeof v === 'string' ? v : JSON.stringify(v, null, 2));
+  const value = response.result && response.result.value;
+  console.log(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   ws.close();
-  process.exit(0);
 }
 
-main().catch((e) => { console.error('FATAL', e.message); process.exit(4); });
+if (require.main === module) {
+  main().catch(error => { console.error('FATAL', error.message); process.exit(4); });
+}
+
+module.exports = {
+  ALLOWED_TARGET_TYPES,
+  parseTargetType,
+  selectTarget,
+  main,
+};

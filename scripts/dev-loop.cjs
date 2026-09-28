@@ -17,6 +17,7 @@ const {
   waitForChildExit,
 } = require('./dev-loop-process.cjs');
 const { createRecoveryTracker } = require('./dev-loop-recovery.cjs');
+const { createWatchSnapshot } = require('./dev-loop-watch-state.cjs');
 const { createWorkerBundleFeedback } = require('./dev-worker-feedback.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -56,6 +57,10 @@ let actionQueue = Promise.resolve();
 const pendingChanges = new Set();
 const watchers = [];
 const rootFileSignatures = new Map();
+const watchSnapshot = createWatchSnapshot({ root: ROOT });
+const pendingWatchRoots = new Set();
+let watchScanTimer = null;
+const WATCH_SCAN_DEBOUNCE_MS = 80;
 
 function log(message) {
   process.stdout.write(`[dev] ${message}\n`);
@@ -373,11 +378,27 @@ function queueChange(relativePath) {
   debounceTimer = setTimeout(flushPendingChanges, DEBOUNCE_MS);
 }
 
+function flushWatchRootScans() {
+  watchScanTimer = null;
+  const roots = Array.from(pendingWatchRoots);
+  pendingWatchRoots.clear();
+  for (const name of roots) {
+    for (const changedPath of watchSnapshot.diff(name)) queueChange(changedPath);
+  }
+}
+
+function scheduleWatchRootScan(name) {
+  if (!name || shuttingDown) return;
+  pendingWatchRoots.add(name);
+  if (watchScanTimer) clearTimeout(watchScanTimer);
+  watchScanTimer = setTimeout(flushWatchRootScans, WATCH_SCAN_DEBOUNCE_MS);
+}
+
 function watchDirectory(name) {
   const directory = path.join(ROOT, name);
-  const watcher = fs.watch(directory, { recursive: true }, (_eventType, filename) => {
-    const changedPath = filename ? path.join(directory, String(filename)) : directory;
-    queueChange(relativeFromRoot(changedPath));
+  watchSnapshot.prime(name);
+  const watcher = fs.watch(directory, { recursive: true }, () => {
+    scheduleWatchRootScan(name);
   });
   watcher.on('error', (error) => {
     warn(`Watcher failed for ${name}: ${error.message}`);
@@ -409,6 +430,9 @@ async function shutdown(exitCode = 0) {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = null;
   pendingChanges.clear();
+  pendingWatchRoots.clear();
+  if (watchScanTimer) clearTimeout(watchScanTimer);
+  watchScanTimer = null;
   clearRecoveryTimer();
   for (const watcher of watchers.splice(0)) watcher.close();
   await workerBundleFeedback.stop();
