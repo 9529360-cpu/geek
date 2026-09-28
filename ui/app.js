@@ -1666,183 +1666,20 @@
       })()`,
     },
   };
-  function buildPlatformAdapter({ account, webview: wv, family, definition: transport }) {
-    const currentChatScripts = {
-      whatsapp: `(() => { try { return window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || null; } catch { return null; } })()`,
-      telegram: `(() => String(location.hash || '').replace(/^#/, '').split('?')[0] || null)()`,
-      line: `(() => {
-        try {
-          const selected = document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]');
-          const selectedId = String(selected?.getAttribute('data-mid') || '');
-          if (selectedId) return selectedId;
-          const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];
-          const match = pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
-          return match ? decodeURIComponent(match[1]) : null;
-        } catch { return null; }
-      })()`,
-    };
-    const adapter = Object.freeze({
-      family, accountId: account.id, transport,
-      async getCurrentChat() { const id = await wv.executeJavaScript(currentChatScripts[family] || 'null'); return id ? String(id) : null; },
-      async listChats() { const result = await wv.executeJavaScript(transport.getChats); const text = String(result || '[]'); if (text.startsWith('ERR:')) throw new Error(text.slice(4)); return JSON.parse(text); },
-      async openChat(chatId) {
-        const clicked = await wv.executeJavaScript(transport.switchChat(chatId));
-        if (clicked === true) {
-          for (let attempt = 0; attempt < 40; attempt++) {
-            const current = await wv.executeJavaScript(currentChatScripts[family] || 'null');
-            if (window.GeekBroadcastSafety.sameChat(current, chatId)) return true;
-            await sleep(250);
-          }
-        }
-        if (family === 'telegram' && typeof window.GeekTelegramBroadcastRoute?.openVirtualizedTarget === 'function') {
-          return window.GeekTelegramBroadcastRoute.openVirtualizedTarget(adapter, wv, chatId);
-        }
-        return false;
-      },
-      async getComposerText() {
-        if (family === 'telegram') return wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText || ''`);
-        if (family === 'line') return wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value || ''`);
-        if (family === 'whatsapp') return window.GeekWhatsAppSendIntentCapability.getComposerText(wv);
-        return '';
-      },
-      async clearComposerText() {
-        if (family === 'telegram') return wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; editor.focus(); document.execCommand('selectAll',false,null); document.execCommand('delete',false,null); return !(editor.innerText||'').trim(); })()`);
-        if (family === 'line') return wv.executeJavaScript(`(() => { const host=document.querySelector('textarea-ex'); const textarea=host?.shadowRoot?.querySelector('textarea'); if(!host||!textarea||typeof host.insertValue!=='function')return false; textarea.focus(); textarea.select(); host.insertValue([]); return !(textarea.value||'').trim(); })()`);
-        if (family === 'whatsapp') return window.GeekWhatsAppSendIntentCapability.clearComposerText(wv);
-        return true;
-      },
-      async setComposerText(text, mutation = {}) {
-        if (family === 'telegram') {
-          const focused = await wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; window.__geekTelegramNativeInputCommit=true; editor.setAttribute('contenteditable','true'); editor.focus(); const selection=getSelection(),range=document.createRange(); range.selectNodeContents(editor); selection.removeAllRanges(); selection.addRange(range); return true; })()`);
-          if (!focused) return 'NO_EDITOR';
-          try {
-            await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv), String(mutation.expectedConversationId || ''));
-            await sleep(50);
-            const actual = await wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText?.trim() || ''`);
-            return actual === String(text).trim() ? 'OK' : 'EMPTY';
-          } finally {
-            try { await wv.executeJavaScript(`window.__geekTelegramNativeInputCommit=false`); } catch {}
-          }
-        }
-        if (family === 'line') {
-          const focused = await wv.executeJavaScript(`(() => { const textarea=document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea'); if(!textarea)return false; textarea.focus(); textarea.select(); return true; })()`);
-          if (!focused) return 'NO_EDITOR';
-          await window.api.webviewInput.insertText(account.id, wv.getWebContentsId(), String(text), bridgeTokenFor(wv), String(mutation.expectedConversationId || ''));
-          await sleep(50);
-          const actual = await wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value?.trim() || ''`);
-          return actual === String(text).trim() ? 'OK' : 'EMPTY';
-        }
-        if (family === 'whatsapp' && mutation.expectedConversationId) return window.GeekWhatsAppSendIntentCapability.setComposerText({ account, wv, text, mutation, bridgeToken: bridgeTokenFor(wv), sleep });
-        const script = typeof transport.setMessage === 'function' ? transport.setMessage(text) : transport.setMessage;
-        return wv.executeJavaScript(script);
-      },
-      async sendText(text = '', commit = {}) {
-        if (family === 'telegram') {
-          const expected = {
-            conversationId: String(commit.expectedConversationId || ''),
-            composerText: String(commit.expectedComposerText || ''),
-          };
-          const baseline = await wv.executeJavaScript(`(() => {
-            const expected=${JSON.stringify({ conversationId: String(commit.expectedConversationId || ''), composerText: String(commit.expectedComposerText || '') })};
-            const chat=String(location.hash||'').replace(/^#/, '').split('?')[0];
-            const norm=value=>String(value||'').replace(/\\n[\\t ]*\\n+/g,'\\n').trim();
-            if(!expected.conversationId||chat!==expected.conversationId)return {status:'STALE_CONTEXT',count:0};
-            const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
-            if(!editor||norm(editor.innerText)!==norm(expected.composerText))return {status:'COMPOSER_MISMATCH',count:0};
-            const count=document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length;
-            return {status:'READY',count};
-          })()`);
-          if (!baseline || baseline.status !== 'READY') return String(baseline?.status || 'COMMIT_NOT_READY');
-          const submitted = await window.api.webviewInput.commitSubmit(
-            account.id,
-            wv.getWebContentsId(),
-            expected.conversationId,
-            expected.composerText,
-            bridgeTokenFor(wv),
-          );
-          if (submitted !== 'SUBMITTED') return String(submitted || 'MAYBE');
-          for (let i = 0; i < 60; i++) {
-            await sleep(250);
-            const state = await wv.executeJavaScript(`(() => {
-              const expectedChat=${JSON.stringify(String(commit.expectedConversationId || ''))};
-              const chat=String(location.hash||'').replace(/^#/, '').split('?')[0];
-              if(chat!==expectedChat)return {status:'STALE_CONTEXT',count:0,empty:false};
-              const editor=document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
-              const count=document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length;
-              return {status:'OK',count,empty:!String(editor?.innerText||'').trim()};
-            })()`);
-            if (state?.status === 'STALE_CONTEXT') return 'STALE_CONTEXT';
-            if (state?.count > baseline.count && state?.empty === true) return 'SENT';
-          }
-          return 'MAYBE';
-        }
-        if (family === 'whatsapp' && commit.expectedConversationId && commit.expectedComposerText) return window.GeekWhatsAppSendIntentCapability.sendText({ account, wv, commit, bridgeToken: bridgeTokenFor(wv), sleep });
-        if (family === 'line' && commit.expectedConversationId && commit.expectedComposerText) {
-          const expected = {
-            conversationId: String(commit.expectedConversationId || ''),
-            composerText: String(commit.expectedComposerText || ''),
-          };
-          const baseline = await wv.executeJavaScript(`(() => {
-            const expected=${JSON.stringify({ conversationId: String(commit.expectedConversationId || ''), composerText: String(commit.expectedComposerText || '') })};
-            const norm=value=>String(value||'').replace(/\\n[\\t ]*\\n+/g,'\\n').trim();
-            let currentChat=String(document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]')?.getAttribute('data-mid')||'');
-            if(!currentChat){
-              try {
-                const pathname=String(location.hash||'').replace(/^#/,'').split('?')[0];
-                const match=pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
-                currentChat=match?decodeURIComponent(match[1]):'';
-              } catch {}
-            }
-            if(!expected.conversationId||currentChat!==expected.conversationId)return {status:'STALE_CONTEXT',count:0};
-            const host=document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
-            const value=(Array.isArray(host?.value)?host.value:[host?.value]).filter(v=>typeof v==='string').join('');
-            if(!host||norm(value)!==norm(expected.composerText))return {status:'COMPOSER_MISMATCH',count:0};
-            return {status:'READY',count:document.querySelectorAll('[class*="message-module__message__"][data-mid]').length};
-          })()`);
-          if (!baseline || baseline.status !== 'READY') return String(baseline?.status || 'COMMIT_NOT_READY');
-          const submitted = await window.api.webviewInput.commitSubmit(
-            account.id,
-            wv.getWebContentsId(),
-            expected.conversationId,
-            expected.composerText,
-            bridgeTokenFor(wv),
-          );
-          if (submitted !== 'SUBMITTED') return String(submitted || 'MAYBE');
-          for (let i = 0; i < 60; i++) {
-            await sleep(250);
-            const state = await wv.executeJavaScript(`(() => {
-              const expectedChat=${JSON.stringify(String(commit.expectedConversationId || ''))};
-              let currentChat=String(document.querySelector('[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]')?.getAttribute('data-mid')||'');
-              if(!currentChat){
-                try {
-                  const pathname=String(location.hash||'').replace(/^#/,'').split('?')[0];
-                  const match=pathname.match(/^\\/[^/]+\\/([^/]+)\\/?$/);
-                  currentChat=match?decodeURIComponent(match[1]):'';
-                } catch {}
-              }
-              if(currentChat!==expectedChat)return {status:'STALE_CONTEXT',count:0,empty:false};
-              const host=document.querySelector('textarea-ex[class*="chatroomEditor-module__textarea__"]');
-              const value=(Array.isArray(host?.value)?host.value:[host?.value]).filter(v=>typeof v==='string').join('').trim();
-              const count=document.querySelectorAll('[class*="message-module__message__"][data-mid]').length;
-              return {status:'OK',count,empty:!value};
-            })()`);
-            if (state?.status === 'STALE_CONTEXT') return 'STALE_CONTEXT';
-            if (state?.count > baseline.count && state?.empty === true) return 'SENT';
-          }
-          return 'MAYBE';
-        }
-        const script = typeof transport.send === 'function' ? transport.send(text) : transport.send;
-        return wv.executeJavaScript(script);
-      },
-    });
-    return adapter;
-  }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const platformHostAdapters = window.GeekPlatformHostAdapters.create({
+    api: window.api,
+    bridgeTokenFor,
+    sleep,
+    sameChat: window.GeekBroadcastSafety.sameChat,
+    telegramBroadcastRoute: () => window.GeekTelegramBroadcastRoute,
+    whatsapp: window.GeekWhatsAppSendIntentCapability,
+  });
   const platformCapabilities = window.GeekPlatformCapabilities.create({
     familyOf,
     definitions: PLATFORM_CAPABILITY_DEFINITIONS,
     contract: window.GeekPlatformAdapterContract,
-    buildAdapter: buildPlatformAdapter,
+    buildAdapter: platformHostAdapters.build,
   });
   function platformTransportFor(account, wv) {
     return platformCapabilities.forAccount(account, wv);

@@ -11,6 +11,7 @@ const rootDir = path.resolve(__dirname, '..');
 const adapterSource = fs.readFileSync(path.join(rootDir, 'ui', 'translation-adapters.js'), 'utf8');
 const webviewIpcSource = fs.readFileSync(path.join(rootDir, 'src', 'webview-ipc.cjs'), 'utf8');
 const appSource = fs.readFileSync(path.join(rootDir, 'ui', 'app.js'), 'utf8');
+const hostAdapterSource = fs.readFileSync(path.join(rootDir, 'ui', 'platform-host-adapters.js'), 'utf8');
 
 function deferred() {
   let resolve;
@@ -394,20 +395,20 @@ async function verifyNativeInputOwnerUsesRequestScopedLease() {
   const lineSource = adapterSource.slice(lineStart);
   assert.doesNotMatch(telegramSource, /GEEK_NATIVE_INPUT_V1|nativeInsertText|__geekNativeInputPending|submitButton\.click\(\)/, 'Telegram must not retain the retired guest native-input/synthetic-submit path');
   assert.match(telegramSource, /SEND_INTENT_OWNER_REQUIRED/, 'Telegram must fail closed when SendIntent ownership is missing');
-  assert.match(appSource, /webviewInput\.commitSubmit\([\s\S]{0,240}expected\.conversationId[\s\S]{0,180}expected\.composerText/, 'Telegram final commit must remain owned by the host WebView IPC boundary');
+  assert.match(hostAdapterSource, /webviewInput\.commitSubmit\([\s\S]{0,240}expected\.conversationId[\s\S]{0,180}expected\.composerText/, 'Telegram final commit must remain owned by the platform host adapter through the WebView IPC boundary');
   assert.doesNotMatch(lineSource, /GEEK_NATIVE_INPUT_V1|nativeInsertText|__geekNativeInputPending|geek-native-input-request/, 'LINE guest must not retain the retired native-fill lease or bridge');
   assert.doesNotMatch(appSource, /processNativeInputRequest|NATIVE_INPUT_REQUEST_PREFIX|geek-native-input-request/, 'host renderer must not retain legacy guest native-input ingress');
   assert.doesNotMatch(lineSource, /document\.execCommand\('selectAll',[\s\S]{0,160}host\.insertValue\(\[result\.text\]\)/, 'LINE SendIntent path must not mutate the custom editor through execCommand + insertValue');
   assert.doesNotMatch(adapterSource, /__geekNativeInputExpectedChatId/, 'chat binding must never live in shared page-global state');
   assert.match(appSource, /conversationId !== guestChatId[\s\S]{0,180}normalize\(sourceSnapshot\) !== normalize\(guestText\)/, 'host SendIntent admission must reject stale LINE chat or composer snapshots');
-  assert.match(appSource, /async setComposerText\(text, mutation = \{\}\)/, 'platform composer mutation must accept SendIntent context');
-  assert.match(appSource, /webviewInput\.insertText\(account\.id, wv\.getWebContentsId\(\), String\(text\), bridgeTokenFor\(wv\), String\(mutation\.expectedConversationId \|\| ''\)\)/, 'composer mutation must forward the SendIntent conversation binding explicitly');
+  assert.match(hostAdapterSource, /async setComposerText\(text, mutation = \{\}\)/, 'platform composer mutation must accept SendIntent context');
+  assert.match(hostAdapterSource, /webviewInput\.insertText\([\s\S]{0,220}account\.id,[\s\S]{0,140}webview\.getWebContentsId\(\)[\s\S]{0,140}String\(mutation\.expectedConversationId \|\| ''\)/, 'composer mutation must forward the SendIntent conversation binding explicitly');
   assert.match(webviewIpcSource, /register\('webview:insert-text', async \(event, accountId, guestId, text, token, expectedChatId = ''\)/, 'main-process input owner must accept the explicit conversation binding');
   assert.match(webviewIpcSource, /focusedComposerScript\(chatId\)/, 'main-process input owner must validate the explicit conversation binding before mutation');
   assert.doesNotMatch(webviewIpcSource, /GEEK_NATIVE_INPUT_V1|decodeNativeInputRequest/, 'main-process input owner must not retain the retired lease envelope');
   assert.match(webviewIpcSource, /CHAT_CHANGED/, 'native input owner must expose a distinct stale-chat rejection');
-  assert.match(appSource, /if \(family === 'line'\)[\s\S]*currentChat!==expected\.conversationId[\s\S]*COMPOSER_MISMATCH/, 'LINE final platform commit must revalidate exact chat and composer before native submit');
-  assert.match(appSource, /if\(currentChat!==expectedChat\)return \{status:'STALE_CONTEXT'/, 'LINE post-commit observation must stop if the chat changes');
+  assert.match(hostAdapterSource, /factories\.set\('line'[\s\S]*currentChat!==expected\.conversationId[\s\S]*COMPOSER_MISMATCH/, 'LINE final platform commit must revalidate exact chat and composer before native submit');
+  assert.match(hostAdapterSource, /if\(currentChat!==expectedChat\)return \{status:'STALE_CONTEXT'/, 'LINE post-commit observation must stop if the chat changes');
 
   await verifyTelegramRequiresSendIntentOwner();
   await verifyTelegramOwnerSuccessHasNoGuestCommit();

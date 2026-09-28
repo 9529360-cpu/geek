@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.join(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
+const hostAdapters = fs.readFileSync(path.join(root, 'ui/platform-host-adapters.js'), 'utf8');
 const preload = fs.readFileSync(path.join(root, 'resources/bridge-preload.cjs'), 'utf8');
 const webview = fs.readFileSync(path.join(root, 'src/webview-ipc.cjs'), 'utf8');
 const mainHelper = fs.readFileSync(path.join(root, 'src/whatsapp-webview-send-intent.cjs'), 'utf8');
@@ -12,7 +13,8 @@ const controller = fs.readFileSync(path.join(root, 'ui/whatsapp-direct-composer-
 
 assert.match(app, /family === 'whatsapp'/);
 assert.match(app, /executePlatformOutgoingSendIntent/);
-assert.match(app, /GeekWhatsAppSendIntentCapability\.sendText/);
+assert.ok(app.includes('whatsapp: window.GeekWhatsAppSendIntentCapability'), 'app composition must inject the WhatsApp family capability into the host adapter registry');
+assert.match(hostAdapters, /factories\.set\('whatsapp'[\s\S]*whatsapp\.sendText/);
 assert.match(app, /sendIntentOwnerHealthy[\s\S]*version \|\| 0\) >= 9[\s\S]*submitThroughOwner/);
 assert.match(app, /data-geek-native-submit-commit[\s\S]*return false/);
 assert.doesNotMatch(app, /const wrappedSendText = function|__geekSendQueue\.then|sendTextMsgToChat = wrappedSendText/);

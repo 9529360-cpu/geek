@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'ui', 'platform-capabilities.js'), 'utf8');
+const hostAdapters = fs.readFileSync(path.join(root, 'ui', 'platform-host-adapters.js'), 'utf8').replace(/\r\n?/g, '\n');
 const app = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8').replace(/\r\n?/g, '\n');
 const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
 const context = { window: {} };
@@ -54,8 +55,14 @@ assert.throws(() => capabilities.forAccount({ id: 'x-1', type: 'future-chat' }, 
 assert.match(app, /const PLATFORM_CAPABILITY_DEFINITIONS = \{/);
 assert.doesNotMatch(app, /const BROADCAST_ADAPTERS = \{/);
 assert.match(app, /window\.GeekPlatformCapabilitiesRuntime = platformCapabilities;/);
+assert.match(app, /const platformHostAdapters = window\.GeekPlatformHostAdapters\.create\(/);
+assert.match(app, /buildAdapter: platformHostAdapters\.build/);
+assert.doesNotMatch(app, /function buildPlatformAdapter|const currentChatScripts = \{/);
+assert.match(hostAdapters, /factories\.set\('telegram'/);
+assert.match(hostAdapters, /factories\.set\('line'/);
+assert.match(hostAdapters, /factories\.set\('whatsapp'/);
 assert.match(app, /window\.GeekPlatformTransports = platformCapabilities;/);
 assert.match(app, /return platformCapabilities\.forAccount\(account, wv\);/);
-assert.match(html, /platform-adapter-contract\.js[\s\S]*platform-capabilities\.js[\s\S]*app\.js/);
+assert.match(html, /platform-adapter-contract\.js[\s\S]*platform-host-adapters\.js[\s\S]*platform-capabilities\.js[\s\S]*app\.js/);
 
 console.log('PLATFORM_CAPABILITIES_CONTRACT_OK');
