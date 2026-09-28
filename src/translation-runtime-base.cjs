@@ -170,6 +170,7 @@ function createTranslationRuntime(options = {}) {
     createGatewayPool,
     assertSafeTranslationOutput,
     assertTrustedSender,
+    assertHealthSender = assertTrustedSender,
     assertValidAccountId,
     getSubscriptionStore,
     fetchImpl = globalThis.fetch,
@@ -186,6 +187,7 @@ function createTranslationRuntime(options = {}) {
   if (typeof createGatewayPool !== 'function') throw new TypeError('createGatewayPool is required');
   if (typeof assertSafeTranslationOutput !== 'function') throw new TypeError('assertSafeTranslationOutput is required');
   if (typeof assertTrustedSender !== 'function') throw new TypeError('assertTrustedSender is required');
+  if (typeof assertHealthSender !== 'function') throw new TypeError('assertHealthSender must be a function');
   if (typeof assertValidAccountId !== 'function') throw new TypeError('assertValidAccountId is required');
   if (typeof getSubscriptionStore !== 'function') throw new TypeError('getSubscriptionStore is required');
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl is required');
@@ -438,7 +440,7 @@ function createTranslationRuntime(options = {}) {
   }
 
   async function health(event) {
-    assertTrustedSender(event);
+    assertHealthSender(event);
     const pool = getGatewayPool();
     const result = await pool.healthCheckAll();
     const endpoints = pool.endpoints;

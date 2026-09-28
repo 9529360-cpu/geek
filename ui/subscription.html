@@ -111,6 +111,16 @@
     }
     .status-pill { display: inline-block; padding: 5px 14px; border-radius: 20px; font-size: 12.5px; background: rgba(22,163,74,0.12); color: var(--accent-2); border: 1px solid rgba(22,163,74,0.3); margin-bottom: 16px; }
     .status-pill.expired { background: rgba(248,113,113,0.1); color: var(--danger); border-color: rgba(248,113,113,0.3); }
+    .service-health {
+      position: absolute; bottom: 42px; left: 48px; right: 48px;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      min-height: 18px; font-size: 11.5px; color: var(--text-dim); text-align: center;
+    }
+    .service-health::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #64748b; box-shadow: 0 0 0 3px rgba(100,116,139,.12); }
+    .service-health[data-state="ok"] { color: #8be9ff; }
+    .service-health[data-state="ok"]::before { background: var(--accent-2); box-shadow: 0 0 0 3px rgba(22,163,74,.12); }
+    .service-health[data-state="error"] { color: #fca5a5; }
+    .service-health[data-state="error"]::before { background: var(--danger); box-shadow: 0 0 0 3px rgba(248,113,113,.12); }
     .footer-note { position: absolute; bottom: 20px; font-size: 11px; color: rgba(138,145,156,0.7); text-align: center; width: calc(100% - 96px); }
     .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -134,7 +144,7 @@
         <div><div class="brand-title">极客</div><div class="brand-sub">多平台多账号聊天客户端</div></div>
       </div>
       <ul class="brand-feats">
-        <li>WhatsApp / Telegram / LINE 多账号</li>
+        <li>WhatsApp / Telegram / LINE / Messenger / Instagram</li>
         <li>消息实时翻译 · 群发 · 群组工具</li>
         <li>沙箱隔离 · 数据独立</li>
         <li>跨设备 · 轻量 · 秒开</li>
@@ -206,6 +216,7 @@
       <div class="switch-row"><a id="home-logout">退出登录</a></div>
     </div>
 
+    <div class="service-health no-drag" id="service-health" role="status" aria-live="polite" aria-atomic="true">翻译线路 · 检测中…</div>
     <div class="footer-note win-drag">极客 · Geek · 专业多平台聊天工具</div>
   </main>
 </div>
@@ -221,6 +232,47 @@
     document.getElementById(id).classList.add('on');
   }
   function err(el, msg) { document.getElementById(el).textContent = msg || ''; }
+  function routeHealthLabel(route, fallbackName) {
+    if (!route || route.configured !== true || route.healthy !== true) return '';
+    const latencyMs = route.latencyMs;
+    const latency = typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? `${Math.round(latencyMs)} ms` : '可达';
+    return `${fallbackName} ${latency}`;
+  }
+  async function refreshServiceHealth() {
+    const node = $('#service-health');
+    if (!node) return null;
+    const health = window.api?.translation?.health;
+    if (typeof health !== 'function') {
+      node.textContent = '翻译线路 · 待检测';
+      node.dataset.state = 'idle';
+      return null;
+    }
+    node.textContent = '翻译线路 · 检测中…';
+    node.dataset.state = 'checking';
+    try {
+      const result = await health();
+      const recommended = result?.recommendedRoute;
+      const primary = routeHealthLabel(result?.routes?.primary, '主线路');
+      const backup = routeHealthLabel(result?.routes?.backup, '备用线路');
+      const preferred = recommended === 'backup' ? backup : (recommended === 'primary' ? primary : '');
+      const label = preferred || primary || backup;
+      if (result?.ok === true && label) {
+        node.textContent = `翻译线路 · ${label}`;
+        node.dataset.state = 'ok';
+      } else if (result?.ok === true) {
+        node.textContent = '翻译线路 · 可达';
+        node.dataset.state = 'ok';
+      } else {
+        node.textContent = '翻译线路 · 暂不可用';
+        node.dataset.state = 'error';
+      }
+      return result;
+    } catch {
+      node.textContent = '翻译线路 · 检测失败';
+      node.dataset.state = 'error';
+      return null;
+    }
+  }
   async function logoutFrom(errorId) {
     if (logoutPending) return;
     logoutPending = true;
@@ -348,6 +400,8 @@
   $('#btn-enter').onclick = () => window.api.subscription.enterApp();
   $('#btn-open-plans').onclick = () => show('view-plans');
   $('#btn-close').onclick = () => window.api.subscription.closeWindow();
+
+  void refreshServiceHealth();
 
   (async () => {
     try {
