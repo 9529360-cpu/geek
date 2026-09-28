@@ -140,6 +140,8 @@ function render(path) {
 <meta name="twitter:description" content="${meta.description}">
 <meta name="twitter:image" content="${SITE_ORIGIN}${OG_IMAGE_PATH}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="mask-icon" href="/favicon.svg" color="#25d366">
+<meta name="apple-mobile-web-app-title" content="Geek">
 <style>${STYLES}</style>
 </head>
 <body>

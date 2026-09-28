@@ -283,7 +283,11 @@ function layout(body, active) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${active === 'home' ? '极客 Geek · 多平台多账号实时翻译客户端' : active === 'login' ? '登录 · 极客 Geek' : '用户后台 · 极客 Geek'}</title>
 <meta name="description" content="极客 Geek —— WhatsApp / Telegram / LINE 多平台多账号聊天客户端，实时翻译、群发、群组工具，出海必备。">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05060a">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="mask-icon" href="/favicon.svg" color="#25d366">
+<meta name="apple-mobile-web-app-title" content="Geek">
 <style>${SHARED_CSS}</style>
 </head>
 <body class="${active === 'account' ? 'account-page' : ''}">
@@ -864,11 +868,21 @@ const ACCOUNT = layout(`
       }
     } catch (e) { er.textContent = '网络错误，请稍后重试'; }
   }
-  // 轮询订单状态：每 5 秒查一次，到账自动更新余额
+  // 轮询订单状态：每 5 秒查一次，到账自动更新余额；最多轮询 20 分钟，避免页面长期挂在后台空耗请求
   let usdtPollTimer = null;
   async function startUsdtPoll(orderId) {
     if (usdtPollTimer) clearInterval(usdtPollTimer);
+    const maxAttempts = 240;
+    let attempts = 0;
     usdtPollTimer = setInterval(async () => {
+      attempts += 1;
+      if (attempts > maxAttempts) {
+        clearInterval(usdtPollTimer);
+        const status = document.getElementById('usdt-status');
+        if (status) status.innerHTML =
+          '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(255,255,255,.06);color:var(--text-dim);border:1px solid var(--card-border)">自动检测已暂停，如已转账请稍后点击“刷新数据”</span>';
+        return;
+      }
       try {
         const { data } = await api('/api/orders');
         const order = (data.orders || []).find(o => o.id === orderId);
