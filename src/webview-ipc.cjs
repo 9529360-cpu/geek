@@ -3,10 +3,12 @@
 const { assertMainFrameIpcSender } = require('./main-frame-ipc-boundary.cjs');
 const whatsappSendIntent = require('./whatsapp-webview-send-intent.cjs');
 const messengerSendIntent = require('./messenger-webview-send-intent.cjs');
+const instagramSendIntent = require('./instagram-webview-send-intent.cjs');
 
 const WEBVIEW_IPC_CHANNELS = Object.freeze([
   'webview:register',
   'webview:insert-text',
+  'webview:clear-text',
   'webview:commit-submit',
 ]);
 
@@ -172,7 +174,8 @@ function installWebviewIpc(options = {}) {
     const allowedPage = (TELEGRAM_TYPES.has(account.type) && TELEGRAM_URL.test(url))
       || ((account.type === 'line' || account.type === 'line-business') && LINE_URL.test(url))
       || (whatsappSendIntent.isWhatsAppType(account.type) && whatsappSendIntent.isWhatsAppUrl(url))
-      || (messengerSendIntent.isMessengerType(account.type) && messengerSendIntent.isMessengerPageUrl(url));
+      || (messengerSendIntent.isMessengerType(account.type) && messengerSendIntent.isMessengerPageUrl(url))
+      || (instagramSendIntent.isInstagramType(account.type) && instagramSendIntent.isInstagramPageUrl(url));
     if (!guest
       || guest === event.sender
       || guest.hostWebContents !== event.sender
@@ -198,7 +201,8 @@ function installWebviewIpc(options = {}) {
     if (!value || value.length > 10000 || chatId.length > 2048) throw new Error('输入文本不合法');
     const guest = resolveLiveGuest(guestId);
     const url = guestUrl(guest);
-    const allowedInputPage = TELEGRAM_URL.test(url) || LINE_URL.test(url) || whatsappSendIntent.isWhatsAppUrl(url) || messengerSendIntent.isMessengerMessagesUrl(url);
+    const allowedInputPage = TELEGRAM_URL.test(url) || LINE_URL.test(url) || whatsappSendIntent.isWhatsAppUrl(url)
+      || messengerSendIntent.isMessengerMessagesUrl(url) || instagramSendIntent.isInstagramDirectUrl(url);
     const ownershipOk = webviewOwnership.authorize({
       guestId,
       accountId,
@@ -219,11 +223,61 @@ function installWebviewIpc(options = {}) {
       ? whatsappSendIntent.focusedComposerScript(chatId)
       : messengerSendIntent.isMessengerMessagesUrl(url)
         ? messengerSendIntent.focusedComposerScript(chatId)
-        : focusedComposerScript(chatId));
+        : instagramSendIntent.isInstagramDirectUrl(url)
+          ? instagramSendIntent.focusedComposerScript(chatId)
+          : focusedComposerScript(chatId));
     if (focusedComposer === 'CHAT_CHANGED') throw new Error('聊天已切换，翻译发送已取消');
     if (!focusedComposer) throw new Error('消息输入框未获得焦点');
     await guest.insertText(value);
     return true;
+  });
+
+  register('webview:clear-text', async (event, accountId, guestId, token, expectedChatId = '') => {
+    const { account, partition } = resolveAccountBinding(accountId, '账号清空页面不可用');
+    const chatId = String(expectedChatId || '');
+    if (!instagramSendIntent.isInstagramType(account.type) || !chatId || chatId.length > 2048) {
+      throw new Error('清空上下文不合法');
+    }
+    const guest = resolveLiveGuest(guestId);
+    const url = guestUrl(guest);
+    const ownershipOk = webviewOwnership.authorize({
+      guestId,
+      accountId,
+      partition,
+      token,
+      senderId: event.sender.id,
+    });
+    if (!guest
+      || guest === event.sender
+      || guest.session !== getSessionForPartition(partition)
+      || !instagramSendIntent.isInstagramDirectUrl(url)
+      || !ownershipOk
+      || typeof guest.executeJavaScript !== 'function'
+      || typeof guest.sendInputEvent !== 'function'
+      || typeof guest.focus !== 'function') {
+      throw new Error('账号清空页面不可用');
+    }
+
+    const prepared = await guest.executeJavaScript(instagramSendIntent.clearComposerGuardScript(chatId));
+    if (prepared !== 'READY') return String(prepared || 'CLEAR_NOT_READY');
+    let keyDownDispatched = false;
+    try {
+      guest.focus();
+      guest.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
+      keyDownDispatched = true;
+      guest.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
+    } catch {
+      return keyDownDispatched ? 'MAYBE' : 'CLEAR_FAILED';
+    }
+    await new Promise(resolve => setTimeout(resolve, 80));
+    try {
+      const empty = await guest.executeJavaScript(instagramSendIntent.composerEmptyScript(chatId));
+      if (empty === 'EMPTY') return 'CLEARED';
+      if (empty === 'CHAT_CHANGED' || empty === 'NO_EDITOR') return empty;
+      return 'CLEAR_FAILED';
+    } catch {
+      return 'CLEAR_FAILED';
+    }
   });
 
   register('webview:commit-submit', async (event, accountId, guestId, expectedChatId, expectedComposerText, token) => {
@@ -234,7 +288,8 @@ function installWebviewIpc(options = {}) {
     const isLine = LINE_TYPES.has(account.type);
     const isWhatsApp = whatsappSendIntent.isWhatsAppType(account.type);
     const isMessenger = messengerSendIntent.isMessengerType(account.type);
-    if ((!isTelegram && !isLine && !isWhatsApp && !isMessenger)
+    const isInstagram = instagramSendIntent.isInstagramType(account.type);
+    if ((!isTelegram && !isLine && !isWhatsApp && !isMessenger && !isInstagram)
       || !chatId || chatId.length > 2048
       || !composerText || composerText.length > 10000) {
       throw new Error('提交上下文不合法');
@@ -244,7 +299,8 @@ function installWebviewIpc(options = {}) {
     const allowedCommitPage = (isTelegram && TELEGRAM_URL.test(url))
       || (isLine && LINE_URL.test(url))
       || (isWhatsApp && whatsappSendIntent.isWhatsAppUrl(url))
-      || (isMessenger && messengerSendIntent.isMessengerMessagesUrl(url));
+      || (isMessenger && messengerSendIntent.isMessengerMessagesUrl(url))
+      || (isInstagram && instagramSendIntent.isInstagramDirectUrl(url));
     const ownershipOk = webviewOwnership.authorize({
       guestId,
       accountId,
@@ -268,7 +324,9 @@ function installWebviewIpc(options = {}) {
         ? whatsappSendIntent.commitGuardScript(chatId, composerText)
         : isMessenger
           ? messengerSendIntent.commitGuardScript(chatId, composerText)
-          : lineCommitGuardScript(chatId, composerText);
+          : isInstagram
+            ? instagramSendIntent.commitGuardScript(chatId, composerText)
+            : lineCommitGuardScript(chatId, composerText);
     const prepared = await guest.executeJavaScript(guardScript);
     if (prepared !== 'READY') return String(prepared || 'COMMIT_NOT_READY');
     let keyDownDispatched = false;

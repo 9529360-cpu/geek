@@ -178,7 +178,7 @@
     const files = document.querySelectorAll('#broadcast-files .bf-item').length;
     const vcards = Array.isArray(window.__vcardContacts) ? window.__vcardContacts.length : 0;
     const text = String(document.getElementById('broadcast-message')?.value || '').trim();
-    const platform = String(account?.type || '').replace('whatsapp-pure', 'WhatsApp').replace('whatsapp', 'WhatsApp').replace('telegram-z', 'Telegram').replace('telegram-k', 'Telegram').replace('line-business', 'LINE').replace('line', 'LINE').replace('messenger', 'Messenger');
+    const platform = String(account?.type || '').replace('whatsapp-pure', 'WhatsApp').replace('whatsapp', 'WhatsApp').replace('telegram-z', 'Telegram').replace('telegram-k', 'Telegram').replace('line-business', 'LINE').replace('line', 'LINE').replace('messenger', 'Messenger').replace('instagram', 'Instagram');
     const values = {
       account: account ? `${account.name || '当前账号'} · ${platform}` : '当前账号',
       audience: count ? `${count} 个对象` : '尚未选择对象',
@@ -306,6 +306,7 @@
     if (type.startsWith('telegram')) return 'Telegram';
     if (type.startsWith('line')) return 'LINE';
     if (type === 'messenger') return 'Messenger';
+    if (type === 'instagram') return 'Instagram';
     if (type === 'website') return 'Website';
     return type || '账号';
   }

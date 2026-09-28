@@ -7,7 +7,8 @@
     whatsapp: new Set(['whatsapp', 'whatsapp-pure']),
     telegram: new Set(['telegram', 'telegram-z', 'telegram-pure', 'telegram-k']),
     line: new Set(['line', 'line-business', 'linebusiness']),
-    messenger: new Set(['messenger'])
+    messenger: new Set(['messenger']),
+    instagram: new Set(['instagram'])
   });
   const VALID_PROVIDERS = new Set(['auto', 'local']);
   const VALID_ROUTES = new Set(['default', 'primary', 'backup']);

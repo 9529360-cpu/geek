@@ -351,6 +351,9 @@
     if (ctx.platform?.family === 'messenger' && (files.length || vcards.length || job.tagAll === true)) {
       return { ok: false, reason: 'MESSENGER_TEXT_ONLY' };
     }
+    if (ctx.platform?.family === 'instagram' && (files.length || vcards.length || job.tagAll === true)) {
+      return { ok: false, reason: 'INSTAGRAM_TEXT_ONLY' };
+    }
     if (adapter.sendDirect) {
       const delivery = window.GeekBroadcastDelivery;
       if (!delivery || typeof delivery.sendDirectBundle !== 'function') return { ok: false, reason: '群发附件发送组件尚未就绪' };
@@ -423,7 +426,9 @@
             continue;
           }
           sent = await ctx.platform.sendText('');
-          if (ctx.platform.family === 'messenger' && sent === 'MAYBE') return { ok: false, reason: 'MAYBE' };
+          if ((ctx.platform.family === 'messenger' || ctx.platform.family === 'instagram') && sent === 'MAYBE') {
+            return { ok: false, reason: 'MAYBE' };
+          }
         if (sent === 'SENT' || sent === 'CLICKED') return { ok: true };
       } catch (error) {
         sent = `ERR:${String(error?.message || error)}`;

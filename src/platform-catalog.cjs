@@ -4,6 +4,7 @@ const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const LINE_EXTENSION_URL = `chrome-extension://${LINE_EXTENSION_ID}/index.html`;
 const WA_WEB_URL = 'https://web.whatsapp.com/';
 const MESSENGER_WEB_URL = 'https://www.facebook.com/messages/';
+const INSTAGRAM_WEB_URL = 'https://www.instagram.com/direct/inbox/';
 
 function freezeConfig(value) {
   const config = { ...value };
@@ -71,6 +72,13 @@ const PLATFORM_CATALOG = Object.freeze({
     navigationKind: 'messenger',
     hostnames: ['www.facebook.com', 'facebook.com'],
   }),
+  instagram: freezeConfig({
+    name: 'Instagram',
+    short: 'IG',
+    url: INSTAGRAM_WEB_URL,
+    navigationKind: 'instagram',
+    hostnames: ['www.instagram.com', 'instagram.com'],
+  }),
   website: freezeConfig({
     name: '自定义网站',
     short: 'WEB',
@@ -88,6 +96,7 @@ module.exports = {
   LINE_EXTENSION_URL,
   WA_WEB_URL,
   MESSENGER_WEB_URL,
+  INSTAGRAM_WEB_URL,
   PLATFORM_CATALOG,
   platformConfig,
 };

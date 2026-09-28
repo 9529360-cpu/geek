@@ -662,6 +662,7 @@ input, select { font-family: inherit; }
 .p-icon-line { background: #06C755; }
 .p-icon-line-business { background: #00B900; }
 .p-icon-messenger { background: #0084ff; }
+.p-icon-instagram { background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045); }
 
 /* ============ 添加账号弹窗 ============ */
 .add-dialog {
