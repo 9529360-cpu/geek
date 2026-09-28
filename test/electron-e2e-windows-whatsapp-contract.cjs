@@ -77,6 +77,7 @@ assert.match(config, /GEEK_USER_DATA_DIR/, 'canonical config must consume the is
 assert.match(config, /path\.basename\(e2eUserDataDir\)\.startsWith\('geek-e2e-'\)/, 'canonical config must fail closed outside geek-e2e-* temp profiles');
 assert.match(config, /appArgs:\s*\[\]/, 'Electron service must preserve the real sandbox');
 assert.doesNotMatch(config, /--no-sandbox|nodeIntegration\s*:\s*true|contextIsolation\s*:\s*false|webSecurity\s*:\s*false/, 'E2E portability must not weaken Electron/WebView security');
+assert.doesNotMatch(config, /whatsapp-live-bootstrap\.e2e\.cjs/, 'default smoke must not duplicate the live WhatsApp bootstrap already owned by the independent Windows gate');
 
 assert.match(whatsappSpec, /WHATSAPP_WEB_ORIGIN.*classifyWhatsAppBootstrap.*whatsapp-bootstrap-oracle\.cjs/, 'live spec must delegate deterministic readiness to the test-only oracle');
 assert.match(whatsappSpec, /LIVE_URL = WHATSAPP_WEB_ORIGIN \+ '\/'/, 'bootstrap integration must stay pinned to current official WhatsApp Web');
