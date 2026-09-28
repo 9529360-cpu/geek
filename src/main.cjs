@@ -949,6 +949,7 @@ function registerIpcHandlers() {
     const { partition, filePath, mime, platform, action, guestId } = payload || {};
     if (!partition || !filePath) throw new Error('参数错误');
     const targetPlatform = platform || 'whatsapp';
+    if (targetPlatform === 'messenger') return 'MESSENGER_ATTACHMENTS_UNSUPPORTED';
     const pos = targetPlatform === 'line' ? { x: 1, y: 1 } : await getDropPos(partition);
     if (externalDebuggingActive) {
       const targets = await externalTargets();

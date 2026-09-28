@@ -3,6 +3,7 @@
 const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
 const LINE_EXTENSION_URL = `chrome-extension://${LINE_EXTENSION_ID}/index.html`;
 const WA_WEB_URL = 'https://web.whatsapp.com/';
+const MESSENGER_WEB_URL = 'https://www.facebook.com/messages/';
 
 function freezeConfig(value) {
   const config = { ...value };
@@ -63,6 +64,13 @@ const PLATFORM_CATALOG = Object.freeze({
     extensionId: LINE_EXTENSION_ID,
     needsExtension: true,
   }),
+  messenger: freezeConfig({
+    name: 'Messenger',
+    short: 'MSG',
+    url: MESSENGER_WEB_URL,
+    navigationKind: 'messenger',
+    hostnames: ['www.facebook.com', 'facebook.com'],
+  }),
   website: freezeConfig({
     name: '自定义网站',
     short: 'WEB',
@@ -79,6 +87,7 @@ module.exports = {
   LINE_EXTENSION_ID,
   LINE_EXTENSION_URL,
   WA_WEB_URL,
+  MESSENGER_WEB_URL,
   PLATFORM_CATALOG,
   platformConfig,
 };

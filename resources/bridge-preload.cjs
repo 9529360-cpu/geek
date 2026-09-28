@@ -79,6 +79,88 @@ createTrustedSubmitObserver({
   sendIconSelector: '[data-icon="send"]',
 });
 
+
+function createMessengerTrustedSubmitObserver() {
+  const composerSelector = '[role="main"] [contenteditable="true"][role="textbox"]';
+  const sendLabel = /(send|发送|傳送|invia|envoyer|senden|enviar|envoie|gönder|wyślij)/i;
+  let composerGeneration = 0;
+  let composerElement = null;
+  let baselineControls = null;
+
+  const isPage = () => {
+    try {
+      const host = String(window.location.hostname || '').toLowerCase();
+      return window.location.protocol === 'https:'
+        && (host === 'facebook.com' || host === 'www.facebook.com')
+        && /^\/messages(?:\/|$)/i.test(String(window.location.pathname || ''));
+    } catch { return false; }
+  };
+  const observeComposer = (element, advance = false) => {
+    if (!element) return composerGeneration;
+    if (composerElement !== element) { composerElement = element; composerGeneration += 1; baselineControls = null; }
+    else if (advance) composerGeneration += 1;
+    return composerGeneration;
+  };
+  const regionFor = editor => editor?.closest?.('[role="region"], form') || null;
+  const controlSignature = button => String(button?.getAttribute?.('aria-label') || '');
+  const snapshotControls = editor => {
+    const region = regionFor(editor);
+    if (!region) return;
+    baselineControls = new Map();
+    region.querySelectorAll?.('button,[role="button"]').forEach(button => baselineControls.set(button, controlSignature(button)));
+  };
+  const visible = element => {
+    try {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    } catch { return true; }
+  };
+  const isSendControl = (target, editor) => {
+    const button = target?.closest?.('button,[role="button"]');
+    const region = regionFor(editor);
+    if (!button || !region || !region.contains(button) || !visible(button) || button.matches?.(':disabled') || button.getAttribute?.('aria-disabled') === 'true') return false;
+    if (sendLabel.test(String(button.getAttribute?.('aria-label') || ''))) return true;
+    if (!(baselineControls instanceof Map)) return false;
+    const changed = [];
+    region.querySelectorAll?.('button,[role="button"]').forEach(candidate => {
+      if (!visible(candidate) || candidate.matches?.(':disabled') || candidate.getAttribute?.('aria-disabled') === 'true') return;
+      if (!baselineControls.has(candidate) || baselineControls.get(candidate) !== controlSignature(candidate)) changed.push(candidate);
+    });
+    return changed.length === 1 && changed[0] === button;
+  };
+  const emitComposer = generation => { try { ipcRenderer.sendToHost(TRUSTED_COMPOSER_CHANNEL, { protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION, platform: 'messenger', composerGeneration: generation }); } catch {} };
+  const emitSubmit = (kind, generation) => { try { ipcRenderer.sendToHost(TRUSTED_SUBMIT_CHANNEL, { protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION, platform: 'messenger', kind, composerGeneration: generation }); } catch {} };
+
+  document.addEventListener('focusin', event => {
+    if (!isPage() || event?.isTrusted !== true) return;
+    const editor = eventElement(event)?.closest(composerSelector);
+    if (!editor) return;
+    const generation = observeComposer(editor, false);
+    snapshotControls(editor);
+    emitComposer(generation);
+  }, true);
+  document.addEventListener('beforeinput', event => {
+    if (document.documentElement?.getAttribute?.(NATIVE_COMMIT_MARKER) === '1' || !isPage() || event?.isTrusted !== true) return;
+    const editor = eventElement(event)?.closest(composerSelector);
+    if (!editor) return;
+    if (!(baselineControls instanceof Map)) snapshotControls(editor);
+    emitComposer(observeComposer(editor, true));
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (document.documentElement?.getAttribute?.(NATIVE_COMMIT_MARKER) === '1' || !isPage() || event?.isTrusted !== true) return;
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || event.repeat) return;
+    const editor = eventElement(event)?.closest(composerSelector);
+    if (editor) emitSubmit('keyboard', observeComposer(editor, false));
+  }, true);
+  document.addEventListener('click', event => {
+    if (document.documentElement?.getAttribute?.(NATIVE_COMMIT_MARKER) === '1' || !isPage() || event?.isTrusted !== true) return;
+    const editor = document.querySelector?.(composerSelector) || composerElement;
+    if (editor && isSendControl(eventElement(event), editor)) emitSubmit('button', observeComposer(editor, false));
+  }, true);
+}
+createMessengerTrustedSubmitObserver();
+
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data = event.data;

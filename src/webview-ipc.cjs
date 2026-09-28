@@ -2,6 +2,7 @@
 
 const { assertMainFrameIpcSender } = require('./main-frame-ipc-boundary.cjs');
 const whatsappSendIntent = require('./whatsapp-webview-send-intent.cjs');
+const messengerSendIntent = require('./messenger-webview-send-intent.cjs');
 
 const WEBVIEW_IPC_CHANNELS = Object.freeze([
   'webview:register',
@@ -170,7 +171,8 @@ function installWebviewIpc(options = {}) {
     const url = guestUrl(guest);
     const allowedPage = (TELEGRAM_TYPES.has(account.type) && TELEGRAM_URL.test(url))
       || ((account.type === 'line' || account.type === 'line-business') && LINE_URL.test(url))
-      || (whatsappSendIntent.isWhatsAppType(account.type) && whatsappSendIntent.isWhatsAppUrl(url));
+      || (whatsappSendIntent.isWhatsAppType(account.type) && whatsappSendIntent.isWhatsAppUrl(url))
+      || (messengerSendIntent.isMessengerType(account.type) && messengerSendIntent.isMessengerPageUrl(url));
     if (!guest
       || guest === event.sender
       || guest.hostWebContents !== event.sender
@@ -196,7 +198,7 @@ function installWebviewIpc(options = {}) {
     if (!value || value.length > 10000 || chatId.length > 2048) throw new Error('输入文本不合法');
     const guest = resolveLiveGuest(guestId);
     const url = guestUrl(guest);
-    const allowedInputPage = TELEGRAM_URL.test(url) || LINE_URL.test(url) || whatsappSendIntent.isWhatsAppUrl(url);
+    const allowedInputPage = TELEGRAM_URL.test(url) || LINE_URL.test(url) || whatsappSendIntent.isWhatsAppUrl(url) || messengerSendIntent.isMessengerMessagesUrl(url);
     const ownershipOk = webviewOwnership.authorize({
       guestId,
       accountId,
@@ -215,7 +217,9 @@ function installWebviewIpc(options = {}) {
     }
     const focusedComposer = await guest.executeJavaScript(whatsappSendIntent.isWhatsAppUrl(url)
       ? whatsappSendIntent.focusedComposerScript(chatId)
-      : focusedComposerScript(chatId));
+      : messengerSendIntent.isMessengerMessagesUrl(url)
+        ? messengerSendIntent.focusedComposerScript(chatId)
+        : focusedComposerScript(chatId));
     if (focusedComposer === 'CHAT_CHANGED') throw new Error('聊天已切换，翻译发送已取消');
     if (!focusedComposer) throw new Error('消息输入框未获得焦点');
     await guest.insertText(value);
@@ -229,7 +233,8 @@ function installWebviewIpc(options = {}) {
     const isTelegram = TELEGRAM_TYPES.has(account.type);
     const isLine = LINE_TYPES.has(account.type);
     const isWhatsApp = whatsappSendIntent.isWhatsAppType(account.type);
-    if ((!isTelegram && !isLine && !isWhatsApp)
+    const isMessenger = messengerSendIntent.isMessengerType(account.type);
+    if ((!isTelegram && !isLine && !isWhatsApp && !isMessenger)
       || !chatId || chatId.length > 2048
       || !composerText || composerText.length > 10000) {
       throw new Error('提交上下文不合法');
@@ -238,7 +243,8 @@ function installWebviewIpc(options = {}) {
     const url = guestUrl(guest);
     const allowedCommitPage = (isTelegram && TELEGRAM_URL.test(url))
       || (isLine && LINE_URL.test(url))
-      || (isWhatsApp && whatsappSendIntent.isWhatsAppUrl(url));
+      || (isWhatsApp && whatsappSendIntent.isWhatsAppUrl(url))
+      || (isMessenger && messengerSendIntent.isMessengerMessagesUrl(url));
     const ownershipOk = webviewOwnership.authorize({
       guestId,
       accountId,
@@ -260,7 +266,9 @@ function installWebviewIpc(options = {}) {
       ? telegramCommitGuardScript(chatId, composerText)
       : isWhatsApp
         ? whatsappSendIntent.commitGuardScript(chatId, composerText)
-        : lineCommitGuardScript(chatId, composerText);
+        : isMessenger
+          ? messengerSendIntent.commitGuardScript(chatId, composerText)
+          : lineCommitGuardScript(chatId, composerText);
     const prepared = await guest.executeJavaScript(guardScript);
     if (prepared !== 'READY') return String(prepared || 'COMMIT_NOT_READY');
     let keyDownDispatched = false;

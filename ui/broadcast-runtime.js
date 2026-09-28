@@ -348,6 +348,9 @@
     const guestId = liveGuestId(ctx);
     let sent = 'NO_SEND';
     let composer = 'NO_SET';
+    if (ctx.platform?.family === 'messenger' && (files.length || vcards.length || job.tagAll === true)) {
+      return { ok: false, reason: 'MESSENGER_TEXT_ONLY' };
+    }
     if (adapter.sendDirect) {
       const delivery = window.GeekBroadcastDelivery;
       if (!delivery || typeof delivery.sendDirectBundle !== 'function') return { ok: false, reason: '群发附件发送组件尚未就绪' };
@@ -420,6 +423,7 @@
             continue;
           }
           sent = await ctx.platform.sendText('');
+          if (ctx.platform.family === 'messenger' && sent === 'MAYBE') return { ok: false, reason: 'MAYBE' };
         if (sent === 'SENT' || sent === 'CLICKED') return { ok: true };
       } catch (error) {
         sent = `ERR:${String(error?.message || error)}`;
