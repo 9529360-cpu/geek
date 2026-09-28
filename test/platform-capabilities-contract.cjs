@@ -5,19 +5,25 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'ui', 'platform-capabilities.js'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'ui', 'platform-capabilities.js'), 'utf8').replace(/\r\n?/g, '\n');
+const definitionsSource = fs.readFileSync(path.join(root, 'ui', 'platform-transport-definitions.js'), 'utf8').replace(/\r\n?/g, '\n');
+const hostAdapters = fs.readFileSync(path.join(root, 'ui', 'platform-host-adapters.js'), 'utf8').replace(/\r\n?/g, '\n');
 const app = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8').replace(/\r\n?/g, '\n');
 const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
 const context = { window: {} };
 vm.createContext(context);
+vm.runInContext(definitionsSource, context, { filename: 'platform-transport-definitions.js' });
 vm.runInContext(source, context, { filename: 'platform-capabilities.js' });
 assert.equal(typeof context.window.GeekPlatformCapabilities?.create, 'function');
 
-const definitions = {
-  whatsapp: { key: 'wa-definition' },
-  'telegram-z': { key: 'tg-definition' },
-  line: { key: 'line-definition' },
-};
+const definitions = context.window.GeekPlatformTransportDefinitions.create();
+definitions.register('future-definition', {
+  getChats: '[]',
+  switchChat: () => 'true',
+  setMessage: text => text,
+  send: text => text,
+}, { family: 'future-chat' });
+
 const built = [];
 const contract = {
   hostRequired: ['getCurrentChat', 'listChats', 'openChat', 'setComposerText', 'sendText'],
@@ -44,18 +50,39 @@ const capabilities = context.window.GeekPlatformCapabilities.create({
 const webview = { id: 'wv' };
 capabilities.forAccount({ id: 'wa-1', type: 'whatsapp' }, webview);
 assert.equal(built[0].family, 'whatsapp');
-assert.equal(built[0].definition, definitions.whatsapp);
+assert.equal(built[0].definition, definitions.definitionFor({ family: 'whatsapp' }));
 assert.equal(built[0].webview, webview);
+
 capabilities.forAccount({ id: 'tg-1', type: 'telegram-k' }, webview);
 assert.equal(built[1].family, 'telegram');
-assert.equal(built[1].definition, definitions['telegram-z']);
+assert.equal(built[1].definition, definitions.definitionFor({ family: 'telegram' }));
+
+capabilities.forAccount({ id: 'future-1', type: 'future-chat' }, webview);
+assert.equal(built[2].family, 'future-chat');
+assert.equal(built[2].definition, definitions.definitionFor({ family: 'future-chat' }));
+
 assert.throws(() => capabilities.forAccount({ id: 'web-1', type: 'website' }, webview));
-assert.throws(() => capabilities.forAccount({ id: 'x-1', type: 'future-chat' }, webview));
-assert.match(app, /const PLATFORM_CAPABILITY_DEFINITIONS = \{/);
+assert.throws(() => capabilities.forAccount({ id: 'x-1', type: 'missing' }, webview));
+
+assert.match(source, /definitions\?\.definitionFor/);
+assert.match(app, /const platformTransportDefinitions = window\.GeekPlatformTransportDefinitions\.create\(\)/);
+assert.match(app, /definitions: platformTransportDefinitions/);
+assert.doesNotMatch(app, /const PLATFORM_CAPABILITY_DEFINITIONS = \{/);
 assert.doesNotMatch(app, /const BROADCAST_ADAPTERS = \{/);
 assert.match(app, /window\.GeekPlatformCapabilitiesRuntime = platformCapabilities;/);
+assert.match(app, /const platformHostAdapters = window\.GeekPlatformHostAdapters\.create\(/);
+assert.match(app, /buildAdapter: platformHostAdapters\.build/);
+assert.match(app, /GeekPlatformTransportDefinitionsRuntime = platformTransportDefinitions/);
+assert.match(app, /GeekPlatformHostAdaptersRuntime = platformHostAdapters/);
+assert.doesNotMatch(app, /function buildPlatformAdapter|const currentChatScripts = \{/);
+assert.match(hostAdapters, /factories\.set\('telegram'/);
+assert.match(hostAdapters, /factories\.set\('line'/);
+assert.match(hostAdapters, /factories\.set\('whatsapp'/);
 assert.match(app, /window\.GeekPlatformTransports = platformCapabilities;/);
 assert.match(app, /return platformCapabilities\.forAccount\(account, wv\);/);
-assert.match(html, /platform-adapter-contract\.js[\s\S]*platform-capabilities\.js[\s\S]*app\.js/);
+assert.match(
+  html,
+  /platform-adapter-contract\.js[\s\S]*platform-transport-definitions\.js[\s\S]*platform-host-adapters\.js[\s\S]*platform-capabilities\.js[\s\S]*app\.js/,
+);
 
 console.log('PLATFORM_CAPABILITIES_CONTRACT_OK');

@@ -11,6 +11,7 @@ const source = fs.readFileSync(routePath, 'utf8');
 const safety = fs.readFileSync(safetyPath, 'utf8');
 const runtime = fs.readFileSync(runtimePath, 'utf8');
 const app = fs.readFileSync(path.join(__dirname, '../ui/app.js'), 'utf8');
+const hostAdapters = fs.readFileSync(path.join(__dirname, '../ui/platform-host-adapters.js'), 'utf8');
 const route = require(routePath);
 
 const sameChat = (a, b) => String(a || '').replace(/^#/, '') === String(b || '').replace(/^#/, '');
@@ -58,10 +59,12 @@ assert.match(runtime,
   'ordinary Telegram broadcasts must preserve the known-good direct platform.openChat path');
 assert.doesNotMatch(runtime, /telegramRouteFallback|openSavedTarget|openTargetChat\(/,
   'dormant saved-target helper must not be called from the ordinary runtime during containment');
-assert.match(app,
-  /const clicked = await wv\.executeJavaScript\(transport\.switchChat\(chatId\)\);\s*if \(clicked === true\) \{[\s\S]*?sameChat\(current, chatId\)[\s\S]*?openVirtualizedTarget\(adapter, wv, chatId\)/,
-  'platform.openChat must preserve the direct fast path and use virtual-list recovery only after it fails');
-assert.doesNotMatch(app, /telegramSavedTarget|savedRecipientTargets|openSavedTarget\(/,
+assert.match(hostAdapters,
+  /const clicked = await webview\.executeJavaScript\(transport\.switchChat\(chatId\)\);\s*if \(clicked === true\) \{[\s\S]*?sameChat\(current, chatId\)[\s\S]*?mechanics\.openFallback\(adapter, chatId\)/,
+  'platform.openChat must preserve the direct fast path and use family fallback only after it fails');
+assert.match(hostAdapters, /openVirtualizedTarget\(adapter, webview, chatId\)/,
+  'Telegram family fallback must retain virtual-list recovery');
+assert.doesNotMatch(hostAdapters, /telegramSavedTarget|savedRecipientTargets|openSavedTarget\(/,
   'platform routing must not branch on saved-tag provenance');
 
 console.log('TELEGRAM_BROADCAST_ROUTE_CONTRACT_OK');

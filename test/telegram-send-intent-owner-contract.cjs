@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8').replace(/\r\n?/g, '\n');
+const hostAdapters = fs.readFileSync(path.join(root, 'ui', 'platform-host-adapters.js'), 'utf8').replace(/\r\n?/g, '\n');
 const adapters = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8').replace(/\r\n?/g, '\n');
 const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
 
@@ -71,22 +72,23 @@ assert.match(
 );
 
 assert.match(
-  app,
+  hostAdapters,
   /window\.__geekTelegramNativeInputCommit=true[\s\S]*webviewInput\.insertText[\s\S]*window\.__geekTelegramNativeInputCommit=false/,
   'host owner composer write must enter and leave the existing Telegram native-input compatibility window',
 );
 assert.match(
-  app,
-  /window\.api\.webviewInput\.commitSubmit\([\s\S]{0,260}expected\.conversationId,[\s\S]{0,180}expected\.composerText/,
+  hostAdapters,
+  /api\.webviewInput\.commitSubmit\([\s\S]{0,260}expected\.conversationId,[\s\S]{0,180}expected\.composerText/,
   'Telegram owner commit must delegate the native Enter to the main-process WebView IPC owner with exact chat/composer binding',
 );
-const ownerSendTextStart = app.indexOf("async sendText(text = '', commit = {})");
-const telegramOwnerEnd = app.indexOf("if (family === 'line' && commit.expectedConversationId", ownerSendTextStart);
-assert.ok(ownerSendTextStart >= 0 && telegramOwnerEnd > ownerSendTextStart);
-const ownerSendTextRegion = app.slice(ownerSendTextStart, telegramOwnerEnd);
-assert.doesNotMatch(ownerSendTextRegion, /button\.click\(\)/, 'SendIntent owner commit must not synthesize a Telegram DOM button click');
-assert.doesNotMatch(ownerSendTextRegion, /sendInputEvent\(/, 'renderer must not bypass the main-process native-input owner');
-assert.match(ownerSendTextRegion, /state\?\.count > baseline\.count && state\?\.empty === true/, 'owner must only confirm sent after a new message appears and the composer clears');
+const telegramHostStart = hostAdapters.indexOf("factories.set('telegram'");
+const telegramHostEnd = hostAdapters.indexOf("factories.set('line'", telegramHostStart);
+assert.ok(telegramHostStart >= 0 && telegramHostEnd > telegramHostStart);
+const telegramHost = hostAdapters.slice(telegramHostStart, telegramHostEnd);
+assert.doesNotMatch(telegramHost, /button\.click\(\)/, 'SendIntent owner commit must not synthesize a Telegram DOM button click');
+assert.doesNotMatch(telegramHost, /sendInputEvent\(/, 'renderer must not bypass the main-process native-input owner');
+assert.match(telegramHost, /state\?\.count > baseline\.count && state\?\.empty === true/, 'owner must only confirm sent after a new message appears and the composer clears');
+
 assert.match(
   adapters,
   /addEventListener\('beforeinput'[\s\S]{0,220}data-geek-native-submit-commit/,

@@ -67,6 +67,7 @@ const PLATFORM_CATALOG = Object.freeze({
     name: '自定义网站',
     short: 'WEB',
     navigationKind: 'website',
+    familyLabel: '网站',
   }),
 });
 

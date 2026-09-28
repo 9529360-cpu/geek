@@ -13,6 +13,7 @@ const preload = read('src/preload.cjs');
 const entry = read('src/main-entry.cjs');
 const navigation = read('src/webview-navigation-boundary.cjs');
 const ui = read('ui/app.js');
+const hostAdapters = read('ui/platform-host-adapters.js');
 
 const channels = ['webview:register', 'webview:insert-text', 'webview:commit-submit'];
 
@@ -59,8 +60,8 @@ assert.match(preload, /register:\s*\(accountId, guestId, token\) => ipcRenderer\
 assert.match(preload, /insertText:\s*\(accountId, guestId, text, token, expectedChatId = ''\) => ipcRenderer\.invoke\('webview:insert-text', accountId, guestId, text, token, expectedChatId\)/, 'preload insert API must carry optional explicit conversation binding');
 assert.match(preload, /commitSubmit:\s*\(accountId, guestId, expectedChatId, expectedComposerText, token\) => ipcRenderer\.invoke\('webview:commit-submit', accountId, guestId, expectedChatId, expectedComposerText, token\)/, 'preload must expose only the bounded native submit commit ingress');
 assert.match(ui, /window\.api\.webviewInput\.register\(account\.id, wv\.getWebContentsId\(\), bridgeTokenFor\(wv\)\)/, 'renderer register call contract must remain unchanged');
-assert.match(ui, /window\.api\.webviewInput\.insertText\(account\.id, wv\.getWebContentsId\(\)/, 'renderer insert call contract must remain unchanged');
-assert.match(ui, /window\.api\.webviewInput\.commitSubmit\([\s\S]{0,220}account\.id,[\s\S]{0,220}wv\.getWebContentsId\(\)/, 'Telegram and LINE SendIntent commits must delegate native submit to the main-process WebView IPC owner');
+assert.match(hostAdapters, /api\.webviewInput\.insertText\([\s\S]{0,220}account\.id,[\s\S]{0,140}webview\.getWebContentsId\(\)/, 'platform host adapters must delegate composer insertion to the main-process WebView IPC owner');
+assert.match(hostAdapters, /api\.webviewInput\.commitSubmit\([\s\S]{0,260}account\.id,[\s\S]{0,180}webview\.getWebContentsId\(\)/, 'Telegram and LINE SendIntent commits must delegate native submit to the main-process WebView IPC owner');
 
 assert.match(entry, /installAccountScopedWebviewNavigationBoundary\(\{/, 'early WebView Navigation authority must remain installed');
 assert.match(navigation, /contents\.on\?\.\('will-navigate'/, 'navigation boundary must retain navigation authority');

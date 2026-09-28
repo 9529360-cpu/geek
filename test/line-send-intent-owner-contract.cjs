@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8').replace(/\r\n?/g, '\n');
+const hostAdapters = fs.readFileSync(path.join(root, 'ui', 'platform-host-adapters.js'), 'utf8').replace(/\r\n?/g, '\n');
 const adapters = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8').replace(/\r\n?/g, '\n');
 const runtime = fs.readFileSync(path.join(root, 'ui', 'trusted-submit-runtime.js'), 'utf8').replace(/\r\n?/g, '\n');
 
@@ -40,27 +41,27 @@ assert.doesNotMatch(ownerRegion, /nativeInsertText|submitButton\.click|insertVal
 assert.match(lineSource, /addEventListener\('keydown'[\s\S]{0,500}submitThroughOwner\(event, host\)/);
 assert.match(lineSource, /addEventListener\('click'[\s\S]{0,500}submitThroughOwner\(event, composerHost\(event\)\)/);
 
-const sendTextStart = app.indexOf("async sendText(text = '', commit = {})");
-const sendTextEnd = app.indexOf('const script = typeof transport.send', sendTextStart);
-assert.ok(sendTextStart >= 0 && sendTextEnd > sendTextStart);
-const sendTextRegion = app.slice(sendTextStart, sendTextEnd);
-assert.match(sendTextRegion, /if \(family === 'line' && commit\.expectedConversationId && commit\.expectedComposerText\)/);
+const lineHostStart = hostAdapters.indexOf("factories.set('line'");
+const lineHostEnd = hostAdapters.indexOf("factories.set('whatsapp'", lineHostStart);
+assert.ok(lineHostStart >= 0 && lineHostEnd > lineHostStart);
+const lineHost = hostAdapters.slice(lineHostStart, lineHostEnd);
+assert.match(lineHost, /commit\.expectedConversationId && commit\.expectedComposerText/);
 assert.match(
-  app,
+  hostAdapters,
   /chatlistItem-module__chatlist_item__[\s\S]{0,140}data-mid[\s\S]{0,140}aria-current="true"/,
   'LINE current chat identity must prefer the selected chat row because modern LINE keeps location.hash at #/chats',
 );
 assert.match(
-  app,
+  hostAdapters,
   /selectedId[\s\S]{0,260}pathname[\s\S]{0,260}match/,
   'LINE current chat identity must retain the legacy hash parser only as a compatibility fallback',
 );
-assert.match(sendTextRegion, /currentChat!==expected\.conversationId/);
-assert.match(sendTextRegion, /norm\([\s\S]*expected\.composerText/);
-assert.match(sendTextRegion, /window\.api\.webviewInput\.commitSubmit\([\s\S]{0,260}account\.id,[\s\S]{0,260}wv\.getWebContentsId\(\)[\s\S]{0,260}expected\.conversationId[\s\S]{0,260}expected\.composerText/, 'LINE final commit must delegate exact chat/composer binding to the main-process WebView input owner');
-assert.doesNotMatch(sendTextRegion, /button\.click\(\)/, 'LINE SendIntent owner must not synthesize a DOM click after migration to native commit');
-assert.match(sendTextRegion, /state\?\.count > baseline\.count && state\?\.empty === true/, 'LINE sent outcome requires both a new message and cleared composer');
-assert.match(sendTextRegion, /return 'MAYBE'/, 'ambiguous LINE commit must remain fail-closed');
+assert.match(lineHost, /currentChat!==expected\.conversationId/);
+assert.match(lineHost, /norm\([\s\S]*expected\.composerText/);
+assert.match(lineHost, /api\.webviewInput\.commitSubmit\([\s\S]{0,260}account\.id,[\s\S]{0,260}webview\.getWebContentsId\(\)[\s\S]{0,260}expected\.conversationId[\s\S]{0,260}expected\.composerText/, 'LINE final commit must delegate exact chat/composer binding to the main-process WebView input owner');
+assert.doesNotMatch(lineHost, /button\.click\(\)/, 'LINE SendIntent owner must not synthesize a DOM click after migration to native commit');
+assert.match(lineHost, /state\?\.count > baseline\.count && state\?\.empty === true/, 'LINE sent outcome requires both a new message and cleared composer');
+assert.match(lineHost, /return 'MAYBE'/, 'ambiguous LINE commit must remain fail-closed');
 
 assert.doesNotMatch(runtime, /binding\.platform !== 'telegram'/, 'trusted submit runtime must be exact-platform generic');
 assert.match(runtime, /!platform \|\| platform !== binding\.platform/);

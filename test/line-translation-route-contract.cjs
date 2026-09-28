@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const adapters = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'ui', 'app.js'), 'utf8');
+const hostAdapters = fs.readFileSync(path.join(root, 'ui', 'platform-host-adapters.js'), 'utf8');
 const webviewIpc = fs.readFileSync(path.join(root, 'src', 'webview-ipc.cjs'), 'utf8');
 const lineBundle = fs.readFileSync(path.join(root, 'resources', 'extensions', 'line-3.5.1', 'static', 'js', 'main.js'), 'utf8');
 
@@ -30,18 +31,18 @@ assert.ok(adapterRoute.includes('const match = pathname.match(/^\\/[^/]+\\/([^/]
 assert.ok(adapterRoute.includes("return match ? decodeURIComponent(match[1]) : '';"), 'legacy hash route remains a compatibility fallback');
 assert.doesNotMatch(adapterRoute, /location\.hash[^\n]*\/chats\//, 'guest must not hard-code the new #/chats shell route as an identity source');
 
-const platformStart = app.indexOf('const currentChatScripts = {');
-const platformEnd = app.indexOf('const adapter = Object.freeze({', platformStart);
-assert.ok(platformStart >= 0 && platformEnd > platformStart, 'LINE platform current-chat owner must exist');
-const platformRoute = app.slice(platformStart, platformEnd);
-assert.ok(platformRoute.includes(currentRowSelector), 'host capability must prefer the same live aria-current row');
+const platformStart = hostAdapters.indexOf('const currentChatScripts =');
+const platformEnd = hostAdapters.indexOf('function create(options = {})', platformStart);
+assert.ok(platformStart >= 0 && platformEnd > platformStart, 'LINE platform current-chat owner must exist in the family adapter registry');
+const platformRoute = hostAdapters.slice(platformStart, platformEnd);
+assert.ok(hostAdapters.includes("const LINE_SELECTED = '" + currentRowSelector + "';"), 'host capability must centralize the live aria-current row selector');
+assert.match(platformRoute, /LINE_SELECTED/, 'host current-chat script must consume the centralized selected-row identity');
 assert.ok(platformRoute.includes("const selectedId = String(selected?.getAttribute('data-mid') || '');"));
 assert.ok(platformRoute.includes('if (selectedId) return selectedId;'));
 assert.ok(platformRoute.includes("const pathname = String(location.hash || '').replace(/^#/, '').split('?')[0];"));
-assert.ok(platformRoute.includes('const match = pathname.match(/^\\\\/[^/]+\\\\/([^/]+)\\\\/?$/);'));
+assert.match(platformRoute, /pathname\.match\(\^?[^;]*\)/, 'legacy hash parser must remain a compatibility fallback');
 assert.ok(platformRoute.includes("return match ? decodeURIComponent(match[1]) : null;"));
 assert.doesNotMatch(platformRoute, /\/chats\//, 'host capability must not treat the shell #/chats route as conversation identity');
-
 const focusedStart = webviewIpc.indexOf('function focusedComposerScript');
 const focusedEnd = webviewIpc.indexOf('function telegramCommitGuardScript', focusedStart);
 assert.ok(focusedStart >= 0 && focusedEnd > focusedStart, 'main-process focused composer owner must exist');

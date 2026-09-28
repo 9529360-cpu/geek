@@ -79,6 +79,8 @@ function installDesktopIpc(options = {}) {
     type,
     name: cfg.name,
     short: cfg.short || type.slice(0, 2).toUpperCase(),
+    family: cfg.navigationKind || type,
+    ...(cfg.familyLabel ? { familyLabel: cfg.familyLabel } : {}),
     needsExtension: !!cfg.needsExtension,
     isWebsite: type === 'website',
   })));
