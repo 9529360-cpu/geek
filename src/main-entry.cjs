@@ -10,12 +10,26 @@ const runtimePaths = require('./runtime-paths.cjs');
 const { prepareUserDataPath } = require('./user-data-path.cjs');
 const { claimDevelopmentProfileWorkspace } = require('./development-profile-workspace.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
+const { assertSafeElectronStartup } = require('./electron-startup-security.cjs');
 const { installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
 const { installSubscriptionWindowNavigationBoundary } = require('./subscription-window-boundary.cjs');
 const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } = require('./webview-navigation-boundary.cjs');
 const { installAccountSessionPermissionBoundary } = require('./session-permission-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
+
+// Never allow launch-time Chromium switches to silently weaken the security model
+// before any local privileged window or remote account content can be created.
+try {
+  assertSafeElectronStartup({
+    argv: process.argv,
+    commandLine: app.commandLine,
+  });
+} catch (error) {
+  const blocked = Array.isArray(error?.switches) ? error.switches.join(',') : 'unknown';
+  console.error('[startup-security] blocked unsafe Electron switches:', blocked);
+  process.exit(1);
+}
 
 // Resolve development/validation identity before any component reads Electron userData.
 const packagedMetadata = require('../package.json');
