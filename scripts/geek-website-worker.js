@@ -138,6 +138,11 @@ const SHARED_CSS = `
   .download p { color: var(--text-dim); font-size: 15px; margin-bottom: 28px; }
   .version-pill { display: inline-flex; gap: 8px; align-items: center; margin-bottom: 20px; padding: 6px 14px; border-radius: 100px; background: rgba(255,255,255,.04); border: 1px solid var(--card-border); color: var(--text-dim); font-size: 12.5px; }
 
+  /* 登录 / 找回密码 / 重置密码卡片 */
+  .auth-card { box-shadow: 0 30px 70px rgba(0,0,0,.35); transition: box-shadow .2s ease; }
+  .auth-card:focus-within { box-shadow: 0 30px 80px rgba(0,0,0,.45), 0 0 0 1px rgba(37,211,102,.16); }
+  .auth-card input { transition: border-color .15s ease, box-shadow .15s ease; }
+
   /* 上手流程 + 常见问题 */
   .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: step; }
   .step { counter-increment: step; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 28px 26px; position: relative; }
@@ -486,7 +491,7 @@ const LOGIN = layout(`
         <h1 style="font-size:30px;font-weight:800;letter-spacing:-.5px;margin-bottom:8px" id="login-title">欢迎回来</h1>
         <p style="color:var(--text-dim);font-size:14.5px" id="login-sub">登录极客账户，继续使用</p>
       </div>
-      <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:30px;backdrop-filter:blur(12px)">
+      <div class="auth-card" style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:30px;backdrop-filter:blur(12px)">
         <div style="margin-bottom:16px">
           <label style="display:block;font-size:12.5px;color:var(--text-dim);margin-bottom:7px">邮箱</label>
           <input type="email" id="email" placeholder="you@example.com" spellcheck="false" style="width:100%;padding:13px 16px;font-size:14.5px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;transition:border-color .15s">
@@ -514,8 +519,6 @@ const LOGIN = layout(`
       : '还没有账号？<a onclick="toggle()" style="color:var(--accent);cursor:pointer;font-weight:600">注册</a>';
     document.getElementById('err').textContent = '';
   }
-  document.querySelectorAll('input').forEach(i => i.addEventListener('focus', function(){ this.style.borderColor = 'rgba(79,140,255,.6)'; }));
-  document.querySelectorAll('input').forEach(i => i.addEventListener('blur', function(){ this.style.borderColor = 'var(--card-border)'; }));
   document.getElementById('btn-login').onclick = async () => {
     const email = document.getElementById('email').value.trim();
     const pass = document.getElementById('password').value;
@@ -549,7 +552,7 @@ const LOGIN = layout(`
 
 const FORGOT_PASSWORD = layout(`
   <section style="padding:70px 0 110px">
-    <div style="max-width:440px;margin:0 auto;background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:34px 30px">
+    <div class="auth-card" style="max-width:440px;margin:0 auto;background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:34px 30px">
       <h1 style="font-size:28px;margin-bottom:9px">找回密码</h1>
       <p style="color:var(--text-dim);font-size:14px;line-height:1.7;margin-bottom:22px">输入注册邮箱。若账户存在，我们会发送重置链接；邮件尚未配置时，申请会进入运营后台由客服处理。</p>
       <input type="email" id="reset-email" autocomplete="email" placeholder="you@example.com" style="width:100%;padding:13px 16px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;margin-bottom:14px">
@@ -571,7 +574,7 @@ const FORGOT_PASSWORD = layout(`
 
 const RESET_PASSWORD = layout(`
   <section style="padding:70px 0 110px">
-    <div style="max-width:440px;margin:0 auto;background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:34px 30px">
+    <div class="auth-card" style="max-width:440px;margin:0 auto;background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:34px 30px">
       <h1 style="font-size:28px;margin-bottom:9px">设置新密码</h1>
       <p style="color:var(--text-dim);font-size:14px;line-height:1.7;margin-bottom:22px">重置链接 30 分钟有效，只能使用一次。</p>
       <input type="password" id="new-password" minlength="10" maxlength="128" autocomplete="new-password" placeholder="新密码（至少 10 位）" style="width:100%;padding:13px 16px;color:var(--text);background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:12px;outline:none;margin-bottom:12px">

@@ -106,6 +106,9 @@ h1{margin:21px 0 23px;white-space:pre-line;font-size:clamp(50px,6vw,76px);line-h
 .stage:before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.025),transparent 40%);pointer-events:none}
 .stage-label{height:42px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid var(--line);color:#60666d;font-size:9px;letter-spacing:.08em;text-transform:uppercase}
 .stage-label i{width:7px;height:7px;border-radius:50%;background:#33373b}
+.stage-label i:nth-child(1){background:#e5675f}
+.stage-label i:nth-child(2){background:var(--amber)}
+.stage-label i:nth-child(3){background:var(--green)}
 .stage-body{height:458px;position:relative}
 .metric-strip{border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr)}

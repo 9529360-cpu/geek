@@ -5,10 +5,12 @@ export const MARKETING_STYLES_COMPONENTS = `.section{padding:116px 0}
 .section h2{margin:13px 0 0;max-width:690px;font-size:clamp(35px,4.6vw,56px);line-height:1.06;letter-spacing:-.052em;font-weight:720}
 .section-intro{margin:0;max-width:600px;color:var(--muted);font-size:15px;line-height:1.85}
 .cards{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.card{min-height:270px;padding:31px 29px;border-right:1px solid var(--line)}
+.card{min-height:270px;padding:31px 29px;border-right:1px solid var(--line);transition:background .22s ease}
 .card:last-child{border-right:0}
+.card:hover{background:rgba(255,255,255,.02)}
+.card:hover .icon{border-color:rgba(37,211,102,.32);color:var(--green2)}
 .card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:66px;color:var(--faint);font-size:9px;letter-spacing:.12em;text-transform:uppercase}
-.icon{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.024);color:var(--text2);font-size:13px}
+.icon{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.024);color:var(--text2);font-size:13px;transition:border-color .22s ease,color .22s ease}
 .card h3{margin:0 0 10px;font-size:17px;letter-spacing:-.025em}
 .card p{margin:0;color:var(--muted);font-size:13px;line-height:1.76}
 .split{display:grid;grid-template-columns:minmax(0,.82fr) minmax(500px,1.18fr);gap:72px;align-items:center}
@@ -44,8 +46,10 @@ export const MARKETING_STYLES_COMPONENTS = `.section{padding:116px 0}
 .chat em{display:block;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:#e0e4e6;font-style:normal}
 .chat em b{margin-right:5px;color:var(--green2);font-size:6px;text-transform:uppercase}
 .job{position:absolute;right:15px;bottom:18px;width:210px;padding:13px;border:1px solid var(--line2);border-radius:12px;background:rgba(24,26,27,.97);box-shadow:0 18px 45px rgba(0,0,0,.4)}
-.job-top{display:flex;justify-content:space-between;color:#d8dcdf;font-size:8px}
-.job-top b{color:var(--amber);font-weight:700}
+.job-top{display:flex;justify-content:space-between;align-items:center;color:#d8dcdf;font-size:8px}
+.job-top b{display:inline-flex;align-items:center;gap:5px;color:var(--green2);font-weight:700}
+.job-top b:before{content:"";width:5px;height:5px;border-radius:50%;background:var(--green2);box-shadow:0 0 8px rgba(37,211,102,.55);animation:geekLivePulse 2s ease-in-out infinite}
+@keyframes geekLivePulse{0%,100%{opacity:1}50%{opacity:.35}}
 .bar{height:4px;margin-top:10px;border-radius:99px;background:#303336;overflow:hidden}
 .bar:after{content:"";display:block;width:42%;height:100%;background:var(--green)}
 .job-foot{display:flex;justify-content:space-between;margin-top:8px;color:#737980;font-size:7px}
@@ -85,7 +89,8 @@ export const MARKETING_STYLES_COMPONENTS = `.section{padding:116px 0}
 .faq-list{display:grid;gap:10px;max-width:920px;margin:0 auto}
 .faq-list details{border:1px solid var(--line);border-radius:14px;background:#0d0f10;overflow:hidden}
 .faq-list details[open]{border-color:rgba(37,211,102,.24);background:linear-gradient(180deg,rgba(37,211,102,.035),#0d0f10 58%)}
-.faq-list summary{position:relative;cursor:pointer;list-style:none;padding:22px 58px 22px 24px;color:var(--text2);font-size:15px;font-weight:680;letter-spacing:-.015em}
+.faq-list summary{position:relative;cursor:pointer;list-style:none;padding:22px 58px 22px 24px;color:var(--text2);font-size:15px;font-weight:680;letter-spacing:-.015em;transition:color .18s ease}
+.faq-list summary:hover{color:var(--text)}
 .faq-list summary::-webkit-details-marker{display:none}
 .faq-list summary:after{content:"+";position:absolute;right:22px;top:50%;transform:translateY(-50%);color:var(--green2);font-size:20px;font-weight:400}
 .faq-list details[open] summary:after{content:"−"}
