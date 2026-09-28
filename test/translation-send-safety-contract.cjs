@@ -102,10 +102,10 @@ assert.match(runtimeOwnerSource, /sourceLanguageContext/, '公共 Runtime 必须
 assert.match(runtimeBaseSource, /assertSafeTranslationOutput\(\{ source: text, output: cached\.text, target \}\)/, '历史缓存必须重新校验，禁止复用脏译文');
 assert.match(runtimeBaseSource, /assertSafeTranslationOutput\(\{ source: text, output: result\.text, target \}\)/, 'Translation Runtime 必须对网关结果做最终校验');
 
-assert.match(appSource, /shouldGuardRawSend[\s\S]*翻译尚未就绪，已阻止原文发送/, 'WhatsApp 钩子未就绪时必须拦截原文');
-assert.match(appSource, /live\.sendTextMsgToChat !== window\.__geekWhatsAppWrappedSend/, 'WhatsApp 必须在发送时检查翻译钩子仍然存活');
-assert.match(appSource, /__geekWhatsAppDirectComposerController[\s\S]*handleNativeSend\(chat, args, original, this\)/, 'WhatsApp legacy text wrapper must delegate translated private sends to the single direct-composer owner');
-assert.match(directComposerSource, /const translated = await translate\(\{[\s\S]*intent: 'outgoing-send'/, 'WhatsApp translated private sends must enter the interactive Translation Runtime QoS class');
+assert.match(appSource, /sendIntentOwnerHealthy[\s\S]*submitThroughOwner[\s\S]*shouldGuardRawSend/, 'WhatsApp must fail closed when the v9 SendIntent owner is unavailable');
+assert.doesNotMatch(appSource, /const wrappedSendText = function|__geekSendQueue\.then|sendTextMsgToChat = wrappedSendText/, 'WhatsApp must not retain a second text-send owner');
+assert.match(directComposerSource, /__geekTranslationRequest\(\{ text, chatId, intent: 'outgoing-send' \}\)/, 'WhatsApp trusted private sends must delegate to the shared SendIntent owner');
+assert.match(appSource, /window\.api\.translation\.translate\(\{[\s\S]*intent: 'outgoing-send'/, 'WhatsApp translated private sends must preserve the outgoing-send interactive Translation Runtime class inside SendIntent');
 assert.match(adapterSource, /geek-telegram-translation-send[\s\S]*翻译失败，原文未发送/, 'Telegram 翻译失败必须保留原文且提示');
 assert.match(adapterSource, /button\[aria-label="Send"\][\s\S]*submitThroughOwner\(event, composerHost\(event\)\)/, 'LINE 发送按钮必须进入统一 SendIntent owner');
 assert.match(adapterSource, /addEventListener\('keydown'[\s\S]*submitThroughOwner\(event, host\)/, 'LINE Enter 发送也必须进入统一 SendIntent owner');

@@ -41,7 +41,9 @@ for (const api of [
 const main = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
 const runtime = fs.readFileSync(path.join(root, 'ui/broadcast-runtime.js'), 'utf8');
-const recovery = fs.readFileSync(path.join(root, 'ui/whatsapp-translation-hook-recovery.js'), 'utf8');
+const sendIntentCapability = fs.readFileSync(path.join(root, 'ui/whatsapp-send-intent-capability.js'), 'utf8');
+const sendIntentMain = fs.readFileSync(path.join(root, 'src/whatsapp-webview-send-intent.cjs'), 'utf8');
+const directComposer = fs.readFileSync(path.join(root, 'ui/whatsapp-direct-composer-controller.js'), 'utf8');
 const { installWppCapabilityPicker, WPP_CAPABILITY_PICKER_SOURCE } = require('../src/wpp-capability-picker.cjs');
 
 const injectionProbeStart = main.indexOf('const injectionReadinessProbe =');
@@ -82,7 +84,9 @@ for (const capability of ['whatsapp.UserPrefs', 'group.getParticipants', 'contac
 assert.match(main, /__geekPickWpp\?\.\(\['whatsapp\.ChatStore'\]\)/, 'main media path must capability-select ChatStore owner');
 assert.ok(app.includes("__geekPickWpp?.(['whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty'])"), 'selected-group clone picker must gate only core clone capabilities');
 assert.ok(app.includes("__geekPickWpp?.(['group.getGroupInfoFromInviteCode','whatsapp.UserPrefs','whatsapp.GroupMetadataStore.find','group.create','group.setProperty'])"), 'invite-link clone picker must gate only core clone capabilities');
-assert.match(recovery, /wpp\?\.loader[\s\S]*moduleRequire[\s\S]*_moduleIdMap/, 'ordinary composer recovery must continue consuming WA-JS loader metadata');
+assert.match(sendIntentCapability, /webviewInput\.commitSubmit/, 'ordinary composer commit must use the host WebView input owner');
+assert.match(sendIntentMain, /window\.WPP\?\.chat\?\.getActiveChat/, 'main commit guard must bind the active WA-JS chat');
+assert.doesNotMatch(directComposer, /moduleRequire|_moduleIdMap|sendTextMsgToChat/, 'interactive composer owner must not depend on private WA-JS send-module recovery');
 assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
 assert.doesNotMatch(main, /waplus-wpp\.js/, 'legacy bundle must not rewrap modern WhatsApp native modules');

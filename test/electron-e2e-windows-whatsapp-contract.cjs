@@ -155,3 +155,13 @@ assert.match(whatsappRuntimeSpec, /function injectionReady\(state\)[\s\S]*state\
 assert.doesNotMatch(whatsappRuntimeSpec, /function injectionReady\(state\)[\s\S]{0,500}state\?\.(?:chatReady|lidGroupReady|storesReady|fallbackReady) === true/, 'synthetic injection gate must not require authenticated or WAPLUS capabilities');
 assert.match(whatsappRuntimeSpec, /chatReady[\s\S]*lidGroupReady[\s\S]*storesReady[\s\S]*fallbackReady/, 'WA-JS runtime probe must retain bounded capability diagnostics without making them startup gates');
 assert.doesNotMatch(whatsappRuntimeSpec, /document\.cookie|localStorage|sessionStorage|Authorization|qrData|innerText|textContent/i, 'WA-JS runtime diagnostics must not read secrets or page bodies');
+assert.match(whatsappRuntimeSpec, /webview\.sendInputEvent/, 'WA-JS runtime gate must exercise native WebView input for trusted-submit');
+assert.match(whatsappRuntimeSpec, /geek-trusted-submit/, 'WA-JS runtime gate must observe the real preload trusted-submit channel');
+assert.match(whatsappRuntimeSpec, /data-geek-e2e-composer/, 'trusted input probe must use an isolated disposable composer rather than a real chat');
+assert.match(whatsappRuntimeSpec, /activeChatBefore[\s\S]*activeChatAfter/, 'trusted input evidence must prove no real chat became active');
+assert.doesNotMatch(whatsappRuntimeSpec, /openChatBottom|chat\.find\(|\.click\(\)/, 'trusted input probe must not open or click a real WhatsApp chat');
+assert.match(whatsappRuntimeSpec, /shared SendIntent owner to native commit/, 'runtime gate must preserve a full synthetic WhatsApp SendIntent proof');
+assert.match(whatsappRuntimeSpec, /owner, 'send-intent'/, 'synthetic send must assert the shared owner');
+assert.match(whatsappRuntimeSpec, /state, 'sent'/, 'synthetic send must assert terminal sent state');
+assert.match(whatsappRuntimeSpec, /data-geek-native-submit-commit/, 'synthetic page behavior must only complete on the real native-commit marker');
+assert.match(whatsappRuntimeSpec, /realActiveBefore[\s\S]*realActiveAfter/, 'synthetic send must prove no real chat is opened before or after the test');
