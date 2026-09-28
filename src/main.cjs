@@ -18,6 +18,7 @@ const { createRateLimiter } = require('./crash-recovery.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
 const { installSubscriptionIpc } = require('./subscription-ipc.cjs');
+const { isTrustedSubscriptionIpcEvent } = require('./subscription-window-boundary.cjs');
 const { installDesktopIpc } = require('./desktop-ipc.cjs');
 const { runStartupAclRepair, resolveUsername } = require('./acl-repair.cjs');
 const { verifyRuntimeIntegrity } = require('./unpacked-integrity.cjs');
@@ -318,6 +319,11 @@ function assertTrustedSender(event) {
   if (!isTrustedSender(event)) throw new Error('拒绝来自未授权页面的 IPC 请求');
 }
 
+function assertTranslationHealthSender(event) {
+  if (isTrustedSender(event) || isTrustedSubscriptionIpcEvent(event)) return;
+  throw new Error('拒绝来自未授权页面的翻译健康检查请求');
+}
+
 function assertValidAccountId(accountId) {
   if (typeof accountId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(accountId)) {
     throw new Error('无效的账号 ID');
@@ -521,6 +527,7 @@ function registerIpcHandlers() {
     createGatewayPool: require('./gateway-failover.cjs').createGatewayPool,
     assertSafeTranslationOutput: require('./translation-output-safety.cjs').assertSafeTranslationOutput,
     assertTrustedSender,
+    assertHealthSender: assertTranslationHealthSender,
     assertValidAccountId,
     getSubscriptionStore: () => initSubscriptionStore(),
     getSessionForPartition: (partition) => session.fromPartition(partition, { cache: true }),
