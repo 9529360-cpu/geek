@@ -78,9 +78,9 @@ function createHarness(options = {}) {
     },
   };
   const platformCatalog = {
-    whatsapp: { name: 'WhatsApp', short: 'WA', needsExtension: false },
-    'line-business': { name: 'LINE Business', needsExtension: true },
-    website: { name: 'Website', short: 'WEB', needsExtension: false },
+    whatsapp: { name: 'WhatsApp', short: 'WA', navigationKind: 'whatsapp', needsExtension: false },
+    'line-business': { name: 'LINE Business', navigationKind: 'line', needsExtension: true },
+    website: { name: 'Website', short: 'WEB', navigationKind: 'website', familyLabel: '网站', needsExtension: false },
   };
 
   const boundary = installDesktopIpc({
@@ -222,9 +222,9 @@ async function invokeChildFrame(harness, channel, ...args) {
     const harness = createHarness();
     assert.equal(await invoke(harness, 'app:get-version'), '9.8.7');
     assert.deepEqual(await invoke(harness, 'platforms:list'), [
-      { type: 'whatsapp', name: 'WhatsApp', short: 'WA', needsExtension: false, isWebsite: false },
-      { type: 'line-business', name: 'LINE Business', short: 'LI', needsExtension: true, isWebsite: false },
-      { type: 'website', name: 'Website', short: 'WEB', needsExtension: false, isWebsite: true },
+      { type: 'whatsapp', name: 'WhatsApp', short: 'WA', family: 'whatsapp', needsExtension: false, isWebsite: false },
+      { type: 'line-business', name: 'LINE Business', short: 'LI', family: 'line', needsExtension: true, isWebsite: false },
+      { type: 'website', name: 'Website', short: 'WEB', family: 'website', familyLabel: '网站', needsExtension: false, isWebsite: true },
     ]);
 
     harness.setBridgeAllowed(false);

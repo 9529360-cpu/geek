@@ -40,6 +40,8 @@ for (const api of [
 
 const main = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
+const transportDefinitions = fs.readFileSync(path.join(root, 'ui/platform-transport-definitions.js'), 'utf8');
+const rendererSurface = app + '\n' + transportDefinitions;
 const runtime = fs.readFileSync(path.join(root, 'ui/broadcast-runtime.js'), 'utf8');
 const sendIntentCapability = fs.readFileSync(path.join(root, 'ui/whatsapp-send-intent-capability.js'), 'utf8');
 const sendIntentMain = fs.readFileSync(path.join(root, 'src/whatsapp-webview-send-intent.cjs'), 'utf8');
@@ -76,7 +78,7 @@ for (const [name, source] of [['main', main], ['app', app], ['runtime', runtime]
   assert.doesNotMatch(source, /window\.WPP \|\| window\.WAPLUS_WPP/, name + ' must not select WPP/WAPLUS by object existence alone');
 }
 for (const capability of ['chat.sendTextMessage', 'chat.getMessages', 'chat.getActiveChat', 'whatsapp.ChatStore', 'contact.queryExists', 'group.getParticipants']) {
-  assert.ok(app.includes('__geekPickWpp') && app.includes(capability), 'renderer must capability-select WPP for ' + capability);
+  assert.ok(rendererSurface.includes('__geekPickWpp') && rendererSurface.includes(capability), 'renderer capability owners must capability-select WPP for ' + capability);
 }
 for (const capability of ['whatsapp.UserPrefs', 'group.getParticipants', 'contact.queryExists']) {
   assert.ok(runtime.includes('__geekPickWpp') && runtime.includes(capability), 'broadcast runtime must capability-select WPP for ' + capability);

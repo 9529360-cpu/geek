@@ -33,7 +33,6 @@ exports.config = {
     './specs/proxy-dialog-validation.e2e.cjs',
     './specs/account-context-keyboard.e2e.cjs',
     './specs/sidebar-collapse.e2e.cjs',
-    './specs/whatsapp-live-bootstrap.e2e.cjs',
     './specs/session-permission-runtime.e2e.cjs',
     './specs/webview-navigation-runtime.e2e.cjs',
     './specs/broadcast-readiness.e2e.cjs',

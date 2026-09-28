@@ -18,7 +18,7 @@ const renderer = readText('ui/app.js');
 const platformCapabilities = readText('ui/platform-capabilities.js');
 const html = readText('ui/index.html');
 
-assert.match(catalog, /website:\s*freezeConfig\(\{\s*name:\s*'自定义网站',\s*short:\s*'WEB',\s*navigationKind:\s*'website',?\s*\}\)/, 'Website is a first-class platform without a fake default URL');
+assert.match(catalog, /website:\s*freezeConfig\(\{[\s\S]*?name:\s*'自定义网[^']*'[\s\S]*?navigationKind:\s*'website'[\s\S]*?familyLabel:\s*'网站'[\s\S]*?\}\)/, 'Website is a first-class platform with a dedicated family label and no fake default URL');
 assert.doesNotMatch(main, /const APP_TYPES\s*=/, 'main must consume, not duplicate, the platform catalog');
 assert.match(main, /normalizeWebsiteUrl,\s*\n\s*isEncryptionAvailable/, 'Website URL policy must be injected into Account State owner');
 assert.match(owner, /const type = raw\.type === undefined \? 'whatsapp' : raw\.type/, 'omitted type keeps the historical WhatsApp default');
@@ -53,7 +53,8 @@ assert.match(securitySource, /ownerIsWhatsApp[\s\S]*did-finish-load[\s\S]*ownerI
 
 assert.match(renderer, /else if \(bridgePreloadPath && !isLineAccount && account\.type !== 'website'\) \{[\s\S]*?wv\.setAttribute\('preload', bridgePreloadPath\)/, 'renderer must not attach Geek bridge preload to Website');
 assert.match(renderer, /if \(account\.type !== 'website'\) wv\.setAttribute\('allowpopups'/, 'Website must not opt into renderer popup capability');
-assert.match(renderer, /key: 'website', label: '网站'[\s\S]*types: \['website'\]/, 'Website gets its own platform family');
+assert.match(renderer, /GeekPlatformFamilyRegistry\.create\(\)/, 'Website family resolution must use the generic renderer family registry');
+assert.match(renderer, /platformFamilyRegistry\.replace\(platforms\)/, 'Website family metadata must hydrate from the canonical platform catalog projection');
 assert.match(renderer, /if \(type === 'website'\) return 'p-icon-website'/, 'Website gets an independent icon class');
 assert.match(platformCapabilities, /account\.type === 'website'[\s\S]*throw new Error/, 'Website must not receive WA/TG/LINE transport adapters');
 assert.match(renderer, /\['btn-broadcast', 'btn-translation', 'btn-contact-notes'\]/, 'Website activation gates unsupported product enhancements');

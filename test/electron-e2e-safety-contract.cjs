@@ -34,7 +34,9 @@ async function main() {
   assert.doesNotMatch(runner, /email|phone|cookie|authorization|jwt|token/i, 'fake account fixture must not carry credentials or personal identifiers');
   assert.match(config, /appEntryPoint:\s*path\.join\(__dirname, '\.\.', 'src', 'main-entry\.cjs'\)/, 'E2E must launch the real Electron entry');
   assert.match(config, /specs:\s*\['\.\/specs\/shell-smoke\.e2e\.cjs'\]/, 'E2E spec path must resolve from the WDIO config directory');
-  assert.match(config, /\.\/specs\/whatsapp-live-bootstrap\.e2e\.cjs/, 'live WhatsApp bootstrap gate must remain enabled');
+  assert.doesNotMatch(config, /\.\/specs\/whatsapp-live-bootstrap\.e2e\.cjs/, 'uncontrolled live WhatsApp bootstrap must stay isolated from the deterministic default smoke suite');
+  assert.match(runner, /'whatsapp-bootstrap':\s*path\.join\(root, 'e2e', 'specs', 'whatsapp-live-bootstrap\.e2e\.cjs'\)/, 'live WhatsApp bootstrap must remain an explicit targeted oracle');
+  assert.match(workflow, /GEEK_E2E_SUITE:\s*whatsapp-bootstrap/, 'CI must still require the isolated WhatsApp bootstrap oracle');
   assert.match(config, /\.\/specs\/session-permission-runtime\.e2e\.cjs/, 'real Session permission runtime gate must remain enabled');
   assert.match(config, /\.\/specs\/webview-navigation-runtime\.e2e\.cjs/, 'real account navigation runtime gate must remain enabled');
   assert.match(config, /appArgs:\s*\[\]/, 'Electron service args must explicitly preserve the sandbox');
