@@ -338,7 +338,7 @@
   }
   async function registerWebviewBridge(wv, account) {
     const family = familyOf(account.type).key;
-    if (!(family === 'telegram' || family === 'line' || family === 'whatsapp')) return true;
+    if (!(family === 'telegram' || family === 'line' || family === 'whatsapp' || family === 'messenger')) return true;
     return window.api.webviewInput.register(account.id, wv.getWebContentsId(), bridgeTokenFor(wv));
   }
 
@@ -374,6 +374,7 @@
     if (type === 'telegram-z' || type === 'telegram-k') return 'p-icon-telegram-z';
     if (type === 'line') return 'p-icon-line';
     if (type === 'line-business') return 'p-icon-line-business';
+    if (type === 'messenger') return 'p-icon-messenger';
     if (type === 'website') return 'p-icon-website';
     return 'p-icon-website';
   }
@@ -755,7 +756,7 @@
       if (!account) throw new Error('翻译账号沙箱不存在');
       const { bridgeToken: _bridgeToken, ...safePayload } = payload;
       const family = familyOf(account.type).key;
-      const result = safePayload.intent === 'outgoing-send' && (family === 'telegram' || family === 'line' || family === 'whatsapp')
+      const result = safePayload.intent === 'outgoing-send' && (family === 'telegram' || family === 'line' || family === 'whatsapp' || family === 'messenger')
         ? await executePlatformOutgoingSendIntent(account, wv, safePayload)
         : await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
@@ -849,6 +850,43 @@
     wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
   }
 
+  function syncMessengerTranslationCfgToWebview(wv, account) {
+    if (!wv || !account || account.type !== 'messenger') return;
+    const bridgeToken = bridgeTokenFor(wv);
+    wv.executeJavaScript(`(${function (cfg) {
+      const bridgeToken = String(cfg.bridgeToken || '');
+      window.__geekTranslationBridgeToken = bridgeToken;
+      if (!window.__geekTranslationPending) window.__geekTranslationPending = new Map();
+      window.__geekTranslationRequest = function (payload) {
+        return new Promise(function (resolve, reject) {
+          const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+          const securedPayload = Object.assign({}, payload || {}, { bridgeToken: window.__geekTranslationBridgeToken });
+          window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
+          if (document.documentElement?.getAttribute?.('data-geek-bridge') === '1') {
+            window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id: id, token: window.__geekTranslationBridgeToken } }, window.location.origin);
+          } else {
+            console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
+          }
+          setTimeout(function () {
+            const pending = window.__geekTranslationPending.get(id);
+            if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); }
+          }, 55000);
+        });
+      };
+      window.__geekTakeTranslationRequest = function (id) {
+        const pending = window.__geekTranslationPending.get(id);
+        return pending ? JSON.stringify(pending.payload) : null;
+      };
+      window.__geekResolveTranslation = function (id, result, error) {
+        const pending = window.__geekTranslationPending.get(id);
+        if (!pending) return false;
+        window.__geekTranslationPending.delete(id);
+        if (error) pending.reject(new Error(error)); else pending.resolve(result);
+        return true;
+      };
+      return 'MESSENGER_TRANSLATION_BRIDGE_READY';
+    }.toString()})(${JSON.stringify({ bridgeToken })})`).catch(error => console.error('Messenger翻译桥注入失败:', error.message));
+  }
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
     if (!wv || !account) return;
@@ -858,6 +896,10 @@
     }
     if (account.type === 'line' || account.type === 'line-business') {
       syncLineTranslationCfgToWebview(wv, account);
+      return;
+    }
+    if (account.type === 'messenger') {
+      syncMessengerTranslationCfgToWebview(wv, account);
       return;
     }
     if (!(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
@@ -1430,7 +1472,7 @@
   }
   async function executePlatformOutgoingSendIntent(account, wv, safePayload) {
     const family = String(familyOf(account.type)?.key || '');
-    if (family !== 'telegram' && family !== 'line' && family !== 'whatsapp') {
+    if (family !== 'telegram' && family !== 'line' && family !== 'whatsapp' && family !== 'messenger') {
       throw Object.assign(new Error('SEND_INTENT_PLATFORM_UNSUPPORTED'), { code: 'SEND_INTENT_PLATFORM_UNSUPPORTED' });
     }
     const adapter = platformCapabilities.forAccount(account, wv);
@@ -2055,6 +2097,14 @@
       }
     }
     if (!targets.length) { alert('请先勾选要发送的聊天'); return; }
+    if (familyOf(account.type).key === 'messenger') {
+      const messengerVcards = Array.isArray(window.__vcardContacts) ? window.__vcardContacts : [];
+      const messengerTagAll = document.getElementById('broadcast-tagall')?.checked === true;
+      if (broadcastFiles.length || messengerVcards.length || messengerTagAll) {
+        alert('Messenger 第一阶段仅支持纯文字群发；附件、名片和 @全体 暂不发送。');
+        return;
+      }
+    }
     // 对齐 HelloWorld：点击开始群发后直接进入发送中页面，不增加二次确认弹窗。
 
     broadcastRunning = true;
@@ -2235,6 +2285,7 @@
               continue;
             }
             sentOk = await platform.sendText('');
+            if (platform.family === 'messenger' && sentOk === 'MAYBE') break;
           }
           if (sentOk === 'SENT' || sentOk === 'CLICKED') break; // 成功
         } catch (e) {

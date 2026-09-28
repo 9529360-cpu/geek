@@ -11,6 +11,7 @@ const PART_A = 'persist:webview-page-acc-a';
 const PART_B = 'persist:webview-page-acc-b';
 const TG_URL = 'https://web.telegram.org/a/';
 const LINE_URL = 'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html#/chats/abc';
+const MESSENGER_URL = 'https://www.facebook.com/messages/t/thread-1';
 
 function createIpcMain() {
   const handlers = new Map();
@@ -78,8 +79,10 @@ function createHarness(overrides = {}) {
     ['acc-a', { id: 'acc-a', type: 'telegram', partition: PART_A }],
     ['acc-b', { id: 'acc-b', type: 'telegram-k', partition: PART_B }],
     ['line-a', { id: 'line-a', type: 'line', partition: 'persist:webview-page-line-a' }],
+    ['messenger-a', { id: 'messenger-a', type: 'messenger', partition: 'persist:webview-page-messenger-a' }],
   ]);
   sessions.set('persist:webview-page-line-a', { partition: 'persist:webview-page-line-a' });
+  sessions.set('persist:webview-page-messenger-a', { partition: 'persist:webview-page-messenger-a' });
   const guests = new Map();
   const calls = [];
   const realOwnership = createOwnershipRegistry();
@@ -352,6 +355,39 @@ async function rejects(promise, pattern) {
     assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'line-a', 9, 'chat-a', 'hello', TOKEN_A), 'STALE_CONTEXT');
     assert.deepEqual(guest.inputEvents, [], 'stale LINE context must fail before native input');
     assert.equal(guest.focusCalls.length, 0);
+  }
+
+  {
+    const h = createHarness();
+    const partition = h.accounts.get('messenger-a').partition;
+    const guest = createGuest({
+      id: 10,
+      host: h.trustedSender,
+      session: h.sessions.get(partition),
+      url: MESSENGER_URL,
+      focused: script => script.includes("return 'READY'") ? 'READY' : true,
+    });
+    h.guests.set(10, guest);
+    assert.equal(await h.ipcMain.invoke('webview:register', h.trustedSender, 'messenger-a', 10, TOKEN_A), true);
+    assert.equal(await h.ipcMain.invoke('webview:insert-text', h.trustedSender, 'messenger-a', 10, 'hello messenger', TOKEN_A, '/messages/t/thread-1'), true);
+    assert.deepEqual(guest.inserted, ['hello messenger']);
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'messenger-a', 10, '/messages/t/thread-1', 'hello messenger', TOKEN_A), 'SUBMITTED');
+    assert.deepEqual(guest.inputEvents, [{ type: 'keyDown', keyCode: 'Enter' }, { type: 'keyUp', keyCode: 'Enter' }]);
+    assert.equal(guest.focusCalls.length, 1);
+    assert.match(guest.scripts.at(-2), /\/messages\/t\/thread-1/);
+    assert.match(guest.scripts.at(-2), /hello messenger/);
+    assert.match(guest.scripts.at(-2), /data-geek-native-submit-commit/);
+    assert.match(guest.scripts.at(-1), /removeAttribute\('data-geek-native-submit-commit'\)/);
+  }
+
+  {
+    const h = createHarness();
+    const partition = h.accounts.get('messenger-a').partition;
+    const guest = createGuest({ id: 11, host: h.trustedSender, session: h.sessions.get(partition), url: MESSENGER_URL, focused: 'STALE_CONTEXT' });
+    h.guests.set(11, guest);
+    await h.ipcMain.invoke('webview:register', h.trustedSender, 'messenger-a', 11, TOKEN_A);
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'messenger-a', 11, '/messages/t/thread-1', 'hello', TOKEN_A), 'STALE_CONTEXT');
+    assert.deepEqual(guest.inputEvents, [], 'stale Messenger conversation must fail before native input');
   }
 
   {

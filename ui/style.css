@@ -661,6 +661,7 @@ input, select { font-family: inherit; }
 .p-icon-telegram-z { background: #229ED9; }
 .p-icon-line { background: #06C755; }
 .p-icon-line-business { background: #00B900; }
+.p-icon-messenger { background: #0084ff; }
 
 /* ============ 添加账号弹窗 ============ */
 .add-dialog {

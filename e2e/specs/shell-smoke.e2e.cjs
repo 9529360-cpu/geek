@@ -386,6 +386,85 @@ async function createWebsiteAccountsThroughAppCenter() {
   await heartbeat('website-cleanup');
 }
 
+async function createMessengerAccountThroughAppCenter() {
+  await (await waitVisible('#btn-app-center')).click();
+  await waitVisible('#add-overlay:not(.hidden)');
+  const card = await waitVisible('.add-platform-card[data-type="messenger"]');
+  assert.match(await card.getText(), /Messenger/, 'App Center must expose the Messenger platform card');
+  await card.click();
+
+  const nameInput = await waitVisible('#add-name');
+  const countInput = await waitVisible('#add-count');
+  await nameInput.setValue('E2E Messenger');
+  await countInput.setValue('1');
+  const before = await browser.executeAsync((done) => window.api.accounts.list().then(done).catch(error => done({ error: String(error?.message || error) })));
+  await (await waitVisible('#add-confirm')).click();
+  await waitHidden('#add-overlay', 10_000);
+
+  await browser.waitUntil(async () => browser.executeAsync((done) => {
+    window.api.accounts.list().then((state) => done(state.accounts.filter(account => account.type === 'messenger').length === 1)).catch(() => done(false));
+  }), { timeout: 10_000, timeoutMsg: 'Messenger account was not created through App Center' });
+
+  const state = await browser.executeAsync((done) => window.api.accounts.list().then(done).catch(error => done({ error: String(error?.message || error) })));
+  assert.equal(state.error, undefined);
+  const messenger = state.accounts.find(account => account.type === 'messenger');
+  assert.ok(messenger?.id, 'Messenger account must persist through the authoritative account state');
+  assert.equal(messenger.name, 'E2E Messenger');
+  assert.equal(messenger.partition, `persist:webview-page-${messenger.id}`);
+  assert.ok(!before.accounts.some(account => account.id === messenger.id));
+
+  const ui = await browser.execute((id) => {
+    const webview = Array.from(document.querySelectorAll('webview')).find(item => item.partition === `persist:webview-page-${id}`);
+    const tabs = Array.from(document.querySelectorAll('.tab-item')).map(el => ({ platform: el.dataset.platform, title: el.title }));
+    return {
+      tabs,
+      activePlatform: document.querySelector('.tab-item.active')?.dataset.platform || '',
+      row: webview ? {
+        src: webview.getAttribute('src') || webview.src || '',
+        partition: webview.getAttribute('partition') || webview.partition || '',
+        preload: webview.getAttribute('preload') || '',
+        allowpopups: webview.hasAttribute('allowpopups'),
+      } : null,
+      broadcastHidden: document.getElementById('btn-broadcast')?.classList.contains('hidden') === true,
+      translationHidden: document.getElementById('btn-translation')?.classList.contains('hidden') === true,
+    };
+  }, messenger.id);
+
+  assert.ok(ui.tabs.some(tab => tab.platform === 'messenger' && tab.title === 'Messenger'), 'Messenger must render as its own platform family');
+  assert.equal(ui.activePlatform, 'messenger');
+  assert.ok(ui.row, 'Messenger webview must exist');
+  assert.equal(ui.row.src, 'https://www.facebook.com/messages/');
+  assert.equal(ui.row.partition, messenger.partition);
+  assert.match(ui.row.preload, /bridge-preload\.cjs/, 'Messenger must retain the trusted bridge preload');
+  assert.equal(ui.row.allowpopups, true, 'Messenger login popup flow must stay account-scoped');
+  assert.equal(ui.broadcastHidden, false, 'Messenger phase 1 exposes text broadcast');
+  assert.equal(ui.translationHidden, false, 'Messenger phase 1 exposes outgoing translation');
+
+  console.log(`E2E_MESSENGER account=true partition=true src=true preload=true broadcast=true translation=true`);
+  await heartbeat('messenger-app-center');
+
+  // Messenger owns a real Facebook WebView/Session. Durable removal may need to stop
+  // an in-flight renderer before partition cleanup, so do not reuse heartbeat's 2.5s budget.
+  await browser.setTimeout({ script: 15_000 });
+  const cleanup = await browser.executeAsync((id, fallbackId, done) => {
+    (async () => {
+      await window.api.accounts.remove(id);
+      await window.api.accounts.switch(fallbackId);
+      const next = await window.api.accounts.list();
+      done({
+        ids: next.accounts.map(account => account.id),
+        activeAccountId: next.activeAccountId,
+        messengerCount: next.accounts.filter(account => account.type === 'messenger').length,
+      });
+    })().catch(error => done({ error: String(error?.message || error || 'cleanup failed') }));
+  }, messenger.id, ACCOUNT_A);
+  assert.equal(cleanup.error, undefined, `Messenger cleanup failed: ${cleanup.error || ''}`);
+  assert.deepEqual(cleanup.ids, [ACCOUNT_A, ACCOUNT_B], 'Messenger E2E cleanup must restore the shared synthetic fixture');
+  assert.equal(cleanup.activeAccountId, ACCOUNT_A);
+  assert.equal(cleanup.messengerCount, 0);
+  await heartbeat('messenger-cleanup');
+}
+
 async function openAndCloseAccountSettings(iteration) {
   await activateAccount(ACCOUNT_A);
   const targetSelector = `.nav-account[data-id="${ACCOUNT_B}"]`;
@@ -499,5 +578,6 @@ describe('Geek Electron shell smoke', () => {
     }
 
     await createWebsiteAccountsThroughAppCenter();
+    await createMessengerAccountThroughAppCenter();
   });
 });

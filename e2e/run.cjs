@@ -12,6 +12,7 @@ const requestedSuite = String(process.env.GEEK_E2E_SUITE || '').trim();
 const targetedSpecs = Object.freeze({
   'whatsapp-bootstrap': path.join(root, 'e2e', 'specs', 'whatsapp-live-bootstrap.e2e.cjs'),
   'whatsapp-runtime': path.join(root, 'e2e', 'specs', 'whatsapp-wa-js-runtime.e2e.cjs'),
+  'messenger-runtime': path.join(root, 'e2e', 'specs', 'messenger-runtime.e2e.cjs'),
 });
 const DEFAULT_RUN_TIMEOUT_MS = 120_000;
 const FULL_SUITE_TIMEOUT_MS = 180_000;

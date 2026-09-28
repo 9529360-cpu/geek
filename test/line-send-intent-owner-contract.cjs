@@ -12,8 +12,8 @@ const runtime = fs.readFileSync(path.join(root, 'ui', 'trusted-submit-runtime.js
 
 assert.match(
   app,
-  /safePayload\.intent === 'outgoing-send' && \(family === 'telegram' \|\| family === 'line' \|\| family === 'whatsapp'\)[\s\S]{0,180}executePlatformOutgoingSendIntent/,
-  'LINE and Telegram outgoing sends must share the same host SendIntent owner',
+  /safePayload\.intent === 'outgoing-send' && \(family === 'telegram' \|\| family === 'line' \|\| family === 'whatsapp' \|\| family === 'messenger'\)[\s\S]{0,180}executePlatformOutgoingSendIntent/,
+  'Telegram, LINE, WhatsApp, and Messenger outgoing sends must share the same host SendIntent owner',
 );
 assert.match(
   app,
