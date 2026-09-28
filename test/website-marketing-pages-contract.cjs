@@ -70,7 +70,9 @@ assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast
       assert.ok(html.includes(`<meta property="og:url" content="https://geek.bbnba.com${route}">`), `${route} missing canonical social URL`);
       assert.match(html, /<meta property="og:site_name" content="极客 Geek">/);
       assert.match(html, /<meta property="og:locale" content="zh_CN">/);
-      assert.match(html, /<meta name="twitter:card" content="summary">/);
+      assert.ok(html.includes(`<meta property="og:image" content="https://geek.bbnba.com/og-cover.svg">`), `${route} missing social share image`);
+      assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
+      assert.ok(html.includes(`<meta name="twitter:image" content="https://geek.bbnba.com/og-cover.svg">`), `${route} missing twitter share image`);
       assert.match(html, /--green:#25d366;/, `${route} must render from the shared theme token owner`);
       assert.doesNotMatch(html, /<script\b/i);
       assert.doesNotMatch(html, /src="https?:\/\//i, `${route} must not load remote resources`);
@@ -109,6 +111,11 @@ assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast
     assert.match(sitemapHead.headers.get('content-type') || '', /^application\/xml\b/);
     assert.equal(await sitemapHead.text(), '');
 
+    const ogImage = await production.default.fetch(new Request('https://geek.bbnba.com/og-cover.svg'), {}, {});
+    assert.equal(ogImage.status, 200, 'social share image must be served same-origin');
+    assert.match(ogImage.headers.get('content-type') || '', /^image\/svg\+xml\b/);
+    assert.match(await ogImage.text(), /<svg[\s\S]*<\/svg>/, 'social share image must render as inline svg markup');
+
     for (const route of ['/login', '/forgot-password', '/reset-password', '/account']) {
       const response = await production.default.fetch(new Request(`https://geek.bbnba.com${route}`), {}, {});
       assert.equal(response.status, 200, `${route} must remain owned by the existing account surface`);
@@ -122,6 +129,11 @@ assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast
       assert.doesNotMatch(html, /href="\/#(?:features|guide|pricing|download|faq)"/, `${route} must not expose retired homepage anchors`);
       for (const href of productRoutes) assert.ok(html.includes(`href="${href}"`), `${route} missing current product navigation ${href}`);
       assert.doesNotMatch(html, /<a href="\/broadcast">群发任务<\/a>/, `${route} must not disguise legacy pricing as broadcast navigation`);
+      if (route === '/account' || route === '/reset-password') {
+        assert.equal(response.headers.get('x-robots-tag'), 'noindex', `${route} must stay out of search indexes`);
+      } else {
+        assert.equal(response.headers.get('x-robots-tag'), null, `${route} must remain indexable`);
+      }
     }
 
     const reset = await production.default.fetch(new Request('https://geek.bbnba.com/reset-password?token=contract-sentinel'), {}, {});

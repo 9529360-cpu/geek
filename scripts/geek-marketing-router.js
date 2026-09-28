@@ -1,5 +1,5 @@
 import websiteEntry from './geek-website-entry.js';
-import { LOGO, MARKETING_ROUTES, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
+import { LOGO, MARKETING_ROUTES, OG_IMAGE_PATH, OG_IMAGE_SVG, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
 import { LEGACY_ACCOUNT_THEME_STYLE, MARKETING_STYLES_CORE } from './geek-marketing-styles-core.mjs';
 import { MARKETING_STYLES_COMPONENTS } from './geek-marketing-styles-components.mjs';
 import { PAGE_BODY } from './geek-marketing-pages.mjs';
@@ -131,9 +131,14 @@ function render(path) {
 <meta property="og:title" content="${meta.title}">
 <meta property="og:description" content="${meta.description}">
 <meta property="og:url" content="${canonical}">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="${SITE_ORIGIN}${OG_IMAGE_PATH}">
+<meta property="og:image:type" content="image/svg+xml">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${meta.title}">
 <meta name="twitter:description" content="${meta.description}">
+<meta name="twitter:image" content="${SITE_ORIGIN}${OG_IMAGE_PATH}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>${STYLES}</style>
 </head>
@@ -186,6 +191,9 @@ export function discoveryResponse(path, method = 'GET') {
   if (path === '/sitemap.xml') {
     return new Response(method === 'HEAD' ? null : sitemapBody(), { status: 200, headers: discoveryHeaders('application/xml; charset=utf-8') });
   }
+  if (path === OG_IMAGE_PATH) {
+    return new Response(method === 'HEAD' ? null : OG_IMAGE_SVG, { status: 200, headers: discoveryHeaders('image/svg+xml') });
+  }
   return null;
 }
 
@@ -210,6 +218,8 @@ function projectLegacyAccountHtml(source) {
     .replace('</head>', `${LEGACY_ACCOUNT_THEME_STYLE}\n</head>`);
 }
 
+const NOINDEX_LEGACY_ROUTES = new Set(['/account', '/reset-password']);
+
 async function delegatedResponse(request, env, ctx) {
   const response = await websiteEntry.fetch(request, env, ctx);
   const url = new URL(request.url);
@@ -217,8 +227,9 @@ async function delegatedResponse(request, env, ctx) {
   const contentType = response.headers.get('Content-Type') || '';
   if (!response.ok || !/^text\/html\b/i.test(contentType)) return response;
   const source = await response.text();
-  if (!source.includes('</head>')) return new Response(source, { status: response.status, statusText: response.statusText, headers: new Headers(response.headers) });
   const headers = new Headers(response.headers);
+  if (NOINDEX_LEGACY_ROUTES.has(url.pathname)) headers.set('X-Robots-Tag', 'noindex');
+  if (!source.includes('</head>')) return new Response(source, { status: response.status, statusText: response.statusText, headers });
   return new Response(projectLegacyAccountHtml(source), { status: response.status, statusText: response.statusText, headers });
 }
 

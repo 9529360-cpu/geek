@@ -88,3 +88,46 @@ export const LOGO = `<svg class="brand-mark" viewBox="0 0 64 64" xmlns="http://w
   <path d="M18 38 A14.5 14.5 0 1 1 44 29" fill="none" stroke="url(#gx-silver)" stroke-width="9.5" stroke-linecap="round"/>
 <path d="M45.5 23 l-2.5 9 l8.5 -4.2 z" fill="url(#gx-silver)"/>
 </svg>`;
+
+export const OG_IMAGE_PATH = '/og-cover.svg';
+
+export const OG_IMAGE_SVG = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="极客 Geek">
+<defs>
+<radialGradient id="og-glow" cx="74%" cy="10%" r="60%">
+<stop offset="0" stop-color="#25d366" stop-opacity=".22"/>
+<stop offset="1" stop-color="#25d366" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="og-tile" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#23252a"/>
+<stop offset="1" stop-color="#101114"/>
+</linearGradient>
+<linearGradient id="og-silver" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#f5f7fa"/>
+<stop offset=".55" stop-color="#b9c0c9"/>
+<stop offset="1" stop-color="#7d858f"/>
+</linearGradient>
+</defs>
+<rect width="1200" height="630" fill="#08090a"/>
+<rect width="1200" height="630" fill="url(#og-glow)"/>
+<g transform="translate(90,150)">
+<rect x="0" y="0" width="120" height="120" rx="28" fill="url(#og-tile)" stroke="rgba(255,255,255,.4)" stroke-width="3"/>
+<rect x="58" y="19" width="40" height="26" rx="6.5" fill="none" stroke="#25d366" stroke-width="3"/>
+<circle cx="64.5" cy="26" r="2.6" fill="#25d366"/>
+<rect x="66" y="73" width="43" height="32" rx="6.5" fill="none" stroke="#25d366" stroke-width="3"/>
+<circle cx="72.5" cy="79.5" r="2.6" fill="#25d366"/>
+<path d="M34 72 A27 27 0 1 1 82 54" fill="none" stroke="url(#og-silver)" stroke-width="17" stroke-linecap="round"/>
+<path d="M85 43 l-4.5 17 l16 -7.8 z" fill="url(#og-silver)"/>
+</g>
+<text x="250" y="220" font-family="-apple-system,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif" font-size="72" font-weight="800" fill="#f7f8f8">极客 Geek</text>
+<text x="90" y="330" font-family="-apple-system,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif" font-size="38" font-weight="700" fill="#f7f8f8">多平台多账号出海沟通工作台</text>
+<text x="90" y="382" font-family="-apple-system,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif" font-size="24" fill="#8a8f98">WhatsApp · Telegram · LINE · 账号隔离 · 会话翻译 · 账号级群发</text>
+<g font-family="-apple-system,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif" font-size="21" font-weight="600" fill="#c7cbd0">
+<rect x="90" y="440" width="168" height="48" rx="24" fill="rgba(37,211,102,.12)" stroke="rgba(37,211,102,.4)"/>
+<text x="120" y="471">WhatsApp</text>
+<rect x="272" y="440" width="150" height="48" rx="24" fill="rgba(37,211,102,.12)" stroke="rgba(37,211,102,.4)"/>
+<text x="302" y="471">Telegram</text>
+<rect x="436" y="440" width="112" height="48" rx="24" fill="rgba(37,211,102,.12)" stroke="rgba(37,211,102,.4)"/>
+<text x="466" y="471">LINE</text>
+</g>
+<text x="90" y="560" font-family="-apple-system,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif" font-size="22" fill="#62666d">geek.bbnba.com</text>
+</svg>`;
