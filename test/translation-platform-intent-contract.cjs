@@ -7,7 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const adapters = fs.readFileSync(path.join(root, 'ui', 'translation-adapters.js'), 'utf8');
 const whatsapp = fs.readFileSync(path.join(root, 'ui', 'translation-whatsapp-rehydrate.js'), 'utf8');
-const whatsappSend = fs.readFileSync(path.join(root, 'ui', 'whatsapp-translation-hook-recovery.js'), 'utf8');
+const whatsappSend = fs.readFileSync(path.join(root, 'ui', 'whatsapp-direct-composer-controller.js'), 'utf8');
 const runtime = fs.readFileSync(path.join(root, 'src', 'translation-runtime.cjs'), 'utf8');
 
 assert.match(
@@ -47,8 +47,13 @@ assert.match(
 );
 assert.match(
   whatsappSend,
-  /route: setting\.route,[\s\S]{0,120}chatId,[\s\S]{0,120}intent: 'outgoing-send'/,
-  'WhatsApp native translated-send owner must carry explicit outgoing intent',
+  /__geekTranslationRequest\(\{ text, chatId, intent: 'outgoing-send' \}\)/,
+  'WhatsApp trusted composer send must declare outgoing intent and delegate policy to host SendIntent',
+);
+assert.doesNotMatch(
+  whatsappSend,
+  /source: setting|target: setting|provider: setting|route: setting/,
+  'WhatsApp guest composer owner must not own outgoing translation policy',
 );
 assert.doesNotMatch(
   whatsapp,

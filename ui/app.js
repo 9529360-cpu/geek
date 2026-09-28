@@ -338,7 +338,7 @@
   }
   async function registerWebviewBridge(wv, account) {
     const family = familyOf(account.type).key;
-    if (!(family === 'telegram' || family === 'line')) return true;
+    if (!(family === 'telegram' || family === 'line' || family === 'whatsapp')) return true;
     return window.api.webviewInput.register(account.id, wv.getWebContentsId(), bridgeTokenFor(wv));
   }
 
@@ -762,7 +762,7 @@
       if (!account) throw new Error('翻译账号沙箱不存在');
       const { bridgeToken: _bridgeToken, ...safePayload } = payload;
       const family = familyOf(account.type).key;
-      const result = safePayload.intent === 'outgoing-send' && (family === 'telegram' || family === 'line')
+      const result = safePayload.intent === 'outgoing-send' && (family === 'telegram' || family === 'line' || family === 'whatsapp')
         ? await executePlatformOutgoingSendIntent(account, wv, safePayload)
         : await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
@@ -925,19 +925,20 @@
           const editor = document.querySelector('#main footer [contenteditable="true"],#main [data-testid="conversation-compose-box-input"],[contenteditable="true"][data-tab="10"]');
           return String(editor?.innerText || editor?.textContent || '').replace(/\u200b/g, '').trim();
         };
+        const sendIntentOwnerHealthy = function () {
+          const owner = window.__geekWhatsAppDirectComposerController;
+          return Number(owner?.version || 0) >= 9
+            && owner?.active === true
+            && typeof owner?.submitThroughOwner === 'function';
+        };
         const shouldGuardRawSend = function () {
-          const chatId = window.WPP?.chat?.getActiveChat?.()?.id?._serialized || window.W?.chat?.getActive?.()?.id?._serialized || '';
-          const setting = window.__geekGetTranslationSetting(chatId);
-          const text = activeComposerText();
-          if (!text || !setting?.enabled || !setting?.autoSend) return false;
-          if (setting.includeZh === false && /[\u3400-\u9fff]/.test(text)) return false;
-          const live = window.require?.('WAWebSendTextMsgChatAction');
-          return !live?.sendTextMsgToChat || live.sendTextMsgToChat !== window.__geekWhatsAppWrappedSend;
+          if (document.documentElement?.getAttribute?.('data-geek-native-submit-commit') === '1') return false;
+          return !!activeComposerText() && !sendIntentOwnerHealthy();
         };
         const blockUnhookedSend = function (event) {
           if (!shouldGuardRawSend()) return;
           event.preventDefault(); event.stopImmediatePropagation();
-          notifySendBlocked('翻译尚未就绪，已阻止原文发送');
+          notifySendBlocked('发送组件尚未就绪，消息未发送');
         };
         document.addEventListener('keydown', function (event) {
           if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing) return;
@@ -950,9 +951,11 @@
         }, { capture: true, signal: guardSignal });
 
         const mod = window.require?.('WAWebSendTextMsgChatAction');
-        if (!mod?.sendTextMsgToChat) return 'NO_SEND_MODULE';
-        if (mod.__geekOriginalSendText) mod.sendTextMsgToChat = mod.__geekOriginalSendText;
-        const original = mod.sendTextMsgToChat;
+        if (mod?.__geekOriginalSendText) {
+          mod.sendTextMsgToChat = mod.__geekOriginalSendText;
+          try { delete mod.__geekOriginalSendText; } catch {}
+        }
+        try { delete window.__geekWhatsAppWrappedSend; delete window.__geekSendQueue; } catch {}
         if (!window.__geekTranslationRetryBound) {
           window.__geekTranslationRetryBound = true;
           document.addEventListener('contextmenu', function (event) {
@@ -1072,35 +1075,6 @@
           };
         }
         window.__geekRefreshTranslationView();
-        mod.__geekOriginalSendText = original;
-        // 发送串行队列：用户快速连发多条时，翻译+发送必须按输入顺序排队，防止乱序/合并
-        window.__geekSendQueue = window.__geekSendQueue || Promise.resolve();
-        const wrappedSendText = function (chat, ...args) {
-          const directOwner = window.__geekWhatsAppDirectComposerController;
-          if (Number(directOwner?.version || 0) >= 4 && typeof directOwner?.handleNativeSend === 'function') {
-            return directOwner.handleNativeSend(chat, args, original, this);
-          }
-          const run = async () => {
-            try {
-              const id = chat?.id?._serialized;
-              const setting = id ? window.__geekGetTranslationSetting(id) : null;
-              const text = args[0];
-              if (setting?.enabled && setting?.autoSend && typeof text === 'string' && text.trim() && (setting.includeZh || !/[\u3400-\u9fff]/.test(text)) && window.__geekTranslationRequest) {
-                const result = await window.__geekTranslationRequest({text,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:id});
-                if (!result?.text) throw new Error('翻译失败');
-                window.__geekRememberOutgoing(result.text, text);
-                args[0] = result.text;
-              }
-              return original.call(this, chat, ...args);
-            } catch (error) { console.error('[geek-translation]', error); notifySendBlocked('翻译失败，原文未发送'); throw error; }
-          };
-          // 排队：前一条完成后再执行本条（失败也继续下一条，不阻塞队列）
-          const next = window.__geekSendQueue.then(run, run);
-          window.__geekSendQueue = next.catch(() => {});
-          return next;
-        };
-        window.__geekWhatsAppWrappedSend = wrappedSendText;
-        mod.sendTextMsgToChat = wrappedSendText;
         const mediaMod = window.require?.('WAWebMediaPrep');
         if (mediaMod?.sendMediaMsgToChat) {
           if (mediaMod.__geekOriginalSendMedia) mediaMod.sendMediaMsgToChat = mediaMod.__geekOriginalSendMedia;
@@ -1123,9 +1097,7 @@
         }
         return 'OK';
       } catch (error) { return 'ERR:' + error.message; }
-    }.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).then((result) => {
-      if (String(result || '').includes('NO_SEND_MODULE')) setTimeout(() => syncTranslationCfgToWebview(wv, account), 3000);
-    }).catch(() => {});
+    }.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(() => {});
   }
 
 
@@ -1730,11 +1702,13 @@
       async getComposerText() {
         if (family === 'telegram') return wv.executeJavaScript(`document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)')?.innerText || ''`);
         if (family === 'line') return wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value || ''`);
+        if (family === 'whatsapp') return window.GeekWhatsAppSendIntentCapability.getComposerText(wv);
         return '';
       },
       async clearComposerText() {
         if (family === 'telegram') return wv.executeJavaScript(`(() => { const editor=document.querySelector('#editable-message-text, .input-message-input[contenteditable="true"]:not(.input-field-input-fake)'); if(!editor)return false; editor.focus(); document.execCommand('selectAll',false,null); document.execCommand('delete',false,null); return !(editor.innerText||'').trim(); })()`);
         if (family === 'line') return wv.executeJavaScript(`(() => { const host=document.querySelector('textarea-ex'); const textarea=host?.shadowRoot?.querySelector('textarea'); if(!host||!textarea||typeof host.insertValue!=='function')return false; textarea.focus(); textarea.select(); host.insertValue([]); return !(textarea.value||'').trim(); })()`);
+        if (family === 'whatsapp') return window.GeekWhatsAppSendIntentCapability.clearComposerText(wv);
         return true;
       },
       async setComposerText(text, mutation = {}) {
@@ -1758,6 +1732,7 @@
           const actual = await wv.executeJavaScript(`document.querySelector('textarea-ex')?.shadowRoot?.querySelector('textarea')?.value?.trim() || ''`);
           return actual === String(text).trim() ? 'OK' : 'EMPTY';
         }
+        if (family === 'whatsapp' && mutation.expectedConversationId) return window.GeekWhatsAppSendIntentCapability.setComposerText({ account, wv, text, mutation, bridgeToken: bridgeTokenFor(wv), sleep });
         const script = typeof transport.setMessage === 'function' ? transport.setMessage(text) : transport.setMessage;
         return wv.executeJavaScript(script);
       },
@@ -1801,6 +1776,7 @@
           }
           return 'MAYBE';
         }
+        if (family === 'whatsapp' && commit.expectedConversationId && commit.expectedComposerText) return window.GeekWhatsAppSendIntentCapability.sendText({ account, wv, commit, bridgeToken: bridgeTokenFor(wv), sleep });
         if (family === 'line' && commit.expectedConversationId && commit.expectedComposerText) {
           const expected = {
             conversationId: String(commit.expectedConversationId || ''),
@@ -1896,9 +1872,31 @@
     classifySendOutcome: classifySendIntentOutcome,
   });
 
+  async function resolveTranslationPolicyForAccount(account, wv, conversationId) {
+    let globalConfig = {};
+    let chatConfigs = {};
+    try {
+      globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}');
+      chatConfigs = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}');
+    } catch {
+      throw Object.assign(new Error('SEND_INTENT_POLICY_UNAVAILABLE'), { code: 'SEND_INTENT_POLICY_UNAVAILABLE' });
+    }
+    let configKey = String(conversationId || '');
+    if (familyOf(account.type)?.key === 'whatsapp' && !Object.prototype.hasOwnProperty.call(chatConfigs, configKey)) {
+      const candidates = Object.keys(chatConfigs).filter(key => key && key !== configKey).slice(0, 128);
+      if (candidates.length && typeof wv?.executeJavaScript === 'function') {
+        try {
+          const resolver = "(async()=>{ const current=" + JSON.stringify(configKey) + "; const candidates=" + JSON.stringify(candidates) + "; const idString=value=>{try{return String(value?._serialized||value?.id?._serialized||value?.toString?.()||value||'')}catch{return ''}}; const pn=value=>{const raw=idString(value).trim().toLowerCase(); const match=raw.match(/^([+0-9]+)@(?:c\.us|s\.whatsapp\.net)$/i); return match?match[1].replace(/\D/g,''):''}; const runtime=window.__geekPickWpp?.(['contact.getPnLidEntry'])||window.WPP||window.WAPLUS_WPP; const canonical=async value=>{const raw=idString(value).trim(); if(!raw)return ''; const direct=pn(raw); if(direct)return direct; if(!/@lid$/i.test(raw))return ''; try{const pair=await runtime?.contact?.getPnLidEntry?.(raw); return pn(pair?.phoneNumber||pair?.pn)||''}catch{return ''}}; const base=await canonical(current); if(!base)return ''; for(const key of candidates){if((await canonical(key))===base)return key} return ''; })()";
+          const alias = String(await wv.executeJavaScript(resolver) || '');
+          if (alias && Object.prototype.hasOwnProperty.call(chatConfigs, alias)) configKey = alias;
+        } catch {}
+      }
+    }
+    return window.GeekTranslationCore.normalizeConfig(globalConfig, chatConfigs[configKey] || {});
+  }
   async function executePlatformOutgoingSendIntent(account, wv, safePayload) {
     const family = String(familyOf(account.type)?.key || '');
-    if (family !== 'telegram' && family !== 'line') {
+    if (family !== 'telegram' && family !== 'line' && family !== 'whatsapp') {
       throw Object.assign(new Error('SEND_INTENT_PLATFORM_UNSUPPORTED'), { code: 'SEND_INTENT_PLATFORM_UNSUPPORTED' });
     }
     const adapter = platformCapabilities.forAccount(account, wv);
@@ -1912,15 +1910,7 @@
       throw Object.assign(new Error('SEND_INTENT_STALE_CONTEXT'), { code: 'SEND_INTENT_STALE_CONTEXT' });
     }
 
-    let globalConfig = {};
-    let chatConfigs = {};
-    try {
-      globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}');
-      chatConfigs = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}');
-    } catch {
-      throw Object.assign(new Error('SEND_INTENT_POLICY_UNAVAILABLE'), { code: 'SEND_INTENT_POLICY_UNAVAILABLE' });
-    }
-    const policy = window.GeekTranslationCore.normalizeConfig(globalConfig, chatConfigs[conversationId] || {});
+    const policy = await resolveTranslationPolicyForAccount(account, wv, conversationId);
     const translate = policy.enabled === true
       && policy.autoSend !== false
       && !(policy.includeZh === false && /[\u3400-\u9fff]/.test(sourceSnapshot));

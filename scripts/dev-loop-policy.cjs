@@ -119,6 +119,7 @@ function planDevChanges(relativePaths) {
     workerConfigFiles: Object.freeze(changes.filter(isWorkerConfig)),
     requiresLoopRestart: changes.some((filePath) => (
       filePath === 'scripts/dev-loop.cjs'
+      || filePath === 'scripts/dev-loop-watch-state.cjs'
       || filePath === 'scripts/dev-loop-policy.cjs'
       || filePath === 'scripts/dev-loop-process.cjs'
       || filePath === 'scripts/dev-loop-recovery.cjs'

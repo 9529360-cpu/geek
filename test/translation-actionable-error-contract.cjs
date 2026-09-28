@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const recovery = require('../ui/whatsapp-translation-hook-recovery.js');
+const recovery = require('../ui/whatsapp-direct-composer-controller.js');
 
 const prefix = recovery.TRANSLATION_ERROR_ENVELOPE_PREFIX;
 assert.equal(prefix, '__GEEK_TRANSLATION_ERROR_V1__:');

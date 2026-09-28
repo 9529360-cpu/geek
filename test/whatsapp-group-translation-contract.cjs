@@ -1,82 +1,54 @@
 'use strict';
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { installPageController } = require('../ui/whatsapp-direct-composer-controller.js');
-const chat = (id, flags = {}) => ({ id: { _serialized: id }, ...flags });
-function fixture(options = {}) {
-  const group = options.chat || chat('123@g.us', { isGroup: true });
-  let active = group;
-  const calls = [], sends = [];
-  const globalSetting = { enabled: true, autoSend: true, includeZh: true, source: 'auto', target: 'it', provider: 'auto', route: 'default', ...options.setting };
-  const page = {
-    AbortController, console: { error() {} }, clearInterval() {},
-    WPP: { chat: { getActiveChat: () => active } },
-    __geekTranslationConfig: { global: {}, chats: options.chats || {} },
-    __geekGetTranslationSetting(id) { return { ...globalSetting, ...page.__geekTranslationConfig.chats[id] }; },
-    async __geekTranslationRequest(payload) {
-      calls.push(payload);
-      if (options.error) throw options.error;
-      return { text: 'translated:' + payload.text };
-    },
+
+function fixture(activeId='123@g.us', resultFactory=payload=>({text:'translated:'+payload.text,delivery:{owner:'send-intent',state:'sent'}})) {
+  let active=activeId;
+  const calls=[];
+  const editor={nodeType:1,innerText:'group source',textContent:'group source',isConnected:true,focus(){},closest(){return this;}};
+  const document={
+    documentElement:{getAttribute(){return '';}},
+    addEventListener(){},
+    querySelector(){return editor;},
+    getElementById(){return null;},
+    createElement(){return {style:{},remove(){}};},
+    body:{appendChild(){}},
   };
-  const result = { accepted: true }, receiver = {};
-  function original(target, ...args) { sends.push({ target, args, receiver: this }); return result; }
+  const page={
+    AbortController,document,console:{error(){}},clearInterval(){},setTimeout(){},
+    WPP:{chat:{getActiveChat(){return {id:{_serialized:active},isGroup:true};}}},
+    async __geekTranslationRequest(payload){calls.push(payload);return resultFactory(payload);},
+    __geekRememberOutgoing(){},
+  };
   installPageController(page);
-  return { page, group, calls, sends, result, receiver, original, owner: page.__geekWhatsAppDirectComposerController,
-    switchTo(next) { active = next; } };
+  return {page,editor,calls,switchTo(id){active=id;}};
 }
-(async () => {
-  {
-    const f = fixture(), options = { quotedMsg: { id: 'test-quote' }, mentionedJidList: ['1@lid'] };
-    const args = ['group source', options];
-    assert.equal(await f.owner.handleNativeSend(f.group, args, f.original, f.receiver), f.result);
-    assert.equal(f.calls.length, 1, 'enabled group composer must enter shared translation, not raw passthrough');
-    assert.equal(f.calls[0].intent, 'outgoing-send');
-    assert.equal(f.calls[0].target, 'it');
-    assert.equal(f.calls[0].chatId, '123@g.us');
-    assert.equal(f.sends.length, 1);
-    assert.equal(f.sends[0].args[0], 'translated:group source');
-    assert.equal(f.sends[0].args[1], options, 'native quote/mention options retain identity');
-    assert.equal(f.sends[0].target, f.group);
-    assert.equal(f.sends[0].receiver, f.receiver);
-    assert.equal(args[0], 'group source', 'source snapshot must remain recoverable');
-  }
-  {
-    const f = fixture({ chats: { '123@g.us': { target: 'de' }, '456@g.us': { target: 'fr' } } });
-    f.switchTo(chat('456@g.us', { isGroup: true }));
-    const resolved = await f.owner.resolveTranslationSetting(f.group, 'group source');
-    assert.equal(resolved.chatId, '123@g.us', 'group settings never borrow the focused group identity');
-    assert.equal(resolved.setting.target, 'de');
-  }
-  for (const setting of [{ enabled: false, autoSend: false }, { includeZh: false }]) {
-    const f = fixture({ setting });
-    await f.owner.handleNativeSend(f.group, ['\u7fa4\u6d88\u606f'], f.original, f.receiver);
-    assert.equal(f.calls.length, 0); assert.equal(f.sends.length, 1);
-  }
-  for (const error of [Object.assign(new Error('no quota'), { code: 'QUOTA_EXHAUSTED', category: 'quota' }), new Error('provider failed')]) {
-    const f = fixture({ error });
-    await assert.rejects(f.owner.handleNativeSend(f.group, ['group source'], f.original), e => e === error);
-    assert.equal(f.sends.length, 0, 'failed transform must never send raw group text');
-  }
-  {
-    const f = fixture(); delete f.page.__geekTranslationConfig;
-    await assert.rejects(f.owner.handleNativeSend(f.group, ['group source'], f.original));
-    assert.equal(f.sends.length, 0, 'missing config must fail closed');
-  }
-  {
-    const f = fixture(); let settle;
-    f.page.__geekTranslationRequest = () => new Promise(resolve => { settle = resolve; });
-    const pending = f.owner.handleNativeSend(f.group, ['group source'], f.original);
-    for (let i = 0; i < 10 && !settle; i++) await Promise.resolve();
-    assert.equal(typeof settle, 'function');
-    f.switchTo(chat('456@g.us', { isGroup: true }));
-    settle({ text: 'translated:group source' });
-    await assert.rejects(pending);
-    assert.equal(f.sends.length, 0, 'commit must recheck the exact group');
-  }
-  for (const target of [chat('123@newsletter', { isNewsletter: true }), chat('status@broadcast', { isBroadcast: true })]) {
-    const f = fixture({ chat: target });
-    assert.equal(f.owner.handleNativeSend(target, ['source'], f.original), f.result);
-    assert.equal(f.calls.length, 0, 'non-chat publication paths remain unchanged');
-  }
+function trustedEvent(editor){return{isTrusted:true,target:editor,preventDefault(){},stopImmediatePropagation(){}};}
+
+(async()=>{
+  const f=fixture();
+  assert.equal(await f.page.__geekWhatsAppDirectComposerController.submitThroughOwner(trustedEvent(f.editor),f.editor),true);
+  assert.equal(f.calls.length,1);
+  assert.deepEqual(f.calls[0],{text:'group source',chatId:'123@g.us',intent:'outgoing-send'},'group composer must bind the active group identity into SendIntent');
+
+  const g=fixture('456@g.us');
+  assert.equal(await g.page.__geekWhatsAppDirectComposerController.submitThroughOwner(trustedEvent(g.editor),g.editor),true);
+  assert.equal(g.calls[0].chatId,'456@g.us','each group send must bind the currently active group');
+
+  const failed=fixture('123@g.us',()=>Promise.reject(Object.assign(new Error('no quota'),{code:'QUOTA_EXHAUSTED'})));
+  assert.equal(await failed.page.__geekWhatsAppDirectComposerController.submitThroughOwner(trustedEvent(failed.editor),failed.editor),false,'failed group transform must remain fail-closed');
+
+  const root=path.join(__dirname,'..');
+  const app=fs.readFileSync(path.join(root,'ui/app.js'),'utf8');
+  const controller=fs.readFileSync(path.join(root,'ui/whatsapp-direct-composer-controller.js'),'utf8');
+  const capability=fs.readFileSync(path.join(root,'ui/whatsapp-send-intent-capability.js'),'utf8');
+  assert.match(app,/resolveTranslationPolicyForAccount\(account, wv, conversationId\)/,'group/private per-chat translation policy must resolve from the exact SendIntent chat identity');
+  assert.match(app,/contact\.getPnLidEntry/,'WhatsApp policy resolver must preserve LID-to-PN chat override compatibility');
+  assert.match(app,/chatConfigs\[configKey\] \|\| \{\}/,'resolved WhatsApp alias must feed the shared TranslationCore policy normalization');
+  assert.match(capability,/webviewInput\.commitSubmit/,'group composer final commit must stay native so quote/mention composer state remains owned by WhatsApp');
+  assert.doesNotMatch(controller,/sendTextMessage|sendTextMsgToChat|quotedMsg|mentionedJidList/,'composer owner must not rebuild group-send options or take over broadcast/publication APIs');
+
   console.log('WHATSAPP_GROUP_TRANSLATION_CONTRACT_OK');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+})().catch(error=>{console.error(error?.stack||error);process.exit(1);});
