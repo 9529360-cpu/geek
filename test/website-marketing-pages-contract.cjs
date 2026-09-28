@@ -70,9 +70,12 @@ assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast
       assert.ok(html.includes(`<meta property="og:url" content="https://geek.bbnba.com${route}">`), `${route} missing canonical social URL`);
       assert.match(html, /<meta property="og:site_name" content="极客 Geek">/);
       assert.match(html, /<meta property="og:locale" content="zh_CN">/);
-      assert.ok(html.includes(`<meta property="og:image" content="https://geek.bbnba.com/og-cover.svg">`), `${route} missing social share image`);
+      assert.ok(html.includes(`<meta property="og:image" content="https://geek.bbnba.com/og-cover.png">`), `${route} missing social share image`);
+      assert.match(html, /<meta property="og:image:type" content="image\/png">/);
+      assert.match(html, /<meta property="og:image:alt" content="极客 Geek，多平台多账号出海沟通工作台">/);
       assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
-      assert.ok(html.includes(`<meta name="twitter:image" content="https://geek.bbnba.com/og-cover.svg">`), `${route} missing twitter share image`);
+      assert.ok(html.includes(`<meta name="twitter:image" content="https://geek.bbnba.com/og-cover.png">`), `${route} missing twitter share image`);
+      assert.match(html, /<meta name="twitter:image:alt" content="极客 Geek，多平台多账号出海沟通工作台">/);
       assert.match(html, /--green:#25d366;/, `${route} must render from the shared theme token owner`);
       assert.doesNotMatch(html, /<script\b/i);
       assert.doesNotMatch(html, /src="https?:\/\//i, `${route} must not load remote resources`);
@@ -111,10 +114,19 @@ assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast
     assert.match(sitemapHead.headers.get('content-type') || '', /^application\/xml\b/);
     assert.equal(await sitemapHead.text(), '');
 
-    const ogImage = await production.default.fetch(new Request('https://geek.bbnba.com/og-cover.svg'), {}, {});
+    const ogImage = await production.default.fetch(new Request('https://geek.bbnba.com/og-cover.png'), {}, {});
     assert.equal(ogImage.status, 200, 'social share image must be served same-origin');
-    assert.match(ogImage.headers.get('content-type') || '', /^image\/svg\+xml\b/);
-    assert.match(await ogImage.text(), /<svg[\s\S]*<\/svg>/, 'social share image must render as inline svg markup');
+    assert.match(ogImage.headers.get('content-type') || '', /^image\/png\b/);
+    const ogBytes = new Uint8Array(await ogImage.arrayBuffer());
+    assert.deepEqual(Array.from(ogBytes.slice(0, 8)), [137, 80, 78, 71, 13, 10, 26, 10], 'social share image must be a real PNG');
+    const ogView = new DataView(ogBytes.buffer, ogBytes.byteOffset, ogBytes.byteLength);
+    assert.equal(ogView.getUint32(16), 1200, 'social share image width must remain 1200px');
+    assert.equal(ogView.getUint32(20), 630, 'social share image height must remain 630px');
+    assert.ok(ogBytes.byteLength < 5 * 1024 * 1024, 'social image must stay below the X card image limit');
+    const ogHead = await production.default.fetch(new Request('https://geek.bbnba.com/og-cover.png', { method: 'HEAD' }), {}, {});
+    assert.equal(ogHead.status, 200);
+    assert.match(ogHead.headers.get('content-type') || '', /^image\/png\b/);
+    assert.equal(await ogHead.text(), '');
 
     for (const route of ['/login', '/forgot-password', '/reset-password', '/account']) {
       const response = await production.default.fetch(new Request(`https://geek.bbnba.com${route}`), {}, {});

@@ -871,40 +871,66 @@ const ACCOUNT = layout(`
       }
     } catch (e) { er.textContent = '网络错误，请稍后重试'; }
   }
-  // 轮询订单状态：每 5 秒查一次，到账自动更新余额；最多轮询 20 分钟，避免页面长期挂在后台空耗请求
+  // 轮询订单状态：串行请求，最多 20 分钟 / 240 次，避免慢请求产生重叠轮询。
   let usdtPollTimer = null;
+  let usdtPollGeneration = 0;
+  function stopUsdtPoll() {
+    if (usdtPollTimer) clearTimeout(usdtPollTimer);
+    usdtPollTimer = null;
+    usdtPollGeneration += 1;
+  }
+  function showUsdtPollPaused() {
+    const status = document.getElementById('usdt-status');
+    if (status) status.innerHTML =
+      '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(255,255,255,.06);color:var(--text-dim);border:1px solid var(--card-border)">自动检测已暂停，如已转账请稍后点击“刷新数据”</span>';
+  }
   async function startUsdtPoll(orderId) {
-    if (usdtPollTimer) clearInterval(usdtPollTimer);
+    stopUsdtPoll();
+    const generation = usdtPollGeneration;
     const maxAttempts = 240;
+    const pollDelayMs = 5000;
+    const deadlineAt = Date.now() + 20 * 60 * 1000;
     let attempts = 0;
-    usdtPollTimer = setInterval(async () => {
-      attempts += 1;
-      if (attempts > maxAttempts) {
-        clearInterval(usdtPollTimer);
-        const status = document.getElementById('usdt-status');
-        if (status) status.innerHTML =
-          '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(255,255,255,.06);color:var(--text-dim);border:1px solid var(--card-border)">自动检测已暂停，如已转账请稍后点击“刷新数据”</span>';
+    const poll = async () => {
+      if (generation !== usdtPollGeneration) return;
+      if (attempts >= maxAttempts || Date.now() >= deadlineAt) {
+        usdtPollTimer = null;
+        showUsdtPollPaused();
         return;
       }
+      attempts += 1;
       try {
         const { data } = await api('/api/orders');
+        if (generation !== usdtPollGeneration) return;
         const order = (data.orders || []).find(o => o.id === orderId);
         if (order && order.status === 'paid') {
-          clearInterval(usdtPollTimer);
+          stopUsdtPoll();
           document.getElementById('usdt-status').innerHTML =
-            '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)">✅ 已到账！正在为你开通…</span>';
-          ok.textContent = '✅ 支付成功，字符已到账！';
+            '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.3)">✓ 已到账！正在为你开通…</span>';
+          ok.textContent = '✓ 支付成功，字符已到账！';
           const q = await api('/api/quota');
           document.getElementById('quota').textContent = (q.data.remaining_chars ?? 0).toLocaleString() + ' 字符';
           await loadOrders();
-        } else if (order && order.status === 'expired') {
-          clearInterval(usdtPollTimer);
+          return;
+        }
+        if (order && order.status === 'expired') {
+          stopUsdtPoll();
           document.getElementById('usdt-status').innerHTML =
             '<span style="display:inline-block;padding:5px 14px;border-radius:100px;font-size:12.5px;background:rgba(248,113,113,.12);color:#f87171;border:1px solid rgba(248,113,113,.3)">订单已过期，请重新下单</span>';
           ok.textContent = '';
+          return;
         }
-      } catch (e) { /* 轮询失败静默 */ }
-    }, 5000);
+      } catch (e) { /* 轮询失败静默，仍受同一绝对截止时间约束 */ }
+      if (generation !== usdtPollGeneration) return;
+      const remaining = deadlineAt - Date.now();
+      if (remaining <= 0) {
+        usdtPollTimer = null;
+        showUsdtPollPaused();
+        return;
+      }
+      usdtPollTimer = setTimeout(poll, Math.min(pollDelayMs, remaining));
+    };
+    usdtPollTimer = setTimeout(poll, pollDelayMs);
   }
   async function refreshOrder() {
     const ok = document.getElementById('ok'); const er = document.getElementById('err');

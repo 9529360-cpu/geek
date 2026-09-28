@@ -1,5 +1,5 @@
 import websiteEntry from './geek-website-entry.js';
-import { LOGO, MARKETING_ROUTES, OG_IMAGE_PATH, OG_IMAGE_SVG, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
+import { LOGO, MARKETING_ROUTES, OG_IMAGE_ALT, OG_IMAGE_PATH, OG_IMAGE_PNG_BASE64, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
 import { LEGACY_ACCOUNT_THEME_STYLE, MARKETING_STYLES_CORE } from './geek-marketing-styles-core.mjs';
 import { MARKETING_STYLES_COMPONENTS } from './geek-marketing-styles-components.mjs';
 import { PAGE_BODY } from './geek-marketing-pages.mjs';
@@ -8,6 +8,15 @@ import { cta, footer, nav, PLATFORM_DISCLAIMER, stageProduct, stageSecurity } fr
 const STYLES = MARKETING_STYLES_CORE + MARKETING_STYLES_COMPONENTS;
 const SITEMAP_ROUTES = ['/', ...MARKETING_ROUTES];
 const LEGACY_ACCOUNT_THEME_ROUTES = new Set(['/login', '/forgot-password', '/reset-password', '/account']);
+let socialImageBytes = null;
+function socialImageBody() {
+  if (socialImageBytes) return socialImageBytes;
+  const binary = atob(OG_IMAGE_PNG_BASE64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  socialImageBytes = bytes;
+  return socialImageBytes;
+}
 const LEGACY_PRIMARY_NAV = `<div class="nav-links">
 <a href="/product">产品</a>
 <a href="/translation">翻译</a>
@@ -132,13 +141,15 @@ function render(path) {
 <meta property="og:description" content="${meta.description}">
 <meta property="og:url" content="${canonical}">
 <meta property="og:image" content="${SITE_ORIGIN}${OG_IMAGE_PATH}">
-<meta property="og:image:type" content="image/svg+xml">
+<meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="${OG_IMAGE_ALT}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${meta.title}">
 <meta name="twitter:description" content="${meta.description}">
 <meta name="twitter:image" content="${SITE_ORIGIN}${OG_IMAGE_PATH}">
+<meta name="twitter:image:alt" content="${OG_IMAGE_ALT}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="mask-icon" href="/favicon.svg" color="#25d366">
 <meta name="apple-mobile-web-app-title" content="Geek">
@@ -194,7 +205,7 @@ export function discoveryResponse(path, method = 'GET') {
     return new Response(method === 'HEAD' ? null : sitemapBody(), { status: 200, headers: discoveryHeaders('application/xml; charset=utf-8') });
   }
   if (path === OG_IMAGE_PATH) {
-    return new Response(method === 'HEAD' ? null : OG_IMAGE_SVG, { status: 200, headers: discoveryHeaders('image/svg+xml') });
+    return new Response(method === 'HEAD' ? null : socialImageBody(), { status: 200, headers: discoveryHeaders('image/png') });
   }
   return null;
 }
