@@ -1,6 +1,6 @@
 # 极客 Geek
 
-Electron 多平台多账号聊天客户端，当前支持 WhatsApp、Telegram 和 LINE 六类账号形态，并提供独立账号沙箱、群发能力和统一翻译桥。
+Electron 多平台多账号聊天客户端，当前支持 WhatsApp、Telegram、LINE、Facebook Messenger 与 Instagram Direct，并提供独立账号沙箱、群发能力和统一翻译桥。
 
 > 自动化代理接手前先阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/README.md`](docs/README.md)。跨会话维护基线见 [Issue #50](https://github.com/9529360-cpu/geek/issues/50)，Cloudflare 生产部署状态见 [Issue #21](https://github.com/9529360-cpu/geek/issues/21)，账号生产 smoke 见 [Issue #23](https://github.com/9529360-cpu/geek/issues/23)。
 >
@@ -28,7 +28,7 @@ ui/（渲染层）
 resources/
  ├── extensions/line-3.5.1/  当前内置 LINE 扩展及兼容补丁
  ├── s3loYR.js               LINE 兼容 preload
- └── bridge-preload.cjs      WA/TG 隔离桥
+ └── bridge-preload.cjs      WA/TG/Messenger/Instagram 受控隔离桥
 data/
  ├── accounts.example.json   脱敏账号结构示例
  └── config.example.json     脱敏全局配置示例
@@ -53,6 +53,8 @@ data/
 | WhatsApp | `true` | 使用完整性校验后的 `bridge-preload.cjs` |
 | Telegram Z / K | `true` | 使用同一受控隔离桥 |
 | LINE 普通 / 商业版 | `false` | 有意保留的兼容例外，等待认证后完整回归或 preload 重构 |
+| Messenger | `true` | 受控 bridge + trusted SendIntent/native commit |
+| Instagram Direct | `true` | 受控 bridge + trusted SendIntent/native commit |
 
 不得把 LINE 的例外扩散成全局 `contextIsolation=false`，也不得以 `--no-sandbox`、开启 Node 集成或关闭 `webSecurity` 作为兼容方案。没有 LINE 登录后 token、HMAC、authenticated EventSource、消息收发和重启恢复证据前，不修改该例外。
 
@@ -75,7 +77,7 @@ LINE 页面由项目内置 3.5.1 MV3 扩展提供。其旧式 preload 依赖 `_p
 
 ## 跨平台翻译
 
-- WA、TG、LINE 页面只通过受保护的 WebView 桥提交文本和语种，不持有翻译供应商密钥。
+- WA、TG、LINE、Messenger、Instagram 页面只通过受保护的 WebView 桥提交文本和语种，不持有翻译供应商密钥。
 - 开发环境默认使用本机网关；正式打包版使用受控 HTTPS 翻译 Worker。
 - 服务端负责认证、限流、额度检查和权威扣减；客户端检查仅用于交互与延迟优化。
 - 翻译缓存按账号 partition 隔离，缓存键不保存原文明文，持久化译文使用 Electron `safeStorage`。
