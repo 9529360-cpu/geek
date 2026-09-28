@@ -441,8 +441,39 @@ function createTranslationRuntime(options = {}) {
     assertTrustedSender(event);
     const pool = getGatewayPool();
     const result = await pool.healthCheckAll();
+    const endpoints = pool.endpoints;
     const okCount = Object.values(result).filter(Boolean).length;
-    return { ok: okCount > 0, models: okCount, endpointCount: Object.keys(result).length };
+    const primaryEndpoint = endpoints[0] || '';
+    const backupEndpoints = endpoints.slice(1);
+    const primaryHealthy = !!primaryEndpoint && result[primaryEndpoint] === true;
+    const healthyBackupEndpoints = backupEndpoints.filter((endpoint) => result[endpoint] === true);
+    const latencyOf = typeof pool.latencyOf === 'function' ? (endpoint) => pool.latencyOf(endpoint) : () => null;
+    const backupLatencies = healthyBackupEndpoints
+      .map((endpoint) => latencyOf(endpoint))
+      .filter((latencyMs) => Number.isFinite(latencyMs));
+    const primaryLatencyMs = primaryEndpoint ? latencyOf(primaryEndpoint) : null;
+    const backupLatencyMs = backupLatencies.length ? Math.min(...backupLatencies) : null;
+    const routes = Object.freeze({
+      primary: Object.freeze({
+        configured: !!primaryEndpoint,
+        healthy: primaryHealthy,
+        latencyMs: Number.isFinite(primaryLatencyMs) ? primaryLatencyMs : null,
+      }),
+      backup: Object.freeze({
+        configured: backupEndpoints.length > 0,
+        healthy: healthyBackupEndpoints.length > 0,
+        healthyCount: healthyBackupEndpoints.length,
+        endpointCount: backupEndpoints.length,
+        latencyMs: Number.isFinite(backupLatencyMs) ? backupLatencyMs : null,
+      }),
+    });
+    return {
+      ok: okCount > 0,
+      models: okCount,
+      endpointCount: Object.keys(result).length,
+      routes,
+      recommendedRoute: primaryHealthy ? 'primary' : (routes.backup.healthy ? 'backup' : null),
+    };
   }
 
   function detachQueuedAbort(item) {

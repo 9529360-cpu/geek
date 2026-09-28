@@ -17,6 +17,7 @@ function response(status, body) {
     ok: status >= 200 && status < 300,
     status,
     text: async () => JSON.stringify(body),
+    json: async () => body,
   };
 }
 
@@ -49,17 +50,20 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
       const body = options.body ? JSON.parse(options.body) : null;
       if (body) calls.push({ url, body });
       if (fetchImpl) return fetchImpl(url, options, body, calls.length - 1);
+      if (url.endsWith('/health')) return response(200, { ok: true });
       return response(200, { text: `translated:${body.text}`, source: body.source, target: body.target });
     },
     randomUUID: (() => { let n = 0; return () => `route-request-${++n}`; })(),
   });
   runtime.install();
   const rawTranslate = handlers.get('translation:translate');
+  const rawHealth = handlers.get('translation:health');
   const event = mainFrameIpcEvent({ id: 1 });
   return {
     runtime,
     calls,
     translate: payload => rawTranslate(event, payload).then(unwrapTranslationIpcResponse),
+    health: () => rawHealth(event),
   };
 }
 
@@ -172,17 +176,54 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     h.runtime.dispose();
   }
 
+  // Public runtime health may expose route class and latency, but it must never
+  // leak configured endpoint URLs to the renderer.
+  {
+    const h = createRuntimeHarness({
+      endpoints: [PRIMARY, BACKUP, BACKUP_2],
+      fetchImpl: async (url, _options, body) => {
+        if (url.endsWith('/health')) {
+          if (url.startsWith(PRIMARY)) return response(200, { ok: true });
+          if (url.startsWith(BACKUP)) return response(503, { ok: false });
+          return response(200, { ok: true });
+        }
+        return response(200, { text: `translated:${body.text}`, source: body.source, target: body.target });
+      },
+    });
+    const health = await h.health();
+    assert.equal(health.ok, true);
+    assert.equal(health.models, 2);
+    assert.equal(health.endpointCount, 3);
+    assert.equal(health.routes.primary.configured, true);
+    assert.equal(health.routes.primary.healthy, true);
+    assert.ok(Number.isFinite(health.routes.primary.latencyMs) && health.routes.primary.latencyMs >= 0);
+    assert.equal(health.routes.backup.configured, true);
+    assert.equal(health.routes.backup.healthy, true);
+    assert.equal(health.routes.backup.healthyCount, 1);
+    assert.equal(health.routes.backup.endpointCount, 2);
+    assert.ok(Number.isFinite(health.routes.backup.latencyMs) && health.routes.backup.latencyMs >= 0);
+    assert.equal(health.recommendedRoute, 'primary');
+    const serialized = JSON.stringify(health);
+    assert.ok(!serialized.includes(PRIMARY) && !serialized.includes(BACKUP) && !serialized.includes(BACKUP_2), 'health projection must not expose configured endpoint URLs');
+    h.runtime.dispose();
+  }
+
   // Settings UX must keep route configuration, gateway health and current-user
   // translation readiness as three distinct facts. Gateway /health alone must
   // never be presented as end-to-end translation readiness.
   {
     const source = fs.readFileSync(path.join(__dirname, '..', 'ui', 'translation-settings.js'), 'utf8');
     assert.doesNotMatch(source, /服务正常|翻译服务正常/, 'gateway-only health must not claim end-to-end translation readiness');
+    const primaryOption = { disabled: false, textContent: '主线路' };
     const backupOption = { disabled: false, textContent: '备用线路' };
     const routeSelect = {
       value: 'backup',
       dataset: {},
-      querySelector(selector) { return selector === 'option[value="backup"]' ? backupOption : null; },
+      querySelector(selector) {
+        if (selector === 'option[value="primary"]') return primaryOption;
+        if (selector === 'option[value="backup"]') return backupOption;
+        return null;
+      },
     };
     const elements = {
       'translation-service-state': { textContent: '', dataset: {} },
@@ -190,7 +231,16 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
       'translation-global-status': { textContent: '', dataset: {} },
       'translation-server': routeSelect,
     };
-    let healthResult = { ok: true, models: 1, endpointCount: 1 };
+    let healthResult = {
+      ok: true,
+      models: 1,
+      endpointCount: 1,
+      recommendedRoute: 'primary',
+      routes: {
+        primary: { configured: true, healthy: true, latencyMs: 23 },
+        backup: { configured: false, healthy: false, healthyCount: 0, endpointCount: 0, latencyMs: null },
+      },
+    };
     let readinessResult = { ready: true, reason: 'ready', retryable: false, quota: 'positive', remaining_chars: 345 };
     let readinessCalls = 0;
     const context = {
@@ -215,34 +265,82 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     });
 
     await controller.checkHealth(true);
+    assert.equal(primaryOption.textContent, '主线路 · 23 ms');
     assert.equal(backupOption.disabled, true);
     assert.equal(backupOption.textContent, '备用线路（未配置）');
     assert.equal(routeSelect.dataset.backupConfigured, '0');
+    assert.equal(routeSelect.dataset.recommendedRoute, 'primary');
     assert.match(elements['translation-global-status'].textContent, /未配置备用线路/);
     assert.equal(elements['translation-service-state'].textContent, '基础检查通过');
     assert.match(elements['translation-gateway-status'].textContent, /账号：授权可用/);
     assert.match(elements['translation-gateway-status'].textContent, /本地余额 345 字符/);
-    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 1\/1 条网关健康/);
+    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 主线路 23 ms/);
     assert.match(elements['translation-gateway-status'].textContent, /不代表上游翻译供应商实时可用/);
     assert.equal(readinessCalls, 1);
 
     readinessResult = { ready: false, reason: 'quota-exhausted', retryable: false, quota: 'exhausted', remaining_chars: 0 };
-    healthResult = { ok: true, models: 2, endpointCount: 2 };
+    healthResult = {
+      ok: true,
+      models: 2,
+      endpointCount: 2,
+      recommendedRoute: 'primary',
+      routes: {
+        primary: { configured: true, healthy: true, latencyMs: 31 },
+        backup: { configured: true, healthy: true, healthyCount: 1, endpointCount: 1, latencyMs: 55 },
+      },
+    };
     routeSelect.value = 'default';
     await controller.checkHealth(true);
+    assert.equal(primaryOption.textContent, '主线路 · 31 ms');
     assert.equal(backupOption.disabled, false);
-    assert.equal(backupOption.textContent, '备用线路');
+    assert.equal(backupOption.textContent, '备用线路 · 55 ms');
     assert.equal(routeSelect.dataset.backupConfigured, '1');
+    assert.equal(routeSelect.dataset.recommendedRoute, 'primary');
     assert.equal(elements['translation-service-state'].textContent, '额度不足');
     assert.match(elements['translation-gateway-status'].textContent, /翻译额度已用完/);
-    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 2\/2 条网关健康/);
+    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 主线路 31 ms · 备用线路 · 55 ms/);
 
     readinessResult = { ready: false, reason: 'login-required', retryable: false, quota: 'unknown' };
-    healthResult = { ok: false, models: 0, endpointCount: 2 };
+    healthResult = {
+      ok: false,
+      models: 0,
+      endpointCount: 2,
+      recommendedRoute: null,
+      routes: {
+        primary: { configured: true, healthy: false, latencyMs: null },
+        backup: { configured: true, healthy: false, healthyCount: 0, endpointCount: 1, latencyMs: null },
+      },
+    };
     await controller.checkHealth(true);
+    assert.equal(primaryOption.textContent, '主线路 · 异常');
+    assert.equal(backupOption.textContent, '备用线路 · 异常');
     assert.equal(elements['translation-service-state'].textContent, '需登录', 'account action must outrank generic gateway failure in the header');
     assert.match(elements['translation-gateway-status'].textContent, /未登录.*个人中心登录/);
     assert.match(elements['translation-gateway-status'].textContent, /网关：暂不可用/);
+    assert.match(elements['translation-gateway-status'].textContent, /主线路异常/);
+    assert.match(elements['translation-gateway-status'].textContent, /备用线路异常/);
+
+    // Healthy-but-unmeasured routes must say reachable, never invent a 0 ms RTT.
+    readinessResult = { ready: true, reason: 'ready', retryable: false, quota: 'unknown' };
+    healthResult = {
+      ok: true,
+      models: 1,
+      endpointCount: 1,
+      recommendedRoute: 'primary',
+      routes: {
+        primary: { configured: true, healthy: true, latencyMs: null },
+        backup: { configured: false, healthy: false, healthyCount: 0, endpointCount: 0, latencyMs: null },
+      },
+    };
+    await controller.checkHealth(true);
+    assert.equal(primaryOption.textContent, '主线路 · 可达');
+    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 主线路 可达/);
+    assert.doesNotMatch(elements['translation-gateway-status'].textContent, /0 ms/);
+
+    // Older runtime payloads without route details must remain display-compatible.
+    healthResult = { ok: true, models: 2, endpointCount: 2 };
+    await controller.checkHealth(true);
+    assert.match(elements['translation-gateway-status'].textContent, /网关：可达 · 2\/2 条网关健康/);
   }
 
   console.log('TRANSLATION_ROUTE_ENDPOINT_SELECTION_CONTRACT_OK');

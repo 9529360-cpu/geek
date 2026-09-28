@@ -51,8 +51,24 @@ const health = await pool6.healthCheckAll();
 assert.deepEqual(calls.sort(), [A + '/health', B + '/health'].sort(), '必须探测全部端点 /health');
 assert.equal(health[A], true, 'A 健康');
 assert.equal(health[B], false, 'B 不健康');
+assert.equal(pool6.latencyOf(A), 0, '健康探测必须记录最近一次端点延迟');
+assert.equal(pool6.latencyOf(B), 0, 'HTTP 级失败仍应保留已收到响应的探测延迟');
 const p6 = pool6.pick();
 assert.equal(p6.endpoint, A, '健康检查后 pick 优先健康端点');
+
+// 7) 网络异常没有可用 RTT，不得伪造延迟。
+let clock7 = 100;
+const pool7 = createGatewayPool({
+  endpoints: [A],
+  now: () => clock7,
+  healthFetch: async () => {
+    clock7 += 37;
+    throw new Error('network down');
+  },
+});
+const health7 = await pool7.healthCheckAll();
+assert.equal(health7[A], false);
+assert.equal(pool7.latencyOf(A), null, '没有收到健康响应时延迟必须保持未知');
 
 console.log('GATEWAY_FAILOVER_CONTRACT_OK');
 })().catch(err => { console.error(err); process.exit(1); });

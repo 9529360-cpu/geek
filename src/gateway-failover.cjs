@@ -28,6 +28,7 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     endpoint: String(endpoint).replace(/\/$/, ''),
     healthy: true,
     lastFailureAt: 0,
+    lastLatencyMs: null,
     probeInFlight: false,
   }));
   let unhealthyProbeCursor = 0;
@@ -35,6 +36,12 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
   function healthOf(endpoint) {
     const item = list.find((x) => x.endpoint === endpoint);
     return item ? item.healthy : false;
+  }
+
+  function latencyOf(endpoint) {
+    const item = list.find((x) => x.endpoint === endpoint);
+    const latencyMs = item?.lastLatencyMs;
+    return typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? latencyMs : null;
   }
 
   function reportFailure(endpoint) {
@@ -135,11 +142,17 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     const results = {};
     if (!healthFetch) return results;
     await Promise.all(list.map(async (item) => {
+      const startedAt = Number(now());
       try {
         const res = await healthFetch(`${item.endpoint}/health`);
+        const finishedAt = Number(now());
+        item.lastLatencyMs = Number.isFinite(startedAt) && Number.isFinite(finishedAt) && finishedAt >= startedAt
+          ? Math.round(finishedAt - startedAt)
+          : null;
         reportHealth(item.endpoint, Boolean(res && res.ok));
         results[item.endpoint] = Boolean(res && res.ok);
       } catch {
+        item.lastLatencyMs = null;
         reportHealth(item.endpoint, false);
         results[item.endpoint] = false;
       }
@@ -150,6 +163,7 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
   return {
     endpoints: list.map((x) => x.endpoint),
     healthOf,
+    latencyOf,
     reportFailure,
     reportSuccess,
     reportInconclusive,

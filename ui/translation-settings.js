@@ -153,18 +153,36 @@
       const group = el('translation-group'); if (group) group.disabled = !receiveAuto;
     }
 
+    function routeOptionStatus(route) {
+      if (!route || route.configured !== true) return '';
+      if (route.healthy !== true) return '异常';
+      const latencyMs = route.latencyMs;
+      return typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? `${Math.round(latencyMs)} ms` : '可达';
+    }
+
     function syncRouteAvailability(result = null) {
       const select = el('translation-server');
+      const primary = select?.querySelector?.('option[value="primary"]');
       const backup = select?.querySelector?.('option[value="backup"]');
       if (!select || !backup) return;
       const endpointCount = Number(result?.endpointCount);
       const known = Number.isFinite(endpointCount) && endpointCount >= 0;
       const configured = known && endpointCount > 1;
+      const primaryRoute = result?.routes?.primary;
+      const backupRoute = result?.routes?.backup;
+      if (primary) {
+        const status = routeOptionStatus(primaryRoute);
+        primary.textContent = status ? `主线路 · ${status}` : '主线路';
+      }
       backup.disabled = !configured;
+      const backupStatus = routeOptionStatus(backupRoute);
       backup.textContent = known
-        ? (configured ? '备用线路' : '备用线路（未配置）')
+        ? (configured ? (backupStatus ? `备用线路 · ${backupStatus}` : '备用线路') : '备用线路（未配置）')
         : '备用线路（检测中）';
       select.dataset.backupConfigured = configured ? '1' : '0';
+      select.dataset.recommendedRoute = ['primary', 'backup'].includes(result?.recommendedRoute)
+        ? result.recommendedRoute
+        : '';
       if (known && !configured && select.value === 'backup') {
         setStatus('translation-global-status', '当前未配置备用线路，请选择自动选择或主线路', 'error');
       }
@@ -421,9 +439,37 @@
       return labels[result.reason] || '账号：翻译授权暂不可用';
     }
 
+    function gatewayRouteSummary(result) {
+      const routes = result?.routes;
+      if (!routes || typeof routes !== 'object') return '';
+      const parts = [];
+      const primary = routes.primary;
+      if (primary?.configured === true) {
+        const latencyMs = primary.latencyMs;
+        parts.push(primary.healthy === true
+          ? `主线路 ${typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? `${Math.round(latencyMs)} ms` : '可达'}`
+          : '主线路异常');
+      }
+      const backup = routes.backup;
+      if (backup?.configured === true) {
+        const latencyMs = backup.latencyMs;
+        const count = Number(backup.endpointCount);
+        const healthyCount = Number(backup.healthyCount);
+        const countText = Number.isFinite(count) && count > 1 && Number.isFinite(healthyCount)
+          ? ` ${Math.max(0, healthyCount)}/${count}`
+          : '';
+        parts.push(backup.healthy === true
+          ? `备用线路${countText} · ${typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? `${Math.round(latencyMs)} ms` : '可达'}`
+          : '备用线路异常');
+      }
+      return parts.join(' · ');
+    }
+
     function gatewayLabel(result) {
       if (!result) return '网关：待检测';
-      if (result.ok !== true) return '网关：暂不可用';
+      const routeSummary = gatewayRouteSummary(result);
+      if (result.ok !== true) return routeSummary ? `网关：暂不可用 · ${routeSummary}` : '网关：暂不可用';
+      if (routeSummary) return `网关：可达 · ${routeSummary}`;
       const endpointCount = Math.max(0, Number(result.endpointCount) || 0);
       const availableCount = Math.max(0, Number(result.models) || 0);
       return endpointCount
