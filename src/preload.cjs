@@ -270,6 +270,7 @@ contextBridge.exposeInMainWorld(
     webviewInput: Object.freeze({
       register: (accountId, guestId, token) => ipcRenderer.invoke('webview:register', accountId, guestId, token),
       insertText: (accountId, guestId, text, token, expectedChatId = '') => ipcRenderer.invoke('webview:insert-text', accountId, guestId, text, token, expectedChatId),
+      clearText: (accountId, guestId, token, expectedChatId = '') => ipcRenderer.invoke('webview:clear-text', accountId, guestId, token, expectedChatId),
       commitSubmit: (accountId, guestId, expectedChatId, expectedComposerText, token) => ipcRenderer.invoke('webview:commit-submit', accountId, guestId, expectedChatId, expectedComposerText, token),
     }),
     webviewRecovery: Object.freeze({

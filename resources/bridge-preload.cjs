@@ -80,21 +80,13 @@ createTrustedSubmitObserver({
 });
 
 
-function createMessengerTrustedSubmitObserver() {
+function createSemanticTrustedSubmitObserver({ platform, isPage }) {
   const composerSelector = '[role="main"] [contenteditable="true"][role="textbox"]';
   const sendLabel = /(send|发送|傳送|invia|envoyer|senden|enviar|envoie|gönder|wyślij)/i;
   let composerGeneration = 0;
   let composerElement = null;
   let baselineControls = null;
 
-  const isPage = () => {
-    try {
-      const host = String(window.location.hostname || '').toLowerCase();
-      return window.location.protocol === 'https:'
-        && (host === 'facebook.com' || host === 'www.facebook.com')
-        && /^\/messages(?:\/|$)/i.test(String(window.location.pathname || ''));
-    } catch { return false; }
-  };
   const observeComposer = (element, advance = false) => {
     if (!element) return composerGeneration;
     if (composerElement !== element) { composerElement = element; composerGeneration += 1; baselineControls = null; }
@@ -129,8 +121,8 @@ function createMessengerTrustedSubmitObserver() {
     });
     return changed.length === 1 && changed[0] === button;
   };
-  const emitComposer = generation => { try { ipcRenderer.sendToHost(TRUSTED_COMPOSER_CHANNEL, { protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION, platform: 'messenger', composerGeneration: generation }); } catch {} };
-  const emitSubmit = (kind, generation) => { try { ipcRenderer.sendToHost(TRUSTED_SUBMIT_CHANNEL, { protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION, platform: 'messenger', kind, composerGeneration: generation }); } catch {} };
+  const emitComposer = generation => { try { ipcRenderer.sendToHost(TRUSTED_COMPOSER_CHANNEL, { protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION, platform, composerGeneration: generation }); } catch {} };
+  const emitSubmit = (kind, generation) => { try { ipcRenderer.sendToHost(TRUSTED_SUBMIT_CHANNEL, { protocolVersion: TRUSTED_SUBMIT_PROTOCOL_VERSION, platform, kind, composerGeneration: generation }); } catch {} };
 
   document.addEventListener('focusin', event => {
     if (!isPage() || event?.isTrusted !== true) return;
@@ -159,7 +151,28 @@ function createMessengerTrustedSubmitObserver() {
     if (editor && isSendControl(eventElement(event), editor)) emitSubmit('button', observeComposer(editor, false));
   }, true);
 }
-createMessengerTrustedSubmitObserver();
+createSemanticTrustedSubmitObserver({
+  platform: 'messenger',
+  isPage: () => {
+    try {
+      const host = String(window.location.hostname || '').toLowerCase();
+      return window.location.protocol === 'https:'
+        && (host === 'facebook.com' || host === 'www.facebook.com')
+        && /^\/messages(?:\/|$)/i.test(String(window.location.pathname || ''));
+    } catch { return false; }
+  },
+});
+createSemanticTrustedSubmitObserver({
+  platform: 'instagram',
+  isPage: () => {
+    try {
+      const host = String(window.location.hostname || '').toLowerCase();
+      return window.location.protocol === 'https:'
+        && (host === 'instagram.com' || host === 'www.instagram.com')
+        && /^\/direct(?:\/|$)/i.test(String(window.location.pathname || ''));
+    } catch { return false; }
+  },
+});
 
 window.addEventListener('message', event => {
   if (event.source !== window || event.origin !== window.location.origin) return;

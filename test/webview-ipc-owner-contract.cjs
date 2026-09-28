@@ -12,6 +12,7 @@ const PART_B = 'persist:webview-page-acc-b';
 const TG_URL = 'https://web.telegram.org/a/';
 const LINE_URL = 'chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html#/chats/abc';
 const MESSENGER_URL = 'https://www.facebook.com/messages/t/thread-1';
+const INSTAGRAM_URL = 'https://www.instagram.com/direct/t/thread-1/';
 
 function createIpcMain() {
   const handlers = new Map();
@@ -80,9 +81,11 @@ function createHarness(overrides = {}) {
     ['acc-b', { id: 'acc-b', type: 'telegram-k', partition: PART_B }],
     ['line-a', { id: 'line-a', type: 'line', partition: 'persist:webview-page-line-a' }],
     ['messenger-a', { id: 'messenger-a', type: 'messenger', partition: 'persist:webview-page-messenger-a' }],
+    ['instagram-a', { id: 'instagram-a', type: 'instagram', partition: 'persist:webview-page-instagram-a' }],
   ]);
   sessions.set('persist:webview-page-line-a', { partition: 'persist:webview-page-line-a' });
   sessions.set('persist:webview-page-messenger-a', { partition: 'persist:webview-page-messenger-a' });
+  sessions.set('persist:webview-page-instagram-a', { partition: 'persist:webview-page-instagram-a' });
   const guests = new Map();
   const calls = [];
   const realOwnership = createOwnershipRegistry();
@@ -151,6 +154,9 @@ async function rejects(promise, pattern) {
     const beforeInsert = h.calls.length;
     await rejects(h.ipcMain.invoke('webview:insert-text', h.untrustedSender, 'acc-a', 7, 'x', TOKEN_A), /未授权/);
     assert.deepEqual(h.calls.slice(beforeInsert), [['sender.guard', h.untrustedSender.id]], 'untrusted insert-text must stop at sender guard');
+    const beforeClear = h.calls.length;
+    await rejects(h.ipcMain.invoke('webview:clear-text', h.untrustedSender, 'instagram-a', 7, TOKEN_A, '/direct/t/thread-1'), /未授权/);
+    assert.deepEqual(h.calls.slice(beforeClear), [['sender.guard', h.untrustedSender.id]], 'untrusted clear-text must stop at sender guard');
     const beforeCommit = h.calls.length;
     await rejects(h.ipcMain.invoke('webview:commit-submit', h.untrustedSender, 'acc-a', 7, 'chat-a', 'hello', TOKEN_A), /未授权/);
     assert.deepEqual(h.calls.slice(beforeCommit), [['sender.guard', h.untrustedSender.id]], 'untrusted commit-submit must stop at sender guard');
@@ -161,6 +167,7 @@ async function rejects(promise, pattern) {
     for (const [channel, args] of [
       ['webview:register', ['acc-a', 7, TOKEN_A]],
       ['webview:insert-text', ['acc-a', 7, 'x', TOKEN_A]],
+      ['webview:clear-text', ['instagram-a', 7, TOKEN_A, '/direct/t/thread-1']],
       ['webview:commit-submit', ['acc-a', 7, 'chat-a', 'hello', TOKEN_A]],
     ]) {
       const before = h.calls.length;
@@ -392,6 +399,85 @@ async function rejects(promise, pattern) {
 
   {
     const h = createHarness();
+    const partition = h.accounts.get('instagram-a').partition;
+    const guest = createGuest({
+      id: 14,
+      host: h.trustedSender,
+      session: h.sessions.get(partition),
+      url: INSTAGRAM_URL,
+      focused: script => {
+        if (script.includes("return text ? 'NOT_EMPTY' : 'EMPTY'")) return 'EMPTY';
+        if (script.includes("return 'READY'")) return 'READY';
+        return true;
+      },
+    });
+    h.guests.set(14, guest);
+    assert.equal(await h.ipcMain.invoke('webview:register', h.trustedSender, 'instagram-a', 14, TOKEN_A), true);
+    assert.equal(await h.ipcMain.invoke('webview:clear-text', h.trustedSender, 'instagram-a', 14, TOKEN_A, '/direct/t/thread-1'), 'CLEARED');
+    assert.deepEqual(guest.inputEvents, [
+      { type: 'keyDown', keyCode: 'Backspace' },
+      { type: 'keyUp', keyCode: 'Backspace' },
+    ]);
+    assert.equal(guest.focusCalls.length, 1);
+    assert.equal(guest.scripts.length, 2, 'Instagram native clear must run exact selection guard and empty verification');
+    assert.match(guest.scripts[0], /\/direct\/t\/thread-1/);
+    assert.match(guest.scripts[0], /selectNodeContents/);
+    assert.match(guest.scripts[1], /NOT_EMPTY/);
+    assert.match(guest.scripts[1], /EMPTY/);
+  }
+
+  {
+    const h = createHarness();
+    const partition = h.accounts.get('instagram-a').partition;
+    const guest = createGuest({
+      id: 15,
+      host: h.trustedSender,
+      session: h.sessions.get(partition),
+      url: INSTAGRAM_URL,
+      focused: 'CHAT_CHANGED',
+    });
+    h.guests.set(15, guest);
+    await h.ipcMain.invoke('webview:register', h.trustedSender, 'instagram-a', 15, TOKEN_A);
+    assert.equal(await h.ipcMain.invoke('webview:clear-text', h.trustedSender, 'instagram-a', 15, TOKEN_A, '/direct/t/thread-1'), 'CHAT_CHANGED');
+    assert.deepEqual(guest.inputEvents, [], 'stale Instagram clear must fail before native input');
+    assert.equal(guest.focusCalls.length, 0);
+  }
+
+  {
+    const h = createHarness();
+    const partition = h.accounts.get('instagram-a').partition;
+    const guest = createGuest({
+      id: 12,
+      host: h.trustedSender,
+      session: h.sessions.get(partition),
+      url: INSTAGRAM_URL,
+      focused: script => script.includes("return 'READY'") ? 'READY' : true,
+    });
+    h.guests.set(12, guest);
+    assert.equal(await h.ipcMain.invoke('webview:register', h.trustedSender, 'instagram-a', 12, TOKEN_A), true);
+    assert.equal(await h.ipcMain.invoke('webview:insert-text', h.trustedSender, 'instagram-a', 12, 'hello instagram', TOKEN_A, '/direct/t/thread-1'), true);
+    assert.deepEqual(guest.inserted, ['hello instagram']);
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'instagram-a', 12, '/direct/t/thread-1', 'hello instagram', TOKEN_A), 'SUBMITTED');
+    assert.deepEqual(guest.inputEvents, [{ type: 'keyDown', keyCode: 'Enter' }, { type: 'keyUp', keyCode: 'Enter' }]);
+    assert.equal(guest.focusCalls.length, 1);
+    assert.match(guest.scripts.at(-2), /\/direct\/t\/thread-1/);
+    assert.match(guest.scripts.at(-2), /hello instagram/);
+    assert.match(guest.scripts.at(-2), /data-geek-native-submit-commit/);
+    assert.match(guest.scripts.at(-1), /removeAttribute\('data-geek-native-submit-commit'\)/);
+  }
+
+  {
+    const h = createHarness();
+    const partition = h.accounts.get('instagram-a').partition;
+    const guest = createGuest({ id: 13, host: h.trustedSender, session: h.sessions.get(partition), url: INSTAGRAM_URL, focused: 'STALE_CONTEXT' });
+    h.guests.set(13, guest);
+    await h.ipcMain.invoke('webview:register', h.trustedSender, 'instagram-a', 13, TOKEN_A);
+    assert.equal(await h.ipcMain.invoke('webview:commit-submit', h.trustedSender, 'instagram-a', 13, '/direct/t/thread-1', 'hello', TOKEN_A), 'STALE_CONTEXT');
+    assert.deepEqual(guest.inputEvents, [], 'stale Instagram conversation must fail before native input');
+  }
+
+  {
+    const h = createHarness();
     const guest = createGuest({ id: 7, host: h.trustedSender, session: h.sessions.get(PART_A) });
     h.guests.set(7, guest);
     await h.ipcMain.invoke('webview:register', h.trustedSender, 'acc-a', 7, TOKEN_A);
@@ -414,6 +500,7 @@ async function rejects(promise, pattern) {
     h.owner.dispose();
     assert.equal(h.ipcMain.handlers.has('webview:register'), false);
     assert.equal(h.ipcMain.handlers.has('webview:insert-text'), false);
+    assert.equal(h.ipcMain.handlers.has('webview:clear-text'), false);
     assert.equal(h.ipcMain.handlers.has('webview:commit-submit'), false);
     assert.equal(h.ipcMain.handlers.has('foreign:keep'), true, 'foreign handler must survive WebView owner disposal');
     assert.deepEqual(h.ipcMain.removed, WEBVIEW_IPC_CHANNELS);

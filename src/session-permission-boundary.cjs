@@ -15,14 +15,14 @@ const {
 // - WhatsApp is a long-lived authenticated web app whose Chromium storage bucket must
 //   remain eligible for persistent storage across cold starts. The grant is still scoped
 //   by the account navigation policy, so only the WhatsApp local/official origins qualify;
-// - Messenger phase 1 grants notifications only. Camera/mic calling and persistent storage stay
-//   denied until a dedicated runtime proof establishes that product requirement and boundary.
+// - Messenger and Instagram phase 1 grant notifications only. Camera/mic calling and persistent
+//   storage stay denied until dedicated runtime proof establishes those product requirements.
 // - LINE for Chrome does not support voice/video calls, and arbitrary Websites receive
 //   no media or persistent-storage permission in this MVP.
 // Clipboard read/write, display capture, speaker selection, devices, filesystem, and every
 // other permission stay denied until a concrete Geek product need is independently proven.
 const SUPPORTED_PERMISSION_MATRIX = Object.freeze({
-  notifications: Object.freeze({ kinds: Object.freeze(['whatsapp', 'telegram', 'line', 'messenger', 'website']) }),
+  notifications: Object.freeze({ kinds: Object.freeze(['whatsapp', 'telegram', 'line', 'messenger', 'instagram', 'website']) }),
   fullscreen: Object.freeze({ kinds: Object.freeze(['telegram']) }),
   media: Object.freeze({
     kinds: Object.freeze(['whatsapp', 'telegram']),
@@ -63,7 +63,7 @@ function normalizeMediaTypes(value) {
 }
 
 function isAccountPermissionAllowed({ policy, permission, requestingUrl, mediaTypes } = {}) {
-  if (!policy || !['whatsapp', 'telegram', 'line', 'messenger', 'website'].includes(policy.kind)) return false;
+  if (!policy || !['whatsapp', 'telegram', 'line', 'messenger', 'instagram', 'website'].includes(policy.kind)) return false;
   const rule = SUPPORTED_PERMISSION_MATRIX[String(permission || '')];
   if (!rule || !rule.kinds.includes(policy.kind)) return false;
   if (!requestingUrl || !isNavigationAllowed(policy, requestingUrl)) return false;

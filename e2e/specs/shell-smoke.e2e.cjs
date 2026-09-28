@@ -465,6 +465,85 @@ async function createMessengerAccountThroughAppCenter() {
   await heartbeat('messenger-cleanup');
 }
 
+async function createInstagramAccountThroughAppCenter() {
+  await (await waitVisible('#btn-app-center')).click();
+  await waitVisible('#add-overlay:not(.hidden)');
+  const card = await waitVisible('.add-platform-card[data-type="instagram"]');
+  assert.match(await card.getText(), /Instagram/, 'App Center must expose the Instagram platform card');
+  await card.click();
+
+  const nameInput = await waitVisible('#add-name');
+  const countInput = await waitVisible('#add-count');
+  await nameInput.setValue('E2E Instagram');
+  await countInput.setValue('1');
+  const before = await browser.executeAsync((done) => window.api.accounts.list().then(done).catch(error => done({ error: String(error?.message || error) })));
+  await (await waitVisible('#add-confirm')).click();
+  await waitHidden('#add-overlay', 10_000);
+
+  await browser.waitUntil(async () => browser.executeAsync((done) => {
+    window.api.accounts.list().then((state) => done(state.accounts.filter(account => account.type === 'instagram').length === 1)).catch(() => done(false));
+  }), { timeout: 10_000, timeoutMsg: 'Instagram account was not created through App Center' });
+
+  const state = await browser.executeAsync((done) => window.api.accounts.list().then(done).catch(error => done({ error: String(error?.message || error) })));
+  assert.equal(state.error, undefined);
+  const instagram = state.accounts.find(account => account.type === 'instagram');
+  assert.ok(instagram?.id, 'Instagram account must persist through the authoritative account state');
+  assert.equal(instagram.name, 'E2E Instagram');
+  assert.equal(instagram.partition, `persist:webview-page-${instagram.id}`);
+  assert.ok(!before.accounts.some(account => account.id === instagram.id));
+
+  const ui = await browser.execute((id) => {
+    const webview = Array.from(document.querySelectorAll('webview')).find(item => item.partition === `persist:webview-page-${id}`);
+    const tabs = Array.from(document.querySelectorAll('.tab-item')).map(el => ({ platform: el.dataset.platform, title: el.title }));
+    return {
+      tabs,
+      activePlatform: document.querySelector('.tab-item.active')?.dataset.platform || '',
+      row: webview ? {
+        src: webview.getAttribute('src') || webview.src || '',
+        partition: webview.getAttribute('partition') || webview.partition || '',
+        preload: webview.getAttribute('preload') || '',
+        allowpopups: webview.hasAttribute('allowpopups'),
+      } : null,
+      broadcastHidden: document.getElementById('btn-broadcast')?.classList.contains('hidden') === true,
+      translationHidden: document.getElementById('btn-translation')?.classList.contains('hidden') === true,
+    };
+  }, instagram.id);
+
+  assert.ok(ui.tabs.some(tab => tab.platform === 'instagram' && tab.title === 'Instagram'), 'Instagram must render as its own platform family');
+  assert.equal(ui.activePlatform, 'instagram');
+  assert.ok(ui.row, 'Instagram webview must exist');
+  assert.equal(ui.row.src, 'https://www.instagram.com/direct/inbox/');
+  assert.equal(ui.row.partition, instagram.partition);
+  assert.match(ui.row.preload, /bridge-preload\.cjs/, 'Instagram must retain the trusted bridge preload');
+  assert.equal(ui.row.allowpopups, true, 'Instagram login popup flow must stay account-scoped');
+  assert.equal(ui.broadcastHidden, false, 'Instagram phase 1 exposes text broadcast');
+  assert.equal(ui.translationHidden, false, 'Instagram phase 1 exposes outgoing translation');
+
+  console.log(`E2E_INSTAGRAM account=true partition=true src=true preload=true broadcast=true translation=true`);
+  await heartbeat('instagram-app-center');
+
+  // Instagram owns a real Instagram WebView/Session. Durable removal may need to stop
+  // an in-flight renderer before partition cleanup, so do not reuse heartbeat's 2.5s budget.
+  await browser.setTimeout({ script: 15_000 });
+  const cleanup = await browser.executeAsync((id, fallbackId, done) => {
+    (async () => {
+      await window.api.accounts.remove(id);
+      await window.api.accounts.switch(fallbackId);
+      const next = await window.api.accounts.list();
+      done({
+        ids: next.accounts.map(account => account.id),
+        activeAccountId: next.activeAccountId,
+        instagramCount: next.accounts.filter(account => account.type === 'instagram').length,
+      });
+    })().catch(error => done({ error: String(error?.message || error || 'cleanup failed') }));
+  }, instagram.id, ACCOUNT_A);
+  assert.equal(cleanup.error, undefined, `Instagram cleanup failed: ${cleanup.error || ''}`);
+  assert.deepEqual(cleanup.ids, [ACCOUNT_A, ACCOUNT_B], 'Instagram E2E cleanup must restore the shared synthetic fixture');
+  assert.equal(cleanup.activeAccountId, ACCOUNT_A);
+  assert.equal(cleanup.instagramCount, 0);
+  await heartbeat('instagram-cleanup');
+}
+
 async function openAndCloseAccountSettings(iteration) {
   await activateAccount(ACCOUNT_A);
   const targetSelector = `.nav-account[data-id="${ACCOUNT_B}"]`;
@@ -579,5 +658,6 @@ describe('Geek Electron shell smoke', () => {
 
     await createWebsiteAccountsThroughAppCenter();
     await createMessengerAccountThroughAppCenter();
+    await createInstagramAccountThroughAppCenter();
   });
 });

@@ -12,7 +12,7 @@ const html = fs.readFileSync(path.join(root, 'ui', 'index.html'), 'utf8').replac
 
 assert.match(
   app,
-  /safePayload\.intent === 'outgoing-send' && \(family === 'telegram' \|\| family === 'line' \|\| family === 'whatsapp' \|\| family === 'messenger'\)[\s\S]{0,260}executePlatformOutgoingSendIntent\(account, wv, safePayload\)/,
+  /safePayload\.intent === 'outgoing-send' && \(family === 'telegram' \|\| family === 'line' \|\| family === 'whatsapp' \|\| family === 'messenger' \|\| family === 'instagram'\)[\s\S]{0,300}executePlatformOutgoingSendIntent\(account, wv, safePayload\)/,
   'all Telegram outgoing-send requests should enter the SendIntent owner',
 );
 assert.match(
@@ -124,6 +124,6 @@ assert.match(
 );
 
 const route = app.match(/const result = safePayload\.intent === 'outgoing-send'[\s\S]{0,420}?;/)?.[0] || '';
-assert.match(route, /family === 'telegram' \|\| family === 'line' \|\| family === 'whatsapp' \|\| family === 'messenger'/, 'shared SendIntent migration must explicitly include Telegram, LINE, WhatsApp, and Messenger');
+assert.match(route, /family === 'telegram' \|\| family === 'line' \|\| family === 'whatsapp' \|\| family === 'messenger' \|\| family === 'instagram'/, 'shared SendIntent migration must explicitly include Telegram, LINE, WhatsApp, Messenger, and Instagram');
 
 console.log('TELEGRAM_SEND_INTENT_OWNER_CONTRACT_OK');

@@ -338,7 +338,7 @@
   }
   async function registerWebviewBridge(wv, account) {
     const family = familyOf(account.type).key;
-    if (!(family === 'telegram' || family === 'line' || family === 'whatsapp' || family === 'messenger')) return true;
+    if (!(family === 'telegram' || family === 'line' || family === 'whatsapp' || family === 'messenger' || family === 'instagram')) return true;
     return window.api.webviewInput.register(account.id, wv.getWebContentsId(), bridgeTokenFor(wv));
   }
 
@@ -375,6 +375,7 @@
     if (type === 'line') return 'p-icon-line';
     if (type === 'line-business') return 'p-icon-line-business';
     if (type === 'messenger') return 'p-icon-messenger';
+    if (type === 'instagram') return 'p-icon-instagram';
     if (type === 'website') return 'p-icon-website';
     return 'p-icon-website';
   }
@@ -756,7 +757,7 @@
       if (!account) throw new Error('翻译账号沙箱不存在');
       const { bridgeToken: _bridgeToken, ...safePayload } = payload;
       const family = familyOf(account.type).key;
-      const result = safePayload.intent === 'outgoing-send' && (family === 'telegram' || family === 'line' || family === 'whatsapp' || family === 'messenger')
+      const result = safePayload.intent === 'outgoing-send' && (family === 'telegram' || family === 'line' || family === 'whatsapp' || family === 'messenger' || family === 'instagram')
         ? await executePlatformOutgoingSendIntent(account, wv, safePayload)
         : await window.api.translation.translate({ ...safePayload, accountId: account.id });
       await wv.executeJavaScript(`window.__geekResolveTranslation?.(${JSON.stringify(requestId)}, ${JSON.stringify(result)}, null)`);
@@ -850,8 +851,8 @@
     wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
   }
 
-  function syncMessengerTranslationCfgToWebview(wv, account) {
-    if (!wv || !account || account.type !== 'messenger') return;
+  function syncMetaTranslationCfgToWebview(wv, account) {
+    if (!wv || !account || (account.type !== 'messenger' && account.type !== 'instagram')) return;
     const bridgeToken = bridgeTokenFor(wv);
     wv.executeJavaScript(`(${function (cfg) {
       const bridgeToken = String(cfg.bridgeToken || '');
@@ -884,8 +885,8 @@
         if (error) pending.reject(new Error(error)); else pending.resolve(result);
         return true;
       };
-      return 'MESSENGER_TRANSLATION_BRIDGE_READY';
-    }.toString()})(${JSON.stringify({ bridgeToken })})`).catch(error => console.error('Messenger翻译桥注入失败:', error.message));
+      return 'META_TRANSLATION_BRIDGE_READY';
+    }.toString()})(${JSON.stringify({ bridgeToken })})`).catch(error => console.error('Meta翻译桥注入失败:', error.message));
   }
   // 翻译通道注入：只同步语言和聊天配置；服务地址与供应商密钥均留在主进程。
   function syncTranslationCfgToWebview(wv, account) {
@@ -898,8 +899,8 @@
       syncLineTranslationCfgToWebview(wv, account);
       return;
     }
-    if (account.type === 'messenger') {
-      syncMessengerTranslationCfgToWebview(wv, account);
+    if (account.type === 'messenger' || account.type === 'instagram') {
+      syncMetaTranslationCfgToWebview(wv, account);
       return;
     }
     if (!(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
@@ -1472,7 +1473,7 @@
   }
   async function executePlatformOutgoingSendIntent(account, wv, safePayload) {
     const family = String(familyOf(account.type)?.key || '');
-    if (family !== 'telegram' && family !== 'line' && family !== 'whatsapp' && family !== 'messenger') {
+    if (family !== 'telegram' && family !== 'line' && family !== 'whatsapp' && family !== 'messenger' && family !== 'instagram') {
       throw Object.assign(new Error('SEND_INTENT_PLATFORM_UNSUPPORTED'), { code: 'SEND_INTENT_PLATFORM_UNSUPPORTED' });
     }
     const adapter = platformCapabilities.forAccount(account, wv);
@@ -2097,11 +2098,13 @@
       }
     }
     if (!targets.length) { alert('请先勾选要发送的聊天'); return; }
-    if (familyOf(account.type).key === 'messenger') {
-      const messengerVcards = Array.isArray(window.__vcardContacts) ? window.__vcardContacts : [];
-      const messengerTagAll = document.getElementById('broadcast-tagall')?.checked === true;
-      if (broadcastFiles.length || messengerVcards.length || messengerTagAll) {
-        alert('Messenger 第一阶段仅支持纯文字群发；附件、名片和 @全体 暂不发送。');
+    const textOnlyFamily = familyOf(account.type).key;
+    if (textOnlyFamily === 'messenger' || textOnlyFamily === 'instagram') {
+      const unsupportedVcards = Array.isArray(window.__vcardContacts) ? window.__vcardContacts : [];
+      const unsupportedTagAll = document.getElementById('broadcast-tagall')?.checked === true;
+      if (broadcastFiles.length || unsupportedVcards.length || unsupportedTagAll) {
+        const platformName = textOnlyFamily === 'instagram' ? 'Instagram' : 'Messenger';
+        alert(platformName + ' 第一阶段仅支持纯文字群发；附件、名片和 @全体 暂不发送。');
         return;
       }
     }
@@ -2285,7 +2288,7 @@
               continue;
             }
             sentOk = await platform.sendText('');
-            if (platform.family === 'messenger' && sentOk === 'MAYBE') break;
+            if ((platform.family === 'messenger' || platform.family === 'instagram') && sentOk === 'MAYBE') break;
           }
           if (sentOk === 'SENT' || sentOk === 'CLICKED') break; // 成功
         } catch (e) {

@@ -15,7 +15,7 @@ const navigation = read('src/webview-navigation-boundary.cjs');
 const ui = read('ui/app.js');
 const hostAdapters = read('ui/platform-host-adapters.js');
 
-const channels = ['webview:register', 'webview:insert-text', 'webview:commit-submit'];
+const channels = ['webview:register', 'webview:insert-text', 'webview:clear-text', 'webview:commit-submit'];
 
 assert.match(main, /const \{ installWebviewIpc \} = require\('\.\/webview-ipc\.cjs'\)/, 'main must import WebView IPC owner');
 assert.match(main, /webviewIpcBoundary = installWebviewIpc\(\{/, 'main must compose WebView IPC owner');
@@ -58,6 +58,7 @@ assert.match(owner, /webviewOwnership\.remove\(/, 'guest lifecycle cleanup must 
 
 assert.match(preload, /register:\s*\(accountId, guestId, token\) => ipcRenderer\.invoke\('webview:register', accountId, guestId, token\)/, 'preload register channel/API must remain unchanged');
 assert.match(preload, /insertText:\s*\(accountId, guestId, text, token, expectedChatId = ''\) => ipcRenderer\.invoke\('webview:insert-text', accountId, guestId, text, token, expectedChatId\)/, 'preload insert API must carry optional explicit conversation binding');
+assert.match(preload, /clearText:\s*\(accountId, guestId, token, expectedChatId = ''\) => ipcRenderer\.invoke\('webview:clear-text', accountId, guestId, token, expectedChatId\)/, 'preload must expose only the bounded Instagram composer clear ingress');
 assert.match(preload, /commitSubmit:\s*\(accountId, guestId, expectedChatId, expectedComposerText, token\) => ipcRenderer\.invoke\('webview:commit-submit', accountId, guestId, expectedChatId, expectedComposerText, token\)/, 'preload must expose only the bounded native submit commit ingress');
 assert.match(ui, /window\.api\.webviewInput\.register\(account\.id, wv\.getWebContentsId\(\), bridgeTokenFor\(wv\)\)/, 'renderer register call contract must remain unchanged');
 assert.match(hostAdapters, /api\.webviewInput\.insertText\([\s\S]{0,220}account\.id,[\s\S]{0,140}webview\.getWebContentsId\(\)/, 'platform host adapters must delegate composer insertion to the main-process WebView IPC owner');
@@ -77,6 +78,8 @@ assert.match(owner, /webviewOwnership\.authorize\(\{[\s\S]*senderId: event\.send
 assert.match(owner, /const LINE_TYPES = new Set\(\['line', 'line-business'\]\)/, 'LINE account types must be explicit at the native commit boundary');
 assert.match(owner, /const allowedCommitPage = \(isTelegram && TELEGRAM_URL\.test\(url\)\)[\s\S]*\|\| \(isLine && LINE_URL\.test\(url\)\)/, 'commit-submit must bind each supported platform to its exact live guest URL');
 assert.match(owner, /isTelegram[\s\S]*\? telegramCommitGuardScript\(chatId, composerText\)[\s\S]*: lineCommitGuardScript\(chatId, composerText\)/, 'commit-submit must use platform-specific exact context/composer guards under one owner');
+assert.match(owner, /register\('webview:clear-text'[\s\S]*isInstagramDirectUrl\(url\)[\s\S]*clearComposerGuardScript\(chatId\)/, 'clear-text must remain Instagram-only and bind the exact live Direct thread before native input');
+assert.match(owner, /sendInputEvent\(\{ type: 'keyDown', keyCode: 'Backspace' \}\)[\s\S]*sendInputEvent\(\{ type: 'keyUp', keyCode: 'Backspace' \}\)/, 'clear-text must deliver exactly one native Backspace sequence after selecting the controlled composer');
 assert.match(owner, /sendInputEvent\(\{ type: 'keyDown', keyCode: 'Enter' \}\)[\s\S]*sendInputEvent\(\{ type: 'keyUp', keyCode: 'Enter' \}\)/, 'commit-submit must deliver exactly one native Enter sequence');
 assert.match(owner, /data-geek-native-submit-commit[\s\S]*clearNativeCommitMarkerScript/, 'native commit must bracket Enter with the shared recursion-bypass marker');
 assert.match(owner, /guest\.isDestroyed\(\)/, 'destroyed guests must fail closed');

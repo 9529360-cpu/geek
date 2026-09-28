@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const controllerPath = path.join(__dirname, '../ui/messenger-send-intent-controller.js');
+const controllerPath = path.join(__dirname, '../ui/instagram-send-intent-controller.js');
 const semanticPath = path.join(__dirname, '../ui/semantic-send-intent-controller.js');
 const controller = require(controllerPath);
 const source = [controllerPath, semanticPath]
@@ -36,7 +36,7 @@ function makeEnv(resultFactory = payload => ({ text: payload.text, delivery: { o
   const page = {
     AbortController,
     document,
-    location: { pathname: '/messages/t/thread-1' },
+    location: { pathname: '/direct/t/thread-1/' },
     console: { error() {} },
     setTimeout() { return 1; },
     getComputedStyle() { return { display: 'block', visibility: 'visible' }; },
@@ -47,17 +47,8 @@ function makeEnv(resultFactory = payload => ({ text: payload.text, delivery: { o
 
 function keyEvent(target) {
   return {
-    target,
-    isTrusted: true,
-    key: 'Enter',
-    shiftKey: false,
-    ctrlKey: false,
-    altKey: false,
-    metaKey: false,
-    isComposing: false,
-    repeat: false,
-    prevented: 0,
-    stopped: 0,
+    target, isTrusted: true, key: 'Enter', shiftKey: false, ctrlKey: false, altKey: false,
+    metaKey: false, isComposing: false, repeat: false, prevented: 0, stopped: 0,
     preventDefault() { this.prevented += 1; },
     stopImmediatePropagation() { this.stopped += 1; },
   };
@@ -65,24 +56,24 @@ function keyEvent(target) {
 
 (async () => {
   assert.equal(controller.CONTROLLER_VERSION, 1);
-  assert.equal(controller.isMessengerType('messenger'), true);
-  assert.equal(controller.isMessengerType('whatsapp'), false);
+  assert.equal(controller.isInstagramType('instagram'), true);
+  assert.equal(controller.isInstagramType('messenger'), false);
 
   {
     const env = makeEnv();
     assert.equal(controller.installPageController(env.page), 'READY');
     const ev = keyEvent(env.editor);
-    assert.equal(await env.page.__geekMessengerSendIntentController.submitThroughOwner(ev, env.editor), true);
+    assert.equal(await env.page.__geekInstagramSendIntentController.submitThroughOwner(ev, env.editor), true);
     assert.equal(ev.prevented, 1);
     assert.equal(ev.stopped, 1);
-    assert.deepEqual(env.requests, [{ text: 'hello', chatId: '/messages/t/thread-1', intent: 'outgoing-send' }]);
+    assert.deepEqual(env.requests, [{ text: 'hello', chatId: '/direct/t/thread-1', intent: 'outgoing-send' }]);
   }
 
   {
     const env = makeEnv(payload => ({ text: payload.text, delivery: { owner: 'legacy', state: 'sent' } }));
     controller.installPageController(env.page);
     const ev = keyEvent(env.editor);
-    assert.equal(await env.page.__geekMessengerSendIntentController.submitThroughOwner(ev, env.editor), false);
+    assert.equal(await env.page.__geekInstagramSendIntentController.submitThroughOwner(ev, env.editor), false);
     assert.match(env.notices.at(-1) || '', /未完成|重试/);
   }
 
@@ -91,24 +82,24 @@ function keyEvent(target) {
     env.setMarker('1');
     controller.installPageController(env.page);
     const ev = keyEvent(env.editor);
-    assert.equal(await env.page.__geekMessengerSendIntentController.submitThroughOwner(ev, env.editor), false);
-    assert.equal(env.requests.length, 0, 'owner native commit must bypass the page controller');
+    assert.equal(await env.page.__geekInstagramSendIntentController.submitThroughOwner(ev, env.editor), false);
+    assert.equal(env.requests.length, 0);
   }
 
   {
     const env = makeEnv();
-    env.page.location.pathname = '/messages/';
+    env.page.location.pathname = '/direct/inbox/';
     controller.installPageController(env.page);
     const ev = keyEvent(env.editor);
-    assert.equal(await env.page.__geekMessengerSendIntentController.submitThroughOwner(ev, env.editor), false);
-    assert.equal(env.requests.length, 0, 'no active thread means no SendIntent transaction');
+    assert.equal(await env.page.__geekInstagramSendIntentController.submitThroughOwner(ev, env.editor), false);
+    assert.equal(env.requests.length, 0);
   }
 
   {
     const guest = makeEnv().page;
     const expressions = [];
     const webview = {
-      partition: 'persist:messenger-test',
+      partition: 'persist:instagram-test',
       getAttribute(name) { return name === 'partition' ? this.partition : ''; },
       addEventListener() {},
       async executeJavaScript(expression) {
@@ -118,13 +109,13 @@ function keyEvent(target) {
     };
     const host = {
       document: { readyState: 'complete', documentElement: {}, querySelectorAll() { return [webview]; } },
-      api: { accounts: { async list() { return { accounts: [{ type: 'messenger', partition: 'persist:messenger-test' }] }; } } },
+      api: { accounts: { async list() { return { accounts: [{ type: 'instagram', partition: 'persist:instagram-test' }] }; } } },
     };
     assert.equal(controller.installShell(host), true);
     await Promise.resolve();
     await Promise.resolve();
     assert.ok(expressions.length >= 1);
-    assert.equal(guest.__geekMessengerSendIntentController?.version, 1, 'stringified guest injection must stay self-contained');
+    assert.equal(guest.__geekInstagramSendIntentController?.version, 1, 'stringified guest injection must stay self-contained');
   }
 
   assert.match(source, /intent:\s*'outgoing-send'/);
@@ -133,5 +124,5 @@ function keyEvent(target) {
   assert.match(source, /data-geek-native-submit-commit/);
   assert.doesNotMatch(source, /fetch\(|XMLHttpRequest|sendTextMessage|\.click\(\)/, 'page controller must not own network/native send effects');
 
-  console.log('MESSENGER_SEND_INTENT_CONTROLLER_CONTRACT_OK');
+  console.log('INSTAGRAM_SEND_INTENT_CONTROLLER_CONTRACT_OK');
 })().catch(error => { console.error(error?.stack || error); process.exit(1); });
