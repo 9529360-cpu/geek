@@ -29,8 +29,8 @@ vm.runInContext(executable, sandbox, { filename: 'scripts/geek-translate-worker.
   const { PROVIDERS, translate } = sandbox.__poolHooks;
   assert.deepEqual(
     Array.from(PROVIDERS, provider => provider.id),
-    ['gemini', 'mistral', 'openrouter', 'cloudflare', 'groq'],
-    'translation fallback order must use the maintained five-provider free pool'
+    ['mistral', 'gemini', 'groq', 'cloudflare', 'openrouter'],
+    'translation fallback order must prefer the measured low-latency providers and keep OpenRouter as the last fallback'
   );
   assert.equal(PROVIDERS.find(provider => provider.id === 'mistral').model, 'ministral-3b-latest');
   assert.equal(PROVIDERS.find(provider => provider.id === 'openrouter').model, 'openrouter/free');

@@ -9,6 +9,7 @@ const META_PREFIXES = [
   /^(?:sure|certainly|of course)[,!：:\s-]+here(?:'s| is)\s+(?:the\s+)?(?:translation|translated text)(?:\s+(?:in|into|to)\s+[^:\n]{1,30})?[：:]?\s*/i,
 ];
 const URL_OR_EMAIL_RE = /(?:https?:\/\/|www\.)\S+|\b[^\s@]+@[^\s@]+\.[^\s@]+\b/giu;
+const NON_TRANSLATION_META_RE = /^(?:user\s+safety|safety)\s*[:\-]?\s*(?:safe|unsafe|allowed|blocked)\.?$/i;
 const WORD_CHAR_RE = /[\p{L}\p{N}]/gu;
 const LETTER_RE = /\p{L}/gu;
 const SCRIPT_PATTERNS = Object.freeze({
@@ -56,6 +57,15 @@ function sanitizeTranslationOutput(value) {
   return stripOuterFence(text);
 }
 
+function stripAddedMarkdownEmphasis(sourceText, output) {
+  const source = String(sourceText || '');
+  let text = String(output || '');
+  if (/\*\*[^*\n]+\*\*|__[^_\n]+__/.test(source)) return text;
+  text = text.replace(/\*\*([^*\n]+)\*\*/g, '$1');
+  text = text.replace(/__([^_\n]+)__/g, '$1');
+  return text;
+}
+
 function comparable(value) {
   return String(value || '').normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
 }
@@ -84,10 +94,12 @@ function scriptCount(value, script) {
 
 function assessTranslationOutput({ source, output, target, sourceLanguage = 'auto' } = {}) {
   const original = String(source || '').trim();
-  const text = sanitizeTranslationOutput(output);
+  let text = sanitizeTranslationOutput(output);
+  text = stripAddedMarkdownEmphasis(original, text);
   const language = String(target || '').toLowerCase();
   const sourceCode = String(sourceLanguage || 'auto').toLowerCase();
   if (!text) return { ok: false, text: '', reason: 'EMPTY_TRANSLATION' };
+  if (NON_TRANSLATION_META_RE.test(text)) return { ok: false, text, reason: 'NON_TRANSLATION_META' };
   if (META_PREFIXES.some(pattern => pattern.test(text))) return { ok: false, text, reason: 'META_PREAMBLE' };
   if (text.length > Math.max(800, original.length * 8 + 160)) return { ok: false, text, reason: 'SUSPICIOUS_LENGTH' };
   if (!preservesTerminalQuestionForm(original, text, language)) return { ok: false, text, reason: 'QUESTION_FORM_LOST' };

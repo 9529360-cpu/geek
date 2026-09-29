@@ -152,16 +152,16 @@ function loadWorker(fetchImpl) {
 
   const { worker, hooks } = loadWorker(async (url) => {
     const value = String(url);
-    if (value.includes('generativelanguage.googleapis.com')) {
-      geminiCalls += 1;
+    if (value.includes('api.mistral.ai')) {
+      mistralCalls += 1;
       // Same CJK source text is a request-specific quality rejection for target=it.
       return new Response(JSON.stringify({ choices: [{ message: { content: '你好' } }] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    if (value.includes('api.mistral.ai')) {
-      mistralCalls += 1;
+    if (value.includes('generativelanguage.googleapis.com')) {
+      geminiCalls += 1;
       return new Response(JSON.stringify({ choices: [{ message: { content: 'Ciao' } }] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -170,7 +170,7 @@ function loadWorker(fetchImpl) {
     throw new Error(`unexpected provider URL: ${value}`);
   });
 
-  const qualityError = hooks.providerQualityError({ id: 'gemini' }, new Error('bad output'));
+  const qualityError = hooks.providerQualityError({ id: 'mistral' }, new Error('bad output'));
   assert.equal(qualityError.code, 'provider_quality_rejected');
   assert.equal(hooks.shouldAffectProviderHealth(qualityError), false);
   assert.equal(hooks.shouldAffectProviderHealth(new Error('transport failure')), true);
@@ -184,22 +184,22 @@ function loadWorker(fetchImpl) {
 
   for (let index = 0; index < 2; index += 1) {
     const response = await worker.fetch(translateRequest(secret), env);
-    assert.equal(response.status, 200, `request ${index + 1} must fail over to Mistral successfully`);
+    assert.equal(response.status, 200, `request ${index + 1} must fail over to Gemini successfully`);
     const payload = await response.json();
     assert.equal(payload.text, 'Ciao');
-    assert.equal(payload.engine, 'mistral');
+    assert.equal(payload.engine, 'gemini');
   }
 
   const healthResponse = await worker.fetch(new Request('https://translate.invalid/health'), env);
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
-  assert.equal(health.models.gemini.failCount, 0,
-    'request-specific output rejection must not increment shared Gemini health failures');
-  assert.equal(health.models.gemini.healthy, true,
-    'request-specific output rejection must not cool down Gemini');
-  assert.equal(geminiCalls, 2,
-    'Gemini must remain eligible on the next request after repeated output-quality rejection');
+  assert.equal(health.models.mistral.failCount, 0,
+    'request-specific output rejection must not increment shared Mistral health failures');
+  assert.equal(health.models.mistral.healthy, true,
+    'request-specific output rejection must not cool down Mistral');
   assert.equal(mistralCalls, 2,
+    'Mistral must remain eligible on the next request after repeated output-quality rejection');
+  assert.equal(geminiCalls, 2,
     'quality rejection may still fail over within the same request deadline');
 
   sqlite.close();

@@ -96,10 +96,10 @@ function loadWorker(fetchImpl) {
     const calls = [];
     const hooks = loadWorker(async (url) => {
       calls.push(String(url));
-      if (String(url).includes('generativelanguage.googleapis.com')) {
+      if (String(url).includes('api.mistral.ai')) {
         return response(200, { choices: [{ message: { content: 'Sei pronto.' } }] });
       }
-      if (String(url).includes('api.mistral.ai')) {
+      if (String(url).includes('generativelanguage.googleapis.com')) {
         return response(200, { choices: [{ message: { content: 'Sei pronto?' } }] });
       }
       throw new Error('unexpected provider url ' + url);
@@ -111,12 +111,12 @@ function loadWorker(fetchImpl) {
       { GEMINI_API_KEY: 'gemini-key', MISTRAL_API_KEY: 'mistral-key' },
       Date.now() + 30_000
     );
-    assert.equal(result.engine, 'mistral', 'question-form rejection must fall through to next provider');
+    assert.equal(result.engine, 'gemini', 'question-form rejection must fall through to the next provider in the measured order');
     assert.equal(result.text, 'Sei pronto?');
     assert.equal(calls.length, 2, 'quality rejection must not retry the same provider');
-    assert.match(calls[0], /generativelanguage\.googleapis\.com/);
-    assert.match(calls[1], /api\.mistral\.ai/);
-    const rejectedState = hooks.providerState.get('gemini');
+    assert.match(calls[0], /api\.mistral\.ai/);
+    assert.match(calls[1], /generativelanguage\.googleapis\.com/);
+    const rejectedState = hooks.providerState.get('mistral');
     assert.equal(rejectedState?.failCount || 0, 0, 'quality rejection must not poison provider health');
     assert.notEqual(rejectedState?.healthy, false, 'quality rejection must not open provider circuit');
   }
