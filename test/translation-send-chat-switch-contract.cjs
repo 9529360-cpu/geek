@@ -115,7 +115,7 @@ function createTelegramHarness(translationPromise) {
   vm.runInContext(adapterSource, context, { filename: 'translation-adapters.js' });
   context.window.GeekTranslationAdapters.telegram({
     accountId: 'acc-tg', bridgeToken: 'a'.repeat(32),
-    global: { send: true, sendFrom: 'auto', sendTo: 'it', displayTranslation: false }, chats: {},
+    policy: { default: { enabled: true, autoSend: true, source: 'auto', target: 'it', displayTranslation: false, translationMode: 'click', messageFrom: 'auto', messageTarget: 'zh' }, chats: {} },
   });
 
   const keydown = listeners.get('keydown');
@@ -195,7 +195,7 @@ function createLineHarness(translationPromise) {
   vm.runInContext(adapterSource, context, { filename: 'translation-adapters.js' });
   context.window.GeekTranslationAdapters.line({
     accountId: 'acc-line', bridgeToken: 'b'.repeat(32),
-    global: { send: true, sendFrom: 'auto', sendTo: 'it', displayTranslation: false }, chats: {},
+    policy: { default: { enabled: true, autoSend: true, source: 'auto', target: 'it', displayTranslation: false, translationMode: 'click', messageFrom: 'auto', messageTarget: 'zh' }, chats: {} },
   });
 
   const keydown = listeners.get('keydown');

@@ -43,6 +43,7 @@
       messageTarget: g.messageTo || 'zh',
       messageFrom: g.messageFrom || 'auto',
       groupAuto: g.group === true,
+      translateHistory: g.translateHistory === true || g.transOldHistory === true,
       includeZh: g.includeZh !== false,
       fontSize: g.fontSize || '13',
       fontColor: g.fontColor || '#667eea'
@@ -60,6 +61,28 @@
       ? String(merged.route).toLowerCase()
       : 'default';
     return merged;
+  }
+
+
+  function createPolicySnapshot(globalConfig = {}, chatConfigs = {}) {
+    const sourceChats = chatConfigs && typeof chatConfigs === 'object' ? chatConfigs : {};
+    const chats = {};
+    for (const [chatId, chatConfig] of Object.entries(sourceChats)) {
+      const key = String(chatId || '');
+      if (!key) continue;
+      chats[key] = Object.freeze(normalizeConfig(globalConfig, chatConfig));
+    }
+    return Object.freeze({
+      default: Object.freeze(normalizeConfig(globalConfig, {})),
+      chats: Object.freeze(chats),
+    });
+  }
+
+  function policyFor(snapshot, chatId) {
+    const policy = snapshot && typeof snapshot === 'object' ? snapshot : {};
+    const key = String(chatId || '');
+    const local = key && policy.chats && typeof policy.chats === 'object' ? policy.chats[key] : null;
+    return local || policy.default || normalizeConfig({}, {});
   }
 
   function registerAdapter(platform, adapter) {
@@ -98,6 +121,8 @@
     platformOf,
     receiveTranslationMode,
     normalizeConfig,
+    createPolicySnapshot,
+    policyFor,
     registerAdapter,
     getAdapter,
     messageKey,
