@@ -93,6 +93,35 @@ function loadWorker(fetchImpl) {
   }
 
   {
+    const calls = [];
+    const hooks = loadWorker(async (url) => {
+      calls.push(String(url));
+      if (String(url).includes('generativelanguage.googleapis.com')) {
+        return response(200, { choices: [{ message: { content: 'Sei pronto.' } }] });
+      }
+      if (String(url).includes('api.mistral.ai')) {
+        return response(200, { choices: [{ message: { content: 'Sei pronto?' } }] });
+      }
+      throw new Error('unexpected provider url ' + url);
+    });
+    const result = await hooks.translate(
+      'Are you ready?',
+      'en',
+      'it',
+      { GEMINI_API_KEY: 'gemini-key', MISTRAL_API_KEY: 'mistral-key' },
+      Date.now() + 30_000
+    );
+    assert.equal(result.engine, 'mistral', 'question-form rejection must fall through to next provider');
+    assert.equal(result.text, 'Sei pronto?');
+    assert.equal(calls.length, 2, 'quality rejection must not retry the same provider');
+    assert.match(calls[0], /generativelanguage\.googleapis\.com/);
+    assert.match(calls[1], /api\.mistral\.ai/);
+    const rejectedState = hooks.providerState.get('gemini');
+    assert.equal(rejectedState?.failCount || 0, 0, 'quality rejection must not poison provider health');
+    assert.notEqual(rejectedState?.healthy, false, 'quality rejection must not open provider circuit');
+  }
+
+  {
     let calledModel = null;
     const hooks = loadWorker(async () => {
       throw new Error('Workers AI must use its binding instead of external fetch');

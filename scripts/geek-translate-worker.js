@@ -573,6 +573,16 @@ const LANGUAGE_SCRIPT = Object.freeze({
   en: 'latin', it: 'latin', es: 'latin', fr: 'latin', de: 'latin', pt: 'latin', id: 'latin', pl: 'latin', tr: 'latin', vi: 'latin', nl: 'latin', sv: 'latin',
 });
 
+function preservesTerminalQuestionForm(sourceText, output, target) {
+  const source = String(sourceText || '').trim();
+  if (!/[?\uFF1F\u061F]$/u.test(source)) return true;
+  const result = String(output || '').trim();
+  const language = String(target || '').trim().toLowerCase();
+  if (language === 'el') return /[;?\uFF1F]$/u.test(result);
+  if (language === 'ar') return /[?\uFF1F\u061F]$/u.test(result);
+  return /[?\uFF1F]$/u.test(result);
+}
+
 function sanitizeTranslationOutput(value) {
   let result = String(value || '').trim();
   const fenced = result.match(/^```(?:[a-z-]+)?\s*\n?([\s\S]*?)\n?```$/i);
@@ -623,6 +633,7 @@ function validateTranslationOutput(sourceText, output, sourceLanguage, target) {
   const sourceCode = String(sourceLanguage || 'auto').trim().toLowerCase();
   if (!result) throw new Error('empty translation');
   if (result.length > Math.max(800, original.length * 8 + 160)) throw new Error('translation output is suspiciously long');
+  if (!preservesTerminalQuestionForm(original, result, target)) throw new Error('translation lost question form');
 
   const unchanged = comparableTranslation(original) === comparableTranslation(result);
   if (sourceCode !== 'auto' && sourceCode !== target && unchanged && !invariantOnly(original)) {

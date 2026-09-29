@@ -27,6 +27,16 @@ const LANGUAGE_SCRIPT = Object.freeze({
   en: 'latin', it: 'latin', es: 'latin', fr: 'latin', de: 'latin', pt: 'latin', id: 'latin', pl: 'latin', tr: 'latin', vi: 'latin', nl: 'latin', sv: 'latin',
 });
 
+function preservesTerminalQuestionForm(sourceText, output, target) {
+  const source = String(sourceText || '').trim();
+  if (!/[?\uFF1F\u061F]$/u.test(source)) return true;
+  const result = String(output || '').trim();
+  const language = String(target || '').trim().toLowerCase();
+  if (language === 'el') return /[;?\uFF1F]$/u.test(result);
+  if (language === 'ar') return /[?\uFF1F\u061F]$/u.test(result);
+  return /[?\uFF1F]$/u.test(result);
+}
+
 function stripOuterFence(value) {
   const text = String(value || '').trim();
   const fenced = text.match(/^```(?:[a-z-]+)?\s*\n?([\s\S]*?)\n?```$/i);
@@ -80,6 +90,7 @@ function assessTranslationOutput({ source, output, target, sourceLanguage = 'aut
   if (!text) return { ok: false, text: '', reason: 'EMPTY_TRANSLATION' };
   if (META_PREFIXES.some(pattern => pattern.test(text))) return { ok: false, text, reason: 'META_PREAMBLE' };
   if (text.length > Math.max(800, original.length * 8 + 160)) return { ok: false, text, reason: 'SUSPICIOUS_LENGTH' };
+  if (!preservesTerminalQuestionForm(original, text, language)) return { ok: false, text, reason: 'QUESTION_FORM_LOST' };
 
   const unchanged = comparable(original) === comparable(text);
   if (sourceCode !== 'auto' && sourceCode !== language && unchanged && !invariantOnly(original)) {

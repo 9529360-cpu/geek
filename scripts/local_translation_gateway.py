@@ -38,6 +38,18 @@ META_PREFIXES = [
 URL_OR_EMAIL_RE = re.compile(r'(?:https?://|www\.)\S+|\b[^\s@]+@[^\s@]+\.[^\s@]+', re.I)
 
 
+def preserves_terminal_question_form(source_text, output, target):
+    source = str(source_text or '').strip()
+    if not source.endswith(('?', '？', '؟')):
+        return True
+    result = str(output or '').strip()
+    language = str(target or '').strip().lower()
+    if language == 'el':
+        return result.endswith((';', '?', '？'))
+    if language == 'ar':
+        return result.endswith(('؟', '?', '？'))
+    return result.endswith(('?', '？'))
+
 def sanitize_translation_output(value):
     result = str(value or '').strip()
     fenced = re.fullmatch(r'```(?:[a-z-]+)?\s*\n?([\s\S]*?)\n?```', result, re.I)
@@ -94,6 +106,8 @@ def validate_translation_output(source_text, output, source_language, target):
         raise ValueError('empty translation')
     if len(result) > max(800, len(original) * 8 + 160):
         raise ValueError('translation output is suspiciously long')
+    if not preserves_terminal_question_form(original, result, target):
+        raise ValueError('translation lost question form')
 
     unchanged = comparable_translation(original) == comparable_translation(result)
     if source_code != 'auto' and source_code != target and unchanged and not invariant_only(original):
