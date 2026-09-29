@@ -422,6 +422,7 @@ function createTranslationRuntime(options = {}) {
     if (!gatewayPool) {
       gatewayPool = createGatewayPool({
         endpoints: gatewayEndpoints(),
+        now,
         healthFetch: async (url) => {
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 5000);
@@ -450,16 +451,23 @@ function createTranslationRuntime(options = {}) {
     const primaryHealthy = !!primaryEndpoint && result[primaryEndpoint] === true;
     const healthyBackupEndpoints = backupEndpoints.filter((endpoint) => result[endpoint] === true);
     const latencyOf = typeof pool.latencyOf === 'function' ? (endpoint) => pool.latencyOf(endpoint) : () => null;
+    const translationLatencyOf = typeof pool.translationLatencyOf === 'function' ? (endpoint) => pool.translationLatencyOf(endpoint) : () => null;
     const backupLatencies = healthyBackupEndpoints
       .map((endpoint) => latencyOf(endpoint))
       .filter((latencyMs) => Number.isFinite(latencyMs));
     const primaryLatencyMs = primaryEndpoint ? latencyOf(primaryEndpoint) : null;
     const backupLatencyMs = backupLatencies.length ? Math.min(...backupLatencies) : null;
+    const primaryTranslationLatencyMs = primaryEndpoint ? translationLatencyOf(primaryEndpoint) : null;
+    const backupTranslationLatencies = healthyBackupEndpoints
+      .map((endpoint) => translationLatencyOf(endpoint))
+      .filter((latencyMs) => Number.isFinite(latencyMs));
+    const backupTranslationLatencyMs = backupTranslationLatencies.length ? Math.min(...backupTranslationLatencies) : null;
     const routes = Object.freeze({
       primary: Object.freeze({
         configured: !!primaryEndpoint,
         healthy: primaryHealthy,
         latencyMs: Number.isFinite(primaryLatencyMs) ? primaryLatencyMs : null,
+        translationLatencyMs: Number.isFinite(primaryTranslationLatencyMs) ? primaryTranslationLatencyMs : null,
       }),
       backup: Object.freeze({
         configured: backupEndpoints.length > 0,
@@ -467,6 +475,7 @@ function createTranslationRuntime(options = {}) {
         healthyCount: healthyBackupEndpoints.length,
         endpointCount: backupEndpoints.length,
         latencyMs: Number.isFinite(backupLatencyMs) ? backupLatencyMs : null,
+        translationLatencyMs: Number.isFinite(backupTranslationLatencyMs) ? backupTranslationLatencyMs : null,
       }),
     });
     return {
@@ -681,6 +690,7 @@ function createTranslationRuntime(options = {}) {
 
             const picked = pool.pick(body.route);
             const endpoint = picked.endpoint;
+            const attemptStartedAt = Number(now());
             let endpointOutcomeReported = false;
             const controller = new AbortController();
             trackRemoteController(partition, controller);
@@ -791,7 +801,11 @@ function createTranslationRuntime(options = {}) {
                   });
                 }
               }
-              pool.reportSuccess(endpoint);
+              const attemptFinishedAt = Number(now());
+              const translationLatencyMs = Number.isFinite(attemptStartedAt) && Number.isFinite(attemptFinishedAt) && attemptFinishedAt >= attemptStartedAt
+                ? Math.round(attemptFinishedAt - attemptStartedAt)
+                : null;
+              pool.reportSuccess(endpoint, { translationLatencyMs });
               endpointOutcomeReported = true;
               if (state.deletedPartitions.has(partition)) throw accountDeletedError();
               if (remoteAuthorizationLease) assertRemoteAuthorizationCurrent(subscriptionStore, remoteAuthorizationLease);
@@ -803,6 +817,8 @@ function createTranslationRuntime(options = {}) {
                   cached: false,
                   superseded: true,
                   route: picked.route,
+                  engine: typeof result.engine === 'string' ? result.engine.slice(0, 64) : '',
+                  translationLatencyMs,
                   requestId,
                 };
               }
@@ -816,6 +832,8 @@ function createTranslationRuntime(options = {}) {
                 target: result.target || target,
                 cached: false,
                 route: picked.route,
+                engine: typeof result.engine === 'string' ? result.engine.slice(0, 64) : '',
+                translationLatencyMs,
                 requestId,
               };
             } catch (error) {

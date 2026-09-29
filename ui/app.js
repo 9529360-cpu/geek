@@ -744,6 +744,36 @@
   const BRIDGE_CHANNEL = 'geek-bridge';
   const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit';
   const TRUSTED_COMPOSER_CHANNEL = 'geek-trusted-composer-context';
+  let translationSendFeedbackCount = 0;
+
+  function beginTranslationSendFeedback() {
+    try {
+      translationSendFeedbackCount += 1;
+      let notice = document.getElementById('geek-translation-send-progress');
+      if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'geek-translation-send-progress';
+        notice.className = 'translation-send-progress';
+        notice.setAttribute('role', 'status');
+        notice.setAttribute('aria-live', 'polite');
+        notice.setAttribute('aria-atomic', 'true');
+        notice.innerHTML = '<span class="translation-send-progress__spinner" aria-hidden="true"></span><span>正在翻译并发送…</span>';
+        document.body.appendChild(notice);
+      }
+      notice.hidden = false;
+      return true;
+    } catch {
+      translationSendFeedbackCount = Math.max(0, translationSendFeedbackCount - 1);
+      return false;
+    }
+  }
+
+  function endTranslationSendFeedback() {
+    translationSendFeedbackCount = Math.max(0, translationSendFeedbackCount - 1);
+    if (translationSendFeedbackCount > 0) return;
+    const notice = document.getElementById('geek-translation-send-progress');
+    if (notice) notice.hidden = true;
+  }
 
   async function processTranslationRequest(wv, requestId, suppliedToken) {
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
@@ -1502,7 +1532,9 @@
     const translate = policy.enabled === true
       && policy.autoSend !== false
       && !(policy.includeZh === false && /[\u3400-\u9fff]/.test(sourceSnapshot));
-    const execution = await sendIntentExecutor.execute({
+    const translationFeedbackActive = translate ? beginTranslationSendFeedback() : false;
+    try {
+      const execution = await sendIntentExecutor.execute({
         account,
         webview: wv,
         conversationId,
@@ -1532,15 +1564,18 @@
           if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
           return result;
         },
-    });
-    return {
-      ...execution.transformResult,
-      delivery: {
-        owner: 'send-intent',
-        state: execution.intent.state,
-        intentId: execution.intent.intentId,
-      },
-    };
+      });
+      return {
+        ...execution.transformResult,
+        delivery: {
+          owner: 'send-intent',
+          state: execution.intent.state,
+          intentId: execution.intent.intentId,
+        },
+      };
+    } finally {
+      if (translationFeedbackActive) endTranslationSendFeedback();
+    }
   }
 
   // Compatibility alias while existing Broadcast/diagnostic consumers migrate to the neutral owner.
