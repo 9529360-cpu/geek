@@ -30,12 +30,12 @@ const LANGUAGE_SCRIPT = Object.freeze({
 
 function preservesTerminalQuestionForm(sourceText, output, target) {
   const source = String(sourceText || '').trim();
-  if (!/[?\uFF1F\u061F]$/u.test(source)) return true;
+  if (!/[?\uFF1F\u061F][\s\p{P}\p{S}]*$/u.test(source)) return true;
   const result = String(output || '').trim();
   const language = String(target || '').trim().toLowerCase();
-  if (language === 'el') return /[;?\uFF1F]$/u.test(result);
-  if (language === 'ar') return /[?\uFF1F\u061F]$/u.test(result);
-  return /[?\uFF1F]$/u.test(result);
+  if (language === 'el') return /[;?\uFF1F][\s\p{P}\p{S}]*$/u.test(result);
+  if (language === 'ar') return /[?\uFF1F\u061F][\s\p{P}\p{S}]*$/u.test(result);
+  return /[?\uFF1F][\s\p{P}\p{S}]*$/u.test(result);
 }
 
 function stripOuterFence(value) {
@@ -60,10 +60,34 @@ function sanitizeTranslationOutput(value) {
 function stripAddedMarkdownEmphasis(sourceText, output) {
   const source = String(sourceText || '');
   let text = String(output || '');
-  if (/\*\*[^*\n]+\*\*|__[^_\n]+__/.test(source)) return text;
+  if (/\*\*[^*\n]+\*\*/.test(source)) return text;
   text = text.replace(/\*\*([^*\n]+)\*\*/g, '$1');
-  text = text.replace(/__([^_\n]+)__/g, '$1');
   return text;
+}
+
+const NUMBER_TOKEN_RE = /[-+]?\d(?:[\d.,]*\d)?%?/gu;
+const TRAILING_LITERAL_PUNCTUATION_RE = /[.,!?;:，。！？；：]+$/u;
+
+function protectedLiteralSignature(value) {
+  const text = String(value || '');
+  const literals = (text.match(URL_OR_EMAIL_RE) || [])
+    .map(item => item.replace(TRAILING_LITERAL_PUNCTUATION_RE, ''))
+    .filter(Boolean)
+    .sort();
+  const withoutLiterals = text.replace(URL_OR_EMAIL_RE, ' ');
+  const numbers = (withoutLiterals.match(NUMBER_TOKEN_RE) || [])
+    .map(item => item.replace(/[.,]/g, ''))
+    .sort();
+  return { literals, numbers };
+}
+
+function preservesProtectedLiterals(sourceText, output) {
+  const source = protectedLiteralSignature(sourceText);
+  const result = protectedLiteralSignature(output);
+  return source.literals.length === result.literals.length
+    && source.literals.every((value, index) => value === result.literals[index])
+    && source.numbers.length === result.numbers.length
+    && source.numbers.every((value, index) => value === result.numbers[index]);
 }
 
 function comparable(value) {
@@ -103,6 +127,7 @@ function assessTranslationOutput({ source, output, target, sourceLanguage = 'aut
   if (META_PREFIXES.some(pattern => pattern.test(text))) return { ok: false, text, reason: 'META_PREAMBLE' };
   if (text.length > Math.max(800, original.length * 8 + 160)) return { ok: false, text, reason: 'SUSPICIOUS_LENGTH' };
   if (!preservesTerminalQuestionForm(original, text, language)) return { ok: false, text, reason: 'QUESTION_FORM_LOST' };
+  if (!preservesProtectedLiterals(original, text)) return { ok: false, text, reason: 'PROTECTED_LITERAL_CHANGED' };
 
   const unchanged = comparable(original) === comparable(text);
   if (sourceCode !== 'auto' && sourceCode !== language && unchanged && !invariantOnly(original)) {
