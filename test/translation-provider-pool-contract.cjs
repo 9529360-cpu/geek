@@ -29,13 +29,25 @@ vm.runInContext(executable, sandbox, { filename: 'scripts/geek-translate-worker.
   const { PROVIDERS, translate } = sandbox.__poolHooks;
   assert.deepEqual(
     Array.from(PROVIDERS, provider => provider.id),
-    ['gemini', 'mistral', 'openrouter', 'cloudflare', 'groq'],
-    'translation fallback order must use the maintained five-provider free pool'
+    ['gemini', 'mistral', 'groq', 'cloudflare', 'openrouter'],
+    'translation fallback order must prefer the current quality-first chat model and keep OpenRouter as the last fallback'
   );
+  assert.equal(PROVIDERS.find(provider => provider.id === 'gemini').model, 'gemini-3.8-flash');
   assert.equal(PROVIDERS.find(provider => provider.id === 'mistral').model, 'ministral-3b-latest');
   assert.equal(PROVIDERS.find(provider => provider.id === 'openrouter').model, 'openrouter/free');
   assert.equal(PROVIDERS.find(provider => provider.id === 'cloudflare').model, '@cf/meta/llama-3.1-8b-instruct-fp8');
 
+  const geminiResult = await translate('Hello', 'en', 'it', {
+    GEMINI_API_KEY: 'gemini-key',
+  }, Date.now() + 30_000);
+  assert.equal(geminiResult.engine, 'gemini');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.model, 'gemini-3.8-flash');
+  assert.equal(calls[0].body.reasoning_effort, 'low');
+  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].body, 'temperature'), false,
+    'Gemini 3.8 request must omit deprecated sampling parameters');
+
+  calls.length = 0;
   const cloudflareCalls = [];
   const result = await translate('Hello', 'en', 'it', {
     AI: {

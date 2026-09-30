@@ -744,6 +744,36 @@
   const BRIDGE_CHANNEL = 'geek-bridge';
   const TRUSTED_SUBMIT_CHANNEL = 'geek-trusted-submit';
   const TRUSTED_COMPOSER_CHANNEL = 'geek-trusted-composer-context';
+  let translationSendFeedbackCount = 0;
+
+  function beginTranslationSendFeedback() {
+    try {
+      translationSendFeedbackCount += 1;
+      let notice = document.getElementById('geek-translation-send-progress');
+      if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'geek-translation-send-progress';
+        notice.className = 'translation-send-progress';
+        notice.setAttribute('role', 'status');
+        notice.setAttribute('aria-live', 'polite');
+        notice.setAttribute('aria-atomic', 'true');
+        notice.innerHTML = '<span class="translation-send-progress__spinner" aria-hidden="true"></span><span>正在翻译并发送…</span>';
+        document.body.appendChild(notice);
+      }
+      notice.hidden = false;
+      return true;
+    } catch {
+      translationSendFeedbackCount = Math.max(0, translationSendFeedbackCount - 1);
+      return false;
+    }
+  }
+
+  function endTranslationSendFeedback() {
+    translationSendFeedbackCount = Math.max(0, translationSendFeedbackCount - 1);
+    if (translationSendFeedbackCount > 0) return;
+    const notice = document.getElementById('geek-translation-send-progress');
+    if (notice) notice.hidden = true;
+  }
 
   async function processTranslationRequest(wv, requestId, suppliedToken) {
     const authorization = authorizeWebviewBridge(wv, requestId, suppliedToken);
@@ -835,20 +865,31 @@
     }
   }
 
+
+  function translationPolicySnapshot(accountId) {
+    let chatConfig = {}, globalConfig = {};
+    try {
+      chatConfig = JSON.parse(accountStorageGetItemFor(accountId, 'translationChats') || '{}');
+      globalConfig = JSON.parse(accountStorageGetItemFor(accountId, 'translationGlobal') || '{}');
+    } catch {
+      chatConfig = {};
+      globalConfig = {};
+    }
+    return window.GeekTranslationCore.createPolicySnapshot(globalConfig, chatConfig);
+  }
+
   function syncTelegramTranslationCfgToWebview(wv, account) {
     const installer = window.GeekTranslationAdapters?.telegram;
     if (!wv || !account || typeof installer !== 'function') return;
-    let chatConfig = {}, globalConfig = {};
-    try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
+    const policy = translationPolicySnapshot(account.id);
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
   }
 
   function syncLineTranslationCfgToWebview(wv, account) {
     const installer = window.GeekTranslationAdapters?.line;
     if (!wv || !account || typeof installer !== 'function') return;
-    let chatConfig = {}, globalConfig = {};
-    try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
+    const policy = translationPolicySnapshot(account.id);
+    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
   }
 
   function syncMetaTranslationCfgToWebview(wv, account) {
@@ -904,27 +945,28 @@
       return;
     }
     if (!(account.type === 'whatsapp' || account.type === 'whatsapp-pure')) return;
-    let chatConfig = {}, globalConfig = {};
-    try { chatConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationChats') || '{}'); globalConfig = JSON.parse(accountStorageGetItemFor(account.id, 'translationGlobal') || '{}'); } catch {}
-    if (globalConfig.source === 'local' || globalConfig.source === 'remote') globalConfig.source = 'auto';
+    const policy = translationPolicySnapshot(account.id);
     wv.executeJavaScript(`(${function (cfg) {
       try {
         const bridgeToken = String(cfg.bridgeToken || '');
         window.__geekTranslationBridgeToken = bridgeToken;
-        window.__geekTranslationConfig = { accountId: cfg.accountId, chats: cfg.chats || {}, global: cfg.global || {} };
+        window.__geekTranslationPolicy = cfg.policy && typeof cfg.policy === 'object' ? cfg.policy : { default: {}, chats: {} };
         if (!window.__geekTranslationRequest) {
           window.__geekTranslationPending = new Map();
           window.__geekTranslationRequest = function (payload) {
             return new Promise(function (resolve, reject) {
               const id = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
-              const securedPayload = Object.assign({}, payload || {}, { bridgeToken: window.__geekTranslationBridgeToken });
+              const body = payload && typeof payload === 'object' ? payload : {};
+              const intent = body.intent === 'outgoing-send' ? 'outgoing-send' : 'message-display';
+              const securedPayload = Object.assign({}, body, { intent: intent, bridgeToken: window.__geekTranslationBridgeToken });
               window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
               if (document.documentElement?.getAttribute?.('data-geek-bridge') === '1') {
                 window.postMessage({ __geekBridge: true, payload: { type: 'translation-request', id: id, token: window.__geekTranslationBridgeToken } }, window.location.origin);
               } else {
                 console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
               }
-              setTimeout(function () { const pending = window.__geekTranslationPending.get(id); if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); } }, 35000);
+              const requestTimeoutMs = intent === 'outgoing-send' ? 55000 : 35000;
+              setTimeout(function () { const pending = window.__geekTranslationPending.get(id); if (pending) { window.__geekTranslationPending.delete(id); pending.reject(new Error('翻译请求超时')); } }, requestTimeoutMs);
             });
           };
           window.__geekTakeTranslationRequest = function (id) { const pending = window.__geekTranslationPending.get(id); return pending ? JSON.stringify(pending.payload) : null; };
@@ -943,10 +985,9 @@
           return item?.original || '';
         };
         window.__geekGetTranslationSetting = function (chatId) {
-          const g = window.__geekTranslationConfig.global || {};
-          const base = { provider: g.source || 'local', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, source: g.sendFrom || 'auto', target: g.sendTo || 'en', messageAction: g.manual !== false, displayTranslation: g.displayTranslation !== false, translationMode: g.translationMode || (g.message === false ? 'click' : 'auto'), messageTarget: g.messageTo || 'zh', messageFrom: g.messageFrom || 'auto', groupAuto: g.group === true, includeZh: g.includeZh !== false, fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };
-          const local = window.__geekTranslationConfig.chats?.[chatId];
-          return local ? { ...base, ...local, source: local.source || base.source, messageTarget: local.messageTarget || base.messageTarget } : base;
+          const policy = window.__geekTranslationPolicy || {};
+          const key = String(chatId || '');
+          return (key && policy.chats?.[key]) || policy.default || {};
         };
         const notifySendBlocked = function (message) {
           document.getElementById('geek-translation-send-error')?.remove();
@@ -1133,7 +1174,7 @@
         }
         return 'OK';
       } catch (error) { return 'ERR:' + error.message; }
-    }.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), chats: chatConfig, global: globalConfig })})()`).catch(() => {});
+    }.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(() => {});
   }
 
 
@@ -1491,7 +1532,9 @@
     const translate = policy.enabled === true
       && policy.autoSend !== false
       && !(policy.includeZh === false && /[\u3400-\u9fff]/.test(sourceSnapshot));
-    const execution = await sendIntentExecutor.execute({
+    const translationFeedbackActive = translate ? beginTranslationSendFeedback() : false;
+    try {
+      const execution = await sendIntentExecutor.execute({
         account,
         webview: wv,
         conversationId,
@@ -1521,15 +1564,18 @@
           if (signal.aborted) throw signal.reason || new Error('SEND_INTENT_CANCELLED');
           return result;
         },
-    });
-    return {
-      ...execution.transformResult,
-      delivery: {
-        owner: 'send-intent',
-        state: execution.intent.state,
-        intentId: execution.intent.intentId,
-      },
-    };
+      });
+      return {
+        ...execution.transformResult,
+        delivery: {
+          owner: 'send-intent',
+          state: execution.intent.state,
+          intentId: execution.intent.intentId,
+        },
+      };
+    } finally {
+      if (translationFeedbackActive) endTranslationSendFeedback();
+    }
   }
 
   // Compatibility alias while existing Broadcast/diagnostic consumers migrate to the neutral owner.

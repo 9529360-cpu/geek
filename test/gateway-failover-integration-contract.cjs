@@ -15,7 +15,7 @@ assert.match(runtimeBase, /GEEK_TRANSLATION_GATEWAY_URL/, '环境变量必须支
 assert.match(runtimeBase, /\.split\(','\)/, '环境变量必须支持逗号分隔多端点');
 assert.match(runtimeBase, /pool\.pick\(body\.route\)/, '翻译请求必须把规范化 route 交给唯一网关池 owner 选端点');
 assert.match(runtimeBase, /pool\.reportFailure\(endpoint\)/, '失败必须上报池');
-assert.match(runtimeBase, /pool\.reportSuccess\(endpoint\)/, '成功必须上报池');
+assert.match(runtimeBase, /pool\.reportSuccess\(endpoint, \{ translationLatencyMs \}\)/, '成功必须上报池');
 assert.match(runtimeBase, /pool\.healthCheckAll\(\)/, '健康检查必须探测全部端点');
 assert.match(runtimeBase, /route:\s*picked\.route/, 'Worker 必须收到实际选中的 primary|backup 线路，而不是仅回显请求标签');
 assert.match(runtimeBase, /body\.route === 'primary'/, '显式主线路必须拥有独立的端点尝试边界');

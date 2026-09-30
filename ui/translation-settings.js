@@ -153,11 +153,23 @@
       const group = el('translation-group'); if (group) group.disabled = !receiveAuto;
     }
 
+    function formatLatency(latencyMs) {
+      if (latencyMs == null || latencyMs === '') return '';
+      const value = Number(latencyMs);
+      if (!Number.isFinite(value) || value < 0) return '';
+      if (value < 1000) return Math.round(value) + ' ms';
+      return (value / 1000).toFixed(value < 10000 ? 1 : 0) + ' s';
+    }
+
     function routeOptionStatus(route) {
       if (!route || route.configured !== true) return '';
       if (route.healthy !== true) return '异常';
-      const latencyMs = route.latencyMs;
-      return typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? `${Math.round(latencyMs)} ms` : '可达';
+      const connection = formatLatency(route.latencyMs);
+      const translation = formatLatency(route.translationLatencyMs);
+      if (translation && connection) return '翻译 ' + translation + ' · 连接 ' + connection;
+      if (translation) return '翻译 ' + translation;
+      if (connection) return connection;
+      return '可达';
     }
 
     function syncRouteAvailability(result = null) {
@@ -445,22 +457,18 @@
       const parts = [];
       const primary = routes.primary;
       if (primary?.configured === true) {
-        const latencyMs = primary.latencyMs;
-        parts.push(primary.healthy === true
-          ? `主线路 ${typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? `${Math.round(latencyMs)} ms` : '可达'}`
-          : '主线路异常');
+        const status = routeOptionStatus(primary);
+        parts.push(primary.healthy === true ? '主线路 ' + (status || '可达') : '主线路异常');
       }
       const backup = routes.backup;
       if (backup?.configured === true) {
-        const latencyMs = backup.latencyMs;
         const count = Number(backup.endpointCount);
         const healthyCount = Number(backup.healthyCount);
         const countText = Number.isFinite(count) && count > 1 && Number.isFinite(healthyCount)
-          ? ` ${Math.max(0, healthyCount)}/${count}`
+          ? ' ' + Math.max(0, healthyCount) + '/' + count
           : '';
-        parts.push(backup.healthy === true
-          ? `备用线路${countText} · ${typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? `${Math.round(latencyMs)} ms` : '可达'}`
-          : '备用线路异常');
+        const status = routeOptionStatus(backup);
+        parts.push(backup.healthy === true ? '备用线路' + countText + ' · ' + (status || '可达') : '备用线路异常');
       }
       return parts.join(' · ');
     }

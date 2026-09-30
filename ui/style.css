@@ -2227,3 +2227,36 @@ select:focus option:checked {
 .bc-menu-item svg { color: var(--accent); flex-shrink: 0; }
 /* 菜单分隔标签（高级功能工具） */
 .bc-menu-sep { font-size: 11px; color: var(--text-tertiary); padding: 6px 12px 2px; letter-spacing: .5px; }
+
+/* Translation send progress: shell-owned feedback while SendIntent waits for translation. */
+.translation-send-progress {
+  position: fixed;
+  left: 50%;
+  top: 58px;
+  transform: translateX(-50%);
+  z-index: 9998;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-standard);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  font-size: 12px;
+  pointer-events: none;
+}
+.translation-send-progress[hidden] { display: none; }
+.translation-send-progress__spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: geek-translation-send-spin 0.75s linear infinite;
+}
+@keyframes geek-translation-send-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .translation-send-progress__spinner { animation: none; }
+}

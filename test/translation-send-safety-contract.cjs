@@ -62,6 +62,81 @@ assert.equal(
   '翻译成中文的正常结果必须通过'
 );
 
+assert.equal(
+  assertSafeTranslationOutput({ source: '价格约为 60.25 美元。', output: 'Il prezzo è di circa **60,25 dollari**.', sourceLanguage: 'zh', target: 'it' }),
+  'Il prezzo è di circa 60,25 dollari.',
+  'model-added Markdown emphasis must not leak into chat translations'
+);
+assert.equal(
+  assertSafeTranslationOutput({ source: '**重要**：请确认。', output: '**Importante**: conferma.', sourceLanguage: 'zh', target: 'it' }),
+  '**Importante**: conferma.',
+  'source-authored Markdown emphasis must remain intact'
+);
+assert.equal(
+  assessTranslationOutput({ source: '哈哈，晚点聊！', output: 'User Safety: safe', sourceLanguage: 'zh', target: 'it' }).reason,
+  'NON_TRANSLATION_META',
+  'provider safety labels must be rejected as non-translation output'
+);
+assert.equal(
+  assessTranslationOutput({ source, output: 'Buonasera, hai già mangiato.', sourceLanguage: 'zh', target: 'it' }).reason,
+  'QUESTION_FORM_LOST',
+  'source question must not silently become a statement'
+);
+assert.equal(
+  assertSafeTranslationOutput({ source: '\u4f60\u597d\u5417\uff1f', output: '\u0395\u03af\u03c3\u03b1\u03b9 \u03ba\u03b1\u03bb\u03ac;', sourceLanguage: 'zh', target: 'el' }),
+  '\u0395\u03af\u03c3\u03b1\u03b9 \u03ba\u03b1\u03bb\u03ac;',
+  'Greek target may use semicolon as question mark'
+);
+assert.equal(
+  assertSafeTranslationOutput({ source: '\u4f60\u597d\u5417\uff1f', output: '\u0647\u0644 \u0623\u0646\u062a \u0628\u062e\u064a\u0631\u061f', sourceLanguage: 'zh', target: 'ar' }),
+  '\u0647\u0644 \u0623\u0646\u062a \u0628\u062e\u064a\u0631\u061f',
+  'Arabic target may use Arabic question mark'
+);
+assert.equal(
+  assessTranslationOutput({ source: 'Today is busy.', output: 'Oggi è una giornata impegnativa.', sourceLanguage: 'en', target: 'it' }).ok,
+  true,
+  'declarative source must not be forced into question form'
+);
+assert.equal(
+  assessTranslationOutput({ source: '你准备好了吗？🙂', output: 'Sei pronto. 🙂', sourceLanguage: 'zh', target: 'it' }).reason,
+  'QUESTION_FORM_LOST',
+  'question semantics must still be enforced when an emoji follows the source question mark'
+);
+assert.equal(
+  assertSafeTranslationOutput({ source: '你准备好了吗？🙂', output: 'Sei pronto? 🙂', sourceLanguage: 'zh', target: 'it' }),
+  'Sei pronto? 🙂',
+  'terminal emoji must not make a valid translated question fail'
+);
+assert.equal(
+  assertSafeTranslationOutput({
+    source: '价格是 60.25 美元，联系 support@example.com，链接 https://example.com/order/42',
+    output: 'Il prezzo è 60,25 dollari, contatta support@example.com, link https://example.com/order/42',
+    sourceLanguage: 'zh',
+    target: 'it',
+  }),
+  'Il prezzo è 60,25 dollari, contatta support@example.com, link https://example.com/order/42',
+  'locale punctuation may change while numeric value, email and URL stay intact'
+);
+assert.equal(
+  assessTranslationOutput({
+    source: '价格是 60.25 美元，链接 https://example.com/order/42',
+    output: 'Il prezzo è 61,25 dollari, link https://example.com/order/42',
+    sourceLanguage: 'zh',
+    target: 'it',
+  }).reason,
+  'PROTECTED_LITERAL_CHANGED',
+  'translation must fail closed when a numeric literal changes'
+);
+assert.equal(
+  assessTranslationOutput({
+    source: '请查看 https://example.com/order/42',
+    output: 'Controlla https://example.com/order/43',
+    sourceLanguage: 'zh',
+    target: 'it',
+  }).reason,
+  'PROTECTED_LITERAL_CHANGED',
+  'translation must fail closed when a URL changes'
+);
 const workerSandbox = { Response, Request, Headers, URL, TextEncoder, TextDecoder, crypto: globalThis.crypto, btoa, atob, console, setTimeout, clearTimeout };
 vm.createContext(workerSandbox);
 vm.runInContext(
@@ -92,8 +167,45 @@ assert.throws(
   '云端 Worker 必须实际拒绝伪译文'
 );
 
+assert.throws(
+  () => workerSandbox.__validateOutput(source, 'Buonasera, hai già mangiato.', 'zh', 'it'),
+  /lost question form/,
+  'Worker must reject question-to-statement semantic drift'
+);
+assert.equal(
+  workerSandbox.__validateOutput(source, 'Buonasera, hai già mangiato?', 'zh', 'it'),
+  'Buonasera, hai già mangiato?',
+  'Worker must accept preserved question form'
+);
+assert.equal(
+  workerSandbox.__validateOutput('价格约为 60.25 美元。', 'Il prezzo è di circa **60,25 dollari**.', 'zh', 'it'),
+  'Il prezzo è di circa 60,25 dollari.',
+  'Worker must remove model-added Markdown emphasis when the source did not contain it'
+);
+assert.throws(
+  () => workerSandbox.__validateOutput('哈哈，晚点聊！', 'User Safety: safe', 'zh', 'it'),
+  /non-translation meta/,
+  'Worker must reject provider safety labels as non-translation output'
+);
+assert.throws(
+  () => workerSandbox.__validateOutput('价格是 60.25 美元。', 'Il prezzo è 61,25 dollari.', 'zh', 'it'),
+  /changed protected literals/,
+  'Worker must reject changed numeric literals'
+);
+assert.equal(
+  workerSandbox.__validateOutput('你准备好了吗？🙂', 'Sei pronto? 🙂', 'zh', 'it'),
+  'Sei pronto? 🙂',
+  'Worker must preserve question semantics with trailing emoji'
+);
 assert.match(workerSource, /You are a translation engine, not an assistant/, '云端网关必须使用严格翻译提示词');
+assert.match(workerSource, /natural punctuation conventions of the target language/, 'Worker prompt must prefer target-language punctuation');
+assert.match(workerSource, /natural, idiomatic target-language text/, 'Worker prompt must optimize for natural direct-chat output');
+assert.match(workerSource, /Prefer idiomatic target-language phrasing over word-for-word source syntax/, 'Worker prompt must reject source-language word-order mirroring');
 assert.match(workerSource, /validateTranslationOutput\(text, result, source, target\)/, '云端每个模型结果必须按源\/目标语言质量校验后才能返回');
+assert.match(localGatewaySource, /translation lost question form/, 'local gateway must mirror terminal question-form quality gate');
+assert.match(localGatewaySource, /natural punctuation conventions of the target language/, 'local gateway prompt must mirror target-language punctuation guidance');
+assert.match(localGatewaySource, /translation returned non-translation meta/, 'local gateway must reject provider meta-only output');
+assert.match(localGatewaySource, /translation changed protected literals/, 'local gateway must fail closed when protected literals drift');
 assert.match(localGatewaySource, /validate_translation_output\(text, result, source, target\)/, '本地网关也必须按源\/目标语言校验模型输出');
 assert.doesNotMatch(workerSource, /\(\?:sure\|certainly\|of course\)\[,!：:\\s-\]\*\(\?:here/, 'Worker 不得再用可吞掉普通会话词的宽泛前缀');
 assert.doesNotMatch(localGatewaySource, /\(\?:sure\|certainly\|of course\)\[,!：:\\s-\]\*\(\?:here/, '本地网关不得再用可吞掉普通会话词的宽泛前缀');

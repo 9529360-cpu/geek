@@ -83,8 +83,7 @@ function runTelegramBridgeCase(markerMode) {
   context.window.GeekTranslationAdapters.telegram({
     accountId: 'acc-tg',
     bridgeToken: 'a'.repeat(32),
-    global: { send: false, displayTranslation: false },
-    chats: {},
+    policy: { default: { enabled: false, autoSend: false, displayTranslation: false, translationMode: 'click', source: 'auto', target: 'en', messageFrom: 'auto', messageTarget: 'zh' }, chats: {} },
   });
   context.window.__geekTranslationRequest({ text: 'bridge-probe', source: 'auto', target: 'it' });
   return { logs, posts };

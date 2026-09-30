@@ -278,6 +278,24 @@ function createRuntimeHarness({ endpoints = [PRIMARY, BACKUP], fetchImpl } = {})
     assert.match(elements['translation-gateway-status'].textContent, /不代表上游翻译供应商实时可用/);
     assert.equal(readinessCalls, 1);
 
+    // Once a real translation has completed, settings must distinguish user-observed
+    // translation time from the much cheaper /health connectivity RTT.
+    healthResult = {
+      ok: true,
+      models: 1,
+      endpointCount: 1,
+      recommendedRoute: 'primary',
+      routes: {
+        primary: { configured: true, healthy: true, latencyMs: 23, translationLatencyMs: 1300 },
+        backup: { configured: false, healthy: false, healthyCount: 0, endpointCount: 0, latencyMs: null, translationLatencyMs: null },
+      },
+    };
+    await controller.checkHealth(true);
+    assert.match(primaryOption.textContent, /1\.3 s/);
+    assert.match(primaryOption.textContent, /23 ms/);
+    assert.match(elements['translation-gateway-status'].textContent, /1\.3 s/);
+    assert.match(elements['translation-gateway-status'].textContent, /23 ms/);
+
     readinessResult = { ready: false, reason: 'quota-exhausted', retryable: false, quota: 'exhausted', remaining_chars: 0 };
     healthResult = {
       ok: true,

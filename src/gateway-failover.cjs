@@ -29,6 +29,7 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     healthy: true,
     lastFailureAt: 0,
     lastLatencyMs: null,
+    lastTranslationLatencyMs: null,
     probeInFlight: false,
   }));
   let unhealthyProbeCursor = 0;
@@ -44,6 +45,12 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     return typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? latencyMs : null;
   }
 
+  function translationLatencyOf(endpoint) {
+    const item = list.find((x) => x.endpoint === endpoint);
+    const latencyMs = item?.lastTranslationLatencyMs;
+    return typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0 ? latencyMs : null;
+  }
+
   function reportFailure(endpoint) {
     const item = list.find((x) => x.endpoint === endpoint);
     if (item) {
@@ -53,12 +60,16 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     }
   }
 
-  function reportSuccess(endpoint) {
+  function reportSuccess(endpoint, observation = null) {
     const item = list.find((x) => x.endpoint === endpoint);
     if (item) {
       item.healthy = true;
       item.lastFailureAt = 0;
       item.probeInFlight = false;
+      const translationLatencyMs = Number(observation?.translationLatencyMs);
+      if (Number.isFinite(translationLatencyMs) && translationLatencyMs >= 0) {
+        item.lastTranslationLatencyMs = Math.round(translationLatencyMs);
+      }
     }
   }
 
@@ -164,6 +175,7 @@ function createGatewayPool({ endpoints, now = () => Date.now(), healthFetch = nu
     endpoints: list.map((x) => x.endpoint),
     healthOf,
     latencyOf,
+    translationLatencyOf,
     reportFailure,
     reportSuccess,
     reportInconclusive,

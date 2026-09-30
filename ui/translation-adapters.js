@@ -4,8 +4,8 @@
   function installTelegramTranslation(cfg) {
     const rawConfig = cfg || { chats: {}, global: {} };
     const bridgeToken = String(rawConfig.bridgeToken || '');
-    const config = { accountId: rawConfig.accountId, chats: rawConfig.chats || {}, global: rawConfig.global || {} };
-    window.__geekTranslationConfig = config;
+    const policy = rawConfig.policy && typeof rawConfig.policy === 'object' ? rawConfig.policy : { default: {}, chats: {} };
+    window.__geekTranslationPolicy = policy;
     window.__geekTranslationBridgeToken = bridgeToken;
     if (!window.__geekTranslationRequest) {
       window.__geekTranslationPending = new Map();
@@ -69,18 +69,8 @@
     document.querySelectorAll('[data-geek-telegram-translation-state]').forEach(n => delete n.dataset.geekTelegramTranslationState);
 
     const settingFor = chatId => {
-      const g = window.__geekTranslationConfig.global || {};
-      const base = {
-        provider: g.source || 'auto', route: g.server || 'default',
-        enabled: g.send === true, autoSend: g.send === true,
-        displayTranslation: g.displayTranslation !== false,
-        translationMode: g.translationMode || (g.message === false ? 'click' : 'auto'),
-        messageFrom: g.messageFrom || 'auto', messageTarget: g.messageTo || 'zh',
-        translateHistory: g.translateHistory === true || g.transOldHistory === true,
-        fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea', groupAuto: g.group === true
-      };
-      const local = window.__geekTranslationConfig.chats?.[chatId];
-      return local ? { ...base, ...local } : base;
+      const key = String(chatId || '');
+      return (key && window.__geekTranslationPolicy.chats?.[key]) || window.__geekTranslationPolicy.default || {};
     };
     const chatId = () => {
       const hash = String(location.hash || '').replace(/^#/, '');
@@ -211,8 +201,8 @@
   function installLineTranslation(cfg) {
     const rawConfig = cfg || { chats: {}, global: {} };
     const bridgeToken = String(rawConfig.bridgeToken || '');
-    const config = { accountId: rawConfig.accountId, chats: rawConfig.chats || {}, global: rawConfig.global || {} };
-    window.__geekTranslationConfig = config;
+    const policy = rawConfig.policy && typeof rawConfig.policy === 'object' ? rawConfig.policy : { default: {}, chats: {} };
+    window.__geekTranslationPolicy = policy;
     window.__geekTranslationBridgeToken = bridgeToken;
     if (!window.__geekTranslationRequest) {
       window.__geekTranslationPending = new Map();
@@ -224,7 +214,8 @@
         window.__geekTranslationPending.set(id, { payload: securedPayload, resolve, reject });
         if (window.$electron?.send2Host) window.$electron.send2Host({ type: 'geek-translation-request', id, token: window.__geekTranslationBridgeToken });
         else console.log('__GEEK_TRANSLATION_REQUEST__:' + id + ':' + window.__geekTranslationBridgeToken);
-        setTimeout(() => { const p = window.__geekTranslationPending.get(id); if (p) { window.__geekTranslationPending.delete(id); p.reject(new Error('翻译请求超时')); } }, 35000);
+        const requestTimeoutMs = intent === 'outgoing-send' ? 55000 : 35000;
+        setTimeout(() => { const p = window.__geekTranslationPending.get(id); if (p) { window.__geekTranslationPending.delete(id); p.reject(new Error('翻译请求超时')); } }, requestTimeoutMs);
       });
       window.__geekTakeTranslationRequest = id => { const p = window.__geekTranslationPending.get(id); return p ? JSON.stringify(p.payload) : null; };
       window.__geekResolveTranslation = (id, result, error) => { const p = window.__geekTranslationPending.get(id); if (!p) return false; window.__geekTranslationPending.delete(id); if (error) p.reject(new Error(error)); else p.resolve(result); return true; };
@@ -267,9 +258,8 @@
       } catch { return ''; }
     };
     const settingFor = id => {
-      const g = window.__geekTranslationConfig.global || {};
-      const base = { provider: g.source || 'auto', route: g.server || 'default', enabled: g.send === true, autoSend: g.send === true, sendFrom: g.sendFrom || 'auto', sendTo: g.sendTo || 'en', includeZh: g.includeZh !== false, displayTranslation: g.displayTranslation !== false, translationMode: g.translationMode || (g.message === false ? 'click' : 'auto'), messageFrom: g.messageFrom || 'auto', messageTarget: g.messageTo || 'zh', fontSize: g.fontSize || '13', fontColor: g.fontColor || '#667eea' };
-      return window.__geekTranslationConfig.chats?.[id] ? { ...base, ...window.__geekTranslationConfig.chats[id] } : base;
+      const key = String(id || '');
+      return (key && window.__geekTranslationPolicy.chats?.[key]) || window.__geekTranslationPolicy.default || {};
     };
     const textOf = row => (row.querySelector('[data-message-content][data-is-message-text="true"]')?.innerText || '').replace(/\u200b/g, '').trim();
     const process = async row => {
