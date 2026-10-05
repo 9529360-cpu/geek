@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const runner = fs.readFileSync(path.join(root, 'e2e', 'run.cjs'), 'utf8');
 
 assert.match(runner, /const DEFAULT_RUN_TIMEOUT_MS = 120_000;/, 'targeted and restart E2E invocations must retain the bounded 120s watchdog');
-assert.match(runner, /const FULL_SUITE_TIMEOUT_MS = 180_000;/, 'the sequential full Electron suite needs a bounded budget above the observed 120s runtime');
+assert.match(runner, /const FULL_SUITE_TIMEOUT_MS = 300_000;/, 'the sequential full Electron suite needs a bounded budget above the observed 180s runtime');
 assert.match(
   runner,
   /function runTimeoutMs\(configName, specPath\) \{\s*return configName === 'wdio\.conf\.cjs' && !specPath\s*\? FULL_SUITE_TIMEOUT_MS\s*:\s*DEFAULT_RUN_TIMEOUT_MS;\s*\}/s,

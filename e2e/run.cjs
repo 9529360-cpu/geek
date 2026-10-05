@@ -16,7 +16,7 @@ const targetedSpecs = Object.freeze({
   'instagram-runtime': path.join(root, 'e2e', 'specs', 'instagram-runtime.e2e.cjs'),
 });
 const DEFAULT_RUN_TIMEOUT_MS = 120_000;
-const FULL_SUITE_TIMEOUT_MS = 180_000;
+const FULL_SUITE_TIMEOUT_MS = 300_000;
 const accounts = Object.freeze({
   activeAccountId: 'e2e-account-a',
   accounts: Object.freeze([

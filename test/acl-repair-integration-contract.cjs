@@ -45,7 +45,7 @@ function aclIdentitySids(p) {
 function effectiveWindowsPrincipal() {
   // Account names can be corrupted when Node decodes localized OEM output as UTF-8.
   // The effective SID is ASCII-only and icacls accepts it with a leading '*'.
-  const identity = run('whoami', ['/user', '/fo', 'csv', '/nh']);
+  const identity = run(process.env.SystemRoot ? `${process.env.SystemRoot}\\System32\\whoami.exe` : 'C:\\Windows\\System32\\whoami.exe', ['/user', '/fo', 'csv', '/nh']);
   const sid = identity.match(/S-\d-(?:\d+-)+\d+/i)?.[0];
   if (sid) return `*${sid}`;
   return process.env.USERNAME || os.userInfo().username;

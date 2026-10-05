@@ -6,6 +6,8 @@
   "main": "src/main-entry.cjs",
   "scripts": {
     "test": "node scripts/run-tests.cjs",
+    "test:all": "node scripts/verify-all.cjs",
+    "test:contracts": "node scripts/run-tests.cjs",
     "test:e2e": "node e2e/run.cjs",
     "start": "electron .",
     "dev": "node scripts/dev-loop.cjs",
@@ -34,6 +36,8 @@
   "overrides": {
     "deepmerge-ts": "8.0.2",
     "@puppeteer/browsers": "3.2.2",
+    "http-cache-semantics": "4.3.0",
+    "chokidar": "4.0.3",
     "mocha": {
       "serialize-javascript": "7.1.2"
     }
