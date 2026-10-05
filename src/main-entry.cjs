@@ -18,12 +18,23 @@ const { installAccountScopedWebviewNavigationBoundary, policyFromAccountState } 
 const { installAccountSessionPermissionBoundary } = require('./session-permission-boundary.cjs');
 const { configureE2ESafeStorageBackend, installSubscriptionStartupBypass } = require('./e2e-shell-seam.cjs');
 
+// WDIO's native Electron driver requires no-sandbox for its isolated temp profile.
+// This is the only allowed exception; production and ordinary development remain fail-closed.
+const e2eUserDataDir = String(process.env.GEEK_USER_DATA_DIR || '');
+const relativeE2EUserData = e2eUserDataDir && path.relative(os.tmpdir(), e2eUserDataDir);
+const isolatedE2E = process.env.GEEK_E2E === '1'
+  && !!relativeE2EUserData
+  && !relativeE2EUserData.startsWith('..')
+  && !path.isAbsolute(relativeE2EUserData)
+  && path.basename(e2eUserDataDir).startsWith('geek-e2e-');
+
 // Never allow launch-time Chromium switches to silently weaken the security model
 // before any local privileged window or remote account content can be created.
 try {
   assertSafeElectronStartup({
     argv: process.argv,
     commandLine: app.commandLine,
+    allowUnsafeForIsolatedE2E: isolatedE2E ? ['no-sandbox'] : [],
   });
 } catch (error) {
   const blocked = Array.isArray(error?.switches) ? error.switches.join(',') : 'unknown';

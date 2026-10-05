@@ -6,6 +6,8 @@
   "main": "src/main-entry.cjs",
   "scripts": {
     "test": "node scripts/run-tests.cjs",
+    "test:all": "node scripts/verify-all.cjs",
+    "test:contracts": "node scripts/run-tests.cjs",
     "test:e2e": "node e2e/run.cjs",
     "start": "electron .",
     "dev": "node scripts/dev-loop.cjs",

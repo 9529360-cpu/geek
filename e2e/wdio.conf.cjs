@@ -77,6 +77,7 @@ exports.config = {
   // documented server shutdown endpoint. Clearing sessionId makes WDIO Runner.endSession
   // skip the known-hanging W3C DELETE /session path.
   after: async function () {
+    if (!browser?.electron || !browser?.options) return;
     const shutdownUrl = chromeDriverShutdownUrl(browser.options);
     await browser.electron.execute((electron) => {
       setImmediate(() => electron.app.exit(0));

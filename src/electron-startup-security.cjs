@@ -32,10 +32,12 @@ function findUnsafeElectronSwitches({ argv = [], commandLine = null } = {}) {
 
 function assertSafeElectronStartup(options = {}) {
   const unsafe = findUnsafeElectronSwitches(options);
-  if (!unsafe.length) return Object.freeze({ ok: true, blocked: Object.freeze([]) });
+  const allowed = new Set(Array.isArray(options.allowUnsafeForIsolatedE2E) ? options.allowUnsafeForIsolatedE2E : []);
+  const blocked = unsafe.filter(name => !allowed.has(name));
+  if (!blocked.length) return Object.freeze({ ok: true, blocked: Object.freeze(unsafe) });
   const error = new Error('UNSAFE_ELECTRON_STARTUP_SWITCH');
   error.code = 'UNSAFE_ELECTRON_STARTUP_SWITCH';
-  error.switches = unsafe;
+  error.switches = Object.freeze(blocked);
   throw error;
 }
 
