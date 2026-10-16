@@ -68,6 +68,7 @@ assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast
       assert.ok(html.includes('href="/faq"'), `${route} must expose the FAQ trust surface`);
       assert.ok(html.includes('href="/guide"'), `${route} must expose the onboarding surface`);
       assert.ok(html.includes(`<meta property="og:url" content="https://geek.bbnba.com${route}">`), `${route} missing canonical social URL`);
+      assert.match(html, /<meta name="keywords" content="[^"]*多平台多账号[^"]*">/, `${route} missing keywords meta`);
       assert.match(html, /<meta property="og:site_name" content="极客 Geek">/);
       assert.match(html, /<meta property="og:locale" content="zh_CN">/);
       assert.ok(html.includes(`<meta property="og:image" content="https://geek.bbnba.com/og-cover.png">`), `${route} missing social share image`);
@@ -107,6 +108,8 @@ assert.doesNotMatch(routerSource, /replaceAll\([^\n]*\/#pricing[^\n]*\/broadcast
     for (const route of routes) {
       assert.ok(sitemapXml.includes(`<loc>https://geek.bbnba.com${route}</loc>`), `sitemap missing ${route}`);
     }
+    const today = new Date().toISOString().slice(0, 10);
+    assert.ok(sitemapXml.includes(`<lastmod>${today}</lastmod>`), 'sitemap entries must carry a current lastmod');
     assert.equal((sitemapXml.match(/<loc>https:\/\/geek\.bbnba\.com\/<\/loc>/g) || []).length, 1, 'sitemap must list homepage exactly once');
 
     const sitemapHead = await production.default.fetch(new Request('https://geek.bbnba.com/sitemap.xml', { method: 'HEAD' }), {}, {});
