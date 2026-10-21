@@ -69,6 +69,16 @@ assert.equal(sample.shared.peakWorkingSetSize, 6000);
 assert.equal(sample.totals.processCount, 1 + 1 + 2 + 3 + 2);
 assert.equal(sample.totals.workingSetSize, 800 + 1200 + 550 + 950 + 5900);
 
+// The sample echoes the guest mapping it attributed with (first wins,
+// sorted by pid), so an empty partitions list stays diagnosable.
+assert.deepEqual(sample.guests, [
+  { processId: 200, partition: 'persist:account-b' },
+  { processId: 201, partition: 'persist:account-a' },
+  { processId: 600, partition: 'persist:account-c' },
+  { processId: 602, partition: 'persist:account-c' },
+  { processId: 999, partition: 'unpartitioned' },
+]);
+
 // Guests without a partition label still count, under 'unpartitioned'.
 const unpartitioned = samplePartitionMemory({
   metrics: [{ pid: 700, type: 'renderer', memory: { workingSetSize: 10 } }],
@@ -81,6 +91,7 @@ assert.deepEqual(samplePartitionMemory({}), {
   partitions: [],
   shared: { processCount: 0, workingSetSize: 0, peakWorkingSetSize: 0, privateBytes: 0, processes: [] },
   unattributed: { processCount: 0, workingSetSize: 0, peakWorkingSetSize: 0, privateBytes: 0, processes: [] },
+  guests: [],
   totals: { processCount: 0, workingSetSize: 0 },
 });
 assert.deepEqual(samplePartitionMemory({ metrics: 'nope', guests: 42 }).totals, { processCount: 0, workingSetSize: 0 });

@@ -125,6 +125,14 @@ function samplePartitionMemory(input = {}) {
       ...freezeBucket(bucket),
     }));
 
+  // Echo the guest mapping the attribution actually used, so a sample
+  // that lists no partitions still shows whether guests were seen at all
+  // (empty mapping), seen without a live renderer (processId -1), or seen
+  // with pids that match no metric.
+  const guestsSeen = [...guestPartitionByPid.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([processId, partition]) => Object.freeze({ processId, partition }));
+
   let totalProcesses = 0;
   let totalWorkingSetSize = 0;
   for (const bucket of [...partitions, shared, unattributed]) {
@@ -136,6 +144,7 @@ function samplePartitionMemory(input = {}) {
     partitions: Object.freeze(partitions),
     shared: freezeBucket(shared),
     unattributed: freezeBucket(unattributed),
+    guests: Object.freeze(guestsSeen),
     totals: Object.freeze({
       processCount: totalProcesses,
       workingSetSize: totalWorkingSetSize,
