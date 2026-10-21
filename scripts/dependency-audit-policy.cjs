@@ -108,6 +108,22 @@ function vulnerabilityNames(report) {
   return Object.keys(report.vulnerabilities).sort();
 }
 
+function detailFor(report, names) {
+  return names.map((name) => {
+    const entry = report.vulnerabilities[name];
+    const via = Array.isArray(entry.via) ? entry.via : [];
+    return {
+      name,
+      severity: entry.severity,
+      via: via.map((item) => (typeof item === 'string' ? item : {
+        name: item.name,
+        url: item.url,
+        range: item.range,
+      })),
+    };
+  });
+}
+
 function requireCleanAudit(report, label, { allowExceptions = false } = {}) {
   const names = vulnerabilityNames(report);
   if (names.length === 0) return { remaining: [], exceptionsApplied: [] };
@@ -117,8 +133,10 @@ function requireCleanAudit(report, label, { allowExceptions = false } = {}) {
     if (remaining.length === 0) {
       return { remaining: [], exceptionsApplied: appliedExceptions(report, excused) };
     }
+    process.stderr.write(`DEPENDENCY_AUDIT_POLICY_DETAIL ${JSON.stringify(detailFor(report, remaining))}\n`);
     fail(`${label} dependency audit must be clean; found ${remaining.join(', ')}`);
   }
+  process.stderr.write(`DEPENDENCY_AUDIT_POLICY_DETAIL ${JSON.stringify(detailFor(report, names))}\n`);
   fail(`${label} dependency audit must be clean; found ${names.join(', ')}`);
   return { remaining: [], exceptionsApplied: [] };
 }
