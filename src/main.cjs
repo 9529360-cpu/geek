@@ -78,10 +78,18 @@ const diagnostics = (() => {
 // utility processes land in `shared`, renderers with no guest in
 // `unattributed`. Sampling failures degrade to an empty sample, never to a
 // crash: the sampler itself never throws on malformed shapes.
+//
+// Guest pid mapping must use getOSProcessId, not getProcessId: the latter
+// returns Chromium's internal render-process id (small integers like 4,
+// 11, 12), while app.getAppMetrics reports OS pids. Matching on the
+// internal id attributes nothing (proven by a CI sample that listed the
+// guests but matched no metric).
 function collectPartitionMemorySample() {
   const metrics = typeof app.getAppMetrics === 'function' ? app.getAppMetrics() : [];
   const guests = webContents.getAllWebContents().map(wc => ({
-    processId: typeof wc.getProcessId === 'function' ? wc.getProcessId() : -1,
+    processId: typeof wc.getOSProcessId === 'function'
+      ? wc.getOSProcessId()
+      : (typeof wc.getProcessId === 'function' ? wc.getProcessId() : -1),
     partition: wc.session?.partition || '',
   }));
   return samplePartitionMemory({ metrics, guests });
