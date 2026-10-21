@@ -4,17 +4,25 @@
 // baselines). The E2E app seeds two accounts (e2e-account-a active,
 // e2e-account-b), so the ladder this spec can record in one app instance is
 // 2 -> 3 -> 5 accounts; the 1-account shape stays a real-client item. This
-// spec is a skeleton, not a baseline: it grows the account count, asserts
-// only sample-shape invariants that hold regardless of guest lifecycle, and
-// prints the per-stage partition sets (E2E_PARTITION_MEMORY_MULTI) so the
-// run itself becomes the record of how guest materialization behaves as
-// accounts are added.
+// spec grows the account count, asserts only sample-shape invariants that
+// hold regardless of guest lifecycle, and prints the per-stage partition
+// sets (E2E_PARTITION_MEMORY_MULTI) so the run itself becomes the record of
+// how guest materialization behaves as accounts are added and activated.
+//
+// What the first run (PR #799) already established: accounts.add alone does
+// NOT materialize a guest for the new account — the partition set stayed
+// [a, b, unpartitioned] at 3 and at 5 accounts. This version therefore also
+// UI-activates each added account (the shell-smoke nav-account click
+// pattern) and re-samples, to test whether activation is the trigger that
+// materializes the guest.
 //
 // Deliberately NOT asserted (yet): any partition-count target. Whether an
 // inactive account's guest stays alive after another account activates is
-// exactly what this run characterizes; tightening the assertion comes after
-// the first multi-account run, not before it. No value targets either:
-// sampled numbers are printed, never thresholded.
+// what these runs characterize; tightening the assertion comes after the
+// mechanism is observed, not before it. No value targets either: sampled
+// numbers are printed, never thresholded. Activation results are recorded,
+// not asserted: a failed activation is data about the mechanism, and the
+// final sample still records.
 //
 // Runs last in the smoke suite (see wdio.conf.cjs) so the accounts it adds
 // cannot disturb earlier specs; the isolated E2E userData directory is
@@ -62,6 +70,26 @@ async function addAccount(name) {
       .then((result) => done({ id: result?.account?.id || '' }))
       .catch((error) => done({ __error: String(error?.message || error) }));
   }, name);
+}
+
+async function activateAccountUi(accountId) {
+  // Shell-smoke nav-account activation pattern: click the account's nav
+  // entry, then wait for the active class. Returns a record, never throws:
+  // whether activation materializes the guest is the question under test,
+  // so a failed activation is data, not a spec failure.
+  try {
+    const button = await $(`.nav-account[data-id="${accountId}"] .nav-account-main`);
+    await button.waitForDisplayed({ timeout: 5000 });
+    await button.click();
+    await browser.waitUntil(async () => browser.execute((id) =>
+      document.querySelector('.nav-account.active[data-id]')?.dataset.id === id, accountId), {
+      timeout: 5000,
+      timeoutMsg: `account ${accountId} did not become active`,
+    });
+    return { accountId, activated: true };
+  } catch (error) {
+    return { accountId, activated: false, error: String(error?.message || error).slice(0, 120) };
+  }
 }
 
 function partitionNames(sample) {
@@ -139,7 +167,7 @@ async function waitForStablePartitionSet() {
 }
 
 describe('partition memory multi-account skeleton', () => {
-  it('records the sample shape as the account count grows 2 -> 3 -> 5', async () => {
+  it('records the sample shape as the account count grows 2 -> 3 -> 5, then after UI activation', async () => {
     await waitForHostApi();
 
     const baseline = await waitForSeededGuest();
@@ -152,7 +180,8 @@ describe('partition memory multi-account skeleton', () => {
     assert.ok(beforeIds.includes(SEEDED_A), 'seeded account-a must be listed');
     assert.ok(beforeIds.includes(SEEDED_B), 'seeded account-b must be listed');
 
-    // 2 -> 3 accounts.
+    // 2 -> 3 accounts (add only; PR #799 showed this alone materializes
+    // no new guest).
     const addedC = await addAccount('E2E Memory C');
     assert.ok(!addedC?.__error && addedC.id, `adding account C failed: ${addedC?.__error || 'no id'}`);
     const threeAccountSample = await takeSample();
@@ -160,7 +189,8 @@ describe('partition memory multi-account skeleton', () => {
     const threeAccountPartitions = partitionNames(threeAccountSample);
 
     // 3 -> 5 accounts. Each add activates the new account (accountState.add
-    // sets activeAccountId), so no UI activation step is needed here.
+    // sets activeAccountId), so no UI activation step is needed for the
+    // add-only stage.
     const addedD = await addAccount('E2E Memory D');
     assert.ok(!addedD?.__error && addedD.id, `adding account D failed: ${addedD?.__error || 'no id'}`);
     const addedE = await addAccount('E2E Memory E');
@@ -170,6 +200,21 @@ describe('partition memory multi-account skeleton', () => {
     assert.ok(!after?.__error, `accounts list failed: ${after?.__error || ''}`);
     assert.equal(after.accounts.length, before.accounts.length + 3, 'account count must grow by exactly the three added accounts');
     assert.equal(after.activeAccountId, addedE.id, 'the last added account must be active');
+
+    // 5-account add-only sample, for direct comparison with the
+    // post-activation sample below.
+    const fiveAccountSample = await takeSample();
+    assertSampleShape(fiveAccountSample);
+    const fiveAccountPartitions = partitionNames(fiveAccountSample);
+
+    // UI-activate each added account in turn, then re-sample: this tests
+    // whether activation (not add) is the trigger that materializes a
+    // guest. Guests load in parallel after the clicks; the stable-set poll
+    // covers creation timing, so no fixed delay is assumed.
+    const activationResults = [];
+    for (const added of [addedC, addedD, addedE]) {
+      activationResults.push(await activateAccountUi(added.id));
+    }
 
     const final = await waitForStablePartitionSet();
     assertSampleShape(final);
@@ -184,7 +229,9 @@ describe('partition memory multi-account skeleton', () => {
       accountCount: after.accounts.length,
       baselinePartitions,
       threeAccountPartitions,
-      fiveAccountPartitions: finalPartitions,
+      fiveAccountPartitions,
+      postActivationPartitions: finalPartitions,
+      activationResults,
       matchedExpected,
       sample: final,
     })}`);
