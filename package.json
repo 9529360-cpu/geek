@@ -38,6 +38,7 @@
     "@puppeteer/browsers": "3.2.2",
     "http-cache-semantics": "4.3.0",
     "chokidar": "4.0.3",
+    "smol-toml": "1.9.1",
     "mocha": {
       "serialize-javascript": "7.1.2"
     }
