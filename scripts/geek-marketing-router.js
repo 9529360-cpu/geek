@@ -1,5 +1,5 @@
 import websiteEntry from './geek-website-entry.js';
-import { LOGO, MARKETING_ROUTES, OG_IMAGE_ALT, OG_IMAGE_PATH, OG_IMAGE_PNG_BASE64, PAGE_META, SITE_ORIGIN } from './geek-marketing-theme.mjs';
+import { LOGO, MARKETING_ROUTES, OG_IMAGE_ALT, OG_IMAGE_PATH, OG_IMAGE_PNG_BASE64, PAGE_META, SITE_KEYWORDS, SITE_ORIGIN } from './geek-marketing-theme.mjs';
 import { LEGACY_ACCOUNT_THEME_STYLE, MARKETING_STYLES_CORE } from './geek-marketing-styles-core.mjs';
 import { MARKETING_STYLES_COMPONENTS } from './geek-marketing-styles-components.mjs';
 import { PAGE_BODY } from './geek-marketing-pages.mjs';
@@ -132,6 +132,7 @@ function render(path) {
 <meta name="theme-color" content="#08090a">
 <title>${meta.title}</title>
 <meta name="description" content="${meta.description}">
+<meta name="keywords" content="${SITE_KEYWORDS}">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="${canonical}">
 <meta property="og:type" content="website">
@@ -188,7 +189,8 @@ function robotsBody() {
 }
 
 function sitemapBody() {
-  const urls = SITEMAP_ROUTES.map(path => `  <url><loc>${SITE_ORIGIN}${path}</loc></url>`).join('\n');
+  const lastmod = new Date().toISOString().slice(0, 10);
+  const urls = SITEMAP_ROUTES.map(path => `  <url><loc>${SITE_ORIGIN}${path}</loc><lastmod>${lastmod}</lastmod></url>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 
