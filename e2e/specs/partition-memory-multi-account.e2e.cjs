@@ -4,25 +4,25 @@
 // baselines). The E2E app seeds two accounts (e2e-account-a active,
 // e2e-account-b), so the ladder this spec can record in one app instance is
 // 2 -> 3 -> 5 accounts; the 1-account shape stays a real-client item. This
-// spec grows the account count, asserts only sample-shape invariants that
-// hold regardless of guest lifecycle, and prints the per-stage partition
-// sets (E2E_PARTITION_MEMORY_MULTI) so the run itself becomes the record of
-// how guest materialization behaves as accounts are added and activated.
+// spec grows the account count through the real user path (App Center UI
+// adds), asserts sample-shape invariants, and prints the per-stage
+// partition sets (E2E_PARTITION_MEMORY_MULTI) so the run itself becomes the
+// record of multi-account guest memory.
 //
-// What the first run (PR #799) already established: accounts.add alone does
-// NOT materialize a guest for the new account — the partition set stayed
-// [a, b, unpartitioned] at 3 and at 5 accounts. This version therefore also
-// UI-activates each added account (the shell-smoke nav-account click
-// pattern) and re-samples, to test whether activation is the trigger that
-// materializes the guest.
-//
-// Deliberately NOT asserted (yet): any partition-count target. Whether an
-// inactive account's guest stays alive after another account activates is
-// what these runs characterize; tightening the assertion comes after the
-// mechanism is observed, not before it. No value targets either: sampled
-// numbers are printed, never thresholded. Activation results are recorded,
-// not asserted: a failed activation is data about the mechanism, and the
-// final sample still records.
+// Mechanism, established across the PR #799/#800 runs — read before
+// touching this spec:
+// - accounts.add over IPC alone does NOT refresh the renderer: main sends
+//   accounts:changed, but no renderer listener exists, so the sidebar list
+//   and webviews stay stale. PR #799's add-only run therefore showed no
+//   new guests, and nav entries for IPC-added accounts never appeared, so
+//   nav-click activation could not even be attempted (PR #800 first cut).
+// - The App Center add flow (add-confirm handler) calls accounts.add and
+//   then loadAccounts(), which re-renders the sidebar AND creates a
+//   webview for every account ("原版多开模型：所有账号的 webview 全部常驻").
+//   That is the trigger that materializes guests, and it is what this
+//   spec drives. This is not a product bug to fix here: the product's own
+//   add path already refreshes; only direct IPC adds bypass it.
+// - No value targets: sampled numbers are printed, never thresholded.
 //
 // Runs last in the smoke suite (see wdio.conf.cjs) so the accounts it adds
 // cannot disturb earlier specs; the isolated E2E userData directory is
@@ -64,32 +64,40 @@ async function listAccounts() {
   });
 }
 
-async function addAccount(name) {
-  return browser.executeAsync((accountName, done) => {
-    window.api.accounts.add({ name: accountName, type: 'whatsapp' })
-      .then((result) => done({ id: result?.account?.id || '' }))
-      .catch((error) => done({ __error: String(error?.message || error) }));
-  }, name);
-}
-
-async function activateAccountUi(accountId) {
-  // Shell-smoke nav-account activation pattern: click the account's nav
-  // entry, then wait for the active class. Returns a record, never throws:
-  // whether activation materializes the guest is the question under test,
-  // so a failed activation is data, not a spec failure.
-  try {
-    const button = await $(`.nav-account[data-id="${accountId}"] .nav-account-main`);
-    await button.waitForDisplayed({ timeout: 5000 });
-    await button.click();
-    await browser.waitUntil(async () => browser.execute((id) =>
-      document.querySelector('.nav-account.active[data-id]')?.dataset.id === id, accountId), {
-      timeout: 5000,
-      timeoutMsg: `account ${accountId} did not become active`,
-    });
-    return { accountId, activated: true };
-  } catch (error) {
-    return { accountId, activated: false, error: String(error?.message || error).slice(0, 120) };
-  }
+async function addAccountsViaAppCenter({ name, count, beforeIds }) {
+  // Drive the real user path: App Center dialog -> platform card -> name
+  // and count -> confirm. The confirm handler calls accounts.add and then
+  // loadAccounts(), which is what re-renders the sidebar and creates a
+  // webview for every account. Returns the new account ids.
+  const appCenter = await $('#btn-app-center');
+  await appCenter.waitForDisplayed({ timeout: 5000 });
+  await appCenter.click();
+  const card = await $('.add-platform-card[data-type="whatsapp"]');
+  await card.waitForDisplayed({ timeout: 5000 });
+  await card.click();
+  const nameInput = await $('#add-name');
+  await nameInput.waitForDisplayed({ timeout: 5000 });
+  await nameInput.setValue(name);
+  const countInput = await $('#add-count');
+  await countInput.setValue(String(count));
+  const confirm = await $('#add-confirm');
+  await confirm.click();
+  // Wait for the dialog to close and the backend list to grow; the
+  // webviews themselves materialize asynchronously and are covered by the
+  // stable-set poll below, so this wait only proves the add landed.
+  let after = null;
+  await browser.waitUntil(async () => {
+    after = await listAccounts();
+    if (after?.__error) return false;
+    const dialogHidden = await browser.execute(() =>
+      document.getElementById('add-overlay')?.classList.contains('hidden') ?? true);
+    return dialogHidden && after.accounts.length === beforeIds.length + count;
+  }, {
+    timeout: 10000,
+    interval: 500,
+    timeoutMsg: `App Center add of ${count} account(s) did not land`,
+  });
+  return after.accounts.map((account) => account.id).filter((id) => !beforeIds.includes(id));
 }
 
 function partitionNames(sample) {
@@ -167,7 +175,7 @@ async function waitForStablePartitionSet() {
 }
 
 describe('partition memory multi-account skeleton', () => {
-  it('records the sample shape as the account count grows 2 -> 3 -> 5, then after UI activation', async () => {
+  it('records the sample shape as the account count grows 2 -> 3 -> 5 via App Center adds', async () => {
     await waitForHostApi();
 
     const baseline = await waitForSeededGuest();
@@ -180,58 +188,52 @@ describe('partition memory multi-account skeleton', () => {
     assert.ok(beforeIds.includes(SEEDED_A), 'seeded account-a must be listed');
     assert.ok(beforeIds.includes(SEEDED_B), 'seeded account-b must be listed');
 
-    // 2 -> 3 accounts (add only; PR #799 showed this alone materializes
-    // no new guest).
-    const addedC = await addAccount('E2E Memory C');
-    assert.ok(!addedC?.__error && addedC.id, `adding account C failed: ${addedC?.__error || 'no id'}`);
+    // 2 -> 3 accounts through the App Center UI (add + loadAccounts).
+    const addedFirst = await addAccountsViaAppCenter({ name: 'E2E Memory', count: 1, beforeIds });
+    assert.equal(addedFirst.length, 1, 'App Center add of 1 must yield exactly one new account id');
     const threeAccountSample = await takeSample();
     assertSampleShape(threeAccountSample);
     const threeAccountPartitions = partitionNames(threeAccountSample);
 
-    // 3 -> 5 accounts. Each add activates the new account (accountState.add
-    // sets activeAccountId), so no UI activation step is needed for the
-    // add-only stage.
-    const addedD = await addAccount('E2E Memory D');
-    assert.ok(!addedD?.__error && addedD.id, `adding account D failed: ${addedD?.__error || 'no id'}`);
-    const addedE = await addAccount('E2E Memory E');
-    assert.ok(!addedE?.__error && addedE.id, `adding account E failed: ${addedE?.__error || 'no id'}`);
+    // 3 -> 5 accounts through the App Center UI.
+    const threeIds = [...beforeIds, ...addedFirst];
+    const addedRest = await addAccountsViaAppCenter({ name: 'E2E Memory', count: 2, beforeIds: threeIds });
+    assert.equal(addedRest.length, 2, 'App Center add of 2 must yield exactly two new account ids');
 
     const after = await listAccounts();
     assert.ok(!after?.__error, `accounts list failed: ${after?.__error || ''}`);
     assert.equal(after.accounts.length, before.accounts.length + 3, 'account count must grow by exactly the three added accounts');
-    assert.equal(after.activeAccountId, addedE.id, 'the last added account must be active');
 
-    // 5-account add-only sample, for direct comparison with the
-    // post-activation sample below.
+    // 5-account add sample, then the stable-set poll for guest creation.
     const fiveAccountSample = await takeSample();
     assertSampleShape(fiveAccountSample);
     const fiveAccountPartitions = partitionNames(fiveAccountSample);
-
-    // UI-activate each added account in turn, then re-sample: this tests
-    // whether activation (not add) is the trigger that materializes a
-    // guest. Guests load in parallel after the clicks; the stable-set poll
-    // covers creation timing, so no fixed delay is assumed.
-    const activationResults = [];
-    for (const added of [addedC, addedD, addedE]) {
-      activationResults.push(await activateAccountUi(added.id));
-    }
 
     const final = await waitForStablePartitionSet();
     assertSampleShape(final);
     const finalPartitions = partitionNames(final);
 
-    const allIds = [...beforeIds, addedC.id, addedD.id, addedE.id];
+    const allIds = [...beforeIds, ...addedFirst, ...addedRest];
     const expectedPartitions = allIds.map((id) => `${PARTITION_PREFIX}${id}`);
     const matchedExpected = expectedPartitions.filter((name) => finalPartitions.includes(name));
+    // The product model keeps every account's webview resident
+    // (loadAccounts creates one per account), so after App Center adds and
+    // a settle poll, every account's partition must be present. A missing
+    // partition here is a real product signal, not a skeleton gap.
+    assert.deepEqual(
+      matchedExpected.slice().sort(),
+      expectedPartitions.slice().sort(),
+      `all account partitions must materialize after App Center adds; final set: ${finalPartitions.join(', ')}`,
+    );
 
     console.log(`E2E_PARTITION_MEMORY_MULTI ${JSON.stringify({
       seededAccounts: [SEEDED_A, SEEDED_B],
       accountCount: after.accounts.length,
+      addedVia: 'app-center-ui',
       baselinePartitions,
       threeAccountPartitions,
       fiveAccountPartitions,
-      postActivationPartitions: finalPartitions,
-      activationResults,
+      finalPartitions,
       matchedExpected,
       sample: final,
     })}`);
