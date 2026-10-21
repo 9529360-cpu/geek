@@ -27,7 +27,15 @@ async function waitForHostApi() {
 }
 
 async function takeSample() {
-  return browser.execute(() => window.api.diagnostics.partitionMemorySample());
+  // Repo convention: async renderer work goes through executeAsync with a
+  // done callback (see webview-navigation-runtime's readAccount). A
+  // promise-returning browser.execute is not a reliable way to await IPC
+  // here, so do not use it for this call.
+  return browser.executeAsync((done) => {
+    window.api.diagnostics.partitionMemorySample()
+      .then(done)
+      .catch((error) => done({ __error: String(error?.message || error) }));
+  });
 }
 
 describe('partition memory sampling', () => {
@@ -36,17 +44,26 @@ describe('partition memory sampling', () => {
 
     // The active account's guest materializes at startup; poll the sample
     // itself so renderer-process creation races resolve by waiting, not
-    // by assuming a fixed delay.
+    // by assuming a fixed delay. On timeout, print the last sample seen so
+    // the CI log carries the evidence instead of just the timeout.
     let sample = null;
-    await browser.waitUntil(async () => {
-      sample = await takeSample();
-      const names = (sample?.partitions || []).map(part => part.partition);
-      return names.includes(ACTIVE_PARTITION);
-    }, {
-      timeout: SAMPLE_TIMEOUT,
-      interval: 500,
-      timeoutMsg: `memory sample never listed ${ACTIVE_PARTITION}`,
-    });
+    let lastSeen = null;
+    try {
+      await browser.waitUntil(async () => {
+        sample = await takeSample();
+        if (sample?.__error) throw new Error(`partition memory sample failed: ${sample.__error}`);
+        lastSeen = sample;
+        const names = (sample?.partitions || []).map(part => part.partition);
+        return names.includes(ACTIVE_PARTITION);
+      }, {
+        timeout: SAMPLE_TIMEOUT,
+        interval: 500,
+        timeoutMsg: `memory sample never listed ${ACTIVE_PARTITION}`,
+      });
+    } catch (error) {
+      console.log(`E2E_PARTITION_MEMORY_LAST_SEEN ${JSON.stringify(lastSeen)}`);
+      throw error;
+    }
 
     assert.ok(Array.isArray(sample.partitions), 'sample must list partitions');
     for (const part of sample.partitions) {
