@@ -1509,7 +1509,7 @@ app.whenReady().then(async () => {
   });
   await enforceSubscriptionGate();
   createTray();
-  initAutoUpdater();
+  initAutoUpdater({ diagnostics });
   watchSystemTheme();
   setTimeout(() => { cleanupOrphanPartitions().catch(() => {}); }, 3000);
 
