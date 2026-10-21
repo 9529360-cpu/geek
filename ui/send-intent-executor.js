@@ -30,6 +30,13 @@
     const platformCapabilities = options.platformCapabilities;
     const classifySendOutcome = options.classifySendOutcome;
     const now = typeof options.now === 'function' ? options.now : () => Date.now();
+    // Optional measurement only: when a latency recorder is supplied, the
+    // executor reports one timing record per execution (path
+    // 'composer-submit'). Recording failures never break a send.
+    const latencyRecorder = options.latencyRecorder;
+    const platformOf = typeof options.platformOf === 'function'
+      ? options.platformOf
+      : account => String(account?.platform || account?.type || '');
 
     if (!admission
       || typeof admission.begin !== 'function'
@@ -80,7 +87,24 @@
         deadlineAt,
       });
       const intentId = created.intentId;
+      const startedAt = Number(created.createdAt);
       let phase = 'created';
+
+      // Timing point (Issue #787): submit -> sent/failed, measured on the
+      // coordinator's own timestamps so injected clocks stay deterministic.
+      // platform/path/outcome/duration only; no message content, no chat id.
+      function recordLatency(outcome, terminalAt) {
+        try {
+          if (!latencyRecorder || typeof latencyRecorder.record !== 'function') return;
+          if (!Number.isFinite(startedAt) || !Number.isFinite(Number(terminalAt))) return;
+          latencyRecorder.record({
+            platform: platformOf(account),
+            path: 'composer-submit',
+            outcome,
+            durationMs: Number(terminalAt) - startedAt,
+          });
+        } catch {}
+      }
 
       try {
         coordinator.startTransform(intentId);
@@ -177,6 +201,7 @@
 
         const sent = coordinator.markSent(intentId);
         phase = 'sent';
+        recordLatency('sent', sent.terminalAt);
         return Object.freeze({
           intent: sent,
           transformResult,
@@ -193,6 +218,12 @@
               : 'SEND_INTENT_EXECUTION_FAILED');
           try { coordinator.fail(intentId, code); } catch {}
         }
+        try {
+          const terminal = coordinator.get(intentId);
+          if (terminal && ['failed', 'cancelled'].includes(terminal.state)) {
+            recordLatency(terminal.state, terminal.terminalAt);
+          }
+        } catch {}
         throw error;
       } finally {
         try { admission.release(intentId); } catch {}
