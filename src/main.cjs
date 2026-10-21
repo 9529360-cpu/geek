@@ -13,6 +13,7 @@ const { ensureLineTrustedSubmitPreload } = require('./line-trusted-submit-sessio
 const webviewOwnership = createOwnershipRegistry();
 const runtimePaths = require('./runtime-paths.cjs');
 const { createDiagnostics } = require('./diagnostics.cjs');
+const { samplePartitionMemory } = require('./partition-memory-sampler.cjs');
 const { createInternalCdp } = require('./internal-cdp.cjs');
 const { createRateLimiter } = require('./crash-recovery.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
@@ -69,6 +70,22 @@ const diagnostics = (() => {
     return { log() {} };
   }
 })();
+
+// On-demand per-partition memory sampling (Issue #787, item 2). No periodic
+// collection: the caller (devtools/E2E via window.api.diagnostics) decides
+// when to sample, e.g. at 1/3/5 accounts for a baseline. Renderer processes
+// are attributed to partitions via their guest WebContents; browser/gpu/
+// utility processes land in `shared`, renderers with no guest in
+// `unattributed`. Sampling failures degrade to an empty sample, never to a
+// crash: the sampler itself never throws on malformed shapes.
+function collectPartitionMemorySample() {
+  const metrics = typeof app.getAppMetrics === 'function' ? app.getAppMetrics() : [];
+  const guests = webContents.getAllWebContents().map(wc => ({
+    processId: typeof wc.getProcessId === 'function' ? wc.getProcessId() : -1,
+    partition: wc.session?.partition || '',
+  }));
+  return samplePartitionMemory({ metrics, guests });
+}
 
 process.on('uncaughtExceptionMonitor', (error, origin) => {
   diagnostics.log('uncaught-exception', {
@@ -590,6 +607,7 @@ function registerIpcHandlers() {
     nativeTheme,
     dialog,
     fs,
+    collectPartitionMemorySample,
   });
 
   async function waSendFileViaCdp(send, { filePath, chatId, caption }) {

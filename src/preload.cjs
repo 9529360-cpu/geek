@@ -230,6 +230,9 @@ contextBridge.exposeInMainWorld(
   'api',
   Object.freeze({
     app: Object.freeze({ version: () => ipcRenderer.invoke('app:get-version') }),
+    diagnostics: Object.freeze({
+      partitionMemorySample: () => ipcRenderer.invoke('diagnostics:partition-memory-sample'),
+    }),
     accounts: Object.freeze({
       list: () => ipcRenderer.invoke(channels.accounts.list),
 
