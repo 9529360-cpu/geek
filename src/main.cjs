@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, dialog, ipcMain, session, Notification, nativeTheme, webContents, Tray, Menu, nativeImage, safeStorage } = require('electron');
+const { app, BrowserWindow, crashReporter, dialog, ipcMain, session, Notification, nativeTheme, webContents, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const fs = nodeFs.promises;
@@ -16,6 +16,7 @@ const { createDiagnostics } = require('./diagnostics.cjs');
 const { samplePartitionMemory } = require('./partition-memory-sampler.cjs');
 const { createInternalCdp } = require('./internal-cdp.cjs');
 const { createRateLimiter } = require('./crash-recovery.cjs');
+const { reportPreviousNativeCrash, pruneCrashDumps } = require('./crash-observability.cjs');
 const { collectOrphanPartitions } = require('./partition-cleanup.cjs');
 const { createSubscriptionStore } = require('./subscription.cjs');
 const { installSubscriptionIpc } = require('./subscription-ipc.cjs');
@@ -1455,6 +1456,16 @@ app.whenReady().then(async () => {
     username: resolveUsername(process.env.USERNAME)
   });
   diagnostics.log('app-ready', { packaged: app.isPackaged, version: app.getVersion() });
+  // A previous run that ended in a native crash is reported once, and old
+  // local dumps are pruned. Both degrade silently; neither can break startup.
+  reportPreviousNativeCrash({
+    crashReporter,
+    diagnostics,
+    fs: nodeFs,
+    path,
+    userDataDir: USER_DATA_DIR,
+  });
+  pruneCrashDumps({ fs: nodeFs, path, dir: path.join(USER_DATA_DIR, 'crash-dumps') });
   await verifyPackagedUnpackedAssets();
   await probeExternalDebugging();
   diagnostics.log('cdp-mode', { externalDebugging: externalDebuggingActive });

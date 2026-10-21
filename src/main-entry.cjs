@@ -3,13 +3,14 @@
 const path = require('node:path');
 const os = require('node:os');
 const nodeFs = require('node:fs');
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, crashReporter, session } = require('electron');
 const { configureRuntimeEnvironment } = require('./runtime-profile.cjs');
 const { installDevLoopControl } = require('./dev-loop-control.cjs');
 const runtimePaths = require('./runtime-paths.cjs');
 const { prepareUserDataPath } = require('./user-data-path.cjs');
 const { claimDevelopmentProfileWorkspace } = require('./development-profile-workspace.cjs');
 const { installSingleInstanceGuard } = require('./single-instance.cjs');
+const { installCrashReporting } = require('./crash-observability.cjs');
 const { assertSafeElectronStartup } = require('./electron-startup-security.cjs');
 const { installExternalDebuggingProbeGuard } = require('./external-debugging-policy.cjs');
 const { installSessionPartitionCompat } = require('./session-partition-compat.cjs');
@@ -108,6 +109,18 @@ try {
 }
 
 const primaryInstance = userDataPathReady && installSingleInstanceGuard({ app, BrowserWindow });
+
+// Native crashes leave no record in the JS diagnostics pipeline. Start the
+// local-only crash reporter before any window exists; dumps stay under
+// userData and are never uploaded.
+if (userDataPathReady) {
+  installCrashReporting({
+    crashReporter,
+    app,
+    userDataDir: earlyUserDataDir,
+    path,
+  });
+}
 if (primaryInstance) {
   const accountsFilePath = runtimePaths.accountsFile(earlyUserDataDir);
 
