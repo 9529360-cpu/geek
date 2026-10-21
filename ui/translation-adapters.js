@@ -64,6 +64,7 @@
       return '翻译失败，原文未发送';
     };
     const generation = window.__geekTelegramTranslationGeneration = (window.__geekTelegramTranslationGeneration || 0) + 1;
+    const visibleAdmission = typeof window.__geekVisibleAdmissionFactory === 'function' ? window.__geekVisibleAdmissionFactory() : null;
     window.__geekTelegramTranslationObserver?.disconnect();
     document.querySelectorAll('.geek-translation-result[data-geek-platform="telegram"]').forEach(n => n.remove());
     document.querySelectorAll('[data-geek-telegram-translation-state]').forEach(n => delete n.dataset.geekTelegramTranslationState);
@@ -103,12 +104,14 @@
       box.className = 'geek-translation-result'; box.dataset.geekPlatform = 'telegram'; box.dataset.messageId = id;
       box.style.cssText = `padding-top:3px;color:${setting.fontColor};font-size:${setting.fontSize}px;line-height:1.35;white-space:pre-wrap;`;
       textNode.insertAdjacentElement('afterend', box);
-      const run = async () => {
+      const run = async (explicit = false) => {
         const current = window.__geekTelegramTranslationGeneration;
         box.textContent = '';
         row.dataset.geekTelegramTranslationState = 'loading';
         try {
-          const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, messageId: id, isHistory, translateHistory: setting.translateHistory || setting.translationMode === 'click', intent: 'message-display' });
+          const request = () => window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, messageId: id, isHistory, translateHistory: setting.translateHistory || setting.translationMode === 'click', intent: 'message-display' });
+          const result = !explicit && visibleAdmission ? await visibleAdmission.submit(request, { chatId: cid }) : await request();
+          if (result === false) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
           if (current !== window.__geekTelegramTranslationGeneration || !settingFor(cid).displayTranslation) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
           if (result?.skipped) { box.remove(); delete row.dataset.geekTelegramTranslationState; return; }
           if (!result?.text) throw new Error('翻译失败');
@@ -119,8 +122,8 @@
           box.onclick = () => { delete row.dataset.geekTelegramTranslationState; box.remove(); process(row, isHistory); };
         }
       };
-      if (setting.translationMode === 'click') { box.textContent = '点击翻译'; box.style.cursor = 'pointer'; row.dataset.geekTelegramTranslationState = 'wait'; box.onclick = run; }
-      else await run();
+      if (setting.translationMode === 'click') { box.textContent = '点击翻译'; box.style.cursor = 'pointer'; row.dataset.geekTelegramTranslationState = 'wait'; box.onclick = () => run(true); }
+      else await run(false);
     };
     const root = document.querySelector('#MiddleColumn') || document.querySelector('#Main') || document.body;
     const sendEditor = () => document.querySelector('#editable-message-text.form-control.ProseMirror, #editable-message-text[contenteditable="true"], .input-message-input[contenteditable="true"]:not(.input-field-input-fake)');
@@ -244,6 +247,7 @@
       return '翻译失败，原文未发送';
     };
     const generation = window.__geekLineTranslationGeneration = (window.__geekLineTranslationGeneration || 0) + 1;
+    const visibleAdmission = typeof window.__geekVisibleAdmissionFactory === 'function' ? window.__geekVisibleAdmissionFactory() : null;
     window.__geekLineTranslationObserver?.disconnect();
     document.querySelectorAll('.geek-translation-result[data-geek-platform="line"]').forEach(node => node.remove());
     document.querySelectorAll('[data-geek-line-translation-state]').forEach(node => delete node.dataset.geekLineTranslationState);
@@ -262,7 +266,7 @@
       return (key && window.__geekTranslationPolicy.chats?.[key]) || window.__geekTranslationPolicy.default || {};
     };
     const textOf = row => (row.querySelector('[data-message-content][data-is-message-text="true"]')?.innerText || '').replace(/\u200b/g, '').trim();
-    const process = async row => {
+    const process = async (row, isHistory = false) => {
       if (!(row instanceof Element) || !row.matches('[class*="message-module__message__"][data-mid]') || row.dataset.geekLineTranslationState) return;
       const text = textOf(row); if (!text || /^[-+]?\d+(?:[.,]\d+)?$/.test(text)) return;
       const cid = chatId(); const setting = settingFor(cid); if (!cid || !setting.displayTranslation) return;
@@ -272,13 +276,19 @@
       const box = document.createElement('pre'); box.className = 'geek-translation-result'; box.dataset.geekPlatform = 'line';
       Object.assign(box.style, { margin: '4px 0 0', padding: '3px 7px', borderLeft: '2px solid #7c8cff', whiteSpace: 'pre-wrap', fontSize: `${setting.fontSize || 13}px`, lineHeight: '1.35', color: setting.fontColor || '#667eea', cursor: 'pointer' });
       content.appendChild(box);
-      const run = async () => {
+      const run = async (explicit = false) => {
         box.textContent = '翻译中…'; row.dataset.geekLineTranslationState = 'loading';
-        try { const result = await window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, intent: 'message-display' }); if (generation !== window.__geekLineTranslationGeneration || !box.isConnected) return; if (!result?.text) throw new Error('翻译失败'); box.textContent = result.text; row.dataset.geekLineTranslationState = 'done'; }
+        try {
+          const request = () => window.__geekTranslationRequest({ text, source: setting.messageFrom || 'auto', target: setting.messageTarget || 'zh', provider: setting.provider, route: setting.route, chatId: cid, isHistory, translateHistory: explicit ? true : !!setting.translateHistory, intent: 'message-display' });
+          const result = !explicit && visibleAdmission ? await visibleAdmission.submit(request, { chatId: cid }) : await request();
+          if (result === false) { box.remove(); delete row.dataset.geekLineTranslationState; return; }
+          if (result?.skipped) { box.remove(); delete row.dataset.geekLineTranslationState; return; }
+          if (generation !== window.__geekLineTranslationGeneration || !box.isConnected) return; if (!result?.text) throw new Error('翻译失败'); box.textContent = result.text; row.dataset.geekLineTranslationState = 'done';
+        }
         catch (error) { if (generation !== window.__geekLineTranslationGeneration || !box.isConnected) return; box.textContent = `翻译失败，点击重试`; box.title = String(error?.message || error); row.dataset.geekLineTranslationState = 'error'; }
       };
-      box.addEventListener('click', run);
-      if (setting.translationMode === 'auto') run(); else { box.textContent = '点击翻译'; row.dataset.geekLineTranslationState = 'click'; }
+      box.addEventListener('click', () => run(true));
+      if (setting.translationMode === 'auto') run(false); else { box.textContent = '点击翻译'; row.dataset.geekLineTranslationState = 'click'; }
     };
     window.__geekLineSendAbort?.abort();
     window.__geekLineSendAbort = new AbortController();
@@ -336,10 +346,10 @@
       if (!button || !button.closest?.('[class*="chatroomEditor-module__editor_area__"]')) return;
       submitThroughOwner(event, composerHost(event));
     }, { capture: true, signal: window.__geekLineSendAbort.signal });
-    const scan = root => { if (root?.matches?.('[class*="message-module__message__"][data-mid]')) process(root); root?.querySelectorAll?.('[class*="message-module__message__"][data-mid]').forEach(process); };
-    window.__geekLineTranslationObserver = new MutationObserver(records => { for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) scan(node); });
+    const scan = (root, isHistory) => { if (root?.matches?.('[class*="message-module__message__"][data-mid]')) process(root, isHistory); root?.querySelectorAll?.('[class*="message-module__message__"][data-mid]').forEach(node => process(node, isHistory)); };
+    window.__geekLineTranslationObserver = new MutationObserver(records => { for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) scan(node, false); });
     window.__geekLineTranslationObserver.observe(document.body, { childList: true, subtree: true });
-    scan(document);
+    scan(document, true);
     return 'LINE_TRANSLATION_READY';
   }
   window.GeekTranslationAdapters = window.GeekTranslationAdapters || {};
