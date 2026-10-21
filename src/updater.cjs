@@ -9,6 +9,7 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { shouldCheckForUpdates } = require('./updater-policy.cjs');
+const { reportUpdaterDiagnostics } = require('./updater-diagnostics.cjs');
 const { installSubscriptionWindowVisibilityRecovery } = require('./subscription-window-visibility.cjs');
 const { createUpdaterStatusRelay } = require('./updater-status-relay.cjs');
 
@@ -26,6 +27,7 @@ const statusRelay = createUpdaterStatusRelay({
 });
 let downloadedVersion = null; // 已下载待安装版本；未下载完成时拒绝手动安装
 let isInstallingUpdate = false; // 安装中标志：禁止崩溃恢复 relaunch 竞态
+let diagnosticsSink = null; // 可选诊断接收器：缺失时更新流程不受影响
 let checkTimer = null;
 let checkInFlight = false;
 let statusReplayInstalled = false;
@@ -77,7 +79,9 @@ async function runUpdateCheck() {
   }
 }
 
-function initAutoUpdater() {
+function initAutoUpdater(options = {}) {
+  // 诊断接收器只用于记录更新生命周期；缺失或非法时静默跳过，不影响更新流程。
+  if (options.diagnostics && typeof options.diagnostics.log === 'function') diagnosticsSink = options.diagnostics;
   // 开发模式（electron . 直接跑源码）没有打包产物，无法更新，直接跳过。
   if (!app.isPackaged) {
     console.log(`${LOG_PREFIX} 开发模式运行，跳过自动更新检查`);
@@ -103,22 +107,26 @@ function initAutoUpdater() {
   autoUpdater.on('checking-for-update', () => {
     console.log(`${LOG_PREFIX} 正在检查更新...`);
     sendStatus({ phase: 'checking' });
+    reportUpdaterDiagnostics(diagnosticsSink, 'checking', {});
   });
 
   autoUpdater.on('update-available', (info) => {
     console.log(`${LOG_PREFIX} 发现新版本: ${info.version}`);
     sendStatus({ phase: 'available', version: info.version });
+    reportUpdaterDiagnostics(diagnosticsSink, 'available', { version: info.version });
   });
 
   autoUpdater.on('update-not-available', () => {
     console.log(`${LOG_PREFIX} 已是最新版本`);
     sendStatus({ phase: 'up-to-date' });
+    reportUpdaterDiagnostics(diagnosticsSink, 'up-to-date', {});
   });
 
   autoUpdater.on('download-progress', (progress) => {
     const percent = Math.round(progress.percent * 10) / 10;
     console.log(`${LOG_PREFIX} 下载进度: ${percent}%`);
     sendStatus({ phase: 'downloading', percent });
+    reportUpdaterDiagnostics(diagnosticsSink, 'downloading', { percent });
   });
 
   autoUpdater.on('update-downloaded', (info) => {
@@ -128,11 +136,13 @@ function initAutoUpdater() {
     downloadedVersion = info.version;
     clearCheckTimer();
     sendStatus({ phase: 'downloaded', version: info.version });
+    reportUpdaterDiagnostics(diagnosticsSink, 'downloaded', { version: info.version });
   });
 
   autoUpdater.on('error', (error) => {
     console.error(`${LOG_PREFIX} 更新检查失败:`, error?.message || error);
     sendStatus({ phase: 'error', message: String(error?.message || error).slice(0, 200) });
+    reportUpdaterDiagnostics(diagnosticsSink, 'error', { message: error?.message || error });
   });
 
   // 首次启动稍后检查；在尚无待安装包时，长期运行客户端每 6 小时重新检查。
