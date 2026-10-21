@@ -11,10 +11,12 @@
 //   how fast it actually was. No threshold in this file is a performance
 //   target, and no target may be invented here: thresholds come only after
 //   the first real measurement lands (see the baseline Issue).
-// - Send latency and multi-WebView memory have NO measurement today: the repo
-//   contains no getAppMetrics/memoryUsage sampling and no send-path timing
-//   marks. The baseline Issue tracks adding them; this contract must not
-//   pretend they exist by asserting their absence away.
+// - Send latency and multi-WebView memory measurement points have landed
+//   since this contract was written (send-latency timing in #793, on-demand
+//   per-partition memory sampling in #794). What is still missing is the
+//   first real measurement run and any target derived from it: no threshold
+//   in this file is a performance target, and no target may be invented
+//   here. Targets come only after the first real measurement lands.
 // - Real-session send latency needs the user's real-session authorization
 //   (same pending boundary as #520/#521/#525/#528 evidence). Synthetic CI
 //   may only measure synthetic sends.
