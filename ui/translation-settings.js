@@ -516,6 +516,15 @@
       if (detail) {
         detail.textContent = `${readinessLabel(lastReadiness)}；${gatewayLabel(lastHealth)}。基础检查不代表上游翻译供应商实时可用。`;
       }
+      // The badge alone only says "授权异常" etc. When readiness is not ready,
+      // surface the actionable sentence under the popover head so it is visible
+      // on every tab, not only inside the collapsed advanced-tab section.
+      const headerDetail = el('translation-service-detail');
+      if (headerDetail) {
+        headerDetail.textContent = lastReadiness && lastReadiness.ready !== true
+          ? readinessLabel(lastReadiness)
+          : '';
+      }
     }
 
     async function checkGatewayHealth(force = false) {
