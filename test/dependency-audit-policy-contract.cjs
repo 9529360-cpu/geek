@@ -86,7 +86,9 @@ assert.throws(
 }
 
 // The real-world shape: sprintf-js plus the parent chain flagged only via
-// excused package names passes as one documented exception.
+// excused advisory roots passes as one documented exception. Note the cycle:
+// app-builder-lib lists dmg-builder and electron-builder-squirrel-windows,
+// which list app-builder-lib back (verified from the CI audit report).
 {
   const result = validateAuditReports({
     productionReport: report(),
@@ -95,19 +97,26 @@ assert.throws(
       roarr: advisoryEntry('roarr', { via: ['sprintf-js'] }),
       'global-agent': advisoryEntry('global-agent', { via: ['roarr'] }),
       '@electron/get': advisoryEntry('@electron/get', { via: ['global-agent'] }),
+      'app-builder-lib': advisoryEntry('app-builder-lib', { via: ['@electron/get', 'dmg-builder', 'electron-builder-squirrel-windows'] }),
+      'dmg-builder': advisoryEntry('dmg-builder', { via: ['app-builder-lib'] }),
+      'electron-builder': advisoryEntry('electron-builder', { via: ['app-builder-lib', 'dmg-builder'] }),
+      'electron-builder-squirrel-windows': advisoryEntry('electron-builder-squirrel-windows', { via: ['app-builder-lib'] }),
     }),
   });
   assert.deepEqual(result.exceptionsApplied, ['GHSA-hp3w-g68c-fv3c']);
 }
 
-// A future, unpinned advisory against the same package still fails the gate.
+// A future, unpinned advisory against the same package still fails the gate,
+// and taints the whole chain that depends on it.
 {
   const fullReport = report({
     'sprintf-js': advisoryEntry('sprintf-js', { ghsa: 'GHSA-xxxx-yyyy-zzzz' }),
+    roarr: advisoryEntry('roarr', { via: ['sprintf-js'] }),
+    'global-agent': advisoryEntry('global-agent', { via: ['roarr'] }),
   });
   assert.throws(
     () => validateAuditReports({ productionReport: report(), fullReport }),
-    /full dependency audit must be clean; found sprintf-js/,
+    /full dependency audit must be clean; found .*sprintf-js/,
   );
 }
 

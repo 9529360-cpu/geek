@@ -10,10 +10,9 @@ function fail(message) {
 }
 
 // Documented audit exceptions. Each entry pins ONE advisory (GHSA id) for ONE
-// package. An exception is granted only when every advisory behind a flagged
-// package is pinned here (directly, or transitively through an excused
-// package). Anything else still fails the gate, including a future advisory
-// against an already-excepted package.
+// package. An exception is granted only when every advisory reachable from a
+// flagged package is pinned here. Anything else still fails the gate,
+// including a future advisory against an already-excepted package.
 const AUDIT_EXCEPTIONS = [
   {
     ghsa: 'GHSA-hp3w-g68c-fv3c',
@@ -50,39 +49,50 @@ function ghsaIdFromViaItem(item) {
   return match ? match[0] : null;
 }
 
-// Packages excused through the documented exceptions, computed to a fixpoint:
-// a package is excused when its `via` list is non-empty and every entry is
-// either an excepted advisory object or the name of an already-excused package.
-// Entries with an empty or unrecognised `via` are never excused (fail closed).
-function excusedPackages(report) {
+// Packages still affected by a non-excused advisory, computed by taint
+// propagation. Seeds are packages with a non-excused advisory object in
+// `via`, an empty `via`, or an unrecognised `via` item (fail closed). Taint
+// then spreads to any package whose `via` names a tainted package, i.e. to
+// dependents. This direction matters: npm audit's `via` can contain cycles
+// (app-builder-lib lists dmg-builder and electron-builder-squirrel-windows,
+// which list app-builder-lib back), so propagating "excused" outward from
+// the vulnerable package deadlocks on the cycle, while propagating "tainted"
+// inward from non-excused advisories terminates and is cycle-safe.
+function taintedPackages(report) {
   const entries = report.vulnerabilities;
-  const excused = new Set();
+  const tainted = new Set();
+  for (const [name, entry] of Object.entries(entries)) {
+    const via = Array.isArray(entry.via) ? entry.via : [];
+    let seed = via.length === 0;
+    for (const item of via) {
+      if (typeof item === 'string') continue;
+      const ghsaId = ghsaIdFromViaItem(item);
+      if (exceptionFor(ghsaId, item.name || name) === undefined) seed = true;
+    }
+    if (seed) tainted.add(name);
+  }
   let changed = true;
   while (changed) {
     changed = false;
     for (const [name, entry] of Object.entries(entries)) {
-      if (excused.has(name)) continue;
+      if (tainted.has(name)) continue;
       const via = Array.isArray(entry.via) ? entry.via : [];
-      if (via.length === 0) continue;
-      const allExcused = via.every((item) => {
-        if (typeof item === 'string') return excused.has(item);
-        const ghsaId = ghsaIdFromViaItem(item);
-        return exceptionFor(ghsaId, item.name || name) !== undefined;
-      });
-      if (allExcused) {
-        excused.add(name);
+      if (via.some((item) => typeof item === 'string' && tainted.has(item))) {
+        tainted.add(name);
         changed = true;
       }
     }
   }
-  return excused;
+  return tainted;
 }
 
-// GHSA ids actually relied on to excuse something in this report.
-function appliedExceptions(report, excused) {
+// GHSA ids actually relied on to pass this report: excused advisories that
+// appear in the `via` of a flagged package. Only meaningful when the gate
+// passes (then every flagged package is untainted, so every excused advisory
+// present is genuinely covering something).
+function appliedExceptions(report) {
   const applied = new Set();
-  for (const name of excused) {
-    const entry = report.vulnerabilities[name];
+  for (const [name, entry] of Object.entries(report.vulnerabilities)) {
     const via = Array.isArray(entry.via) ? entry.via : [];
     for (const item of via) {
       if (item && typeof item === 'object') {
@@ -128,10 +138,10 @@ function requireCleanAudit(report, label, { allowExceptions = false } = {}) {
   const names = vulnerabilityNames(report);
   if (names.length === 0) return { remaining: [], exceptionsApplied: [] };
   if (allowExceptions) {
-    const excused = excusedPackages(report);
-    const remaining = names.filter((name) => !excused.has(name));
+    const tainted = taintedPackages(report);
+    const remaining = names.filter((name) => tainted.has(name));
     if (remaining.length === 0) {
-      return { remaining: [], exceptionsApplied: appliedExceptions(report, excused) };
+      return { remaining: [], exceptionsApplied: appliedExceptions(report) };
     }
     process.stderr.write(`DEPENDENCY_AUDIT_POLICY_DETAIL ${JSON.stringify(detailFor(report, remaining))}\n`);
     fail(`${label} dependency audit must be clean; found ${remaining.join(', ')}`);
