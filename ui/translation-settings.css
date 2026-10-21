@@ -7,6 +7,8 @@
 .translation-service-state { flex-shrink: 0; margin-top: 1px; padding: 3px 8px; border: 1px solid var(--border-standard); border-radius: 999px; color: var(--text-tertiary); background: var(--card-bg); font-size: 10.5px; }
 .translation-service-state[data-state='ok'] { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
 .translation-service-state[data-state='error'] { color: var(--danger); border-color: rgba(224,93,93,.35); background: var(--danger-soft); }
+.translation-service-detail { padding: 2px 12px 8px; color: var(--danger); font-size: 11px; line-height: 1.45; }
+.translation-service-detail:empty { display: none; }
 .translation-tabs { padding: 0 12px; gap: 4px; }
 .translation-tab { flex: 1; }
 .translation-tab-panel { padding: 12px; }
