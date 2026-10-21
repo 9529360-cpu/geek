@@ -17,6 +17,7 @@ const DESKTOP_IPC_CHANNELS = Object.freeze([
   'notify:show',
   'theme:get-system',
   'file:save',
+  'diagnostics:partition-memory-sample',
 ]);
 
 function installDesktopIpc(options = {}) {
@@ -37,6 +38,9 @@ function installDesktopIpc(options = {}) {
     pathModule = path,
     pathToFileURLImpl = pathToFileURL,
     logError = (...args) => console.error(...args),
+    // Optional: on-demand per-partition memory sampling (Issue #787).
+    // Supplied by main; absent in tests that never invoke the channel.
+    collectPartitionMemorySample,
   } = options;
 
   if (!ipcMain || typeof ipcMain.handle !== 'function' || typeof ipcMain.removeHandler !== 'function') {
@@ -56,6 +60,9 @@ function installDesktopIpc(options = {}) {
   if (!pathModule || typeof pathModule.join !== 'function') throw new TypeError('pathModule is required');
   if (typeof pathToFileURLImpl !== 'function') throw new TypeError('pathToFileURLImpl is required');
   if (typeof logError !== 'function') throw new TypeError('logError is required');
+  if (collectPartitionMemorySample !== undefined && typeof collectPartitionMemorySample !== 'function') {
+    throw new TypeError('collectPartitionMemorySample is required to be a function');
+  }
 
   const registeredChannels = new Set();
   let disposed = false;
@@ -139,6 +146,15 @@ function installDesktopIpc(options = {}) {
     if (result.canceled || !result.filePath) return null;
     await fs.writeFile(result.filePath, payload?.content || '', 'utf-8');
     return result.filePath;
+  });
+
+  // On-demand baseline sampling (Issue #787): no periodic collection, no
+  // background work; the caller (devtools/E2E) decides when to sample.
+  register('diagnostics:partition-memory-sample', () => {
+    if (typeof collectPartitionMemorySample !== 'function') {
+      throw new Error('partition memory sampling unavailable');
+    }
+    return collectPartitionMemorySample();
   });
 
   return Object.freeze({

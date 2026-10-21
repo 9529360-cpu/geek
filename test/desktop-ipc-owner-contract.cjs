@@ -151,6 +151,7 @@ async function invokeChildFrame(harness, channel, ...args) {
     'notify:show',
     'theme:get-system',
     'file:save',
+    'diagnostics:partition-memory-sample',
   ]);
 
   {
