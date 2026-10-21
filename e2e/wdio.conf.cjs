@@ -38,6 +38,7 @@ exports.config = {
     './specs/broadcast-readiness.e2e.cjs',
     './specs/broadcast-feedback.e2e.cjs',
     './specs/broadcast-command-center.e2e.cjs',
+    './specs/partition-memory-sample.e2e.cjs',
   ),
   maxInstances: 1,
   logLevel: 'warn',
