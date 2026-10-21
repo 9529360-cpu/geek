@@ -74,7 +74,7 @@ async function probeGuestRuntime() {
 function injectionReady(state) {
   const waJsReady = state?.found === true
     && state?.rendererProbeOk === true
-    && state?.version === '4.6.0'
+    && state?.version === '4.7.1'
     && state?.wppInjected === true
     && state?.wppReady === true
     && state?.loaderReady === true;
@@ -366,7 +366,7 @@ describe('WhatsApp WA-JS 4.6 runtime compatibility', () => {
       timeoutMsg: 'WA-JS 4.6 + SendIntent composer owner did not become ready',
     });
 
-    assert.equal(state.version, '4.6.0');
+    assert.equal(state.version, '4.7.1');
     assert.equal(state.wppInjected, true);
     assert.equal(state.wppReady, true);
     assert.equal(state.loaderReady, true);
