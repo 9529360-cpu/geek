@@ -18,6 +18,14 @@
 // app. Nothing here identifies a user or a chat: partitions are Electron
 // session partition labels, which is precisely the grouping #787 asks for.
 
+// Renderer processes are reported under different type names across
+// Electron versions: older releases report 'renderer', current releases
+// report 'Tab' (observed live in CI: Browser/GPU/Utility/Tab). Attribution
+// therefore keys on the guest pid match first and only falls back to the
+// type name for guest-less processes; type strings are passed through
+// exactly as Electron reports them.
+const RENDERER_TYPES = Object.freeze(new Set(['renderer', 'tab']));
+
 const MEMORY_FIELDS = Object.freeze([
   'workingSetSize',
   'peakWorkingSetSize',
@@ -97,11 +105,13 @@ function samplePartitionMemory(input = {}) {
       type: String(metric.type || ''),
       memory: cleanMemory(metric.memory),
     });
-    if (entry.type === 'renderer' && guestPartitionByPid.has(pid)) {
+    // Guest pid match wins over the type name: a guest renderer is its
+    // partition's process whatever Electron calls the type this release.
+    if (guestPartitionByPid.has(pid)) {
       const name = guestPartitionByPid.get(pid);
       if (!partitionsByName.has(name)) partitionsByName.set(name, emptyBucket());
       addProcess(partitionsByName.get(name), entry);
-    } else if (entry.type === 'renderer') {
+    } else if (RENDERER_TYPES.has(entry.type.toLowerCase())) {
       addProcess(unattributed, entry);
     } else {
       addProcess(shared, entry);

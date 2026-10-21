@@ -10,6 +10,11 @@ const metrics = [
   { pid: 201, type: 'renderer', memory: { workingSetSize: 800, peakWorkingSetSize: 1100, privateBytes: 600, sharedBytes: 200 } },
   { pid: 300, type: 'renderer', memory: { workingSetSize: 700, peakWorkingSetSize: 700, privateBytes: 500, sharedBytes: 100 } },
   { pid: 400, type: 'gpu', memory: { workingSetSize: 900, peakWorkingSetSize: 900, privateBytes: 800, sharedBytes: 50 } },
+  // Current Electron reports renderer processes as 'Tab', not 'renderer'.
+  { pid: 600, type: 'Tab', memory: { workingSetSize: 400, peakWorkingSetSize: 500, privateBytes: 300, sharedBytes: 100 } },
+  { pid: 601, type: 'Tab', memory: { workingSetSize: 250, peakWorkingSetSize: 250, privateBytes: 200, sharedBytes: 50 } },
+  // Guest pid match wins over the type name, whatever Electron calls it.
+  { pid: 602, type: 'Service Worker', memory: { workingSetSize: 150, peakWorkingSetSize: 150, privateBytes: 100, sharedBytes: 0 } },
   // Malformed entries are skipped, never thrown.
   { pid: 'not-a-pid', type: 'renderer', memory: {} },
   null,
@@ -19,6 +24,8 @@ const guests = [
   { processId: 200, partition: 'persist:account-b' },
   { processId: 201, partition: 'persist:account-a' },
   { processId: 200, partition: 'persist:duplicate-loses' },
+  { processId: 600, partition: 'persist:account-c' },
+  { processId: 602, partition: 'persist:account-c' },
   { processId: 999, partition: '' },
   { processId: 'bad', partition: 'persist:ignored' },
   null,
@@ -27,7 +34,7 @@ const guests = [
 const sample = samplePartitionMemory({ metrics, guests });
 
 // Partitions sorted by name; first guest wins for a shared pid.
-assert.deepEqual(sample.partitions.map(part => part.partition), ['persist:account-a', 'persist:account-b']);
+assert.deepEqual(sample.partitions.map(part => part.partition), ['persist:account-a', 'persist:account-b', 'persist:account-c']);
 const accountA = sample.partitions[0];
 assert.equal(accountA.processCount, 1);
 assert.equal(accountA.workingSetSize, 800);
@@ -40,11 +47,18 @@ const accountB = sample.partitions[1];
 assert.equal(accountB.processCount, 1);
 assert.equal(accountB.workingSetSize, 1200);
 
-// Renderer with no guest -> unattributed (e.g. main window renderer);
-// browser/gpu -> shared. Peaks take the max, not the sum.
-assert.equal(sample.unattributed.processCount, 2);
-assert.deepEqual(sample.unattributed.processes.map(entry => entry.pid), [300, 500]);
-assert.equal(sample.unattributed.workingSetSize, 700);
+// 'Tab' guests attribute by pid; pid match wins even for unexpected types.
+const accountC = sample.partitions[2];
+assert.equal(accountC.processCount, 2);
+assert.deepEqual(accountC.processes.map(entry => entry.pid), [600, 602]);
+assert.equal(accountC.workingSetSize, 550);
+
+// Renderer with no guest -> unattributed (e.g. main window renderer),
+// whether Electron calls it 'renderer' or 'Tab'; browser/gpu -> shared.
+// Peaks take the max, not the sum.
+assert.equal(sample.unattributed.processCount, 3);
+assert.deepEqual(sample.unattributed.processes.map(entry => entry.pid), [300, 500, 601]);
+assert.equal(sample.unattributed.workingSetSize, 950);
 assert.equal(sample.unattributed.peakWorkingSetSize, 700);
 assert.equal(sample.shared.processCount, 2);
 assert.deepEqual(sample.shared.processes.map(entry => entry.pid), [100, 400]);
@@ -52,8 +66,8 @@ assert.equal(sample.shared.workingSetSize, 5900);
 assert.equal(sample.shared.peakWorkingSetSize, 6000);
 
 // Totals cover every bucket.
-assert.equal(sample.totals.processCount, 1 + 1 + 2 + 2);
-assert.equal(sample.totals.workingSetSize, 800 + 1200 + 700 + 5900);
+assert.equal(sample.totals.processCount, 1 + 1 + 2 + 3 + 2);
+assert.equal(sample.totals.workingSetSize, 800 + 1200 + 550 + 950 + 5900);
 
 // Guests without a partition label still count, under 'unpartitioned'.
 const unpartitioned = samplePartitionMemory({

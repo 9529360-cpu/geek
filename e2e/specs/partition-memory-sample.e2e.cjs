@@ -75,7 +75,10 @@ describe('partition memory sampling', () => {
       assert.ok(Array.isArray(part.processes) && part.processes.length === part.processCount,
         `partition ${part.partition} processes must match its process count`);
       for (const proc of part.processes) {
-        assert.equal(proc.type, 'renderer', 'partitioned processes must be renderers');
+        // Live Electron reports guest renderers as 'Tab'; older releases
+        // report 'renderer'. Either is a renderer for attribution purposes.
+        assert.ok(['renderer', 'tab'].includes(String(proc.type || '').toLowerCase()),
+          `partition ${part.partition} process type must be renderer-ish, got ${proc.type}`);
         assert.ok(Number.isSafeInteger(proc.pid) && proc.pid > 0, 'renderer pid must be a positive integer');
       }
     }
@@ -83,7 +86,7 @@ describe('partition memory sampling', () => {
     // The browser process itself must land in shared, never in a partition.
     assert.ok(Number.isSafeInteger(sample.shared.processCount) && sample.shared.processCount >= 1,
       'shared bucket must hold the browser process');
-    assert.ok(sample.shared.processes.every(proc => proc.type !== 'renderer'),
+    assert.ok(sample.shared.processes.every(proc => !['renderer', 'tab'].includes(String(proc.type || '').toLowerCase())),
       'shared bucket must not hold renderer processes');
 
     // Totals cover every bucket.
