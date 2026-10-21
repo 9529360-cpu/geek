@@ -1167,7 +1167,7 @@
             let options = objectShape ? args[0].options : args[2];
             const setting = chat?.id?._serialized ? window.__geekGetTranslationSetting(chat.id._serialized) : null;
             if (setting?.enabled && setting?.autoSend && options?.caption && (setting.includeZh || !/[\u3400-\u9fff]/.test(options.caption)) && window.__geekTranslationRequest) {
-              const result = await window.__geekTranslationRequest({text:options.caption,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:chat.id._serialized});
+              const result = await window.__geekTranslationRequest({text:options.caption,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:chat.id._serialized,intent: 'outgoing-send'});
               if (!result?.text) throw new Error('配文翻译失败');
               window.__geekRememberOutgoing(result.text, options.caption);
               options = { ...options, caption: result.text };
