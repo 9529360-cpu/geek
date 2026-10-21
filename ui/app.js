@@ -882,14 +882,18 @@
     const installer = window.GeekTranslationAdapters?.telegram;
     if (!wv || !account || typeof installer !== 'function') return;
     const policy = translationPolicySnapshot(account.id);
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
+    const admissionFactory = typeof window.GeekTranslationVisibleAdmissionFactory === 'function' ? window.GeekTranslationVisibleAdmissionFactory.toString() : '';
+    const admissionPrefix = admissionFactory ? `window.__geekVisibleAdmissionFactory = ${admissionFactory};` : '';
+    wv.executeJavaScript(`${admissionPrefix}(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
   }
 
   function syncLineTranslationCfgToWebview(wv, account) {
     const installer = window.GeekTranslationAdapters?.line;
     if (!wv || !account || typeof installer !== 'function') return;
     const policy = translationPolicySnapshot(account.id);
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
+    const admissionFactory = typeof window.GeekTranslationVisibleAdmissionFactory === 'function' ? window.GeekTranslationVisibleAdmissionFactory.toString() : '';
+    const admissionPrefix = admissionFactory ? `window.__geekVisibleAdmissionFactory = ${admissionFactory};` : '';
+    wv.executeJavaScript(`${admissionPrefix}(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
   }
 
   function syncMetaTranslationCfgToWebview(wv, account) {
