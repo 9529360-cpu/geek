@@ -13,6 +13,36 @@
   let editorAccountId = '';
   let historyAppender = null;
 
+  // Timing points (Issue #787): one record per transport attempt, resolved
+  // lazily from window.__geekSendLatency (published by app.js). A missing
+  // recorder degrades to no measurement, never to a broken send.
+  function recordBroadcastLatency(platform, path, outcome, startedAt) {
+    try {
+      const recorder = typeof window !== 'undefined' ? window.__geekSendLatency : null;
+      if (recorder && typeof recorder.record === 'function') {
+        recorder.record({
+          platform: String(platform || ''),
+          path,
+          outcome,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+    } catch {}
+  }
+
+  async function timedBroadcastSend(platform, path, operation) {
+    const startedAt = Date.now();
+    try {
+      const result = await operation();
+      const value = String(result || '');
+      recordBroadcastLatency(platform, path, (value === 'SENT' || value === 'CLICKED') ? 'sent' : 'failed', startedAt);
+      return result;
+    } catch (error) {
+      recordBroadcastLatency(platform, path, 'failed', startedAt);
+      throw error;
+    }
+  }
+
   function activeAccountId() {
     return document.querySelector('.nav-account.active[data-id]')?.dataset.id || '';
   }
@@ -361,15 +391,15 @@
         files,
         message,
         vcards,
-        sendFile: ({ file, caption }) => window.api.broadcast.sendFile({
+        sendFile: ({ file, caption }) => timedBroadcastSend(ctx.platform?.family, 'broadcast-file', () => window.api.broadcast.sendFile({
           partition: job.partition,
           filePath: file.filePath,
           chatId: target.id,
           caption,
           mime: file.mime,
           name: file.name,
-        }),
-        sendText: () => ctx.wv.executeJavaScript(adapter.sendDirect(target.id, message, job.tagAll)),
+        })),
+        sendText: () => timedBroadcastSend(ctx.platform?.family, 'sendDirect', () => ctx.wv.executeJavaScript(adapter.sendDirect(target.id, message, job.tagAll))),
         sendVcards: typeof adapter.sendVcards === 'function'
           ? cards => ctx.wv.executeJavaScript(adapter.sendVcards(target.id, cards))
           : null,

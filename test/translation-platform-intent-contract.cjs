@@ -22,8 +22,8 @@ assert.match(
 );
 assert.match(
   adapters,
-  /chatId: cid, intent: 'message-display'/,
-  'LINE visible translation must carry explicit background intent',
+  /chatId: cid, isHistory, translateHistory:[^}]+intent: 'message-display'/,
+  'LINE visible translation must carry explicit background intent and explicit history intent',
 );
 assert.match(
   adapters,

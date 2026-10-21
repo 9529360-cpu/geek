@@ -1,4 +1,10 @@
 'use strict';
+// WA-JS 4.7.1 migration contract (landed with the 4.6.0 -> 4.7.1 bump).
+// This file replaces test/wa-js-460-migration-contract.cjs in the same PR
+// (the 460 contract pins 4.6.0 and would otherwise fail the suite).
+// e2e/specs/whatsapp-wa-js-runtime.e2e.cjs asserts version === '4.7.1'.
+// Package version and .github/release-client-version must NOT change in the bump PR:
+// dependency maintenance is not a formal client release.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -11,14 +17,14 @@ const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'u
 const releaseMarker = fs.readFileSync(path.join(root, '.github/release-client-version'), 'utf8').trim();
 
 assert.equal(pkg.version, releaseMarker, 'dependency migration must keep package version aligned with the formal client release marker');
-assert.equal(pkg.dependencies['@wppconnect/wa-js'], '4.6.0', 'WA-JS must be deliberately pinned to tested stable 4.6.0');
-assert.equal(lock.packages[''].dependencies['@wppconnect/wa-js'], '4.6.0', 'lock root must match the exact manifest pin');
-assert.equal(lock.packages['node_modules/@wppconnect/wa-js'].version, '4.6.0', 'lock must resolve WA-JS 4.6.0');
+assert.equal(pkg.dependencies['@wppconnect/wa-js'], '4.7.1', 'WA-JS must be deliberately pinned to tested stable 4.7.1');
+assert.equal(lock.packages[''].dependencies['@wppconnect/wa-js'], '4.7.1', 'lock root must match the exact manifest pin');
+assert.equal(lock.packages['node_modules/@wppconnect/wa-js'].version, '4.7.1', 'lock must resolve WA-JS 4.7.1');
 
 const bundlePath = require.resolve('@wppconnect/wa-js');
 const packageDir = path.dirname(path.dirname(bundlePath));
 const installedPkg = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
-assert.equal(installedPkg.version, '4.6.0', 'installed WA-JS must match the lock');
+assert.equal(installedPkg.version, '4.7.1', 'installed WA-JS must match the lock');
 
 function allDeclarations(dir) {
   let out = '';
@@ -33,11 +39,18 @@ function allDeclarations(dir) {
 const declarations = allDeclarations(path.join(packageDir, 'dist'));
 for (const api of [
   'sendTextMessage', 'sendFileMessage', 'getActiveChat', 'getPnLidEntry',
-  'getParticipants', 'moduleRequire', '_moduleIdMap', 'UserPrefs', 'ChatStore'
+  'getParticipants', 'moduleRequire', '_moduleIdMap', 'UserPrefs', 'ChatStore',
+  // 4.7.0 enumeration safety geek inherits: WAWebMoment locale modules must be
+  // skipped when enumerating modules, so date locales cannot flip on load.
+  'META_MODULE_ID_PREFIX_BLACKLIST', 'isMetaModuleBlacklisted',
 ]) {
-  assert.ok(declarations.includes(api), 'WA-JS 4.6 declarations must retain Geek surface: ' + api);
+  assert.ok(declarations.includes(api), 'WA-JS 4.7.1 declarations must retain Geek surface: ' + api);
 }
 
+// Everything below mirrors wa-js-460-migration-contract.cjs: probe ownership,
+// capability-based picker selection, LID phoneNumber preference, and the
+// "no WPP || WAPLUS by object existence" bans are unchanged by 4.7.1
+// (verified: the corresponding source owners are untouched by the bump).
 const main = fs.readFileSync(path.join(root, 'src/main.cjs'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'ui/app.js'), 'utf8');
 const transportDefinitions = fs.readFileSync(path.join(root, 'ui/platform-transport-definitions.js'), 'utf8');
@@ -89,9 +102,13 @@ assert.ok(app.includes("__geekPickWpp?.(['group.getGroupInfoFromInviteCode','wha
 assert.match(sendIntentCapability, /webviewInput\.commitSubmit/, 'ordinary composer commit must use the host WebView input owner');
 assert.match(sendIntentMain, /window\.WPP\?\.chat\?\.getActiveChat/, 'main commit guard must bind the active WA-JS chat');
 assert.doesNotMatch(directComposer, /moduleRequire|_moduleIdMap|sendTextMsgToChat/, 'interactive composer owner must not depend on private WA-JS send-module recovery');
-assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
-assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS 4.6 phoneNumber and retain legacy fallback');
+assert.match(app, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'group-member LID mapping must prefer WA-JS phoneNumber and retain legacy fallback');
+assert.match(runtime, /pair\?\.phoneNumber \|\| pair\?\.pn/, 'broadcast LID mapping must prefer WA-JS phoneNumber and retain legacy fallback');
 assert.doesNotMatch(main, /waplus-wpp\.js/, 'legacy bundle must not rewrap modern WhatsApp native modules');
+
+// 4.7.1 migration: the E2E runtime gate pins the bundle version string.
+const e2eRuntimeSpec = fs.readFileSync(path.join(root, 'e2e/specs/whatsapp-wa-js-runtime.e2e.cjs'), 'utf8');
+assert.match(e2eRuntimeSpec, /version === '4\.7\.1'/, 'E2E WA-JS runtime gate must assert the bumped bundle version');
 
 const primary = { chat: { list() {}, sendTextMessage() {} } };
 const fallback = { chat: { list() {}, sendTextMessage() {}, getMessages() {}, getActiveChat() {} }, whatsapp: { ChatStore: {} } };
@@ -105,4 +122,15 @@ const serializedWindow = { WPP: primary, WAPLUS_WPP: fallback };
 vm.runInNewContext(WPP_CAPABILITY_PICKER_SOURCE, { window: serializedWindow });
 assert.equal(serializedWindow.__geekPickWpp(['chat.getActiveChat']), fallback, 'serialized page picker must preserve capability-based fallback behavior');
 
-console.log('WA-JS 4.6 migration contract passed');
+// NOTE (manual gate, cannot be proven statically): geek's broadcast media path
+// (ui/platform-transport-definitions.js sendFileDirect) hand-rolls media via
+// window.require -> WAWebMediaOpaqueData.createFromData ->
+// WAWebMedia.prepRawMedia -> WAWebMediaPrep.sendMediaMsgToChat, bypassing
+// WPP.chat.sendFileMessage. Upstream 4.7.1 exists precisely because WhatsApp
+// moved prepRawMedia/uploadProductImage, so the bump does NOT automatically heal
+// this path: the broadcast-media gate must re-run sendFileDirect against the
+// bumped bundle on the current WhatsApp Web build before the migration is
+// called done. The same gate must cover group send + mentionedList, cold start,
+// reload/restart, and (once authorized) an authenticated real session.
+
+console.log('WA-JS 4.7.1 migration contract passed');

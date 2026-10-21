@@ -354,6 +354,27 @@
     familyOf,
   });
   const sendIntentCoordinator = window.GeekSendIntentCoordinator.createCoordinator();
+  // Send-latency measurement (Issue #787): one shared recorder for the
+  // composer-submit path (executor) and the broadcast paths below. The
+  // broadcast modules resolve it lazily via window.__geekSendLatency so a
+  // missing recorder degrades to no measurement, never to a broken send.
+  const sendLatencyRecorder = window.GeekSendLatencyRecorder
+    ? window.GeekSendLatencyRecorder.createSendLatencyRecorder()
+    : null;
+  if (sendLatencyRecorder) window.__geekSendLatency = sendLatencyRecorder;
+  function recordBroadcastLatency(platform, path, outcome, startedAt) {
+    try {
+      const recorder = window.__geekSendLatency;
+      if (recorder && typeof recorder.record === 'function') {
+        recorder.record({
+          platform: String(platform || ''),
+          path,
+          outcome,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+    } catch {}
+  }
   const sendIntentAdmission = window.GeekSendIntentAdmission.create({
     trustedSubmitRuntime,
     coordinator: sendIntentCoordinator,
@@ -882,14 +903,18 @@
     const installer = window.GeekTranslationAdapters?.telegram;
     if (!wv || !account || typeof installer !== 'function') return;
     const policy = translationPolicySnapshot(account.id);
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
+    const admissionFactory = typeof window.GeekTranslationVisibleAdmissionFactory === 'function' ? window.GeekTranslationVisibleAdmissionFactory.toString() : '';
+    const admissionPrefix = admissionFactory ? `window.__geekVisibleAdmissionFactory = ${admissionFactory};` : '';
+    wv.executeJavaScript(`${admissionPrefix}(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('Telegram翻译适配器注入失败:', error.message));
   }
 
   function syncLineTranslationCfgToWebview(wv, account) {
     const installer = window.GeekTranslationAdapters?.line;
     if (!wv || !account || typeof installer !== 'function') return;
     const policy = translationPolicySnapshot(account.id);
-    wv.executeJavaScript(`(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
+    const admissionFactory = typeof window.GeekTranslationVisibleAdmissionFactory === 'function' ? window.GeekTranslationVisibleAdmissionFactory.toString() : '';
+    const admissionPrefix = admissionFactory ? `window.__geekVisibleAdmissionFactory = ${admissionFactory};` : '';
+    wv.executeJavaScript(`${admissionPrefix}(${installer.toString()})(${JSON.stringify({ accountId: account.id, bridgeToken: bridgeTokenFor(wv), policy })})()`).catch(error => console.error('LINE翻译适配器注入失败:', error.message));
   }
 
   function syncMetaTranslationCfgToWebview(wv, account) {
@@ -1163,7 +1188,7 @@
             let options = objectShape ? args[0].options : args[2];
             const setting = chat?.id?._serialized ? window.__geekGetTranslationSetting(chat.id._serialized) : null;
             if (setting?.enabled && setting?.autoSend && options?.caption && (setting.includeZh || !/[\u3400-\u9fff]/.test(options.caption)) && window.__geekTranslationRequest) {
-              const result = await window.__geekTranslationRequest({text:options.caption,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:chat.id._serialized});
+              const result = await window.__geekTranslationRequest({text:options.caption,source:setting.source || 'auto',target:setting.target,provider:setting.provider,route:setting.route,chatId:chat.id._serialized,intent: 'outgoing-send'});
               if (!result?.text) throw new Error('配文翻译失败');
               window.__geekRememberOutgoing(result.text, options.caption);
               options = { ...options, caption: result.text };
@@ -1488,6 +1513,8 @@
     commitGuard: sendIntentCommitGuard,
     platformCapabilities,
     classifySendOutcome: classifySendIntentOutcome,
+    latencyRecorder: sendLatencyRecorder,
+    platformOf: account => String(familyOf(account.type)?.key || ''),
   });
 
   async function resolveTranslationPolicyForAccount(account, wv, conversationId) {
@@ -2208,6 +2235,10 @@
               for (let fi = 0; fi < broadcastFiles.length; fi++) {
                 const file = broadcastFiles[fi];
                 const caption = fi === broadcastFiles.length - 1 ? personalMsg : '';
+                // Timing point (Issue #787, path 'broadcast-file'): the live
+                // WA file path is IPC -> CDP (window.api.broadcast.sendFile);
+                // the guest sendFileDirect definition is not host-invoked.
+                const fileStartedAt = Date.now();
                 try {
                   const sf = await window.api.broadcast.sendFile({
                     partition: account.partition,
@@ -2218,9 +2249,11 @@
                     name: file.name,
                   });
                   const r = String(sf || '');
+                  recordBroadcastLatency(familyOf(account.type)?.key || '', 'broadcast-file', (r === 'SENT' || r === 'CLICKED') ? 'sent' : 'failed', fileStartedAt);
                   mediaResults.push(`${file.name}:${r}`);
                   if (!(r === 'SENT' || r === 'CLICKED')) mediaOk = false;
                 } catch (e) {
+                  recordBroadcastLatency(familyOf(account.type)?.key || '', 'broadcast-file', 'failed', fileStartedAt);
                   mediaOk = false;
                   mediaResults.push(`${file.name}:ERR:${e.message}`);
                 }
@@ -2230,7 +2263,20 @@
               // 原版顺序：先发文字，再发电子名片；名片失败不继续伪报成功。
               const vcards = (window.__vcardContacts || []).length ? window.__vcardContacts : null;
               const tagall = document.getElementById('broadcast-tagall')?.checked || false;
-              sentOk = personalMsg.trim() ? await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg, tagall)) : 'SENT';
+              if (!personalMsg.trim()) {
+                sentOk = 'SENT';
+              } else {
+                // Timing point (Issue #787, path 'sendDirect'): WPP 直发。
+                // 空消息不产生发送，不记时；抛错仍向外层 attempt 处理抛。
+                const directStartedAt = Date.now();
+                try {
+                  sentOk = await wv.executeJavaScript(adapter.sendDirect(t.id, personalMsg, tagall));
+                } catch (e) {
+                  recordBroadcastLatency(familyOf(account.type)?.key || '', 'sendDirect', 'failed', directStartedAt);
+                  throw e;
+                }
+                recordBroadcastLatency(familyOf(account.type)?.key || '', 'sendDirect', (sentOk === 'SENT' || sentOk === 'CLICKED') ? 'sent' : 'failed', directStartedAt);
+              }
               if (sentOk === 'SENT' && vcards && vcards.length) {
                 const vs = await wv.executeJavaScript(adapter.sendVcards(t.id, vcards));
                 if (String(vs) !== 'SENT') { sentOk = 'ERR:名片:' + String(vs); failReasons.push(`${t.name}: ${sentOk}`); }
