@@ -16,7 +16,10 @@ fn failed_suspended_activation_preserves_selection_without_revealing_a_guest() {
     let writes = disk.0.lock().unwrap().saves;
     let before = host.0.lock().unwrap().calls.len();
     host.fail("fit", &b);
-    assert!(matches!(workspace.activate(&b), Err(AppError::WebviewFailed)));
+    assert!(matches!(
+        workspace.activate(&b),
+        Err(AppError::WebviewFailed)
+    ));
     assert_eq!(workspace.snapshot().active_id.as_deref(), Some(a.as_str()));
     {
         let state = host.0.lock().unwrap();
