@@ -14,12 +14,6 @@ export function filterAccounts(accounts, platforms, query = '', archivedOnly = f
     && `${a.name} ${names.get(a.platformId) || a.platformId}`.toLowerCase().includes(needle));
 }
 
-export async function archiveAccount(invoke, id) {
-  // Capture immutable identity, never consult the selected/active account later.
-  await invoke('account_close', { id });
-  return invoke('account_set_archived', { id, archived: true });
-}
-
 export function errorMessage(code) {
   const messages = {
     NAME_INVALID: '备注需为 1–64 个字符，不能包含控制字符。',

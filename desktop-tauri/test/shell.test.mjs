@@ -83,6 +83,10 @@ test('actual shell wires search, owner-safe rename/archive/restore and durable s
       if (state.activeId === args.id) state.activeId = null;
     }
     if (command === 'account_set_archived') {
+      if (args.archived) {
+        state.openedIds = state.openedIds.filter((id) => id !== args.id);
+        if (state.activeId === args.id) state.activeId = null;
+      }
       if (rejectArchive) throw 'STORE_IO';
       state.accounts.find((a) => a.id === args.id).archived = args.archived;
     }

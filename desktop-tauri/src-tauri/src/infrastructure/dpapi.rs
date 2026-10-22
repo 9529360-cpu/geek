@@ -1,6 +1,6 @@
 //! Current-user Windows DPAPI only. No plaintext or machine-wide fallback.
 //! ABI: Microsoft dpapi.h DATA_BLOB/CryptProtectData/CryptUnprotectData.
-use crate::policy::Result;
+use crate::domain::error::{AppError, Result};
 use std::{ffi::c_void, ptr};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -20,7 +20,7 @@ extern "system" {
 extern "system" { fn LocalFree(memory: *mut c_void) -> *mut c_void; }
 
 fn transform(bytes: &[u8], protect: bool) -> Result<Zeroizing<Vec<u8>>> {
-    if bytes.is_empty() || bytes.len() > 2 * 1024 * 1024 { return Err("STORE_INVALID"); }
+    if bytes.is_empty() || bytes.len() > 2 * 1024 * 1024 { return Err(AppError::StoreInvalid); }
     let input = DataBlob { len: bytes.len() as u32, data: bytes.as_ptr() as *mut u8 };
     let mut output = DataBlob { len: 0, data: ptr::null_mut() };
     // SAFETY: input is alive for the synchronous call; optional pointers are null.
@@ -33,7 +33,7 @@ fn transform(bytes: &[u8], protect: bool) -> Result<Zeroizing<Vec<u8>>> {
             CryptUnprotectData(&input, ptr::null_mut(), ptr::null(), ptr::null_mut(), ptr::null(), 1, &mut output)
         }
     };
-    if success == 0 || output.data.is_null() { return Err("DPAPI_FAILED"); }
+    if success == 0 || output.data.is_null() { return Err(AppError::DpapiFailed); }
     // SAFETY: successful DPAPI output owns exactly output.len bytes until LocalFree.
     let result = unsafe {
         let buffer = std::slice::from_raw_parts_mut(output.data, output.len as usize);

@@ -10,11 +10,16 @@ fn main() {
     assert!(output.status.success(), "Platform catalog export failed");
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     fs::write(out.join("platforms.json"), output.stdout).expect("write catalog");
-    let manifest = tauri_build::AppManifest::new().commands(&[
-        "desktop_snapshot", "account_create", "account_activate",
-        "account_close", "account_reload", "desktop_layout", "account_rename",
-        "account_set_archived", "desktop_settings",
-    ]);
+    println!("cargo:rerun-if-changed=../contracts/commands.json");
+    println!("cargo:rerun-if-changed=../scripts/command-manifest.cjs");
+    let output = Command::new("node")
+        .arg("../scripts/command-manifest.cjs")
+        .output()
+        .expect("Node.js is required to export command permissions");
+    assert!(output.status.success(), "Command manifest export failed");
+    let names = String::from_utf8(output.stdout).expect("Command manifest must be UTF-8");
+    let commands: Vec<&str> = names.lines().collect();
+    let manifest = tauri_build::AppManifest::new().commands(&commands);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("Tauri build configuration failed");
 }

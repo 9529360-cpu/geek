@@ -4,12 +4,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { serialQueue, errorMessage, filterAccounts, archiveAccount } from '../frontend/model.mjs';
+import { serialQueue, errorMessage, filterAccounts } from '../frontend/model.mjs';
+import { connectDesktop } from '../frontend/api/desktop.mjs';
 const require = createRequire(import.meta.url);
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
-const commands = ['desktop_snapshot', 'account_create', 'account_activate', 'account_close',
-  'account_reload', 'desktop_layout', 'account_rename', 'account_set_archived', 'desktop_settings'];
 
 test('operations stay ordered and rejection does not poison the queue', async () => {
   const enqueue = serialQueue();
@@ -43,29 +42,28 @@ test('filter separates archives and searches names/platforms without changing ow
   assert.equal(accounts[0].id, 'a');
 });
 
-test('archive closes the exact captured owner before committing', async () => {
+test('archive is one native-owned operation with a captured account ID', async () => {
   const calls = [];
-  const result = await archiveAccount(async (command, args) => {
+  const api = connectDesktop(async (command, args) => {
     calls.push([command, args]);
     return 'snapshot';
-  }, 'immutable-owner');
-  assert.equal(result, 'snapshot');
+  });
+  assert.equal(await api.setArchived('immutable-owner', true), 'snapshot');
   assert.deepEqual(calls, [
-    ['account_close', { id: 'immutable-owner' }],
     ['account_set_archived', { id: 'immutable-owner', archived: true }],
   ]);
+  assert.equal(Object.hasOwn(api, 'invoke'), false);
+  assert.equal(connectDesktop(null), null);
 });
 
-test('failed close prevents archive and failed persistence is not reported as success', async () => {
+test('failed native mutation is not retried or reported as success', async () => {
   const calls = [];
-  await assert.rejects(archiveAccount(async (command) => {
+  const api = connectDesktop(async (command) => {
     calls.push(command);
-    throw new Error('close failed');
-  }, 'a'), /close failed/);
-  assert.deepEqual(calls, ['account_close']);
-  await assert.rejects(archiveAccount(async (command) => {
-    if (command === 'account_set_archived') throw new Error('disk failed');
-  }, 'a'), /disk failed/);
+    throw new Error('disk failed');
+  });
+  await assert.rejects(api.setArchived('a', true), /disk failed/);
+  assert.deepEqual(calls, ['account_set_archived']);
 });
 
 test('exported URLs come from the existing canonical catalog', () => {
@@ -91,27 +89,21 @@ test('only the local shell webview receives narrow permissions', () => {
   assert.doesNotMatch(config.app.security.csp, /unsafe-eval/);
 });
 
-test('every registered command has permission and native sender authorization', () => {
-  const runtime = read('../src-tauri/src/runtime.rs');
-  const build = read('../src-tauri/build.rs');
-  const main = read('../src-tauri/src/main.rs');
-  const permissions = read('../src-tauri/permissions/shell.toml');
-  const actual = [...runtime.matchAll(/#\[tauri::command\]\s+pub async fn (\w+)/g)].map((m) => m[1]);
-  assert.deepEqual(actual.sort(), [...commands].sort());
-  for (const command of commands) {
-    assert.ok(build.includes(`"${command}"`));
-    assert.ok(main.includes(`runtime::${command}`));
-    assert.ok(permissions.includes(`"${command}"`));
+test('all commands share the same native sender gate and blocking executor', () => {
+  const commands = read('../src-tauri/src/desktop/commands.rs');
+  const security = read('../src-tauri/src/desktop/security.rs');
+  assert.match(commands, /authorize\(&webview\)\?;/);
+  assert.match(commands, /spawn_blocking/);
+  for (const section of commands.split('#[tauri::command]').slice(1)) {
+    assert.match(section, /\{\s*execute\(webview, state,/);
   }
-  for (const section of runtime.split('#[tauri::command]').slice(1)) {
-    assert.match(section, /\{\s*authorize\(&webview\)\?;/);
-  }
-  assert.match(runtime, /if archived && app\.get_webview\(&label\(&id\)\)\.is_some\(\)/);
-  assert.match(runtime, /d\.store\.openable_account\(&id\)\?/);
+  assert.match(security, /webview\.label\(\) != "shell"/);
+  assert.match(security, /webview\.window\(\)\.label\(\) != "main"/);
+  assert.match(security, /shell_url/);
 });
 
 test('shell uses text nodes and all referenced elements exist once', () => {
-  const source = read('../frontend/app.mjs');
+  const source = read('../frontend/view.mjs') + read('../frontend/controller.mjs');
   const html = read('../frontend/index.html');
   assert.doesNotMatch(source, /innerHTML|insertAdjacentHTML|eval\(/);
   assert.match(source, /title\.textContent = account\.name/);
@@ -121,18 +113,19 @@ test('shell uses text nodes and all referenced elements exist once', () => {
 });
 
 test('native and CSS chrome agree and the shell cannot zoom out of alignment', () => {
-  const rust = read('../src-tauri/src/runtime.rs');
+  const rust = read('../src-tauri/src/desktop/layout.rs');
   const css = read('../frontend/style.css');
   for (const [key, size] of [['SIDEBAR', 280], ['HEADER', 88], ['FOOTER', 28]]) {
     assert.ok(rust.includes(`const ${key}: f64 = ${size}.0;`));
     assert.ok(css.includes(`--${key.toLowerCase()}: ${size}px`));
   }
-  assert.match(read('../src-tauri/src/main.rs'), /\.zoom_hotkeys_enabled\(false\)/);
-  assert.doesNotMatch(read('../src-tauri/src/tray.rs'), /state::<Mutex|\.lock\(/);
+  assert.match(read('../src-tauri/src/bootstrap.rs'), /\.zoom_hotkeys_enabled\(false\)/);
+  assert.doesNotMatch(read('../src-tauri/src/desktop/tray.rs'), /state::<Mutex|\.lock\(/);
 });
 
 test('frontend entrypoints parse', () => {
-  for (const file of ['../frontend/app.mjs', '../frontend/model.mjs']) {
+  for (const file of ['../frontend/app.mjs', '../frontend/model.mjs', '../frontend/view.mjs',
+    '../frontend/controller.mjs', '../frontend/api/desktop.mjs']) {
     const result = spawnSync(process.execPath, ['--check', fileURLToPath(new URL(file, import.meta.url))], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
   }

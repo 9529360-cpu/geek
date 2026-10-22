@@ -1,7 +1,7 @@
 name: tauri-windows-prototype
 on:
   push:
-    branches: ['feat/tauri-windows-rust']
+    branches: [master, 'feat/tauri-windows-rust']
     paths: ['desktop-tauri/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
   pull_request:
     branches: [master]
@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
-      - name: Frontend behavior and boundary contracts
+      - name: Architecture, size, IPC and frontend behavior gates
         run: node desktop-tauri/scripts/run-tests.cjs
       - name: Retain exact source snapshot for independent checks
         if: always()
@@ -37,22 +37,46 @@ jobs:
             desktop-tauri/frontend/
             desktop-tauri/test/
             desktop-tauri/scripts/
+            desktop-tauri/contracts/
             desktop-tauri/src-tauri/src/
             desktop-tauri/src-tauri/Cargo.toml
             desktop-tauri/src-tauri/build.rs
+            desktop-tauri/src-tauri/rustfmt.toml
             desktop-tauri/src-tauri/tauri.conf.json
             desktop-tauri/src-tauri/capabilities/
-            desktop-tauri/src-tauri/permissions/
+            desktop-tauri/src-tauri/permissions/shell.toml
             desktop-tauri/README.md
+            desktop-tauri/ARCHITECTURE.md
+            desktop-tauri/AGENTS.md
             src/platform-catalog.cjs
           if-no-files-found: error
           retention-days: 7
       - name: Install Rust toolchain
-        run: rustup toolchain install stable --profile minimal
-      - name: Windows Rust tests (DPAPI, store, policy, tray state)
+        id: toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Windows Rust domain, use-case and persistence tests
         run: cargo +stable test --manifest-path desktop-tauri/src-tauri/Cargo.toml
+      - name: Rust lint gate
+        run: cargo +stable clippy --manifest-path desktop-tauri/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
       - name: Build standalone prototype executable (not an installer or release)
         run: cargo +stable build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+      - name: Rust format gate
+        id: formatting
+        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+        run: cargo +stable fmt --manifest-path desktop-tauri/src-tauri/Cargo.toml -- --check
+      - name: Prepare formatting suggestions after failed gate (never built)
+        if: ${{ failure() && steps.formatting.outcome == 'failure' }}
+        run: cargo +stable fmt --manifest-path desktop-tauri/src-tauri/Cargo.toml
+      - name: Retain formatting suggestions, not the tested source
+        if: ${{ failure() && steps.formatting.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: geek-tauri-format-suggestions-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            desktop-tauri/src-tauri/src/
+            desktop-tauri/src-tauri/build.rs
+          if-no-files-found: error
+          retention-days: 7
       - name: Retain prototype and resolved dependency lock
         if: always()
         uses: actions/upload-artifact@v7
