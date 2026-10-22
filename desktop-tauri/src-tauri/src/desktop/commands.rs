@@ -1,6 +1,12 @@
+use super::{security::authorize, NativeDesktop, SharedDesktop};
+use crate::{
+    application::snapshot::Snapshot,
+    domain::{
+        account::Settings,
+        error::{AppError, Result},
+    },
+};
 use tauri::{State, Webview};
-use crate::{application::snapshot::Snapshot, domain::{account::Settings, error::{AppError, Result}}};
-use super::{NativeDesktop, SharedDesktop, security::authorize};
 
 /// Authorization is uniform and cannot be supplied by JavaScript. Blocking
 /// storage/native calls run off the UI and async executor threads. The native
@@ -15,50 +21,92 @@ where
     tauri::async_runtime::spawn_blocking(move || {
         let mut desktop = shared.lock().map_err(|_| AppError::StateUnavailable)?;
         operation(&mut desktop)
-    }).await.map_err(|_| AppError::StateUnavailable)?
+    })
+    .await
+    .map_err(|_| AppError::StateUnavailable)?
 }
 
 #[tauri::command]
-pub async fn desktop_snapshot(webview: Webview, state: State<'_, SharedDesktop>) -> Result<Snapshot> {
+pub async fn desktop_snapshot(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+) -> Result<Snapshot> {
     execute(webview, state, |desktop| Ok(desktop.snapshot())).await
 }
 
 #[tauri::command]
-pub async fn account_create(webview: Webview, state: State<'_, SharedDesktop>,
-    name: String, platform_id: String, website_url: Option<String>) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.create(&name, &platform_id, website_url.as_deref())).await
+pub async fn account_create(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    name: String,
+    platform_id: String,
+    website_url: Option<String>,
+) -> Result<Snapshot> {
+    execute(webview, state, move |desktop| {
+        desktop.create(&name, &platform_id, website_url.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn account_rename(webview: Webview, state: State<'_, SharedDesktop>,
-    id: String, name: String) -> Result<Snapshot> {
+pub async fn account_rename(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+    name: String,
+) -> Result<Snapshot> {
     execute(webview, state, move |desktop| desktop.rename(&id, &name)).await
 }
 
 #[tauri::command]
-pub async fn account_set_archived(webview: Webview, state: State<'_, SharedDesktop>,
-    id: String, archived: bool) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.set_archived(&id, archived)).await
+pub async fn account_set_archived(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+    archived: bool,
+) -> Result<Snapshot> {
+    execute(webview, state, move |desktop| {
+        desktop.set_archived(&id, archived)
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn desktop_settings(webview: Webview, state: State<'_, SharedDesktop>,
-    settings: Settings) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.set_settings(settings)).await
+pub async fn desktop_settings(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    settings: Settings,
+) -> Result<Snapshot> {
+    execute(webview, state, move |desktop| {
+        desktop.set_settings(settings)
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn account_activate(webview: Webview, state: State<'_, SharedDesktop>, id: String) -> Result<Snapshot> {
+pub async fn account_activate(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+) -> Result<Snapshot> {
     execute(webview, state, move |desktop| desktop.activate(&id)).await
 }
 
 #[tauri::command]
-pub async fn account_close(webview: Webview, state: State<'_, SharedDesktop>, id: String) -> Result<Snapshot> {
+pub async fn account_close(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+) -> Result<Snapshot> {
     execute(webview, state, move |desktop| desktop.close(&id)).await
 }
 
 #[tauri::command]
-pub async fn account_reload(webview: Webview, state: State<'_, SharedDesktop>, id: String) -> Result<Snapshot> {
+pub async fn account_reload(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+) -> Result<Snapshot> {
     execute(webview, state, move |desktop| desktop.reload(&id)).await
 }
 

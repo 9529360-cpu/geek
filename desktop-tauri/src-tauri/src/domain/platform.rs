@@ -1,6 +1,9 @@
+use super::{
+    error::{AppError, Result},
+    url_policy::safe_https,
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
-use super::{error::{AppError, Result}, url_policy::safe_https};
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -23,23 +26,45 @@ pub struct PlatformInfo {
 
 impl Platform {
     pub fn enabled(&self) -> bool {
-        !self.needs_extension && matches!(self.id.as_str(),
-            "whatsapp" | "whatsapp-pure" | "telegram-z" | "telegram-k" |
-            "messenger" | "instagram" | "website")
+        !self.needs_extension
+            && matches!(
+                self.id.as_str(),
+                "whatsapp"
+                    | "whatsapp-pure"
+                    | "telegram-z"
+                    | "telegram-k"
+                    | "messenger"
+                    | "instagram"
+                    | "website"
+            )
     }
 
     pub fn allows(&self, url: &Url) -> bool {
-        if !self.enabled() || !safe_https(url) { return false; }
-        let Some(host) = url.host_str() else { return false; };
-        self.hostnames.iter().any(|h| h == host) || self.allow_suffix.as_ref()
-            .is_some_and(|suffix| suffix.starts_with('.') && host.ends_with(suffix))
+        if !self.enabled() || !safe_https(url) {
+            return false;
+        }
+        let Some(host) = url.host_str() else {
+            return false;
+        };
+        self.hostnames.iter().any(|h| h == host)
+            || self
+                .allow_suffix
+                .as_ref()
+                .is_some_and(|suffix| suffix.starts_with('.') && host.ends_with(suffix))
     }
 
     pub fn info(&self) -> PlatformInfo {
-        PlatformInfo { id: self.id.clone(), name: self.name.clone(), enabled: self.enabled() }
+        PlatformInfo {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            enabled: self.enabled(),
+        }
     }
 }
 
 pub fn platform<'a>(catalog: &'a [Platform], id: &str) -> Result<&'a Platform> {
-    catalog.iter().find(|p| p.id == id && p.enabled()).ok_or(AppError::PlatformUnavailable)
+    catalog
+        .iter()
+        .find(|p| p.id == id && p.enabled())
+        .ok_or(AppError::PlatformUnavailable)
 }

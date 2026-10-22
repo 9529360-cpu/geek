@@ -28,6 +28,8 @@ pub fn valid_id(id: &str) -> bool {
 }
 
 pub fn valid_name(name: &str) -> bool {
-    !name.is_empty() && name == name.trim() && name.chars().count() <= 64
+    !name.is_empty()
+        && name == name.trim()
+        && name.chars().count() <= 64
         && !name.chars().any(char::is_control)
 }

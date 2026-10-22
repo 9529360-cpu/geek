@@ -1,4 +1,4 @@
-use uuid::Uuid;
+use super::ports::AccountRepository;
 use crate::domain::{
     account::{self, Account, Settings},
     document::{Document, SCHEMA_VERSION},
@@ -6,7 +6,7 @@ use crate::domain::{
     navigation::NavigationPolicy,
     platform::{self, Platform},
 };
-use super::ports::AccountRepository;
+use uuid::Uuid;
 
 /// Sole authority for durable account state; callers receive read-only views.
 pub struct Accounts<R: AccountRepository> {
@@ -19,7 +19,11 @@ impl<R: AccountRepository> Accounts<R> {
     pub fn open(repository: R, platforms: Vec<Platform>) -> Result<Self> {
         let document = repository.load()?.unwrap_or_default();
         document.validate(&platforms)?;
-        Ok(Self { repository, document, platforms })
+        Ok(Self {
+            repository,
+            document,
+            platforms,
+        })
     }
 
     pub fn accounts(&self) -> &[Account] {
@@ -43,7 +47,12 @@ impl<R: AccountRepository> Accounts<R> {
         Ok(())
     }
 
-    pub fn create(&mut self, name: &str, platform_id: &str, website_url: Option<&str>) -> Result<()> {
+    pub fn create(
+        &mut self,
+        name: &str,
+        platform_id: &str,
+        website_url: Option<&str>,
+    ) -> Result<()> {
         let name = name.trim();
         if !account::valid_name(name) {
             return Err(AppError::NameInvalid);
@@ -73,7 +82,11 @@ impl<R: AccountRepository> Accounts<R> {
             return Err(AppError::NameInvalid);
         }
         let mut next = self.document.clone();
-        next.accounts.iter_mut().find(|a| a.id == id).ok_or(AppError::AccountUnknown)?.name = name.into();
+        next.accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(AppError::AccountUnknown)?
+            .name = name.into();
         self.commit(next)
     }
 
@@ -81,7 +94,11 @@ impl<R: AccountRepository> Accounts<R> {
     pub fn set_archived(&mut self, id: &str, archived: bool) -> Result<()> {
         self.account(id)?;
         let mut next = self.document.clone();
-        next.accounts.iter_mut().find(|a| a.id == id).ok_or(AppError::AccountUnknown)?.archived = archived;
+        next.accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(AppError::AccountUnknown)?
+            .archived = archived;
         self.commit(next)
     }
 
@@ -95,7 +112,12 @@ impl<R: AccountRepository> Accounts<R> {
         if !account::valid_id(id) {
             return Err(AppError::AccountUnknown);
         }
-        self.document.accounts.iter().find(|a| a.id == id).cloned().ok_or(AppError::AccountUnknown)
+        self.document
+            .accounts
+            .iter()
+            .find(|a| a.id == id)
+            .cloned()
+            .ok_or(AppError::AccountUnknown)
     }
 
     pub fn openable_account(&self, id: &str) -> Result<Account> {

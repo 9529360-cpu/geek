@@ -1,7 +1,21 @@
-use std::{collections::HashSet, sync::{Arc, Mutex}};
-use crate::{application::{accounts::Accounts, workspace::Workspace, ports::{AccountRepository, DesktopHost}},
-    domain::{account::Account, document::Document, error::{AppError, Result}, navigation::NavigationPolicy},
-    infrastructure::catalog};
+use crate::{
+    application::{
+        accounts::Accounts,
+        ports::{AccountRepository, DesktopHost},
+        workspace::Workspace,
+    },
+    domain::{
+        account::Account,
+        document::Document,
+        error::{AppError, Result},
+        navigation::NavigationPolicy,
+    },
+    infrastructure::catalog,
+};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Default)]
 pub struct Disk {
@@ -42,10 +56,19 @@ pub struct HostState {
 pub struct FakeHost(pub Arc<Mutex<HostState>>);
 
 impl FakeHost {
-    fn action(&mut self, action: &str, id: &str, update: impl FnOnce(&mut HostState)) -> Result<()> {
+    fn action(
+        &mut self,
+        action: &str,
+        id: &str,
+        update: impl FnOnce(&mut HostState),
+    ) -> Result<()> {
         let mut state = self.0.lock().unwrap();
         state.calls.push((action.into(), id.into()));
-        if state.fail.as_ref().is_some_and(|(op, owner)| *op == action && owner == id) {
+        if state
+            .fail
+            .as_ref()
+            .is_some_and(|(op, owner)| *op == action && owner == id)
+        {
             return Err(AppError::WebviewFailed);
         }
         update(&mut state);
@@ -58,22 +81,31 @@ impl DesktopHost for FakeHost {
         self.0.lock().unwrap().opened.contains(id)
     }
     fn open(&mut self, account: &Account, _: NavigationPolicy) -> Result<()> {
-        self.action("open", &account.id, |s| { s.opened.insert(account.id.clone()); })
+        self.action("open", &account.id, |s| {
+            s.opened.insert(account.id.clone());
+        })
     }
     fn fit(&mut self, id: &str) -> Result<()> {
         self.action("fit", id, |_| {})
     }
     fn show(&mut self, id: &str) -> Result<()> {
-        self.action("show", id, |s| { s.visible.insert(id.into()); })
+        self.action("show", id, |s| {
+            s.visible.insert(id.into());
+        })
     }
     fn hide(&mut self, id: &str) -> Result<()> {
-        self.action("hide", id, |s| { s.visible.remove(id); })
+        self.action("hide", id, |s| {
+            s.visible.remove(id);
+        })
     }
     fn focus(&mut self, id: &str) -> Result<()> {
         self.action("focus", id, |_| {})
     }
     fn close(&mut self, id: &str) -> Result<()> {
-        self.action("close", id, |s| { s.opened.remove(id); s.visible.remove(id); })
+        self.action("close", id, |s| {
+            s.opened.remove(id);
+            s.visible.remove(id);
+        })
     }
     fn reload(&mut self, id: &str) -> Result<()> {
         self.action("reload", id, |_| {})

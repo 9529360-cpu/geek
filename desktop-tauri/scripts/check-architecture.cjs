@@ -43,6 +43,16 @@ function checkCommands(files) {
   const source = get('src-tauri/src/desktop/commands.rs');
   sameNames([...source.matchAll(/#\[tauri::command\]\s+pub async fn (\w+)/g)].map((m) => m[1]), names,
     'Rust ingress', failures);
+  for (const command of manifest.commands) {
+    const signature = new RegExp(`pub async fn ${command.name}\\s*\\(([\\s\\S]*?)\\)\\s*->\\s*Result<([^>]+)>`).exec(source);
+    if (!signature) { failures.push(`${command.name}: missing typed command signature`); continue; }
+    const inputs = [...signature[1].matchAll(/\b([a-z_]+)\s*:(?!:)/g)]
+      .map((match) => match[1]).filter((name) => !['webview', 'state'].includes(name))
+      .map((name) => name.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase()));
+    sameNames(inputs, command.arguments, `${command.name} arguments`, failures);
+    const response = signature[2].trim() === '()' ? 'unit' : signature[2].trim();
+    if (response !== command.response) failures.push(`${command.name}: response type differs from manifest`);
+  }
   sameNames([...get('src-tauri/src/bootstrap.rs').matchAll(/commands::(\w+)/g)].map((m) => m[1]), names,
     'Rust handler registration', failures);
   const permission = get('src-tauri/permissions/shell.toml').match(/commands\.allow\s*=\s*\[([^\]]*)\]/s);
@@ -61,6 +71,15 @@ function checkCommands(files) {
   return failures;
 }
 
+function frontendOwner(name) {
+  if (name === 'frontend/app.mjs') return 'app';
+  if (name.startsWith('frontend/api/')) return 'api';
+  for (const owner of ['controller', 'view', 'model']) {
+    if (name === `frontend/${owner}.mjs` || name.startsWith(`frontend/${owner}s/`)) return owner;
+  }
+  return null;
+}
+
 function checkFrontendGraph(files) {
   const failures = [];
   const graph = new Map();
@@ -75,6 +94,15 @@ function checkFrontendGraph(files) {
       const target = path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier));
       if (!target.startsWith('frontend/') || !files.has(target)) {
         failures.push(`${name}: dependency escapes frontend or is missing: ${target}`);
+      }
+      const owner = frontendOwner(name);
+      const targetOwner = frontendOwner(target);
+      const allowed = {
+        app: ['api', 'controller'], controller: ['controller', 'view', 'model'],
+        view: ['view', 'model'], model: ['model'], api: ['api'],
+      };
+      if (!owner || !targetOwner || !allowed[owner].includes(targetOwner)) {
+        failures.push(`${name}: frontend dependency direction violation: ${target}`);
       }
       dependencies.push(target);
     }

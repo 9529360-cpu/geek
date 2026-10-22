@@ -1,4 +1,6 @@
-use crate::domain::{account::Account, document::Document, error::Result, navigation::NavigationPolicy};
+use crate::domain::{
+    account::Account, document::Document, error::Result, navigation::NavigationPolicy,
+};
 
 /// Only the repository owns serialization, encryption, locks and atomic I/O.
 /// A failed save must leave the previous durable document authoritative.

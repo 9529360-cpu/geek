@@ -80,3 +80,22 @@ test('the checked-in architecture passes without blanket exclusions', () => {
   assert.ok(report.sizes.length > 20);
   assert.ok(report.sizes.every((file) => file.lines <= 3000));
 });
+
+test('command argument and response drift is rejected', () => {
+  const files = collect(root);
+  const key = 'contracts/commands.json';
+  const manifest = JSON.parse(files.get(key));
+  manifest.commands.find((command) => command.name === 'account_create').arguments[0] = 'wrongName';
+  manifest.commands.find((command) => command.name === 'desktop_snapshot').response = 'Credentials';
+  files.set(key, JSON.stringify(manifest));
+  assert.match(checkCommands(files).join('\n'), /account_create arguments/);
+  assert.match(checkCommands(files).join('\n'), /response type/);
+});
+
+test('views cannot acquire the native API by importing its wrapper', () => {
+  const files = new Map([
+    ['frontend/view.mjs', "import { connectDesktop } from './api/desktop.mjs';\n"],
+    ['frontend/api/desktop.mjs', 'export const connectDesktop = () => null;\n'],
+  ]);
+  assert.match(checkFrontendGraph(files).join('\n'), /direction violation/);
+});

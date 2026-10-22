@@ -1,5 +1,5 @@
-use crate::domain::{account::Settings, error::AppError};
 use super::doubles::fixture;
+use crate::domain::{account::Settings, error::AppError};
 
 #[test]
 fn switching_only_changes_visibility_and_reuses_identity() {
@@ -50,7 +50,10 @@ fn archive_is_owned_by_rust_and_never_targets_the_active_neighbor() {
     assert!(!snapshot.opened_ids.contains(&b));
     assert!(snapshot.accounts[1].archived);
     assert!(!snapshot.accounts[0].archived);
-    assert!(matches!(desktop.activate(&b), Err(AppError::AccountArchived)));
+    assert!(matches!(
+        desktop.activate(&b),
+        Err(AppError::AccountArchived)
+    ));
     let restored = desktop.set_archived(&b, false).unwrap();
     assert!(!restored.accounts[1].archived);
     assert!(!restored.opened_ids.contains(&b));
@@ -74,7 +77,10 @@ fn failed_archive_commit_leaves_a_closed_recoverable_account() {
     let (mut desktop, repository, _, a, _) = fixture();
     desktop.activate(&a).unwrap();
     repository.0.lock().unwrap().fail_save = true;
-    assert!(matches!(desktop.set_archived(&a, true), Err(AppError::StoreIo)));
+    assert!(matches!(
+        desktop.set_archived(&a, true),
+        Err(AppError::StoreIo)
+    ));
     let snapshot = desktop.snapshot();
     assert!(snapshot.active_id.is_none());
     assert!(!snapshot.opened_ids.contains(&a));
@@ -85,14 +91,27 @@ fn failed_archive_commit_leaves_a_closed_recoverable_account() {
 #[test]
 fn settings_effects_are_published_only_after_persistence() {
     let (mut desktop, repository, host, _, _) = fixture();
-    assert!(matches!(desktop.set_settings(Settings { close_to_tray: true }), Err(AppError::TrayUnavailable)));
+    assert!(matches!(
+        desktop.set_settings(Settings {
+            close_to_tray: true
+        }),
+        Err(AppError::TrayUnavailable)
+    ));
     host.0.lock().unwrap().tray = true;
     repository.0.lock().unwrap().fail_save = true;
-    assert!(desktop.set_settings(Settings { close_to_tray: true }).is_err());
+    assert!(desktop
+        .set_settings(Settings {
+            close_to_tray: true
+        })
+        .is_err());
     assert!(!desktop.snapshot().settings.close_to_tray);
     assert!(!host.0.lock().unwrap().close_to_tray);
     repository.0.lock().unwrap().fail_save = false;
-    desktop.set_settings(Settings { close_to_tray: true }).unwrap();
+    desktop
+        .set_settings(Settings {
+            close_to_tray: true,
+        })
+        .unwrap();
     assert!(host.0.lock().unwrap().close_to_tray);
 }
 
@@ -110,7 +129,11 @@ fn unknown_accounts_never_reach_the_host() {
 
 #[test]
 fn error_codes_keep_the_existing_string_wire_format() {
-    for error in [AppError::DpapiFailed, AppError::StoreIo, AppError::AccountUnknown] {
+    for error in [
+        AppError::DpapiFailed,
+        AppError::StoreIo,
+        AppError::AccountUnknown,
+    ] {
         assert_eq!(serde_json::to_value(error).unwrap(), error.code());
         assert_eq!(error.to_string(), error.code());
     }

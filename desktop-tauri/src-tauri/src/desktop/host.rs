@@ -1,12 +1,18 @@
-use std::path::PathBuf;
-use tauri::{AppHandle, LogicalPosition, Manager, Webview, WebviewUrl,
-    webview::{NewWindowResponse, PermissionResponse, WebviewBuilder}};
+use super::{layout, tray::TrayState};
 use crate::{
     application::ports::DesktopHost,
-    domain::{account::Account, error::{AppError, Result}, navigation::NavigationPolicy},
+    domain::{
+        account::Account,
+        error::{AppError, Result},
+        navigation::NavigationPolicy,
+    },
     infrastructure::profiles::account_profile,
 };
-use super::{layout, tray::TrayState};
+use std::path::PathBuf;
+use tauri::{
+    webview::{NewWindowResponse, PermissionResponse, WebviewBuilder},
+    AppHandle, LogicalPosition, Manager, Webview, WebviewUrl,
+};
 
 pub struct TauriHost {
     app: AppHandle,
@@ -23,7 +29,9 @@ impl TauriHost {
     }
 
     fn guest(&self, id: &str) -> Result<Webview> {
-        self.app.get_webview(&label(id)).ok_or(AppError::AccountNotOpen)
+        self.app
+            .get_webview(&label(id))
+            .ok_or(AppError::AccountNotOpen)
     }
 }
 
@@ -40,17 +48,21 @@ impl DesktopHost for TauriHost {
         let window = self.app.get_window("main").ok_or(AppError::WebviewFailed)?;
         let profile = account_profile(&self.root, &account.id)?;
         std::fs::create_dir_all(&profile).map_err(|_| AppError::StoreIo)?;
-        let builder = WebviewBuilder::new(label(&account.id), WebviewUrl::External(navigation.start().clone()))
-            .data_directory(profile)
-            .browser_extensions_enabled(false)
-            .devtools(false)
-            .focused(false)
-            .on_navigation(move |url| navigation.allows(url))
-            .on_new_window(|_, _| NewWindowResponse::Deny)
-            .on_permission_request(|_, _| PermissionResponse::Deny)
-            .on_download(|_, _| false);
+        let builder = WebviewBuilder::new(
+            label(&account.id),
+            WebviewUrl::External(navigation.start().clone()),
+        )
+        .data_directory(profile)
+        .browser_extensions_enabled(false)
+        .devtools(false)
+        .focused(false)
+        .on_navigation(move |url| navigation.allows(url))
+        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_permission_request(|_, _| PermissionResponse::Deny)
+        .on_download(|_, _| false);
         let (_, size) = layout::bounds(&window)?;
-        let guest = window.add_child(builder, LogicalPosition::new(100_000.0, 0.0), size)
+        let guest = window
+            .add_child(builder, LogicalPosition::new(100_000.0, 0.0), size)
             .map_err(|_| AppError::WebviewFailed)?;
         if guest.hide().is_err() {
             let _ = guest.close();
@@ -73,7 +85,9 @@ impl DesktopHost for TauriHost {
     }
 
     fn focus(&mut self, id: &str) -> Result<()> {
-        self.guest(id)?.set_focus().map_err(|_| AppError::WebviewFailed)
+        self.guest(id)?
+            .set_focus()
+            .map_err(|_| AppError::WebviewFailed)
     }
 
     fn close(&mut self, id: &str) -> Result<()> {
@@ -81,7 +95,9 @@ impl DesktopHost for TauriHost {
     }
 
     fn reload(&mut self, id: &str) -> Result<()> {
-        self.guest(id)?.reload().map_err(|_| AppError::WebviewFailed)
+        self.guest(id)?
+            .reload()
+            .map_err(|_| AppError::WebviewFailed)
     }
 
     fn tray_available(&self) -> bool {

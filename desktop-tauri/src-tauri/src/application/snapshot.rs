@@ -1,5 +1,8 @@
+use crate::domain::{
+    account::{Account, Settings},
+    platform::PlatformInfo,
+};
 use serde::Serialize;
-use crate::domain::{account::{Account, Settings}, platform::PlatformInfo};
 
 /// Shell-facing DTO. No profile paths, native handles or authentication material.
 #[derive(Serialize)]

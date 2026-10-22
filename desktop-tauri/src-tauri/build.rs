@@ -17,9 +17,13 @@ fn main() {
         .output()
         .expect("Node.js is required to export command permissions");
     assert!(output.status.success(), "Command manifest export failed");
+    // AppManifest retains a static slice. Keep this finite, validated build-time
+    // inventory alive for the short-lived build process (not the application).
     let names = String::from_utf8(output.stdout).expect("Command manifest must be UTF-8");
-    let commands: Vec<&str> = names.lines().collect();
-    let manifest = tauri_build::AppManifest::new().commands(&commands);
+    let names: &'static str = Box::leak(names.into_boxed_str());
+    let commands: Vec<&'static str> = names.lines().collect();
+    let commands: &'static [&'static str] = Box::leak(commands.into_boxed_slice());
+    let manifest = tauri_build::AppManifest::new().commands(commands);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("Tauri build configuration failed");
 }

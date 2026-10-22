@@ -1,4 +1,7 @@
-use crate::domain::{error::{AppError, Result}, platform::Platform};
+use crate::domain::{
+    error::{AppError, Result},
+    platform::Platform,
+};
 
 /// The sole build-time adapter to the repository's canonical platform catalog.
 pub fn load() -> Result<Vec<Platform>> {

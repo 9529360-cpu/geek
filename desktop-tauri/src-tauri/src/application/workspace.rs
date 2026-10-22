@@ -1,5 +1,12 @@
-use crate::domain::{account::Settings, error::{AppError, Result}};
-use super::{accounts::Accounts, ports::{AccountRepository, DesktopHost}, snapshot::Snapshot};
+use super::{
+    accounts::Accounts,
+    ports::{AccountRepository, DesktopHost},
+    snapshot::Snapshot,
+};
+use crate::domain::{
+    account::Settings,
+    error::{AppError, Result},
+};
 
 /// Serial use-case owner. Native callbacks must never lock this coordinator.
 /// Network/translation/broadcast work must not be added under this desktop lock.
@@ -11,7 +18,11 @@ pub struct Workspace<R: AccountRepository, H: DesktopHost> {
 
 impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
     pub fn new(accounts: Accounts<R>, host: H) -> Self {
-        Self { accounts, host, active_id: None }
+        Self {
+            accounts,
+            host,
+            active_id: None,
+        }
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -19,14 +30,24 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
             accounts: self.accounts.accounts().to_vec(),
             platforms: self.accounts.platforms().iter().map(|p| p.info()).collect(),
             active_id: self.active_id.clone(),
-            opened_ids: self.accounts.accounts().iter()
-                .filter(|a| self.host.is_open(&a.id)).map(|a| a.id.clone()).collect(),
+            opened_ids: self
+                .accounts
+                .accounts()
+                .iter()
+                .filter(|a| self.host.is_open(&a.id))
+                .map(|a| a.id.clone())
+                .collect(),
             settings: self.accounts.settings().clone(),
             tray_available: self.host.tray_available(),
         }
     }
 
-    pub fn create(&mut self, name: &str, platform_id: &str, website_url: Option<&str>) -> Result<Snapshot> {
+    pub fn create(
+        &mut self,
+        name: &str,
+        platform_id: &str,
+        website_url: Option<&str>,
+    ) -> Result<Snapshot> {
         self.accounts.create(name, platform_id, website_url)?;
         Ok(self.snapshot())
     }
@@ -53,14 +74,16 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
             return Err(AppError::TrayUnavailable);
         }
         self.accounts.set_settings(settings)?;
-        self.host.publish_close_to_tray(self.accounts.settings().close_to_tray);
+        self.host
+            .publish_close_to_tray(self.accounts.settings().close_to_tray);
         Ok(self.snapshot())
     }
 
     pub fn activate(&mut self, id: &str) -> Result<Snapshot> {
         let account = self.accounts.openable_account(id)?;
         if !self.host.is_open(id) {
-            self.host.open(&account, self.accounts.navigation(&account)?)?;
+            self.host
+                .open(&account, self.accounts.navigation(&account)?)?;
         }
         let previous = self.active_id.clone();
         let transition = (|| -> Result<()> {
@@ -77,9 +100,10 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         if transition.is_err() {
             // A failed hide must not silently retain a view under the wrong title.
             let hidden = self.host.hide(id).is_ok() || self.host.close(id).is_ok();
-            let restored = hidden && previous.as_ref().is_some_and(|old| {
-                self.host.is_open(old) && self.host.show(old).is_ok()
-            });
+            let restored = hidden
+                && previous
+                    .as_ref()
+                    .is_some_and(|old| self.host.is_open(old) && self.host.show(old).is_ok());
             self.active_id = if restored { previous } else { None };
             return Err(AppError::WebviewFailed);
         }
