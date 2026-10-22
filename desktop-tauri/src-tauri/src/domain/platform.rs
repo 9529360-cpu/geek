@@ -10,6 +10,8 @@ use url::Url;
 pub struct Platform {
     pub id: String,
     pub name: String,
+    pub family: String,
+    pub family_label: String,
     pub url: Option<String>,
     pub hostnames: Vec<String>,
     pub allow_suffix: Option<String>,
@@ -21,6 +23,8 @@ pub struct Platform {
 pub struct PlatformInfo {
     pub id: String,
     pub name: String,
+    pub family: String,
+    pub family_label: String,
     pub enabled: bool,
 }
 
@@ -57,6 +61,8 @@ impl Platform {
         PlatformInfo {
             id: self.id.clone(),
             name: self.name.clone(),
+            family: self.family.clone(),
+            family_label: self.family_label.clone(),
             enabled: self.enabled(),
         }
     }

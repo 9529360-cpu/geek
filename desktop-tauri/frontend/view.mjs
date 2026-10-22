@@ -1,99 +1,78 @@
-import { filterAccounts } from './model.mjs';
-import { createProxyForm } from './views/proxy.mjs';
+import { createAccountView } from './views/accounts.mjs';
+import { proxyFromFields } from './models/proxy.mjs';
 
-// DOM-only view: no native commands, persistence, or business transactions.
 export function createShellView(document) {
   const $ = (id) => document.getElementById(id);
-  const createProxy = createProxyForm(document, 'create');
-  const editProxy = createProxyForm(document, 'edit');
-  function syncWebsiteForm(current, busy) {
-    const website = $('platform').value === 'website';
-    $('website-field').hidden = !website;
-    $('website-url').required = website;
-    $('website-url').disabled = busy || !current || !website;
+  const accounts = createAccountView(document);
+  const wire = (id) => { $(id).dataset.wired = 'true'; return $(id); };
+  const on = (id, event, action) => wire(id).addEventListener(event, action);
+  $('settings-global').append($('runtime-settings-template').content.cloneNode(true));
+  $('add-status').before($('create-proxy-template').content.cloneNode(true));
+  $('nav-version').textContent = 'Tauri \u5f00\u53d1\u7248';
+  $('settings-account-email').textContent = '\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
+  $('settings-account-quota').textContent = '\u8ba2\u9605\u5c1a\u672a\u8fc1\u79fb';
+  $('add-count').value = '1';
+  $('add-count').title = '\u6279\u91cf\u6dfb\u52a0\u5c1a\u672a\u8fc1\u79fb';
+  $('account-settings-name').maxLength = 64;
+  const pending = ['btn-restart', 'btn-lock', 'btn-contact-notes', 'btn-translation', 'btn-broadcast'];
+  for (const id of pending) {
+    $(id).title += ' \u00b7 \u5c1a\u672a\u8fc1\u79fb';
+    $(id).setAttribute('aria-label', $(id).title);
   }
+  for (const id of ['add-name', 'add-custom-url', 'account-settings-name', 'proxy-openProxy',
+    'proxy-protocal', 'proxy-host', 'proxy-port', 'close-to-tray', 'search', 'archived-only',
+    'create-proxy-mode', 'create-proxy-host', 'create-proxy-port']) wire(id);
+  for (const option of $('proxy-protocal').options) option.disabled = !['http', 'socks5'].includes(option.value);
+  $('proxy-user').placeholder = '\u4ee3\u7406\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
+  $('proxy-pwd').placeholder = '\u4ee3\u7406\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
+  const note = document.createElement('p');
+  note.className = 'runtime-note';
+  note.textContent = '\u4fdd\u7559\u539f\u754c\u9762\uff1b\u7070\u8272\u529f\u80fd\u5c1a\u672a\u8fc1\u79fb\u3002\u4e0d\u8bfb\u5199 Electron \u8d26\u53f7\u6570\u636e\u3002';
+  $('runtime-settings').append(note);
+  const proxyNote = note.cloneNode(true);
+  proxyNote.textContent = '\u4ec5\u652f\u6301\u65e0\u8ba4\u8bc1 HTTP / SOCKS5\u3002\u4fee\u6539\u540e\u5173\u95ed\u6b64\u8d26\u53f7\uff0c\u4e0d\u81ea\u52a8\u91cd\u8fde\u3002';
+  $('proxy-host').closest('.add-form').append(proxyNote);
+  const archive = accounts.button('btn-plain', '\u5f52\u6863\uff08\u4fdd\u7559\u767b\u5f55\u6570\u636e\uff09', () => {});
+  archive.id = 'archive';
+  archive.textContent = '\u5f52\u6863\uff08\u4fdd\u7559\u767b\u5f55\u6570\u636e\uff09';
+  $('account-settings-cancel').before(archive);
 
-  function renderEditor(account, resetName) {
-    $('editor').hidden = !account;
-    if (!account) return;
-    if (resetName) {
-      $('edit-name').value = account.name;
-      editProxy.render(account.proxy);
+  function busy(value, available) {
+    for (const element of document.querySelectorAll('button, input, select, textarea')) {
+      element.disabled = value || !available || element.dataset.wired !== 'true' || element.dataset.unavailable === 'true';
     }
-    $('editor-title').textContent = `管理：${account.name}`;
-    $('archive').textContent = account.archived ? '恢复到账号列表' : '归档（保留登录数据）';
-    $('archive-note').textContent = account.archived
-      ? '恢复只改变归档状态，不自动打开网页。'
-      : '归档会先关闭页面，停止该账号接收消息。登录数据保留，可随时恢复。';
-  }
-
-  function renderAccounts(current, onActivate, onManage) {
-    if (!current) return;
-    const accounts = filterAccounts(current.accounts, current.platforms,
-      $('search').value, $('archived-only').checked);
-    $('accounts').replaceChildren();
-    for (const account of accounts) {
-      const row = document.createElement('div');
-      row.className = 'account-row';
-      const button = document.createElement('button');
-      button.className = 'account';
-      button.type = 'button';
-      button.dataset.unavailable = String(Boolean(account.archived));
-      button.setAttribute('aria-pressed', String(account.id === current.activeId));
-      const title = document.createElement('strong');
-      title.textContent = account.name;
-      const detail = document.createElement('small');
-      const platform = current.platforms.find((p) => p.id === account.platformId);
-      const state = account.archived ? '已归档' : current.openedIds.includes(account.id) ? '已打开' : '未打开';
-      detail.textContent = `${platform?.name || account.platformId} · ${state}`;
-      button.append(title, detail);
-      button.addEventListener('click', () => onActivate(account.id));
-      const manage = document.createElement('button');
-      manage.type = 'button';
-      manage.className = 'manage';
-      manage.textContent = '管理';
-      manage.setAttribute('aria-label', `管理账号 ${account.name}`);
-      manage.addEventListener('click', () => onManage(account.id));
-      row.append(button, manage);
-      $('accounts').append(row);
+    for (const id of ['create-proxy-host', 'create-proxy-port']) {
+      $(id).disabled ||= $('create-proxy-mode').value === 'system';
     }
-    $('list-empty').hidden = accounts.length > 0;
-    $('account-count').textContent = `${accounts.length} / ${current.accounts.length}`;
+    for (const id of ['proxy-protocal', 'proxy-host', 'proxy-port']) $(id).disabled ||= !$('proxy-openProxy').checked;
   }
-
-  function renderSnapshot(next, first) {
-    const selected = $('platform').value;
-    $('platform').replaceChildren();
-    for (const platform of next.platforms) {
-      const option = document.createElement('option');
-      option.value = platform.id;
-      option.textContent = platform.name + (platform.enabled ? '' : ' · 暂未接入');
-      option.disabled = !platform.enabled;
-      $('platform').append(option);
+  function status(message = '') {
+    $('runtime-status').textContent = message;
+    $('runtime-status').classList.toggle('hidden', !message);
+    for (const id of ['add-status', 'account-settings-status', 'settings-status']) {
+      if ($(id)) $(id).textContent = message;
     }
-    if (next.platforms.some((p) => p.id === selected && p.enabled)) $('platform').value = selected;
-    if (first && !next.accounts.length) $('add-panel').open = true;
-    const active = next.accounts.find((a) => a.id === next.activeId);
-    $('active-title').textContent = active?.name || '请选择账号';
-    $('empty').hidden = Boolean(active);
-    $('close-to-tray').checked = next.settings.closeToTray;
-    $('tray-note').textContent = next.trayAvailable
-      ? '托盘左键恢复窗口；右键菜单可完全退出。后台收消息仍待真机验收。'
-      : '系统托盘不可用：关闭窗口将退出应用。';
   }
-
-  function setBusy(current, value, available) {
-    for (const element of document.querySelectorAll('button, input, select')) {
-      element.disabled = value || !current || element.dataset.unavailable === 'true';
-    }
-    $('reload').disabled = value || !current?.activeId;
-    $('close').disabled = value || !current?.activeId;
-    $('retry').disabled = value || !available;
-    syncWebsiteForm(current, value);
-    createProxy.sync(value || !current);
-    editProxy.sync(value || !current);
+  function editor(account) {
+    $('account-settings-target').textContent = account.name;
+    $('account-settings-name').value = account.name;
   }
-
-  return Object.freeze({ $, syncWebsiteForm, setBusy, renderEditor, renderAccounts, renderSnapshot,
-    createProxy, editProxy });
+  function proxy(account) {
+    $('proxy-openProxy').checked = account.proxy?.mode !== 'system' && Boolean(account.proxy);
+    $('proxy-protocal').value = account.proxy?.mode === 'socks5' ? 'socks5' : 'http';
+    $('proxy-host').value = account.proxy?.host || '';
+    $('proxy-port').value = account.proxy?.port || '';
+  }
+  function readProxy(creating = false) {
+    return creating
+      ? proxyFromFields($('create-proxy-mode').value, $('create-proxy-host').value, $('create-proxy-port').value)
+      : proxyFromFields($('proxy-openProxy').checked ? $('proxy-protocal').value : 'system', $('proxy-host').value, $('proxy-port').value);
+  }
+  function settings(snapshot) {
+    $('close-to-tray').checked = snapshot.settings.closeToTray;
+    $('tray-note').textContent = snapshot.trayAvailable
+      ? '\u6258\u76d8\u53f3\u952e\u83dc\u5355\u53ef\u5b8c\u5168\u9000\u51fa\u3002'
+      : '\u6258\u76d8\u4e0d\u53ef\u7528\uff0c\u5173\u95ed\u7a97\u53e3\u5c06\u9000\u51fa\u5e94\u7528\u3002';
+  }
+  return { $, on, wire, accounts, busy, status, editor, proxy, readProxy, settings };
 }

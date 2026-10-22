@@ -1,6 +1,14 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
+    println!("cargo:rerun-if-changed=../../ui");
+    println!("cargo:rerun-if-changed=../frontend");
+    println!("cargo:rerun-if-changed=../scripts/prepare-frontend.cjs");
+    let prepared = Command::new("node")
+        .arg("../scripts/prepare-frontend.cjs")
+        .status()
+        .expect("Node.js is required to bundle the original Geek UI");
+    assert!(prepared.success(), "Original UI preparation failed");
     println!("cargo:rerun-if-changed=../../src/platform-catalog.cjs");
     println!("cargo:rerun-if-changed=../scripts/export-platforms.cjs");
     let output = Command::new("node")

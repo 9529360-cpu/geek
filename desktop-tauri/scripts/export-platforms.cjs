@@ -3,7 +3,8 @@
 const { PLATFORM_CATALOG } = require('../../src/platform-catalog.cjs');
 function exportPlatforms() {
   return Object.entries(PLATFORM_CATALOG).map(([id, p]) => ({
-    id, name: p.name, url: p.url || null,
+    id, name: p.name, family: p.navigationKind || id,
+    familyLabel: p.familyLabel || (p.navigationKind || id).replace(/^./, (c) => c.toUpperCase()), url: p.url || null,
     hostnames: p.hostnames || [], allowSuffix: p.allowSuffix || null,
     needsExtension: p.needsExtension === true,
   }));

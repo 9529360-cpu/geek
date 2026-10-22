@@ -1,121 +1,111 @@
-// Dependency-free DOM doubles exercise the actual app.mjs event wiring.
-// This is not a WebView2 or authenticated-platform runtime test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dom, settled } from './helpers/dom.mjs';
+import { fixture } from './helpers/shell.mjs';
 
-test('actual shell wires search, owner-safe rename/archive/restore and durable settings feedback', async () => {
-  const { get, document } = dom();
-  const originalWindow = globalThis.window;
-  const originalDocument = globalThis.document;
-  const calls = [];
-  const state = {
-    accounts: [
-      { id: 'a', name: 'Current A', platformId: 'whatsapp', archived: false },
-      { id: 'b', name: '<img src=x onerror=evil()>', platformId: 'telegram-k', archived: false },
-    ],
-    platforms: [
-      { id: 'whatsapp', name: 'WhatsApp', enabled: true },
-      { id: 'telegram-k', name: 'Telegram K', enabled: true },
-      { id: 'website', name: 'Website', enabled: true },
-      { id: 'line', name: 'LINE', enabled: false },
-    ],
-    activeId: 'a', openedIds: ['a', 'b'], settings: { closeToTray: false }, trayAvailable: true,
-  };
-  let rejectArchive = false;
-  async function invoke(command, args) {
-    calls.push([command, structuredClone(args)]);
-    if (command === 'account_rename') state.accounts.find((a) => a.id === args.id).name = args.name;
-    if (command === 'account_close') {
-      state.openedIds = state.openedIds.filter((id) => id !== args.id);
-      if (state.activeId === args.id) state.activeId = null;
-    }
-    if (command === 'account_set_archived') {
-      if (args.archived) {
-        state.openedIds = state.openedIds.filter((id) => id !== args.id);
-        if (state.activeId === args.id) state.activeId = null;
-      }
-      if (rejectArchive) throw 'STORE_IO';
-      state.accounts.find((a) => a.id === args.id).archived = args.archived;
-    }
-    if (command === 'desktop_settings') {
-      if (!state.trayAvailable && args.settings.closeToTray) throw 'TRAY_UNAVAILABLE';
-      state.settings = args.settings;
-    }
-    return structuredClone(state);
+test('original sidebar and menu keep edits bound to B while A stays active; save failures retain draft', async () => {
+  const { get, state, failures, calls, context, click } = await fixture();
+  await context('b', 1);
+  get('account-settings-name').value = 'B renamed';
+  failures.add('account_rename');
+  await click('account-settings-save');
+  assert.equal(state.activeId, 'a');
+  assert.equal(state.accounts[1].name, 'b');
+  assert.equal(get('account-settings-name').value, 'B renamed');
+  assert.equal(get('account-settings-overlay').classList.contains('hidden'), false);
+  failures.clear();
+  await click('account-settings-save');
+  assert.equal(state.accounts[1].name, 'B renamed');
+  assert.equal(state.activeId, 'a');
+  assert.equal(get('account-settings-overlay').classList.contains('hidden'), true);
+  assert.deepEqual(calls.filter(([n]) => n === 'account_rename').at(-1)[1], { id: 'b', name: 'B renamed' });
+});
+
+test('archive and searchable restore use the original account-settings entry without reconnecting', async () => {
+  const { get, state, calls, context, click, shell } = await fixture();
+  await context('b', 1);
+  await click('archive');
+  assert.equal(state.accounts[1].archived, true);
+  assert.equal(state.activeId, 'a');
+  await click('btn-settings');
+  await click('open-library');
+  get('search').value = 'b';
+  get('archived-only').checked = true;
+  get('search').fire('input');
+  assert.equal(get('library-accounts').children.length, 1);
+  get('library-accounts').children[0].children[1].fire('click');
+  await shell.idle();
+  assert.equal(state.accounts[1].archived, false);
+  assert.equal(state.openedIds.includes('b'), false);
+  assert.equal(calls.some(([n]) => n === 'account_activate'), false);
+});
+
+test('proxy dialog captures its owner, preserves failure draft, and never reconnects after save', async () => {
+  const { get, state, failures, calls, context, click } = await fixture();
+  await context('b', 2);
+  get('proxy-openProxy').checked = true;
+  get('proxy-openProxy').fire('change');
+  get('proxy-protocal').value = 'http';
+  get('proxy-host').value = '127.0.0.1';
+  get('proxy-port').value = '8080';
+  failures.add('account_set_proxy');
+  await click('proxy-save');
+  assert.equal(state.accounts[1].proxy.mode, 'system');
+  assert.equal(get('proxy-host').value, '127.0.0.1');
+  assert.equal(get('proxy-overlay').classList.contains('hidden'), false);
+  failures.clear();
+  await click('proxy-save');
+  assert.equal(state.activeId, 'a');
+  assert.equal(state.accounts[1].proxy.mode, 'http');
+  assert.equal(state.openedIds.includes('b'), false);
+  assert.equal(calls.some(([n]) => n === 'account_activate'), false);
+  assert.equal(get('proxy-user').disabled, true);
+  assert.equal(get('proxy-pwd').disabled, true);
+});
+
+test('original application center binds proxy before first open and retains a saved account on open failure', async () => {
+  const { get, state, failures, calls, click, shell } = await fixture();
+  await click('btn-app-center');
+  get('add-platforms').children.find((e) => e.dataset.type === 'whatsapp').fire('click');
+  get('add-name').value = 'New account';
+  get('create-proxy-mode').value = 'socks5';
+  get('create-proxy-mode').fire('change');
+  get('create-proxy-host').value = '127.0.0.1';
+  get('create-proxy-port').value = '1080';
+  failures.add('account_activate');
+  await click('add-confirm');
+  await shell.idle();
+  assert.equal(state.accounts.at(-1).name, 'New account');
+  assert.equal(state.accounts.at(-1).proxy.mode, 'socks5');
+  const commands = calls.map(([n]) => n);
+  assert.ok(commands.indexOf('account_create') < commands.indexOf('account_activate'));
+  assert.equal(commands.filter((n) => n === 'account_create').length, 1);
+});
+
+test('overlay is shown only after native hide succeeds; collapsed layout uses measured bounds', async () => {
+  const { get, failures, calls, click } = await fixture();
+  failures.add('hide');
+  await click('btn-app-center');
+  assert.equal(get('add-overlay').classList.contains('hidden'), true);
+  failures.clear();
+  await click('btn-collapse');
+  assert.equal(get('side-nav').classList.contains('collapsed'), true);
+  assert.equal(calls.filter(([n]) => n === 'desktop_layout').at(-1)[1].viewport.x, 64);
+  await click('btn-app-center');
+  assert.equal(calls.filter(([n]) => n === 'desktop_layout').at(-1)[1].viewport.visible, false);
+  await click('add-cancel');
+  assert.equal(calls.filter(([n]) => n === 'desktop_layout').at(-1)[1].viewport.visible, true);
+});
+
+test('pending features stay in place and disabled; window controls use their narrow command', async () => {
+  const { get, state, calls, click } = await fixture();
+  for (const id of ['btn-lock', 'btn-restart', 'btn-translation', 'btn-broadcast', 'btn-contact-notes']) {
+    assert.equal(get(id).disabled, true, id);
   }
-  globalThis.document = document;
-  globalThis.window = { __TAURI__: { core: { invoke } }, addEventListener() {} };
-  try {
-    await import('../frontend/app.mjs?shell-unit');
-    await settled(get);
-    assert.equal(get('active-title').textContent, 'Current A');
-    assert.equal(get('accounts').children[1].children[0].children[0].textContent, state.accounts[1].name);
-    assert.equal(get('platform').children.find((p) => p.value === 'line').disabled, true);
-    get('search').value = 'telegram';
-    get('search').fire('input');
-    assert.equal(get('accounts').children.length, 1);
-    get('accounts').children[0].children[1].fire('click');
-    get('edit-name').value = 'Renamed B';
-    get('edit-form').fire('submit');
-    await settled(get);
-    assert.equal(state.accounts[1].name, 'Renamed B');
-    assert.equal(state.accounts[0].name, 'Current A');
-    assert.equal(state.activeId, 'a');
-
-    // Settings refresh must not wipe an unsaved rename draft.
-    get('edit-name').value = 'Unsaved draft';
-    get('close-to-tray').checked = true;
-    get('close-to-tray').fire('change');
-    await settled(get);
-    assert.equal(get('edit-name').value, 'Unsaved draft');
-    assert.equal(state.settings.closeToTray, true);
-
-    // A failed metadata commit after close keeps the account recoverable.
-    rejectArchive = true;
-    get('archive').fire('click');
-    await settled(get);
-    assert.equal(state.accounts[1].archived, false);
-    assert.equal(state.activeId, 'a');
-    assert.equal(get('editor').hidden, false);
-    rejectArchive = false;
-    get('archive').fire('click');
-    await settled(get);
-    assert.equal(state.accounts[1].archived, true);
-    assert.equal(state.accounts[0].archived, false);
-    assert.equal(state.activeId, 'a');
-    assert.deepEqual(calls.filter(([name]) => name === 'account_set_archived').at(-1),
-      ['account_set_archived', { id: 'b', archived: true }]);
-    get('search').value = '';
-    get('archived-only').checked = true;
-    get('archived-only').fire('change');
-    const archivedRow = get('accounts').children[0];
-    assert.equal(archivedRow.children[0].disabled, true);
-    archivedRow.children[1].fire('click');
-    get('archive').fire('click');
-    await settled(get);
-    assert.equal(state.accounts[1].archived, false);
-    assert.equal(state.openedIds.includes('b'), false);
-    assert.equal(get('accounts').children.length, 0);
-
-    state.trayAvailable = false;
-    state.settings.closeToTray = false;
-    get('retry').fire('click');
-    await settled(get);
-    get('close-to-tray').checked = true;
-    get('close-to-tray').fire('change');
-    await settled(get);
-    assert.equal(get('close-to-tray').checked, false);
-    assert.match(get('status').textContent, /托盘不可用/);
-    get('platform').value = 'website';
-    get('platform').fire('change');
-    assert.equal(get('website-field').hidden, false);
-    assert.equal(get('website-url').required, true);
-    get('platform').value = 'whatsapp';
-    get('platform').fire('change');
-    assert.equal(get('website-url').disabled, true);
-  } finally {
-    globalThis.window = originalWindow;
-    globalThis.document = originalDocument;
-  }
+  await click('btn-win-min');
+  assert.deepEqual(calls.at(-1), ['desktop_window', { action: 'minimize' }]);
+  assert.equal(state.activeId, 'a');
+  await click('btn-settings');
+  get('close-to-tray').checked = true;
+  await click('settings-save');
+  assert.equal(state.settings.closeToTray, true);
 });

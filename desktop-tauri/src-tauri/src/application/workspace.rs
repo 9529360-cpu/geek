@@ -6,6 +6,7 @@ use super::{
 use crate::domain::{
     account::Settings,
     error::{AppError, Result},
+    presentation::{Viewport, WindowAction},
     proxy::ProxyConfig,
 };
 
@@ -15,6 +16,7 @@ pub struct Workspace<R: AccountRepository, H: DesktopHost> {
     accounts: Accounts<R>,
     host: H,
     active_id: Option<String>,
+    content_visible: bool,
 }
 
 impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
@@ -23,6 +25,7 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
             accounts,
             host,
             active_id: None,
+            content_visible: false,
         }
     }
 
@@ -108,14 +111,19 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
                     self.host.hide(&other.id)?;
                 }
             }
-            self.host.show(id)?;
-            self.host.focus(id)?;
+            if self.content_visible {
+                self.host.show(id)?;
+                self.host.focus(id)?;
+            } else {
+                self.host.hide(id)?;
+            }
             Ok(())
         })();
         if transition.is_err() {
             // A failed hide must not silently retain a view under the wrong title.
             let hidden = self.host.hide(id).is_ok() || self.host.close(id).is_ok();
             let restored = hidden
+                && self.content_visible
                 && previous
                     .as_ref()
                     .is_some_and(|old| self.host.is_open(old) && self.host.show(old).is_ok());
@@ -149,12 +157,35 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         Ok(self.snapshot())
     }
 
-    pub fn layout(&mut self) -> Result<()> {
+    pub fn window_action(&mut self, action: WindowAction) -> Result<()> {
+        self.host.window_action(action)
+    }
+
+    /// Suspend before changing geometry. A failed modal hide never reports success.
+    /// Selection/profile ownership is independent from whether a guest is visible.
+    pub fn layout(&mut self, viewport: Viewport) -> Result<()> {
+        viewport.validate()?;
+        self.content_visible = false;
+        for account in self.accounts.accounts() {
+            if self.host.is_open(&account.id) {
+                self.host.hide(&account.id)?;
+            }
+        }
+        self.host.set_viewport(viewport);
         for account in self.accounts.accounts() {
             if self.host.is_open(&account.id) {
                 self.host.fit(&account.id)?;
             }
         }
+        if viewport.visible {
+            if let Some(id) = &self.active_id {
+                if self.host.is_open(id) && self.host.show(id).is_err() {
+                    let _ = self.host.hide(id);
+                    return Err(AppError::WebviewFailed);
+                }
+            }
+        }
+        self.content_visible = viewport.visible;
         Ok(())
     }
 }

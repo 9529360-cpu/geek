@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, AppError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AppError {
+    LayoutInvalid,
     AccountLimit,
     AccountUnknown,
     AccountArchived,
@@ -32,6 +33,7 @@ pub enum AppError {
 impl AppError {
     pub const fn code(self) -> &'static str {
         match self {
+            Self::LayoutInvalid => "LAYOUT_INVALID",
             Self::AccountLimit => "ACCOUNT_LIMIT",
             Self::AccountUnknown => "ACCOUNT_UNKNOWN",
             Self::AccountArchived => "ACCOUNT_ARCHIVED",

@@ -1,0 +1,30 @@
+<!-- Runtime-only controls live inside original dialogs, never a replacement sidebar. -->
+<div id="account-library-overlay" class="overlay hidden">
+  <div class="add-dialog" role="dialog" aria-modal="true" aria-label="&#36134;&#21495;&#31649;&#29702;">
+    <div class="settings-header"><span>&#36134;&#21495;&#31649;&#29702;</span>
+      <button id="library-close" class="settings-close" aria-label="&#20851;&#38381;">&#215;</button></div>
+    <div class="add-form">
+      <input id="search" type="search" placeholder="&#25628;&#32034;&#36134;&#21495;&#25110;&#24179;&#21488;" aria-label="&#25628;&#32034;&#36134;&#21495;">
+      <label class="row-item"><span>&#20165;&#30475;&#24050;&#24402;&#26723;</span><input id="archived-only" type="checkbox"></label>
+      <div id="library-accounts" class="library-accounts"></div>
+    </div>
+  </div>
+</div>
+<template id="runtime-settings-template">
+  <section class="settings-card" id="runtime-settings">
+    <div class="settings-card-title">Tauri &#24320;&#21457;&#29256;</div>
+    <label class="settings-switch-row"><span>&#20851;&#38381;&#31383;&#21475;&#21518;&#30041;&#22312;&#25176;&#30424;</span>
+      <input id="close-to-tray" type="checkbox" class="settings-switch-input"></label>
+    <div id="tray-note" class="settings-card-sub"></div>
+    <button id="open-library" class="btn-plain">&#36134;&#21495;&#31649;&#29702;&#65288;&#25628;&#32034;/&#24402;&#26723;&#65289;</button>
+  </section>
+</template>
+<template id="create-proxy-template">
+  <div class="row-item"><span>&#36134;&#21495;&#32593;&#32476;</span><select id="create-proxy-mode">
+    <option value="system">&#36319;&#38543; Windows &#31995;&#32479;</option><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select></div>
+  <div id="create-proxy-fields" hidden>
+    <div class="row-item"><span>&#20027;&#26426;</span><input id="create-proxy-host" maxlength="253" autocomplete="off"></div>
+    <div class="row-item"><span>&#31471;&#21475;</span><input id="create-proxy-port" type="number" min="1" max="65535"></div>
+  </div>
+</template>
+<div id="runtime-status" class="runtime-status hidden" role="status" aria-live="polite"></div>

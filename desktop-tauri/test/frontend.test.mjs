@@ -102,24 +102,25 @@ test('all commands share the same native sender gate and blocking executor', () 
   assert.match(security, /shell_url/);
 });
 
-test('shell uses text nodes and all referenced elements exist once', () => {
+test('shell keeps original identifiers without unsafe dynamic markup', () => {
+  const { compose } = require('../scripts/prepare-frontend.cjs');
   const source = read('../frontend/view.mjs') + read('../frontend/controller.mjs');
-  const html = read('../frontend/index.html');
+  const html = compose().html;
   assert.doesNotMatch(source, /innerHTML|insertAdjacentHTML|eval\(/);
-  assert.match(source, /title\.textContent = account\.name/);
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(new Set(ids).size, ids.length);
   for (const [, id] of source.matchAll(/\$\('([^']+)'\)/g)) assert.ok(ids.includes(id), id);
 });
 
-test('native and CSS chrome agree and the shell cannot zoom out of alignment', () => {
-  const rust = read('../src-tauri/src/desktop/layout.rs');
-  const css = read('../frontend/style.css');
-  for (const [key, size] of [['SIDEBAR', 280], ['HEADER', 88], ['FOOTER', 28]]) {
-    assert.ok(rust.includes(`const ${key}: f64 = ${size}.0;`));
-    assert.ok(css.includes(`--${key.toLowerCase()}: ${size}px`));
-  }
+test('native geometry follows measured original content and shell zoom stays disabled', () => {
+  const source = read('../frontend/controller.mjs') + read('../frontend/models/shell.mjs');
+  assert.match(source, /getBoundingClientRect/);
+  assert.match(source, /ResizeObserver/);
+  assert.match(source, /await syncLayout\(false\)/);
+  assert.match(read('../src-tauri/src/desktop/layout.rs'), /viewport\.clipped/);
+  assert.doesNotMatch(read('../src-tauri/src/desktop/layout.rs'), /SIDEBAR|HEADER|FOOTER/);
   assert.match(read('../src-tauri/src/bootstrap.rs'), /\.zoom_hotkeys_enabled\(false\)/);
+  assert.match(read('../src-tauri/src/bootstrap.rs'), /\.decorations\(false\)/);
   assert.doesNotMatch(read('../src-tauri/src/desktop/tray.rs'), /state::<Mutex|\.lock\(/);
 });
 

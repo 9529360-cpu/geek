@@ -3,6 +3,7 @@ pub mod host;
 pub mod layout;
 pub mod security;
 pub mod tray;
+pub mod window;
 
 use crate::{application::workspace::Workspace, infrastructure::repository::EncryptedRepository};
 use host::TauriHost;

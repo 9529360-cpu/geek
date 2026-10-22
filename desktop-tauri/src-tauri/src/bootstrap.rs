@@ -22,7 +22,8 @@ pub fn run() {
             commands::desktop_layout,
             commands::account_rename,
             commands::account_set_archived,
-            commands::desktop_settings
+            commands::desktop_settings,
+            commands::desktop_window
         ])
         .on_window_event(tray::on_window_event)
         .setup(|app| {
@@ -37,6 +38,7 @@ pub fn run() {
             app.manage(Arc::new(Mutex::new(Workspace::new(accounts, host))));
             let window = WindowBuilder::new(app, "main")
                 .title("极客 · Tauri Windows 开发版")
+                .decorations(false)
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(960.0, 640.0)
                 .build()?;

@@ -1,167 +1,222 @@
 import { serialQueue, errorMessage } from './model.mjs';
+import { familyOf, visibleAccounts, viewportOf } from './models/shell.mjs';
 import { createShellView } from './view.mjs';
 
-// Only transient selection/draft/busy state lives here. Rust owns account state.
 export function mountShell({ document, window, api }) {
   const view = createShellView(document);
-  const { $ } = view;
+  const { $, on } = view;
   const enqueue = serialQueue();
   let current = null;
   let busy = false;
+  let family = null;
+  let selectedPlatform = null;
   let editingId = null;
-  let renderedEditorId = null;
-  let layoutPending = false;
+  let panel = null;
+  let returnFocus = null;
+  const remembered = new Map();
+  let layoutQueued = false;
   let layoutDirty = false;
-
-  function syncWebsiteForm() { view.syncWebsiteForm(current, busy); }
-  function setBusy(value) {
-    busy = value;
-    view.setBusy(current, busy, Boolean(api));
-  }
-  function renderEditor() {
-    const account = current?.accounts.find((a) => a.id === editingId);
-    view.renderEditor(account, renderedEditorId !== editingId);
-    if (!account) editingId = null;
-    renderedEditorId = editingId;
-  }
-
-  function editAccount(id) {
-    if (busy) return;
-    editingId = id;
-    renderedEditorId = null;
-    renderEditor();
-    $('editor').scrollIntoView({ block: 'nearest' });
-    $('edit-name').focus();
-  }
-
-  function renderAccounts() {
-    view.renderAccounts(current, (id) => run(() => api.activate(id)), editAccount);
-    setBusy(busy);
-  }
+  const setBusy = (value) => { busy = value; view.busy(value, Boolean(current && api)); };
+  const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible));
 
   function render(next) {
-    const first = !current;
     current = next;
-    view.renderSnapshot(next, first);
-    renderAccounts();
-    renderEditor();
+    const active = next.accounts.find((account) => account.id === next.activeId);
+    if (active) {
+      family = familyOf(active.platformId, next.platforms);
+      remembered.set(family, active.id);
+    }
+    family ||= next.platforms[0]?.family || next.platforms[0]?.id;
+    view.accounts.render(next, family, { activate, context, family: selectFamily });
+    if (panel === 'account-library-overlay') renderLibrary();
     setBusy(busy);
   }
-
   function run(operation) {
-    if (busy || !api) return;
+    if (busy || !api) return Promise.resolve(false);
     setBusy(true);
-    $('status').textContent = '正在处理…';
-    enqueue(async () => {
+    view.status();
+    return enqueue(async () => {
       try {
-        const next = await operation();
-        if (next) render(next);
-        $('status').textContent = '就绪 · 已打开不等于已登录；归档不会删除登录数据';
+        await operation();
+        return true;
       } catch (error) {
-        try { render(await api.snapshot()); } catch { /* retain last known state */ }
-        $('status').textContent = errorMessage(typeof error === 'string' ? error : 'UNKNOWN');
-      } finally {
-        setBusy(false);
-      }
+        try { render(await api.snapshot()); } catch { /* Keep the last authoritative snapshot. */ }
+        view.status(errorMessage(typeof error === 'string' ? error : 'UNKNOWN'));
+        return false;
+      } finally { setBusy(false); }
     });
   }
-
-  $('platform').addEventListener('change', syncWebsiteForm);
-  view.createProxy.mode.addEventListener('change', () => view.createProxy.sync(busy || !current));
-  view.editProxy.mode.addEventListener('change', () => view.editProxy.sync(busy || !current));
-  $('search').addEventListener('input', renderAccounts);
-  $('archived-only').addEventListener('change', renderAccounts);
-  $('retry').addEventListener('click', () => run(() => api.snapshot()));
-  $('create-form').addEventListener('submit', (event) => {
-    event.preventDefault();
-    const name = $('name').value.trim();
-    const platformId = $('platform').value;
-    const websiteUrl = platformId === 'website' ? $('website-url').value.trim() : null;
-    if (!name) { $('name').focus(); return; }
-    run(async () => {
-      const proxy = view.createProxy.read();
-      const next = await api.create({ name, platformId, websiteUrl, proxy });
-      $('search').value = '';
-      $('archived-only').checked = false;
-      $('name').value = '';
-      $('website-url').value = '';
-      $('add-panel').open = false;
-      view.createProxy.render();
-      render(next);
-      return api.activate(next.accounts.at(-1).id);
-    });
-  });
-  $('edit-form').addEventListener('submit', (event) => {
-    event.preventDefault();
+  async function hidePanel() {
+    if (panel) $(panel).classList.add('hidden');
+    panel = null;
+    await syncLayout(true);
+    returnFocus?.focus();
+  }
+  async function showPanel(id, fill, focusId) {
+    await syncLayout(false); // Do not expose an overlay until the native guest is hidden.
+    if (!panel) returnFocus = document.activeElement;
+    if (panel) $(panel).classList.add('hidden');
+    panel = id;
+    fill?.();
+    $(id).classList.remove('hidden');
+    if (id === 'ctx-menu') {
+      const menu = $(id);
+      const rect = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(parseFloat(menu.style.left), window.innerWidth - rect.width - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(parseFloat(menu.style.top), window.innerHeight - rect.height - 8))}px`;
+      menu.querySelector('button')?.focus();
+    }
+    if (focusId) window.setTimeout(() => $(focusId).focus(), 0);
+  }
+  function activate(id) {
+    return run(async () => { await syncLayout(!panel); render(await api.activate(id)); await syncLayout(!panel); });
+  }
+  function selectFamily(key) {
+    const list = visibleAccounts(current, key);
+    const id = list.find((account) => account.id === remembered.get(key))?.id || list[0]?.id;
+    if (id) activate(id);
+  }
+  function edit(id) {
+    return run(() => showPanel('account-settings-overlay', () => {
+      editingId = id;
+      view.editor(current.accounts.find((account) => account.id === id));
+    }, 'account-settings-name'));
+  }
+  function editProxy(id) {
+    return run(() => showPanel('proxy-overlay', () => {
+      editingId = id;
+      view.proxy(current.accounts.find((account) => account.id === id));
+    }, 'proxy-host'));
+  }
+  function context(id, x, y) {
+    return run(() => showPanel('ctx-menu', () => {
+      const menu = $('ctx-menu');
+      menu.replaceChildren();
+      menu.setAttribute('role', 'menu');
+      const item = (label, action) => {
+        const button = view.accounts.button('ctx-item', label, action);
+        button.textContent = label;
+        button.setAttribute('role', 'menuitem');
+        menu.append(button);
+      };
+      item('\u5237\u65b0\u5e94\u7528', () => run(async () => { render(await api.reload(id)); await hidePanel(); }));
+      item('\u8d26\u53f7\u8bbe\u7f6e', () => edit(id));
+      item('\u4ee3\u7406\u8bbe\u7f6e', () => editProxy(id));
+      item('\u5173\u95ed\u9875\u9762\uff08\u4fdd\u7559\u767b\u5f55\uff09', () => run(async () => { render(await api.close(id)); await hidePanel(); }));
+      item('\u5220\u9664\u5e94\u7528\uff08\u5c1a\u672a\u8fc1\u79fb\uff09', () => {});
+      menu.lastElementChild.dataset.unavailable = 'true';
+      menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 210))}px`;
+      menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - 230))}px`;
+    }));
+  }
+  function renderLibrary() {
+    view.accounts.library(current, edit, (id) => run(async () => { render(await api.setArchived(id, false)); }));
+  }
+  function selectPlatform(id) {
+    selectedPlatform = id;
+    view.accounts.platforms(current.platforms, id, selectPlatform);
+    $('add-website-url-row').classList.toggle('hidden', id !== 'website');
+    $('add-custom-url').required = id === 'website';
+    setBusy(busy);
+  }
+  on('btn-app-center', 'click', () => run(() => showPanel('add-overlay', () => {
+    selectedPlatform = null;
+    $('add-name').value = '';
+    $('add-custom-url').value = '';
+    $('create-proxy-mode').value = 'system';
+    $('create-proxy-host').value = '';
+    $('create-proxy-port').value = '';
+    $('create-proxy-fields').hidden = true;
+    selectPlatform(null);
+  }, 'add-name')));
+  on('add-confirm', 'click', () => run(async () => {
+    const platform = current.platforms.find((item) => item.id === selectedPlatform && item.enabled);
+    if (!platform) throw 'PLATFORM_UNAVAILABLE';
+    const name = $('add-name').value.trim() || `${platform.name} ${current.accounts.filter((a) => a.platformId === platform.id).length + 1}`;
+    const next = await api.create({ name, platformId: platform.id,
+      websiteUrl: platform.id === 'website' ? $('add-custom-url').value.trim() : null, proxy: view.readProxy(true) });
+    render(next); // Account is durably saved even when a later native open fails.
+    await hidePanel();
+    render(await api.activate(next.accounts.at(-1).id));
+    await syncLayout(true);
+  }));
+  on('account-settings-save', 'click', () => {
     const id = editingId;
-    const name = $('edit-name').value.trim();
-    if (id && name) run(async () => {
-      const next = await api.rename(id, name);
-      const account = next.accounts.find((item) => item.id === id);
-      if (account) $('edit-name').value = account.name;
-      // A successful rename must not discard an unsaved proxy draft.
-      return next;
-    });
+    const name = $('account-settings-name').value.trim();
+    run(async () => { render(await api.rename(id, name)); await hidePanel(); });
   });
-  $('proxy-form').addEventListener('submit', (event) => {
-    event.preventDefault();
+  on('proxy-save', 'click', () => {
     const id = editingId;
-    if (!id) return;
-    run(async () => {
-      const proxy = view.editProxy.read();
-      const next = await api.setProxy(id, proxy);
-      // Reset this form only after the authoritative native save succeeded.
-      view.editProxy.render(next.accounts.find((account) => account.id === id)?.proxy);
-      return next;
-    });
+    run(async () => { render(await api.setProxy(id, view.readProxy())); await hidePanel(); });
   });
-  $('edit-cancel').addEventListener('click', () => { editingId = null; renderEditor(); });
-  $('archive').addEventListener('click', () => {
-    const account = current?.accounts.find((a) => a.id === editingId);
-    if (!account) return;
-    const id = account.id;
-    run(async () => {
-      const next = account.archived
-        ? await api.setArchived(id, false)
-        : await api.setArchived(id, true);
-      editingId = null;
-      return next;
-    });
+  on('archive', 'click', () => {
+    const id = editingId;
+    run(async () => { render(await api.setArchived(id, true)); await hidePanel(); });
   });
-  $('close-to-tray').addEventListener('change', () => {
+  on('btn-settings', 'click', () => run(() => showPanel('settings-overlay', () => view.settings(current), 'close-to-tray')));
+  on('settings-save', 'click', () => {
     const closeToTray = $('close-to-tray').checked;
-    run(() => api.settings({ closeToTray }));
+    run(async () => { render(await api.settings({ closeToTray })); await hidePanel(); });
   });
-  $('reload').addEventListener('click', () => {
-    const id = current?.activeId;
-    if (id) run(() => api.reload(id));
+  on('open-library', 'click', () => run(() => showPanel('account-library-overlay', renderLibrary, 'search')));
+  on('search', 'input', renderLibrary);
+  on('archived-only', 'change', renderLibrary);
+  for (const id of ['add-close', 'add-cancel', 'account-settings-close', 'account-settings-cancel',
+    'proxy-close', 'proxy-cancel', 'settings-close', 'settings-cancel', 'library-close']) {
+    on(id, 'click', () => run(hidePanel));
+  }
+  on('create-proxy-mode', 'change', () => {
+    $('create-proxy-fields').hidden = $('create-proxy-mode').value === 'system';
+    setBusy(busy);
   });
-  $('close').addEventListener('click', () => {
-    const id = current?.activeId;
-    if (id) run(() => api.close(id));
+  on('proxy-openProxy', 'change', () => setBusy(busy));
+  on('btn-collapse', 'click', () => run(async () => {
+    await syncLayout(false);
+    $('side-nav').classList.toggle('collapsed');
+    await syncLayout(!panel);
+  }));
+  for (const [id, action] of [['btn-win-min', 'minimize'], ['btn-win-max', 'toggleMaximize'], ['btn-win-close', 'close']]) {
+    on(id, 'click', () => run(() => api.windowAction(action)));
+  }
+  document.querySelector('.top-bar').addEventListener('mousedown', (event) => {
+    if (event.button === 0 && !event.target.closest('button, input, select, .tab-item') && !busy && api) {
+      api.windowAction('drag').catch(() => view.status(errorMessage('WEBVIEW_FAILED')));
+    }
   });
-
+  document.addEventListener('click', (event) => {
+    if (panel && (event.target === $(panel) || (panel === 'ctx-menu' && !$(panel).contains(event.target)))) run(hidePanel);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (panel && event.key === 'Escape') { event.preventDefault(); run(hidePanel); }
+    if (panel && event.key === 'Tab') {
+      const controls = [...$(panel).querySelectorAll('button, input, select')].filter((el) => !el.disabled && el.getClientRects().length);
+      if (!controls.length) return;
+      const first = controls[0]; const last = controls.at(-1);
+      if (event.shiftKey && (document.activeElement === first || !$(panel).contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !$(panel).contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    }
+  });
   function requestLayout() {
-    if (!api || !current) return;
+    if (!current || !api) return;
     layoutDirty = true;
-    if (layoutPending) return;
-    layoutPending = true;
+    if (layoutQueued) return;
+    layoutQueued = true;
     enqueue(async () => {
-      try {
-        while (layoutDirty) {
-          layoutDirty = false;
-          await api.layout();
-        }
-      } catch {
-        $('status').textContent = '页面布局更新失败，请重新选择账号。';
-      } finally { layoutPending = false; }
+      try { while (layoutDirty) { layoutDirty = false; await syncLayout(!panel); } }
+      catch { view.status(errorMessage('WEBVIEW_FAILED')); }
+      finally { layoutQueued = false; }
     });
   }
   window.addEventListener('resize', requestLayout);
-  if (api) {
-    run(() => api.snapshot());
-  } else {
+  const observer = window.ResizeObserver ? new window.ResizeObserver(requestLayout) : null;
+  observer?.observe($('webview-container'));
+  if (api) run(async () => { render(await api.snapshot()); await syncLayout(true); });
+  else {
     setBusy(false);
-    $('status').textContent = '请通过 Windows Tauri 客户端启动；浏览器预览不会模拟账号操作。';
+    view.status('\u8bf7\u4ece Tauri Windows \u5f00\u53d1\u7248\u542f\u52a8\uff1b\u6d4f\u89c8\u5668\u9884\u89c8\u4e0d\u6a21\u62df\u8d26\u53f7\u529f\u80fd\u3002');
   }
+  return { idle: () => enqueue(() => {}), dispose: () => observer?.disconnect() };
 }

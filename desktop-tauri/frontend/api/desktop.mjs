@@ -3,6 +3,7 @@
 export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invoke) {
   if (typeof invoke !== 'function') return null;
   return Object.freeze({
+    windowAction: (action) => invoke('desktop_window', { action }),
     snapshot: () => invoke('desktop_snapshot'),
     create: ({ name, platformId, websiteUrl, proxy }) =>
       invoke('account_create', { name, platformId, websiteUrl, proxy }),
@@ -12,7 +13,7 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     activate: (id) => invoke('account_activate', { id }),
     close: (id) => invoke('account_close', { id }),
     reload: (id) => invoke('account_reload', { id }),
-    layout: () => invoke('desktop_layout'),
+    layout: (viewport) => invoke('desktop_layout', { viewport }),
     settings: (settings) => invoke('desktop_settings', { settings }),
   });
 }

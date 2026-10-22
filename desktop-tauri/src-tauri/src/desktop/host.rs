@@ -5,6 +5,7 @@ use crate::{
         account::Account,
         error::{AppError, Result},
         navigation::NavigationPolicy,
+        presentation::{Viewport, WindowAction},
     },
     infrastructure::profiles::account_profile,
 };
@@ -17,6 +18,7 @@ use tauri::{
 pub struct TauriHost {
     app: AppHandle,
     root: PathBuf,
+    viewport: Viewport,
 }
 
 fn label(id: &str) -> String {
@@ -25,7 +27,11 @@ fn label(id: &str) -> String {
 
 impl TauriHost {
     pub fn new(app: AppHandle, root: PathBuf) -> Self {
-        Self { app, root }
+        Self {
+            app,
+            root,
+            viewport: Viewport::default(),
+        }
     }
 
     fn guest(&self, id: &str) -> Result<Webview> {
@@ -36,6 +42,14 @@ impl TauriHost {
 }
 
 impl DesktopHost for TauriHost {
+    fn set_viewport(&mut self, viewport: Viewport) {
+        self.viewport = viewport;
+    }
+
+    fn window_action(&mut self, action: WindowAction) -> Result<()> {
+        super::window::apply(&self.app, action)
+    }
+
     fn is_open(&self, id: &str) -> bool {
         self.app.get_webview(&label(id)).is_some()
     }
@@ -67,7 +81,7 @@ impl DesktopHost for TauriHost {
             Some(endpoint) => builder.proxy_url(endpoint),
             None => builder,
         };
-        let (_, size) = layout::bounds(&window)?;
+        let (_, size) = layout::bounds(&window, self.viewport)?;
         let guest = window
             .add_child(builder, LogicalPosition::new(100_000.0, 0.0), size)
             .map_err(|_| AppError::WebviewFailed)?;
@@ -80,7 +94,7 @@ impl DesktopHost for TauriHost {
 
     fn fit(&mut self, id: &str) -> Result<()> {
         let window = self.app.get_window("main").ok_or(AppError::WebviewFailed)?;
-        layout::fit(&self.guest(id)?, &window)
+        layout::fit(&self.guest(id)?, &window, self.viewport)
     }
 
     fn show(&mut self, id: &str) -> Result<()> {

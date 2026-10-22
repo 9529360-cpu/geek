@@ -16,6 +16,7 @@ export function filterAccounts(accounts, platforms, query = '', archivedOnly = f
 
 export function errorMessage(code) {
   const messages = {
+    LAYOUT_INVALID: '\u9875\u9762\u5e03\u5c40\u65e0\u6548\uff0c\u8bf7\u91cd\u8bd5\u3002',
     PROXY_INVALID: '代理配置无效：请填写主机和 1–65535 端口，不支持带认证的地址。',
     NAME_INVALID: '备注需为 1–64 个字符，不能包含控制字符。',
     ACCOUNT_LIMIT: '开发版最多保存 20 个账号（包括已归档账号）。',

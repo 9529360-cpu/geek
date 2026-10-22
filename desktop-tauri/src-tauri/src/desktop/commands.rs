@@ -4,6 +4,7 @@ use crate::{
     domain::{
         account::Settings,
         error::{AppError, Result},
+        presentation::{Viewport, WindowAction},
         proxy::ProxyConfig,
     },
 };
@@ -128,6 +129,19 @@ pub async fn account_reload(
 }
 
 #[tauri::command]
-pub async fn desktop_layout(webview: Webview, state: State<'_, SharedDesktop>) -> Result<()> {
-    execute(webview, state, |desktop| desktop.layout()).await
+pub async fn desktop_layout(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    viewport: Viewport,
+) -> Result<()> {
+    execute(webview, state, move |desktop| desktop.layout(viewport)).await
+}
+
+#[tauri::command]
+pub async fn desktop_window(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    action: WindowAction,
+) -> Result<()> {
+    execute(webview, state, move |desktop| desktop.window_action(action)).await
 }

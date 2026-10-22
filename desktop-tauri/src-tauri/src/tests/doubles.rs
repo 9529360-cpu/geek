@@ -9,6 +9,7 @@ use crate::{
         document::Document,
         error::{AppError, Result},
         navigation::NavigationPolicy,
+        presentation::{Viewport, WindowAction},
         proxy::ProxyConfig,
     },
     infrastructure::catalog,
@@ -53,6 +54,8 @@ pub struct HostState {
     pub close_to_tray: bool,
     pub routes: HashMap<String, ProxyConfig>,
     pub close_pending: bool,
+    pub viewport: Viewport,
+    pub window_actions: Vec<WindowAction>,
 }
 
 #[derive(Clone, Default)]
@@ -80,6 +83,14 @@ impl FakeHost {
 }
 
 impl DesktopHost for FakeHost {
+    fn set_viewport(&mut self, viewport: Viewport) {
+        self.0.lock().unwrap().viewport = viewport;
+    }
+    fn window_action(&mut self, action: WindowAction) -> Result<()> {
+        self.0.lock().unwrap().window_actions.push(action);
+        Ok(())
+    }
+
     fn is_open(&self, id: &str) -> bool {
         self.0.lock().unwrap().opened.contains(id)
     }
@@ -132,6 +143,12 @@ pub fn fixture() -> (TestDesktop, MemoryRepository, FakeHost, String, String) {
     let host = FakeHost::default();
     let accounts = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
     let mut desktop = Workspace::new(accounts, host.clone());
+    desktop
+        .layout(Viewport {
+            visible: true,
+            ..Viewport::default()
+        })
+        .unwrap();
     desktop
         .create("A", "whatsapp", None, Default::default())
         .unwrap();

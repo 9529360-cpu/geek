@@ -1,5 +1,6 @@
 use crate::domain::{
     account::Account, document::Document, error::Result, navigation::NavigationPolicy,
+    presentation::{Viewport, WindowAction},
 };
 
 /// Only the repository owns serialization, encryption, locks and atomic I/O.
@@ -12,6 +13,8 @@ pub trait AccountRepository {
 /// Native side effects. Account IDs are already validated by the use-case owner.
 /// This port exposes no arbitrary paths, scripts, URLs or privileged page bridge.
 pub trait DesktopHost {
+    fn set_viewport(&mut self, viewport: Viewport);
+    fn window_action(&mut self, action: WindowAction) -> Result<()>;
     fn is_open(&self, id: &str) -> bool;
     fn open(&mut self, account: &Account, navigation: NavigationPolicy) -> Result<()>;
     fn fit(&mut self, id: &str) -> Result<()>;
