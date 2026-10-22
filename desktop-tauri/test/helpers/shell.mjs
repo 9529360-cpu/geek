@@ -31,6 +31,18 @@ export async function fixture() {
     if (name === 'account_activate') { state.activeId = args.id; if (!state.openedIds.includes(args.id)) state.openedIds.push(args.id); }
     if (name === 'desktop_settings') state.settings = args.settings;
     if (name === 'account_create') state.accounts.push({ id: `new-${state.accounts.length}`, archived: false, ...args });
+    if (name === 'account_create_batch') {
+      const createdIds = [];
+      const existing = state.accounts.filter((a) => a.platformId === args.platformId).length;
+      const platform = state.platforms.find((p) => p.id === args.platformId);
+      for (let i = 0; i < args.count; i++) {
+        const id = `new-${state.accounts.length}`;
+        const label = args.name ? (args.count > 1 ? `${args.name} ${i + 1}` : args.name) : `${platform.name} ${existing + i + 1}`;
+        createdIds.push(id);
+        state.accounts.push({ id, name: label, platformId: args.platformId, websiteUrl: args.websiteUrl, proxy: args.proxy, archived: false });
+      }
+      return { snapshot: structuredClone(state), createdIds };
+    }
     return name.startsWith('desktop_') && !['desktop_settings', 'desktop_snapshot'].includes(name) ? null : structuredClone(state);
   });
   const shell = mountShell({ ...ui, api });

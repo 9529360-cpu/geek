@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod account;
+pub mod account_batch;
 pub mod document;
 pub mod error;
 pub mod navigation;

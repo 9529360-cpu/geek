@@ -59,6 +59,9 @@ jobs:
       - name: Install Rust toolchain
         id: toolchain
         run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Rust format gate (before expensive compilation)
+        id: formatting
+        run: cargo +stable fmt --manifest-path desktop-tauri/src-tauri/Cargo.toml -- --check
       - name: Windows Rust domain, use-case and persistence tests (locked)
         run: cargo +stable test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
       - name: Rust lint gate
@@ -68,10 +71,6 @@ jobs:
       - name: Verify committed dependency lock was not rewritten
         if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         run: git diff --exit-code -- desktop-tauri/src-tauri/Cargo.lock
-      - name: Rust format gate
-        id: formatting
-        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
-        run: cargo +stable fmt --manifest-path desktop-tauri/src-tauri/Cargo.toml -- --check
       - name: Prepare formatting suggestions after failed gate (never built)
         if: ${{ failure() && steps.formatting.outcome == 'failure' }}
         run: cargo +stable fmt --manifest-path desktop-tauri/src-tauri/Cargo.toml
@@ -85,13 +84,13 @@ jobs:
             desktop-tauri/src-tauri/build.rs
           if-no-files-found: error
           retention-days: 7
-      - name: Retain prototype and resolved dependency lock
-        if: always()
+      - name: Retain verified prototype and dependency lock
+        if: success()
         uses: actions/upload-artifact@v7
         with:
           name: geek-tauri-windows-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             desktop-tauri/src-tauri/target/release/geek-tauri.exe
             desktop-tauri/src-tauri/Cargo.lock
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7

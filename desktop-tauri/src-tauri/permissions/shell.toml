@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "shell-commands"
 description = "Narrow account lifecycle/settings API; no filesystem, shell, eval or arbitrary navigation access."
-commands.allow = ["desktop_window", "desktop_snapshot", "account_create", "account_set_proxy", "account_activate", "account_close", "account_reload", "desktop_layout", "account_rename", "account_set_archived", "desktop_settings"]
+commands.allow = ["desktop_window", "desktop_snapshot", "account_create", "account_create_batch", "account_set_proxy", "account_activate", "account_close", "account_reload", "desktop_layout", "account_rename", "account_set_archived", "desktop_settings"]

@@ -9,6 +9,7 @@ pub type Result<T> = std::result::Result<T, AppError>;
 pub enum AppError {
     LayoutInvalid,
     AccountLimit,
+    BatchInvalid,
     AccountUnknown,
     AccountArchived,
     AccountNotOpen,
@@ -35,6 +36,7 @@ impl AppError {
         match self {
             Self::LayoutInvalid => "LAYOUT_INVALID",
             Self::AccountLimit => "ACCOUNT_LIMIT",
+            Self::BatchInvalid => "BATCH_INVALID",
             Self::AccountUnknown => "ACCOUNT_UNKNOWN",
             Self::AccountArchived => "ACCOUNT_ARCHIVED",
             Self::AccountNotOpen => "ACCOUNT_NOT_OPEN",

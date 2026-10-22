@@ -1,6 +1,7 @@
 import { serialQueue, errorMessage } from './model.mjs';
 import { familyOf, visibleAccounts, viewportOf } from './models/shell.mjs';
 import { createShellView } from './view.mjs';
+import { batchCount } from './models/creation.mjs';
 
 export function mountShell({ document, window, api }) {
   const view = createShellView(document);
@@ -122,6 +123,7 @@ export function mountShell({ document, window, api }) {
   on('btn-app-center', 'click', () => run(() => showPanel('add-overlay', () => {
     selectedPlatform = null;
     $('add-name').value = '';
+    $('add-count').value = '1';
     $('add-custom-url').value = '';
     $('create-proxy-mode').value = 'system';
     $('create-proxy-host').value = '';
@@ -132,13 +134,18 @@ export function mountShell({ document, window, api }) {
   on('add-confirm', 'click', () => run(async () => {
     const platform = current.platforms.find((item) => item.id === selectedPlatform && item.enabled);
     if (!platform) throw 'PLATFORM_UNAVAILABLE';
-    const name = $('add-name').value.trim() || `${platform.name} ${current.accounts.filter((a) => a.platformId === platform.id).length + 1}`;
-    const next = await api.create({ name, platformId: platform.id,
+    const count = batchCount($('add-count').value);
+    const result = await api.createBatch({ name: $('add-name').value.trim(), count, platformId: platform.id,
       websiteUrl: platform.id === 'website' ? $('add-custom-url').value.trim() : null, proxy: view.readProxy(true) });
-    render(next); // Account is durably saved even when a later native open fails.
-    await hidePanel();
-    render(await api.activate(next.accounts.at(-1).id));
-    await syncLayout(true);
+    render(result.snapshot); // The whole batch is durable, even if native activation fails.
+    try {
+      await hidePanel();
+      render(await api.activate(result.createdIds[0])); // Only the first, not every new profile.
+      await syncLayout(true);
+    } catch {
+      // Never replay the durable creation when showing its first account fails.
+      throw 'ACCOUNTS_CREATED_OPEN_FAILED';
+    }
   }));
   on('account-settings-save', 'click', () => {
     const id = editingId;

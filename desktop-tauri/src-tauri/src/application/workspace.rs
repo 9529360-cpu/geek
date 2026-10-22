@@ -1,7 +1,7 @@
 use super::{
     accounts::Accounts,
     ports::{AccountRepository, DesktopHost},
-    snapshot::Snapshot,
+    snapshot::{CreatedAccounts, Snapshot},
 };
 use crate::domain::{
     account::Settings,
@@ -56,6 +56,23 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         self.accounts
             .create(name, platform_id, website_url, proxy)?;
         Ok(self.snapshot())
+    }
+
+    pub fn create_batch(
+        &mut self,
+        name: &str,
+        platform_id: &str,
+        website_url: Option<&str>,
+        proxy: ProxyConfig,
+        count: u8,
+    ) -> Result<CreatedAccounts> {
+        let created_ids = self
+            .accounts
+            .create_batch(name, platform_id, website_url, proxy, count)?;
+        Ok(CreatedAccounts {
+            snapshot: self.snapshot(),
+            created_ids,
+        })
     }
 
     pub fn rename(&mut self, id: &str, name: &str) -> Result<Snapshot> {

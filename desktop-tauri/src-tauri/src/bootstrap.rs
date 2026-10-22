@@ -15,6 +15,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::desktop_snapshot,
             commands::account_create,
+            commands::account_create_batch,
             commands::account_set_proxy,
             commands::account_activate,
             commands::account_close,

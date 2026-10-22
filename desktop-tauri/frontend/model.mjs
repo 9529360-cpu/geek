@@ -16,6 +16,8 @@ export function filterAccounts(accounts, platforms, query = '', archivedOnly = f
 
 export function errorMessage(code) {
   const messages = {
+    BATCH_INVALID: '添加数量必须是 1–10 的整数。',
+    ACCOUNTS_CREATED_OPEN_FAILED: '账号已保存，但页面未能打开。请从账号列表重新打开，不要重复添加。',
     LAYOUT_INVALID: '\u9875\u9762\u5e03\u5c40\u65e0\u6548\uff0c\u8bf7\u91cd\u8bd5\u3002',
     PROXY_INVALID: '代理配置无效：请填写主机和 1–65535 端口，不支持带认证的地址。',
     NAME_INVALID: '备注需为 1–64 个字符，不能包含控制字符。',

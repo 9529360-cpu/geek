@@ -13,14 +13,14 @@ export function createShellView(document) {
   $('settings-account-email').textContent = '\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
   $('settings-account-quota').textContent = '\u8ba2\u9605\u5c1a\u672a\u8fc1\u79fb';
   $('add-count').value = '1';
-  $('add-count').title = '\u6279\u91cf\u6dfb\u52a0\u5c1a\u672a\u8fc1\u79fb';
+  $('add-count').title = '1–10 个；整批保存成功后只打开第一个账号';
   $('account-settings-name').maxLength = 64;
   const pending = ['btn-restart', 'btn-lock', 'btn-contact-notes', 'btn-translation', 'btn-broadcast'];
   for (const id of pending) {
     $(id).title += ' \u00b7 \u5c1a\u672a\u8fc1\u79fb';
     $(id).setAttribute('aria-label', $(id).title);
   }
-  for (const id of ['add-name', 'add-custom-url', 'account-settings-name', 'proxy-openProxy',
+  for (const id of ['add-count', 'add-name', 'add-custom-url', 'account-settings-name', 'proxy-openProxy',
     'proxy-protocal', 'proxy-host', 'proxy-port', 'close-to-tray', 'search', 'archived-only',
     'create-proxy-mode', 'create-proxy-host', 'create-proxy-port']) wire(id);
   for (const option of $('proxy-protocal').options) option.disabled = !['http', 'socks5'].includes(option.value);

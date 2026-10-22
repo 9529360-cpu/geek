@@ -1,6 +1,7 @@
 use super::ports::AccountRepository;
 use crate::domain::{
-    account::{self, Account, Settings},
+    account::{self, Account, Settings, MAX_ACCOUNTS},
+    account_batch,
     document::{Document, SCHEMA_VERSION},
     error::{AppError, Result},
     navigation::NavigationPolicy,
@@ -59,8 +60,31 @@ impl<R: AccountRepository> Accounts<R> {
         if !account::valid_name(name) {
             return Err(AppError::NameInvalid);
         }
-        proxy.validate()?;
+        self.create_batch(name, platform_id, website_url, proxy, 1)
+            .map(|_| ())
+    }
+
+    /// One candidate and one durable write for the entire bounded batch.
+    /// No guest is created here; opening the first result is a separate operation.
+    pub fn create_batch(
+        &mut self,
+        name: &str,
+        platform_id: &str,
+        website_url: Option<&str>,
+        proxy: ProxyConfig,
+        count: u8,
+    ) -> Result<Vec<String>> {
         let platform = platform::platform(&self.platforms, platform_id)?;
+        let existing = self
+            .accounts()
+            .iter()
+            .filter(|a| a.platform_id == platform_id)
+            .count();
+        let names = account_batch::names(name, &platform.name, existing, count)?;
+        if self.accounts().len() + names.len() > MAX_ACCOUNTS {
+            return Err(AppError::AccountLimit);
+        }
+        proxy.validate()?;
         let navigation = NavigationPolicy::new(platform, website_url)?;
         let website_url = if platform_id == "website" {
             Some(navigation.start().to_string())
@@ -68,15 +92,21 @@ impl<R: AccountRepository> Accounts<R> {
             None
         };
         let mut next = self.document.clone();
-        next.accounts.push(Account {
-            id: Uuid::new_v4().to_string(),
-            name: name.into(),
-            platform_id: platform_id.into(),
-            archived: false,
-            website_url,
-            proxy,
-        });
-        self.commit(next)
+        let mut created_ids = Vec::with_capacity(names.len());
+        for name in names {
+            let id = Uuid::new_v4().to_string();
+            created_ids.push(id.clone());
+            next.accounts.push(Account {
+                id,
+                name,
+                platform_id: platform_id.into(),
+                archived: false,
+                website_url: website_url.clone(),
+                proxy: proxy.clone(),
+            });
+        }
+        self.commit(next)?;
+        Ok(created_ids)
     }
 
     pub fn rename(&mut self, id: &str, name: &str) -> Result<()> {

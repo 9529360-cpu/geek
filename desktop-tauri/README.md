@@ -114,9 +114,9 @@ account context menu, name/proxy dialogs and settings remain the UI baseline.
 Window minimize/maximize/close/drag use typed Rust commands; native guest geometry
 tracks the actual chat container and is suspended while a modal/menu is open.
 
-Wired paths: create one account with proxy, switch accounts/families, rename, reload,
+Wired paths: create 1-10 accounts with proxy, switch accounts/families, rename, reload,
 close, archive, search/restore, tray preference and native window controls.
-Not yet wired: batch create, drag reorder, name color/font settings, restart/lock,
+Not yet wired: drag reorder, name color/font settings, restart/lock,
 auth/subscription, theme/startup options, translation/notes/broadcast and attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
@@ -126,3 +126,19 @@ removal of Electron scripts/inline handlers and the measured viewport contract.
 Other shell tests exercise actual migrated controllers against synthetic native
 responses. These do not replace original-vs-migrated screenshots or real WebView2
 runtime checks. See UI-PARITY.md for the durable migration requirement.
+
+## Application center batch creation
+
+The original quantity field accepts 1-10 accounts per operation. Rust generates names
+using the original rule (custom base plus a suffix for multiple accounts, or platform
+name plus its existing count), validates every final name, and saves one candidate.
+Invalid count/name/URL/proxy, exceeding the 20-account limit including archives, or
+failed persistence leaves the whole batch uncommitted. No profiles are opened while
+saving; each created account has a distinct UUID and profile path.
+
+The response identifies the created IDs explicitly. Only the first is opened after
+save, as in the original desktop; the others stay closed until selected. Failed native
+activation does not roll back saved accounts or retry creation, and the UI reports
+that the accounts are saved so users can reopen them instead of adding duplicates.
+The older single-create command remains compatible and uses the same transaction owner.
+No Electron profiles are imported. This is not proof of real platform login/reception.

@@ -17,6 +17,17 @@
       "response": "Snapshot"
     },
     {
+      "name": "account_create_batch",
+      "arguments": [
+        "name",
+        "platformId",
+        "websiteUrl",
+        "proxy",
+        "count"
+      ],
+      "response": "CreatedAccounts"
+    },
+    {
       "name": "account_set_proxy",
       "arguments": [
         "id",

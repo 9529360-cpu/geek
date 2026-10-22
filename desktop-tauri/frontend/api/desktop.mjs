@@ -7,6 +7,8 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     snapshot: () => invoke('desktop_snapshot'),
     create: ({ name, platformId, websiteUrl, proxy }) =>
       invoke('account_create', { name, platformId, websiteUrl, proxy }),
+    createBatch: ({ name, platformId, websiteUrl, proxy, count }) =>
+      invoke('account_create_batch', { name, platformId, websiteUrl, proxy, count }),
     setProxy: (id, proxy) => invoke('account_set_proxy', { id, proxy }),
     rename: (id, name) => invoke('account_rename', { id, name }),
     setArchived: (id, archived) => invoke('account_set_archived', { id, archived }),

@@ -1,6 +1,6 @@
 use super::{security::authorize, NativeDesktop, SharedDesktop};
 use crate::{
-    application::snapshot::Snapshot,
+    application::snapshot::{CreatedAccounts, Snapshot},
     domain::{
         account::Settings,
         error::{AppError, Result},
@@ -51,6 +51,28 @@ pub async fn account_create(
             &platform_id,
             website_url.as_deref(),
             proxy.unwrap_or_default(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn account_create_batch(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    name: String,
+    platform_id: String,
+    website_url: Option<String>,
+    proxy: Option<ProxyConfig>,
+    count: u8,
+) -> Result<CreatedAccounts> {
+    execute(webview, state, move |desktop| {
+        desktop.create_batch(
+            &name,
+            &platform_id,
+            website_url.as_deref(),
+            proxy.unwrap_or_default(),
+            count,
         )
     })
     .await

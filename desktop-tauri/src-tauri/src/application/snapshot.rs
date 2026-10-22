@@ -15,3 +15,11 @@ pub struct Snapshot {
     pub settings: Settings,
     pub tray_available: bool,
 }
+
+/// Identifies this operation's accounts, never inferred from a changing UI selection.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedAccounts {
+    pub snapshot: Snapshot,
+    pub created_ids: Vec<String>,
+}

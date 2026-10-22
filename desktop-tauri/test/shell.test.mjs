@@ -77,8 +77,8 @@ test('original application center binds proxy before first open and retains a sa
   assert.equal(state.accounts.at(-1).name, 'New account');
   assert.equal(state.accounts.at(-1).proxy.mode, 'socks5');
   const commands = calls.map(([n]) => n);
-  assert.ok(commands.indexOf('account_create') < commands.indexOf('account_activate'));
-  assert.equal(commands.filter((n) => n === 'account_create').length, 1);
+  assert.ok(commands.indexOf('account_create_batch') < commands.indexOf('account_activate'));
+  assert.equal(commands.filter((n) => n === 'account_create_batch').length, 1);
 });
 
 test('overlay is shown only after native hide succeeds; collapsed layout uses measured bounds', async () => {

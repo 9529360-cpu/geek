@@ -1,3 +1,4 @@
+mod account_batch;
 mod desktop;
 mod doubles;
 mod persistence;
