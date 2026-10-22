@@ -180,7 +180,12 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         let active = self.active_id.as_deref().filter(|id| self.host.is_open(id));
         match (viewport.visible, active) {
             (true, Some(id)) => {
-                if self.host.show(id).and_then(|_| self.host.focus(id)).is_err() {
+                if self
+                    .host
+                    .show(id)
+                    .and_then(|_| self.host.focus(id))
+                    .is_err()
+                {
                     let _ = self.host.hide(id);
                     return Err(AppError::WebviewFailed);
                 }

@@ -117,14 +117,21 @@ fn settings_effects_are_published_only_after_persistence() {
 
 #[test]
 fn unknown_accounts_never_reach_the_host() {
-    let (mut desktop, _, host, _, _) = fixture();
+    let (mut desktop, repository, host, _, _) = fixture();
+    // Fixture initialization legitimately focuses the shell. Invalid account
+    // operations must add no native effects or durable writes after that baseline.
+    let calls = host.0.lock().unwrap().calls.clone();
+    let saves = repository.0.lock().unwrap().saves;
     for id in ["../shell", "shell", "00000000-0000-4000-8000-000000000000"] {
         assert!(desktop.activate(id).is_err());
         assert!(desktop.close(id).is_err());
         assert!(desktop.reload(id).is_err());
         assert!(desktop.set_archived(id, true).is_err());
+        assert!(desktop.rename(id, "Invalid owner").is_err());
+        assert!(desktop.set_proxy(id, Default::default()).is_err());
+        assert_eq!(host.0.lock().unwrap().calls, calls);
+        assert_eq!(repository.0.lock().unwrap().saves, saves);
     }
-    assert!(host.0.lock().unwrap().calls.is_empty());
 }
 
 #[test]
