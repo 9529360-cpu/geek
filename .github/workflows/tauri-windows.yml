@@ -2,10 +2,10 @@ name: tauri-windows-prototype
 on:
   push:
     branches: [master, 'feat/tauri-windows-rust']
-    paths: ['desktop-tauri/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+    paths: ['desktop-tauri/**', 'ui/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
   pull_request:
     branches: [master]
-    paths: ['desktop-tauri/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+    paths: ['desktop-tauri/**', 'ui/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
 permissions:
   contents: read
 concurrency:
@@ -28,7 +28,7 @@ jobs:
           package-manager-cache: false
       - name: Architecture, size, IPC and frontend behavior gates
         run: node desktop-tauri/scripts/run-tests.cjs
-      - name: Retain exact source snapshot for independent checks
+      - name: Retain exact source and original UI reference for independent checks
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -49,7 +49,11 @@ jobs:
             desktop-tauri/README.md
             desktop-tauri/ARCHITECTURE.md
             desktop-tauri/AGENTS.md
+            desktop-tauri/UI-PARITY.md
+            ui/
             src/platform-catalog.cjs
+            AGENTS.md
+            docs/README.md
           if-no-files-found: error
           retention-days: 7
       - name: Install Rust toolchain
