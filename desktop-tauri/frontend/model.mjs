@@ -29,7 +29,7 @@ export function errorMessage(code) {
     PLATFORM_UNAVAILABLE: '这个平台尚未完成 Tauri 适配。',
     WEBSITE_URL_INVALID: '请输入 HTTPS 域名地址；不支持本地地址、IP、账号密码、非标准端口或带 ? / # 的临时链接。',
     WEBSITE_URL_UNEXPECTED: '只有自定义网站账号可以设置网站地址。',
-    STORE_IO: '账号数据保存失败；未提交的修改不会生效。',
+    STORE_IO: '账号数据读写失败；未提交的修改不会生效。',
     DPAPI_FAILED: 'Windows 安全存储不可用；不会回退到明文保存。',
     WEBVIEW_FAILED: '页面操作失败，请重试并检查 WebView2 Runtime。',
     TRAY_UNAVAILABLE: '系统托盘不可用，关闭窗口仍将退出应用。',

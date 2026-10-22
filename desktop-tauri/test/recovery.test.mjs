@@ -10,6 +10,7 @@ test('initial snapshot failure leaves window controls and read-only recovery ava
   const ui = await fixture({ initialFailures: ['desktop_snapshot'] });
   assert.equal(ui.get('btn-app-center').disabled, true);
   assert.equal(ui.get('btn-settings').disabled, true);
+  assert.match(ui.get('runtime-status-message').textContent, /\u8bfb\u5199\u5931\u8d25/);
   for (const id of ['btn-win-min', 'btn-win-max', 'btn-win-close', 'runtime-retry']) {
     assert.equal(ui.get(id).disabled, false, id);
   }
