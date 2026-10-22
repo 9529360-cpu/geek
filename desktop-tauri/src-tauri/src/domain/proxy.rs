@@ -25,14 +25,8 @@ pub enum ProxyConfig {
 #[serde(tag = "mode", rename_all = "lowercase", deny_unknown_fields)]
 enum ProxyInput {
     System {},
-    Http {
-        host: String,
-        port: u16,
-    },
-    Socks5 {
-        host: String,
-        port: u16,
-    },
+    Http { host: String, port: u16 },
+    Socks5 { host: String, port: u16 },
 }
 
 impl<'de> Deserialize<'de> for ProxyConfig {
