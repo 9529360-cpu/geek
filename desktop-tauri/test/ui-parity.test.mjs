@@ -39,3 +39,9 @@ test('viewport DTO excludes owner, URL and scripts and refuses invalid measureme
   assert.deepEqual(viewportOf(element, false), { x: 176, y: 35, width: 784, height: 605, visible: false });
   assert.throws(() => viewportOf({ getBoundingClientRect: () => ({ x: NaN, y: 0, width: 10, height: 10 }) }, true));
 });
+
+// The original stylesheet matches explicit text types, not an omitted default.
+test('runtime proxy host inherits the original text-input styling', () => {
+  const { html } = compose();
+  assert.match(html, /<input\b(?=[^>]*\bid="create-proxy-host")(?=[^>]*\btype="text")[^>]*>/);
+});
