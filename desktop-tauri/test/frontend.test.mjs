@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { serialQueue, errorMessage, filterAccounts, archiveAccount } from '../frontend/model.mjs';
@@ -132,7 +133,7 @@ test('native and CSS chrome agree and the shell cannot zoom out of alignment', (
 
 test('frontend entrypoints parse', () => {
   for (const file of ['../frontend/app.mjs', '../frontend/model.mjs']) {
-    const result = spawnSync(process.execPath, ['--check', new URL(file, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')], { encoding: 'utf8' });
+    const result = spawnSync(process.execPath, ['--check', fileURLToPath(new URL(file, import.meta.url))], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
   }
 });

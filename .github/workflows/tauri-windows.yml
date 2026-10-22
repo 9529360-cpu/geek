@@ -20,7 +20,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Frontend behavior and boundary contracts
-        run: node --test desktop-tauri/test
+        run: node desktop-tauri/scripts/run-tests.cjs
       - name: Retain exact source snapshot for independent checks
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

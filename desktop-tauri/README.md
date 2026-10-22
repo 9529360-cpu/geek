@@ -9,7 +9,7 @@ Windows 专用独立开发版。Tauri 是桌面框架，Rust 负责本地后端�
 在仓库根目录运行：
 
 ```powershell
-node --test desktop-tauri/test
+node desktop-tauri/scripts/run-tests.cjs
 cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml
 cargo run --manifest-path desktop-tauri/src-tauri/Cargo.toml
 # 只构建开发验证 EXE，不签名、不上传生产、不发布更新：
