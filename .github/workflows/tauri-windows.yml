@@ -16,16 +16,23 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Checkout exact candidate
+        uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
       - name: Frontend behavior and boundary contracts
         run: node desktop-tauri/scripts/run-tests.cjs
       - name: Retain exact source snapshot for independent checks
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v7
         with:
-          name: geek-tauri-source-${{ github.sha }}
+          name: geek-tauri-source-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             desktop-tauri/frontend/
             desktop-tauri/test/
@@ -48,9 +55,9 @@ jobs:
         run: cargo +stable build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
       - name: Retain prototype and resolved dependency lock
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v7
         with:
-          name: geek-tauri-windows-${{ github.sha }}
+          name: geek-tauri-windows-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             desktop-tauri/src-tauri/target/release/geek-tauri.exe
             desktop-tauri/src-tauri/Cargo.lock
