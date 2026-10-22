@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "shell-commands"
+description = "Narrow account lifecycle API; no filesystem, shell, eval or arbitrary URL access."
+commands.allow = ["desktop_snapshot", "account_create", "account_activate", "account_close", "account_reload", "desktop_layout"]

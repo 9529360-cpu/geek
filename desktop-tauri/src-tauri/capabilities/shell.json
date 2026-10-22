@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "shell",
+  "description": "Only the bundled shell WebView can manage accounts. Never grant the parent window or remote guests these permissions.",
+  "local": true,
+  "webviews": ["shell"],
+  "platforms": ["windows"],
+  "permissions": ["shell-commands"]
+}

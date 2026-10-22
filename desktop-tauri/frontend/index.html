@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>极客 · Tauri Windows</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <aside>
+    <div class="brand"><strong>极客 <span>GEEK</span></strong><small>TAURI · WINDOWS · 开发版</small></div>
+    <form id="create-form">
+      <label for="platform">平台</label>
+      <select id="platform" name="platform" required disabled></select>
+      <label for="name">账号备注</label>
+      <input id="name" name="name" maxlength="64" required autocomplete="off" placeholder="例如：工作账号" disabled>
+      <button id="create" type="submit" disabled>＋ 添加独立账号</button>
+    </form>
+    <div class="list-heading">账号 <span id="account-count">0</span></div>
+    <nav id="accounts" aria-label="账号列表"></nav>
+    <p class="sidebar-note">每个账号使用独立浏览器数据目录。<br>关闭页面不会删除登录状态。</p>
+  </aside>
+  <header>
+    <div><small>独立工作区</small><h1 id="active-title">请选择账号</h1></div>
+    <div class="actions"><button id="reload" disabled>刷新页面</button><button id="close" disabled>关闭页面</button></div>
+  </header>
+  <main id="empty">
+    <div class="intro"><span class="badge">RUST + TAURI 2 + WEBVIEW2</span><h2>从一个独立账号开始</h2>
+      <p>在左侧添加账号，然后在原生 WebView2 中打开登录页面。</p>
+      <p>这是独立迁移开发版，不读取或覆盖 Electron 的账号数据。</p>
+      <div class="notice">LINE、自定义网站、翻译、群发和更新尚未接入。<br>弹窗、下载、摄像头、麦克风及网页权限请求暂时禁用。<br>“已打开”仅表示页面存在，不表示已登录或已验证后台收消息。</div>
+    </div>
+  </main>
+  <footer><span id="status" role="status" aria-live="polite">正在连接 Rust 后端…</span><span>独立数据 · 不自动发布</span></footer>
+</body>
+</html>

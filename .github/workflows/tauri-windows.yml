@@ -1,0 +1,39 @@
+name: tauri-windows-prototype
+on:
+  push:
+    branches: ['feat/tauri-windows-rust']
+    paths: ['desktop-tauri/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+  pull_request:
+    branches: [master]
+    paths: ['desktop-tauri/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: tauri-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Frontend and boundary contracts
+        run: node --test desktop-tauri/test/frontend.test.mjs
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Windows Rust tests (DPAPI, store, policy)
+        run: cargo +stable test --manifest-path desktop-tauri/src-tauri/Cargo.toml
+      - name: Build standalone prototype executable (not an installer or release)
+        run: cargo +stable build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+      - name: Retain prototype and resolved dependency lock
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: geek-tauri-windows-${{ github.sha }}
+          path: |
+            desktop-tauri/src-tauri/target/release/geek-tauri.exe
+            desktop-tauri/src-tauri/Cargo.lock
+          if-no-files-found: warn
+          retention-days: 7
