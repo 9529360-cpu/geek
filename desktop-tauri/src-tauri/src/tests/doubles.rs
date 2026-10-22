@@ -48,7 +48,7 @@ impl AccountRepository for MemoryRepository {
 pub struct HostState {
     pub opened: HashSet<String>,
     pub visible: HashSet<String>,
-    pub fail: Option<(&'static str, String)>,
+    failures: HashSet<(String, String)>,
     pub calls: Vec<(String, String)>,
     pub tray: bool,
     pub close_to_tray: bool,
@@ -62,6 +62,18 @@ pub struct HostState {
 pub struct FakeHost(pub Arc<Mutex<HostState>>);
 
 impl FakeHost {
+    pub fn fail(&self, action: &str, id: &str) {
+        self.0
+            .lock()
+            .unwrap()
+            .failures
+            .insert((action.into(), id.into()));
+    }
+
+    pub fn recover(&self) {
+        self.0.lock().unwrap().failures.clear();
+    }
+
     fn action(
         &mut self,
         action: &str,
@@ -70,11 +82,7 @@ impl FakeHost {
     ) -> Result<()> {
         let mut state = self.0.lock().unwrap();
         state.calls.push((action.into(), id.into()));
-        if state
-            .fail
-            .as_ref()
-            .is_some_and(|(op, owner)| *op == action && owner == id)
-        {
+        if state.failures.contains(&(action.into(), id.into())) {
             return Err(AppError::WebviewFailed);
         }
         update(&mut state);

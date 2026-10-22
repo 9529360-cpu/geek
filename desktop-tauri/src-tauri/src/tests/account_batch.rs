@@ -153,7 +153,7 @@ fn first_open_failure_keeps_the_complete_batch_without_opening_neighbors() {
         .create_batch("Team", "whatsapp", None, proxy(), 3)
         .unwrap();
     let first = &created.created_ids[0];
-    host.0.lock().unwrap().fail = Some(("open", first.clone()));
+    host.fail("open", first);
     assert!(workspace.activate(first).is_err());
     assert_eq!(workspace.snapshot().accounts.len(), 5);
     assert_eq!(workspace.snapshot().active_id.as_deref(), Some(a.as_str()));
@@ -161,7 +161,7 @@ fn first_open_failure_keeps_the_complete_batch_without_opening_neighbors() {
         .created_ids
         .iter()
         .all(|id| !host.0.lock().unwrap().opened.contains(id)));
-    host.0.lock().unwrap().fail = None;
+    host.recover();
     workspace.activate(first).unwrap();
     assert_eq!(workspace.snapshot().opened_ids.len(), 2);
     assert!(created.created_ids[1..]

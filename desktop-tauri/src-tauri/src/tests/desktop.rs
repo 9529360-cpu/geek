@@ -20,7 +20,7 @@ fn failed_activation_restores_the_previous_owner() {
     for step in ["fit", "show", "focus"] {
         let (mut desktop, _, host, a, b) = fixture();
         desktop.activate(&a).unwrap();
-        host.0.lock().unwrap().fail = Some((step, b.clone()));
+        host.fail(step, &b);
         assert!(matches!(desktop.activate(&b), Err(AppError::WebviewFailed)));
         assert_eq!(desktop.snapshot().active_id.as_deref(), Some(a.as_str()));
         let state = host.0.lock().unwrap();
@@ -32,7 +32,7 @@ fn failed_activation_restores_the_previous_owner() {
 #[test]
 fn failed_first_open_keeps_metadata_without_inventing_an_active_view() {
     let (mut desktop, _, host, a, _) = fixture();
-    host.0.lock().unwrap().fail = Some(("open", a.clone()));
+    host.fail("open", &a);
     assert!(desktop.activate(&a).is_err());
     let snapshot = desktop.snapshot();
     assert!(snapshot.active_id.is_none());
@@ -65,7 +65,7 @@ fn failed_close_prevents_archiving_and_disk_write() {
     let (mut desktop, repository, host, a, _) = fixture();
     desktop.activate(&a).unwrap();
     let writes = repository.0.lock().unwrap().saves;
-    host.0.lock().unwrap().fail = Some(("close", a.clone()));
+    host.fail("close", &a);
     assert!(desktop.set_archived(&a, true).is_err());
     assert!(!desktop.snapshot().accounts[0].archived);
     assert_eq!(desktop.snapshot().active_id.as_deref(), Some(a.as_str()));

@@ -5,3 +5,4 @@ mod persistence;
 mod policy;
 mod presentation;
 mod proxy;
+mod recovery;

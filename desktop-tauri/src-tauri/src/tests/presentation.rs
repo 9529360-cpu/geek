@@ -39,7 +39,7 @@ fn modal_suspension_keeps_identity_and_never_reveals_newly_selected_guests() {
 fn failed_hide_blocks_overlay_acknowledgement_without_closing_other_accounts() {
     let (mut workspace, _, host, a, _) = fixture();
     workspace.activate(&a).unwrap();
-    host.0.lock().unwrap().fail = Some(("hide", a.clone()));
+    host.fail("hide", &a);
     assert!(matches!(
         workspace.layout(viewport(false)),
         Err(AppError::WebviewFailed)
@@ -89,11 +89,11 @@ fn window_controls_have_a_typed_allowlist_and_do_not_rebind_accounts() {
 fn failed_shell_focus_keeps_guests_hidden_and_does_not_acknowledge_a_modal() {
     let (mut workspace, _, host, a, _) = fixture();
     workspace.activate(&a).unwrap();
-    host.0.lock().unwrap().fail = Some(("focus_shell", "shell".into()));
+    host.fail("focus_shell", "shell");
     assert!(workspace.layout(viewport(false)).is_err());
     assert!(host.0.lock().unwrap().visible.is_empty());
     assert_eq!(workspace.snapshot().active_id.as_deref(), Some(a.as_str()));
-    host.0.lock().unwrap().fail = None;
+    host.recover();
     workspace.layout(viewport(true)).unwrap();
     assert!(host.0.lock().unwrap().visible.contains(&a));
 }

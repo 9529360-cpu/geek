@@ -131,9 +131,9 @@ fn failed_or_pending_close_never_commits_routing_or_archive() {
     let (mut workspace, disk, host, a, _) = fixture();
     workspace.activate(&a).unwrap();
     let saves = disk.0.lock().unwrap().saves;
-    host.0.lock().unwrap().fail = Some(("close", a.clone()));
+    host.fail("close", &a);
     assert!(workspace.set_proxy(&a, http()).is_err());
-    host.0.lock().unwrap().fail = None;
+    host.recover();
     host.0.lock().unwrap().close_pending = true;
     assert!(matches!(
         workspace.set_proxy(&a, http()),
@@ -180,7 +180,7 @@ fn creation_binds_proxy_before_first_open_and_open_failure_keeps_configuration()
         .unwrap();
     let id = result.accounts.last().unwrap().id.clone();
     assert!(!result.opened_ids.contains(&id));
-    host.0.lock().unwrap().fail = Some(("open", id.clone()));
+    host.fail("open", &id);
     assert!(workspace.activate(&id).is_err());
     assert_eq!(workspace.snapshot().accounts.last().unwrap().proxy, http());
     assert_eq!(
@@ -193,7 +193,7 @@ fn creation_binds_proxy_before_first_open_and_open_failure_keeps_configuration()
             .count(),
         1
     );
-    host.0.lock().unwrap().fail = None;
+    host.recover();
     workspace.activate(&id).unwrap();
     assert_eq!(host.0.lock().unwrap().routes[&id], http());
 }

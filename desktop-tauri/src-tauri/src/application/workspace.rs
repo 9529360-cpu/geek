@@ -33,7 +33,7 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         Snapshot {
             accounts: self.accounts.accounts().to_vec(),
             platforms: self.accounts.platforms().iter().map(|p| p.info()).collect(),
-            active_id: self.active_id.clone(),
+            active_id: self.active_id.clone().filter(|id| self.host.is_open(id)),
             opened_ids: self
                 .accounts
                 .accounts()
@@ -137,18 +137,45 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
             Ok(())
         })();
         if transition.is_err() {
-            // A failed hide must not silently retain a view under the wrong title.
-            let hidden = self.host.hide(id).is_ok() || self.host.close(id).is_ok();
-            let restored = hidden
-                && self.content_visible
-                && previous
-                    .as_ref()
-                    .is_some_and(|old| self.host.is_open(old) && self.host.show(old).is_ok());
-            self.active_id = if restored { previous } else { None };
+            self.rollback_activation(id, previous);
             return Err(AppError::WebviewFailed);
         }
         self.active_id = Some(id.to_owned());
         Ok(self.snapshot())
+    }
+
+    /// A queued close is not proof that a failed-to-hide guest is gone.
+    fn hide_or_close(&mut self, id: &str) -> bool {
+        if !self.host.is_open(id) || self.host.hide(id).is_ok() {
+            return true;
+        }
+        self.host.close(id).is_ok() && !self.host.is_open(id)
+    }
+
+    fn rollback_activation(&mut self, id: &str, previous: Option<String>) {
+        let hidden = self.hide_or_close(id);
+        self.active_id = None;
+        if !hidden {
+            // Do not reveal a neighbor while the failed target may still be visible.
+            self.content_visible = false;
+            return;
+        }
+        let Some(previous) = previous.filter(|old| self.host.is_open(old)) else {
+            return;
+        };
+        if self.content_visible
+            && self
+                .host
+                .show(&previous)
+                .and_then(|_| self.host.focus(&previous))
+                .is_err()
+        {
+            self.hide_or_close(&previous);
+            self.content_visible = false;
+            return;
+        }
+        // Suspended content retains selection without showing/focusing any guest.
+        self.active_id = Some(previous);
     }
 
     pub fn close(&mut self, id: &str) -> Result<Snapshot> {
@@ -194,8 +221,8 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
                 self.host.fit(&account.id)?;
             }
         }
-        let active = self.active_id.as_deref().filter(|id| self.host.is_open(id));
-        match (viewport.visible, active) {
+        let active = self.active_id.clone().filter(|id| self.host.is_open(id));
+        match (viewport.visible, active.as_deref()) {
             (true, Some(id)) => {
                 if self
                     .host
@@ -203,7 +230,9 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
                     .and_then(|_| self.host.focus(id))
                     .is_err()
                 {
-                    let _ = self.host.hide(id);
+                    if !self.hide_or_close(id) || !self.host.is_open(id) {
+                        self.active_id = None;
+                    }
                     return Err(AppError::WebviewFailed);
                 }
             }
