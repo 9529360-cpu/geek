@@ -15,7 +15,10 @@ fn proxy() -> ProxyConfig {
 
 #[test]
 fn batch_names_preserve_original_count_suffixes_and_default_numbering() {
-    assert_eq!(account_batch::names(" Team ", "WA", 2, 1).unwrap(), ["Team"]);
+    assert_eq!(
+        account_batch::names(" Team ", "WA", 2, 1).unwrap(),
+        ["Team"]
+    );
     assert_eq!(
         account_batch::names("Team", "WA", 2, 3).unwrap(),
         ["Team 1", "Team 2", "Team 3"]
@@ -188,13 +191,18 @@ fn batch_survives_encrypted_restart_with_distinct_website_profiles() {
         .unwrap();
     drop(accounts);
     let ciphertext = std::fs::read(root.path().join("accounts.dpapi")).unwrap();
-    assert!(!ciphertext.windows(15).any(|bytes| bytes == b"Synthetic batch"));
+    assert!(!ciphertext
+        .windows(15)
+        .any(|bytes| bytes == b"Synthetic batch"));
     let accounts = open();
     assert_eq!(accounts.accounts().len(), 2);
     for (item, id) in accounts.accounts().iter().zip(&ids) {
         assert_eq!(&item.id, id);
         assert_eq!(item.proxy, proxy());
-        assert_eq!(item.website_url.as_deref(), Some("https://example.com/inbox"));
+        assert_eq!(
+            item.website_url.as_deref(),
+            Some("https://example.com/inbox")
+        );
     }
     assert_ne!(
         account_profile(root.path(), &ids[0]).unwrap(),

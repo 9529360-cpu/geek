@@ -66,9 +66,9 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         proxy: ProxyConfig,
         count: u8,
     ) -> Result<CreatedAccounts> {
-        let created_ids = self
-            .accounts
-            .create_batch(name, platform_id, website_url, proxy, count)?;
+        let created_ids =
+            self.accounts
+                .create_batch(name, platform_id, website_url, proxy, count)?;
         Ok(CreatedAccounts {
             snapshot: self.snapshot(),
             created_ids,
