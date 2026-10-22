@@ -26,6 +26,8 @@ button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity:
   color: var(--text-primary);
   z-index: 10000;
 }
+.runtime-status.in-dialog { position: static; margin: 8px 16px; }
+.runtime-status button { margin-top: 6px; white-space: normal; }
 .library-accounts { display: flex; flex-direction: column; gap: 8px; max-height: 45vh; overflow: auto; }
 .library-row { display: flex; gap: 8px; align-items: center; }
 .library-row strong { flex: 1; overflow-wrap: anywhere; }

@@ -1,5 +1,5 @@
 import { serialQueue, errorMessage } from './model.mjs';
-import { familyOf, visibleAccounts, viewportOf } from './models/shell.mjs';
+import { families, familyOf, visibleAccounts, viewportOf } from './models/shell.mjs';
 import { createShellView } from './view.mjs';
 import { batchCount } from './models/creation.mjs';
 
@@ -17,7 +17,7 @@ export function mountShell({ document, window, api }) {
   const remembered = new Map();
   let layoutQueued = false;
   let layoutDirty = false;
-  const setBusy = (value) => { busy = value; view.busy(value, Boolean(current && api)); };
+  const setBusy = (value) => { busy = value; view.busy(value, Boolean(current && api), Boolean(api)); };
   const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible));
 
   function render(next) {
@@ -27,15 +27,16 @@ export function mountShell({ document, window, api }) {
       family = familyOf(active.platformId, next.platforms);
       remembered.set(family, active.id);
     }
-    family ||= next.platforms[0]?.family || next.platforms[0]?.id;
+    const groups = families(next);
+    if (!groups.some((item) => item.key === family)) family = groups[0]?.key || null;
     view.accounts.render(next, family, { activate, context, family: selectFamily });
     if (panel === 'account-library-overlay') renderLibrary();
     setBusy(busy);
   }
-  function run(operation) {
+  function run(operation, clearStatus = true) {
     if (busy || !api) return Promise.resolve(false);
     setBusy(true);
-    view.status();
+    if (clearStatus) view.status();
     return enqueue(async () => {
       try {
         await operation();
@@ -50,6 +51,7 @@ export function mountShell({ document, window, api }) {
   async function hidePanel() {
     if (panel) $(panel).classList.add('hidden');
     panel = null;
+    view.statusPanel(null);
     await syncLayout(true);
     returnFocus?.focus();
   }
@@ -59,6 +61,7 @@ export function mountShell({ document, window, api }) {
     if (panel) $(panel).classList.add('hidden');
     panel = id;
     fill?.();
+    view.statusPanel(id);
     $(id).classList.remove('hidden');
     if (id === 'ctx-menu') {
       const menu = $(id);
@@ -183,8 +186,13 @@ export function mountShell({ document, window, api }) {
     await syncLayout(!panel);
   }));
   for (const [id, action] of [['btn-win-min', 'minimize'], ['btn-win-max', 'toggleMaximize'], ['btn-win-close', 'close']]) {
-    on(id, 'click', () => run(() => api.windowAction(action)));
+    on(id, 'click', () => run(() => api.windowAction(action), false));
   }
+  // Re-read authority and geometry only; never replay a failed mutation.
+  on('runtime-retry', 'click', () => run(async () => {
+    render(await api.snapshot());
+    await syncLayout(!panel);
+  }));
   document.querySelector('.top-bar').addEventListener('mousedown', (event) => {
     if (event.button === 0 && !event.target.closest('button, input, select, .tab-item') && !busy && api) {
       api.windowAction('drag').catch(() => view.status(errorMessage('WEBVIEW_FAILED')));

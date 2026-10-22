@@ -2,10 +2,10 @@ import { connectDesktop } from '../../frontend/api/desktop.mjs';
 import { mountShell } from '../../frontend/controller.mjs';
 import { dom, settled } from './dom.mjs';
 
-export async function fixture() {
+export async function fixture({ initialFailures = [], initialState = {} } = {}) {
   const ui = dom();
   const calls = [];
-  const failures = new Set();
+  const failures = new Set(initialFailures);
   const state = {
     accounts: ['a', 'b'].map((id) => ({ id, name: id, platformId: 'whatsapp', archived: false, proxy: { mode: 'system' } })),
     platforms: [{ id: 'whatsapp', family: 'whatsapp', name: 'WhatsApp', enabled: true },
@@ -15,6 +15,7 @@ export async function fixture() {
       { id: 'website', family: 'website', name: 'Website', enabled: true }],
     activeId: 'a', openedIds: ['a', 'b'], settings: { closeToTray: false }, trayAvailable: true,
   };
+  Object.assign(state, structuredClone(initialState));
   const api = connectDesktop(async (name, args) => {
     calls.push([name, structuredClone(args)]);
     const account = state.accounts.find((a) => a.id === args?.id);
@@ -47,7 +48,7 @@ export async function fixture() {
   });
   const shell = mountShell({ ...ui, api });
   await shell.idle();
-  await settled(ui.get);
+  if (!initialFailures.length) await settled(ui.get);
   const click = async (id) => { ui.get(id).fire('click'); await shell.idle(); };
   const context = async (id, index) => {
     ui.get('nav-accounts').children.find((e) => e.dataset.id === id).fire('contextmenu', { clientX: 100, clientY: 100 });

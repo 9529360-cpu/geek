@@ -79,7 +79,7 @@ test('failure to open a saved batch is reported separately and cannot replay cre
   assert.equal(ui.state.accounts.length, 5);
   assert.equal(ui.state.activeId, 'a');
   assert.equal(ui.get('add-overlay').classList.contains('hidden'), true);
-  assert.equal(ui.get('runtime-status').textContent, errorMessage('ACCOUNTS_CREATED_OPEN_FAILED'));
+  assert.equal(ui.get('runtime-status-message').textContent, errorMessage('ACCOUNTS_CREATED_OPEN_FAILED'));
   assert.equal(ui.calls.filter(([n]) => n === 'account_create_batch').length, 1);
   ui.failures.clear();
   ui.get('nav-accounts').children.find((e) => e.dataset.id === 'new-2').fire('click');
