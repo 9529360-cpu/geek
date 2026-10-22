@@ -10,13 +10,13 @@ Windows 专用独立开发版。Tauri 是桌面框架，Rust 负责本地后端�
 
 ```powershell
 node desktop-tauri/scripts/run-tests.cjs
-cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml
-cargo run --manifest-path desktop-tauri/src-tauri/Cargo.toml
+cargo test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+cargo run --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
 # 只构建开发验证 EXE，不签名、不上传生产、不发布更新：
-cargo build --release --manifest-path desktop-tauri/src-tauri/Cargo.toml
+cargo build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
 ```
 
-EXE 位于 `desktop-tauri/src-tauri/target/release/geek-tauri.exe`。`tauri-windows-prototype` 在 GitHub-hosted Windows 上运行前端行为/边界测试、Rust 单元测试及 EXE 构建。源码快照、EXE 和解析得到的 Cargo.lock 分别保存在带 SHA 的短期 artifact 中。测试 EXE 不是安装包或正式发行。Cargo.lock 尚未提交；当前 release 构建使用本次测试阶段生成的锁文件，不能据此宣称跨运行可复现构建。
+EXE 位于 `desktop-tauri/src-tauri/target/release/geek-tauri.exe`。`tauri-windows-prototype` 在 GitHub-hosted Windows 上运行前端行为/边界测试、Rust 单元测试及 EXE 构建。源码快照、EXE 和解析得到的 Cargo.lock 分别保存在带 SHA 的短期 artifact 中。测试 EXE 不是安装包或正式发行。Cargo.lock 来自实际成功的 Windows 构建，已纳入源码。测试、Clippy 和 release 构建统一使用 `--locked`，CI 也会检查锁文件没有被重写。这锁定的是依赖解析结果，不代表编译器、SDK、WebView2 版本或二进制字节完全可复现。
 
 ## 可操作的代码路径
 
@@ -28,6 +28,16 @@ EXE 位于 `desktop-tauri/src-tauri/target/release/geek-tauri.exe`。`tauri-wind
 - 独立 native 子 WebView 布局和高 DPI 尺寸换算；管理界面禁用网页缩放快捷键，避免 CSS 外壳与 native 页面区域错位。账号页面的网页缩放不改变外壳布局。
 
 LINE / LINE Business 按维护者要求暂不处理，前端和 Rust 均保持禁用。新增平台元数据继续由 `src/platform-catalog.cjs` 构建时导出，不维护第二份默认平台 URL 表。
+
+## 账号级浏览器代理
+
+创建账号时即可设置网络，首次打开网页前生效。已有账号在“管理”中选择跟随系统、HTTP 或 SOCKS5 后保存。“跟随系统”使用 Windows 网络设置，不承诺一定直连。HTTP/SOCKS5 支持 ASCII 主机名、规范 IP 地址（IPv6 需方括号）和 1–65535 端口；暂不支持账号密码认证、PAC、绕过列表或任意浏览器参数。
+
+Rust 先验证固定账号和配置，再关闭该账号的页面。只有页面已从原生视图列表移除，才保存加密账号文档；不会自动重连。相同配置不关闭页面、不重复写入。关闭失败或尚未关闭时保留旧配置；保存失败则保留旧配置和可重新打开的账号。其他账号、Cookie 和 profile 归属不变。保存成功后，由用户主动点击账号重新打开。
+
+代理在创建 WebView2 页面前传入。创建失败时不会移除代理再尝试连接。代理不通可能表现为网页网络错误；“已打开”不表示网络连通或已登录。WebView2 可能在页面关闭后仍保留原 profile 的浏览器环境；修改代理后重新打开失败时，应退出并重启开发版，不应清空 profile 或改为系统网络来掩盖失败。
+
+这只是浏览器 HTTP/HTTPS 请求的代理配置，不是 VPN 或网络防火墙，不承诺覆盖 WebRTC、UDP、DNS 或浏览器的全部流量，也不修改管理界面或后续 Rust 服务请求的网络配置。单元和界面测试验证规则、归属、持久化和创建参数接线；实际代理连通性及平台兼容性仍属于单独的 Windows 运行验证。
 
 ## Website 账号约束
 
@@ -41,14 +51,14 @@ identifier 为 `com.geek.desktop.tauri.prototype`。数据位于独立的 local 
 
 `accounts.dpapi` 使用当前 Windows 用户 DPAPI 加密账号元数据和桌面设置；同目录原子替换成功后才更新权威内存。独占进程锁阻止同目录双写。损坏文件、解密失败、未知 schema 均阻止启动，不清空或明文回退。
 
-schema 2 新增归档、Website 入口和桌面设置。读取 schema 1 时使用安全默认值并保留原账号 ID，不在启动时重写文件；下一次成功修改才写 schema 2。旧开发版遇到 schema 2 会拒绝启动，不应要求它忽略版本或重置文件。
+schema 3 新增账号代理配置。schema 1/2 可继续读取，缺失代理时默认跟随系统，账号 ID 不变；启动不会主动重写旧数据。下一次成功修改才写入 schema 3。旧开发版会拒绝更高版本，不能通过清空数据来降级。
 
 浏览器会话由各账号 WebView2 profile 管理。DPAPI 只保护本应用的账号文档，不表示整个浏览器目录统一加密，也不防同 Windows 用户下的恶意进程。关闭页面/归档后该页面不再收消息；仅隐藏页面或主窗口是否能稳定后台收消息，留待维护者真机验收。
 
 ## 权限与模块边界
 
 - `main.rs` / `bootstrap.rs`: 仅负责组装；`domain/` 负责纯业务规则；`application/` 负责账号事务与窗口用例；`infrastructure/` 负责加密、文件、路径适配；`desktop/` 负责 Tauri IPC、WebView2 与托盘。
-- 仅本地 `shell` 获得九个显式账号/布局/设置命令，所有命令再次验证 sender label、父窗口和本地 origin。父窗口不能获得通配授权；第三方页面无这些权限、通用文件/Shell/eval API 或 privileged preload。
+- 仅本地 `shell` 获得显式账号/布局/设置命令，所有命令再次验证 sender label、父窗口和本地 origin。父窗口不能获得通配授权；第三方页面无这些权限、通用文件/Shell/eval API 或 privileged preload。
 - 远程弹窗、下载和网页权限默认拒绝，不关闭沙箱或 web security。
 - 窗口关闭回调不获取 Desktop 的阻塞锁，避免与等待 UI 线程的 WebView 创建命令相互等待。关闭到托盘偏好在成功落盘后才发布到运行时。
 - 管理和编辑在侧栏完成，不用会被 native 子 WebView 遮挡的网页模态层；账号名称使用 textContent，不拼接 HTML。
@@ -57,7 +67,7 @@ schema 2 新增归档、Website 入口和桌面设置。读取 schema 1 时使�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：账号代理、翻译/订阅/群发/附件桥、消息通知、崩溃恢复、Electron 数据迁移、安装器及自动更新。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：翻译/订阅/群发/附件桥、消息通知、崩溃恢复、Electron 数据迁移、安装器及自动更新。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -84,7 +94,7 @@ Archive is now a single Rust-owned use case, not a frontend multi-command transa
 ```powershell
 node desktop-tauri/scripts/run-tests.cjs
 cargo fmt --manifest-path desktop-tauri/src-tauri/Cargo.toml -- --check
-cargo clippy --manifest-path desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo clippy --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
 The Node entrypoint checks line limits, architecture boundaries and the canonical

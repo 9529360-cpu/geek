@@ -50,7 +50,8 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         website_url: Option<&str>,
         proxy: ProxyConfig,
     ) -> Result<Snapshot> {
-        self.accounts.create(name, platform_id, website_url, proxy)?;
+        self.accounts
+            .create(name, platform_id, website_url, proxy)?;
         Ok(self.snapshot())
     }
 

@@ -97,7 +97,9 @@ export function mountShell({ document, window, api }) {
     const name = $('edit-name').value.trim();
     if (id && name) run(async () => {
       const next = await api.rename(id, name);
-      renderedEditorId = null;
+      const account = next.accounts.find((item) => item.id === id);
+      if (account) $('edit-name').value = account.name;
+      // A successful rename must not discard an unsaved proxy draft.
       return next;
     });
   });

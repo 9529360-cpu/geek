@@ -132,8 +132,12 @@ pub fn fixture() -> (TestDesktop, MemoryRepository, FakeHost, String, String) {
     let host = FakeHost::default();
     let accounts = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
     let mut desktop = Workspace::new(accounts, host.clone());
-    desktop.create("A", "whatsapp", None, Default::default()).unwrap();
-    let snapshot = desktop.create("B", "whatsapp", None, Default::default()).unwrap();
+    desktop
+        .create("A", "whatsapp", None, Default::default())
+        .unwrap();
+    let snapshot = desktop
+        .create("B", "whatsapp", None, Default::default())
+        .unwrap();
     let a = snapshot.accounts[0].id.clone();
     let b = snapshot.accounts[1].id.clone();
     (desktop, repository, host, a, b)

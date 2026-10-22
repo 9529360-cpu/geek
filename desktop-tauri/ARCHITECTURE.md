@@ -77,7 +77,7 @@ No remove-then-rename sequence or plaintext fallback is permitted.
 
 The repository owns an exclusive process lock for its lifetime. Bad ciphertext, unknown
 schema, malformed IDs, duplicate IDs or invalid platform policy fail closed. Loading
-schema 1 preserves IDs without eager writes; a successful mutation writes schema 2.
+schema 1 or 2 preserves IDs without eager writes; a successful mutation writes schema 3.
 A failed write keeps the old durable document and memory. The older prototype must not
 silently reset a newer document to downgrade it.
 
@@ -95,7 +95,7 @@ separate runtime acceptance question, not inferred from the presence of a guest.
 
 ## 4. Threads and lifecycle
 
-All nine shell commands pass the same native sender check (WebView label + parent window
+All shell commands pass the same native sender check (WebView label + parent window
 + precise bundled origin). They execute serial workspace mutations on Tauri's blocking
 executor, not on the UI thread or by blocking an async worker with disk I/O. The shared
 mutex protects the short desktop state/lifecycle operations and their commit ordering.
@@ -133,6 +133,23 @@ and does not protect against a malicious process running as the same Windows use
 No scan/import of real legacy profiles, token extraction or automated real-message sending
 is part of foundation development.
 
+## Account network configuration
+
+`domain/proxy.rs` is the typed route validator; `Account.proxy` is persisted by the existing
+account owner, not a second configuration store. The add-account use case accepts the
+route before its first activation. The modify-route use case validates the owner/config,
+no-ops unchanged input, confirms the same guest has closed, then saves through Accounts.
+The common close operation rejects a success response that leaves the native view registered.
+A failed close prevents both proxy and archive commits. A failed save leaves the old route,
+closed view and stable profile recoverable; no automatic reconnect or fallback is permitted.
+
+`desktop/host.rs` applies the validated endpoint before creating the guest. System leaves
+OS configuration in effect; HTTP/SOCKS5 use `WebviewBuilder::proxy_url`. No raw flags,
+credentials, PAC or bypass list cross this interface. View closure is not proof that the
+WebView2 environment has exited: rebuilding the same profile can fail and require an app
+restart, never an identity change. Proxy HTTP/HTTPS routing is not a VPN, DNS firewall or
+WebRTC/UDP egress guarantee, and does not affect the shell or Rust HTTP clients.
+
 ## 6. Feature boundaries for subsequent implementation
 
 These are design constraints, **not implemented-feature claims or placeholder modules**.
@@ -140,7 +157,6 @@ Introduce each owner only with a working caller, tests and an integration path.
 
 | Feature owner | Inputs/state and commit rule |
 | --- | --- |
-| Account network/proxy | Validated account-owned profile configuration; apply before guest creation; changes require controlled close/reopen; no credential-in-URL logs |
 | Subscription/auth | Local secure credential store + fixed service contract; backend remains authority for session validity, quota and billing; no renderer provider secrets |
 | Platform adapter | Explicit platform capabilities and immutable account/guest generation; no global `eval`, focus-based routing or fallback to a different account |
 | SendIntent | Transaction ID, account, guest generation, conversation, composer snapshot, deadline/cancellation; owns send; revalidates destination immediately before native commit |
@@ -170,7 +186,7 @@ tests execute the real controller/view/gateway with DOM/native doubles.
 
 Rust tests cover policy, DPAPI roundtrip/tamper, schema compatibility, independent profiles,
 instance locking and failed atomic writes. Fake repository/native host tests exercise the
-actual workspace owner: cross-account archive, close failure, commit failure, activate
+actual workspace owner: cross-account archive/proxy, pending/failed close, commit failure, activate
 rollback, reuse, unknown IDs and post-commit tray publication. These tests require no
 customer login or message data.
 
@@ -187,6 +203,8 @@ PR and exact-head Actions results hold live progress; this document holds durabl
 
 - Tauri capabilities: https://v2.tauri.app/security/capabilities/
 - Blocking executor: https://docs.rs/tauri/latest/tauri/async_runtime/fn.spawn_blocking.html
+- Proxy builder: https://docs.rs/tauri/latest/tauri/webview/struct.WebviewBuilder.html#method.proxy_url
+- Browser routing scope: https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags
 - Cargo lock guidance: https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 - Rustfmt configuration: https://rust-lang.github.io/rustfmt/
 - Windows DPAPI: https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata

@@ -52,4 +52,3 @@ export async function settled(get) {
   }
   assert.fail('shell did not finish its queued operation');
 }
-

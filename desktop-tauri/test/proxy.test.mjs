@@ -37,6 +37,7 @@ test('shell proxy edit captures managed owner, retains drafts on failure and doe
   let fail = true;
   const api = connectDesktop(async (command, args) => {
     calls.push([command, structuredClone(args)]);
+    if (command === 'account_rename') state.accounts.find((a) => a.id === args.id).name = args.name;
     if (command === 'account_set_proxy') {
       state.openedIds = state.openedIds.filter((id) => id !== args.id);
       if (fail) throw 'STORE_IO';
@@ -60,6 +61,11 @@ test('shell proxy edit captures managed owner, retains drafts on failure and doe
   assert.equal(get('edit-name').value, 'unsaved name');
   assert.equal(state.activeId, 'a');
   assert.match(get('status').textContent, /保存失败/);
+  get('edit-form').fire('submit');
+  await settled(get);
+  assert.equal(state.accounts[1].name, 'unsaved name');
+  assert.equal(get('edit-proxy-port').value, '8080');
+  assert.equal(get('edit-proxy-mode').value, 'http');
   fail = false;
   get('proxy-form').fire('submit');
   await settled(get);

@@ -30,8 +30,12 @@ fn profile_for(root: &Path, store: &Store, id: &str) -> Result<PathBuf> {
 fn restart_roundtrip_encryption_and_distinct_profiles() {
     let root = tempfile::tempdir().unwrap();
     let mut store = open_store(root.path().to_path_buf()).unwrap();
-    store.create("Synthetic A", "whatsapp", None, Default::default()).unwrap();
-    store.create("Synthetic B", "whatsapp", None, Default::default()).unwrap();
+    store
+        .create("Synthetic A", "whatsapp", None, Default::default())
+        .unwrap();
+    store
+        .create("Synthetic B", "whatsapp", None, Default::default())
+        .unwrap();
     let accounts = store.accounts().to_vec();
     assert_ne!(
         profile_for(root.path(), &store, &accounts[0].id).unwrap(),
@@ -51,8 +55,12 @@ fn restart_roundtrip_encryption_and_distinct_profiles() {
 fn rename_archive_restore_preserve_identity_and_profile() {
     let root = tempfile::tempdir().unwrap();
     let mut store = open_store(root.path().to_path_buf()).unwrap();
-    store.create("Synthetic A", "telegram-k", None, Default::default()).unwrap();
-    store.create("Synthetic B", "telegram-k", None, Default::default()).unwrap();
+    store
+        .create("Synthetic A", "telegram-k", None, Default::default())
+        .unwrap();
+    store
+        .create("Synthetic B", "telegram-k", None, Default::default())
+        .unwrap();
     let id = store.accounts()[0].id.clone();
     let other = store.accounts()[1].clone();
     let profile = profile_for(root.path(), &store, &id).unwrap();
@@ -109,14 +117,26 @@ fn website_entry_is_persisted_and_account_owned() {
         .create(
             "Bad",
             "website",
-            Some("https://example.com/?token=synthetic"), Default::default())
+            Some("https://example.com/?token=synthetic"),
+            Default::default()
+        )
         .is_err());
     assert!(store.accounts().is_empty());
     store
-        .create("Site A", "website", Some("https://EXAMPLE.com/inbox"), Default::default())
+        .create(
+            "Site A",
+            "website",
+            Some("https://EXAMPLE.com/inbox"),
+            Default::default(),
+        )
         .unwrap();
     store
-        .create("Site B", "website", Some("https://other.example.com/"), Default::default())
+        .create(
+            "Site B",
+            "website",
+            Some("https://other.example.com/"),
+            Default::default(),
+        )
         .unwrap();
     let accounts = store.accounts().to_vec();
     assert_eq!(
@@ -162,14 +182,18 @@ fn damaged_and_future_stores_are_never_reset() {
 fn persistence_failure_never_publishes_any_mutation() {
     let root = tempfile::tempdir().unwrap();
     let mut store = open_store(root.path().to_path_buf()).unwrap();
-    store.create("Original", "whatsapp", None, Default::default()).unwrap();
+    store
+        .create("Original", "whatsapp", None, Default::default())
+        .unwrap();
     let before = store.accounts().to_vec();
     let id = before[0].id.clone();
     let file = root.path().join("accounts.dpapi");
     let backup = root.path().join("synthetic-backup");
     fs::rename(&file, &backup).unwrap();
     fs::create_dir(&file).unwrap();
-    assert!(store.create("Second", "whatsapp", None, Default::default()).is_err());
+    assert!(store
+        .create("Second", "whatsapp", None, Default::default())
+        .is_err());
     assert!(store.rename(&id, "Changed").is_err());
     assert!(store.set_archived(&id, true).is_err());
     assert!(store
@@ -192,7 +216,9 @@ fn persistence_failure_never_publishes_any_mutation() {
 fn malformed_duplicate_and_unknown_records_fail_closed() {
     let root = tempfile::tempdir().unwrap();
     let mut store = open_store(root.path().to_path_buf()).unwrap();
-    store.create("A", "whatsapp", None, Default::default()).unwrap();
+    store
+        .create("A", "whatsapp", None, Default::default())
+        .unwrap();
     let a = store.accounts()[0].clone();
     assert!(validate(&[a.clone(), a.clone()], store.platforms()).is_err());
     let mut bad = a;
@@ -230,7 +256,7 @@ fn archived_accounts_cannot_bypass_the_limit() {
         platform_id: "whatsapp".into(),
         archived: false,
         website_url: None,
-            proxy: Default::default(),
+        proxy: Default::default(),
     });
     assert!(matches!(
         validate(&excessive, &all),
