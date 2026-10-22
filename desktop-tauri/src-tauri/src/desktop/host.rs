@@ -45,6 +45,7 @@ impl DesktopHost for TauriHost {
         if self.is_open(&account.id) {
             return Ok(());
         }
+        let proxy = account.proxy.endpoint()?;
         let window = self.app.get_window("main").ok_or(AppError::WebviewFailed)?;
         let profile = account_profile(&self.root, &account.id)?;
         std::fs::create_dir_all(&profile).map_err(|_| AppError::StoreIo)?;
@@ -60,6 +61,12 @@ impl DesktopHost for TauriHost {
         .on_new_window(|_, _| NewWindowResponse::Deny)
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_download(|_, _| false);
+        // Apply only to this owner-bound profile, before its first navigation.
+        // Creation errors propagate; never retry with the proxy removed.
+        let builder = match proxy {
+            Some(endpoint) => builder.proxy_url(endpoint),
+            None => builder,
+        };
         let (_, size) = layout::bounds(&window)?;
         let guest = window
             .add_child(builder, LogicalPosition::new(100_000.0, 0.0), size)

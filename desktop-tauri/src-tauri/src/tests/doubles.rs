@@ -9,11 +9,12 @@ use crate::{
         document::Document,
         error::{AppError, Result},
         navigation::NavigationPolicy,
+        proxy::ProxyConfig,
     },
     infrastructure::catalog,
 };
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -50,6 +51,8 @@ pub struct HostState {
     pub calls: Vec<(String, String)>,
     pub tray: bool,
     pub close_to_tray: bool,
+    pub routes: HashMap<String, ProxyConfig>,
+    pub close_pending: bool,
 }
 
 #[derive(Clone, Default)]
@@ -83,6 +86,7 @@ impl DesktopHost for FakeHost {
     fn open(&mut self, account: &Account, _: NavigationPolicy) -> Result<()> {
         self.action("open", &account.id, |s| {
             s.opened.insert(account.id.clone());
+            s.routes.insert(account.id.clone(), account.proxy.clone());
         })
     }
     fn fit(&mut self, id: &str) -> Result<()> {
@@ -103,6 +107,9 @@ impl DesktopHost for FakeHost {
     }
     fn close(&mut self, id: &str) -> Result<()> {
         self.action("close", id, |s| {
+            if s.close_pending {
+                return;
+            }
             s.opened.remove(id);
             s.visible.remove(id);
         })
@@ -125,8 +132,8 @@ pub fn fixture() -> (TestDesktop, MemoryRepository, FakeHost, String, String) {
     let host = FakeHost::default();
     let accounts = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
     let mut desktop = Workspace::new(accounts, host.clone());
-    desktop.create("A", "whatsapp", None).unwrap();
-    let snapshot = desktop.create("B", "whatsapp", None).unwrap();
+    desktop.create("A", "whatsapp", None, Default::default()).unwrap();
+    let snapshot = desktop.create("B", "whatsapp", None, Default::default()).unwrap();
     let a = snapshot.accounts[0].id.clone();
     let b = snapshot.accounts[1].id.clone();
     (desktop, repository, host, a, b)

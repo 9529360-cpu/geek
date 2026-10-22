@@ -1,14 +1,77 @@
 {
   "version": 1,
   "commands": [
-    { "name": "desktop_snapshot", "arguments": [], "response": "Snapshot" },
-    { "name": "account_create", "arguments": ["name", "platformId", "websiteUrl"], "response": "Snapshot" },
-    { "name": "account_rename", "arguments": ["id", "name"], "response": "Snapshot" },
-    { "name": "account_set_archived", "arguments": ["id", "archived"], "response": "Snapshot" },
-    { "name": "account_activate", "arguments": ["id"], "response": "Snapshot" },
-    { "name": "account_close", "arguments": ["id"], "response": "Snapshot" },
-    { "name": "account_reload", "arguments": ["id"], "response": "Snapshot" },
-    { "name": "desktop_layout", "arguments": [], "response": "unit" },
-    { "name": "desktop_settings", "arguments": ["settings"], "response": "Snapshot" }
+    {
+      "name": "desktop_snapshot",
+      "arguments": [],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_create",
+      "arguments": [
+        "name",
+        "platformId",
+        "websiteUrl",
+        "proxy"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_set_proxy",
+      "arguments": [
+        "id",
+        "proxy"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_rename",
+      "arguments": [
+        "id",
+        "name"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_set_archived",
+      "arguments": [
+        "id",
+        "archived"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_activate",
+      "arguments": [
+        "id"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_close",
+      "arguments": [
+        "id"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_reload",
+      "arguments": [
+        "id"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "desktop_layout",
+      "arguments": [],
+      "response": "unit"
+    },
+    {
+      "name": "desktop_settings",
+      "arguments": [
+        "settings"
+      ],
+      "response": "Snapshot"
+    }
   ]
 }

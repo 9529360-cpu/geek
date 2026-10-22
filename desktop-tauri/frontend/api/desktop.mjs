@@ -4,8 +4,9 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
   if (typeof invoke !== 'function') return null;
   return Object.freeze({
     snapshot: () => invoke('desktop_snapshot'),
-    create: ({ name, platformId, websiteUrl }) =>
-      invoke('account_create', { name, platformId, websiteUrl }),
+    create: ({ name, platformId, websiteUrl, proxy }) =>
+      invoke('account_create', { name, platformId, websiteUrl, proxy }),
+    setProxy: (id, proxy) => invoke('account_set_proxy', { id, proxy }),
     rename: (id, name) => invoke('account_rename', { id, name }),
     setArchived: (id, archived) => invoke('account_set_archived', { id, archived }),
     activate: (id) => invoke('account_activate', { id }),

@@ -23,6 +23,18 @@
             <input id="website-url" type="url" maxlength="2048" autocomplete="off" placeholder="https://example.com/inbox" disabled>
             <p class="hint">仅允许该域名内导航。地址创建后固定；不支持本地地址或临时登录链接。</p>
           </div>
+          <label for="create-proxy-mode">账号网络</label>
+          <select id="create-proxy-mode" disabled>
+            <option value="system">跟随 Windows 系统设置</option>
+            <option value="http">HTTP 代理（无认证）</option>
+            <option value="socks5">SOCKS5 代理（无认证）</option>
+          </select>
+          <div id="create-proxy-fields" hidden>
+            <label for="create-proxy-host">代理主机（不含协议）</label>
+            <input id="create-proxy-host" maxlength="253" autocomplete="off" placeholder="127.0.0.1 或 proxy.example.com" disabled>
+            <label for="create-proxy-port">端口</label>
+            <input id="create-proxy-port" type="number" min="1" max="65535" step="1" autocomplete="off" placeholder="8080" disabled>
+          </div>
           <button id="create" type="submit" disabled>创建并打开</button>
         </form>
       </details>
@@ -36,6 +48,23 @@
           <label for="edit-name">账号备注</label>
           <input id="edit-name" maxlength="64" required autocomplete="off" disabled>
           <div class="editor-actions"><button type="submit" disabled>保存备注</button><button id="edit-cancel" type="button" disabled>取消</button></div>
+        </form>
+        <form id="proxy-form">
+          <label for="edit-proxy-mode">账号网络</label>
+          <select id="edit-proxy-mode" disabled>
+            <option value="system">跟随 Windows 系统设置</option>
+            <option value="http">HTTP 代理（无认证）</option>
+            <option value="socks5">SOCKS5 代理（无认证）</option>
+          </select>
+          <div id="edit-proxy-fields" hidden>
+            <label for="edit-proxy-host">代理主机（不含协议）</label>
+            <input id="edit-proxy-host" maxlength="253" autocomplete="off" placeholder="127.0.0.1 或 proxy.example.com" disabled>
+            <label for="edit-proxy-port">端口</label>
+            <input id="edit-proxy-port" type="number" min="1" max="65535" step="1" autocomplete="off" placeholder="8080" disabled>
+          </div>
+          <p class="hint">保存变更会先关闭此账号，不自动重连；再次点击账号打开。代理不通时不自动撤销配置。</p>
+          <p class="hint">仅配置该账号的网页请求，不是 VPN；暂不支持代理账号密码。</p>
+          <button id="save-proxy" type="submit" disabled>保存网络设置</button>
         </form>
         <p id="archive-note" class="hint"></p>
         <button id="archive" type="button" disabled>归档（保留登录数据）</button>

@@ -6,6 +6,7 @@ use super::{
 use crate::domain::{
     account::Settings,
     error::{AppError, Result},
+    proxy::ProxyConfig,
 };
 
 /// Serial use-case owner. Native callbacks must never lock this coordinator.
@@ -47,8 +48,9 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         name: &str,
         platform_id: &str,
         website_url: Option<&str>,
+        proxy: ProxyConfig,
     ) -> Result<Snapshot> {
-        self.accounts.create(name, platform_id, website_url)?;
+        self.accounts.create(name, platform_id, website_url, proxy)?;
         Ok(self.snapshot())
     }
 
@@ -66,6 +68,18 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
             self.close(id)?;
         }
         self.accounts.set_archived(id, archived)?;
+        Ok(self.snapshot())
+    }
+
+    /// Validate before closing. Never silently reconnect after a routing change.
+    pub fn set_proxy(&mut self, id: &str, proxy: ProxyConfig) -> Result<Snapshot> {
+        let account = self.accounts.account(id)?;
+        proxy.validate()?;
+        if account.proxy == proxy {
+            return Ok(self.snapshot());
+        }
+        self.close(id)?;
+        self.accounts.set_proxy(id, proxy)?;
         Ok(self.snapshot())
     }
 
@@ -115,6 +129,9 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         self.accounts.account(id)?;
         if self.host.is_open(id) {
             self.host.close(id)?;
+            if self.host.is_open(id) {
+                return Err(AppError::AccountStillOpen);
+            }
         }
         if self.active_id.as_deref() == Some(id) {
             self.active_id = None;

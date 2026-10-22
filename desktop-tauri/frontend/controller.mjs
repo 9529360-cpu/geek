@@ -67,6 +67,8 @@ export function mountShell({ document, window, api }) {
   }
 
   $('platform').addEventListener('change', syncWebsiteForm);
+  view.createProxy.mode.addEventListener('change', () => view.createProxy.sync(busy || !current));
+  view.editProxy.mode.addEventListener('change', () => view.editProxy.sync(busy || !current));
   $('search').addEventListener('input', renderAccounts);
   $('archived-only').addEventListener('change', renderAccounts);
   $('retry').addEventListener('click', () => run(() => api.snapshot()));
@@ -77,12 +79,14 @@ export function mountShell({ document, window, api }) {
     const websiteUrl = platformId === 'website' ? $('website-url').value.trim() : null;
     if (!name) { $('name').focus(); return; }
     run(async () => {
-      const next = await api.create({ name, platformId, websiteUrl });
+      const proxy = view.createProxy.read();
+      const next = await api.create({ name, platformId, websiteUrl, proxy });
       $('search').value = '';
       $('archived-only').checked = false;
       $('name').value = '';
       $('website-url').value = '';
       $('add-panel').open = false;
+      view.createProxy.render();
       render(next);
       return api.activate(next.accounts.at(-1).id);
     });
@@ -94,6 +98,18 @@ export function mountShell({ document, window, api }) {
     if (id && name) run(async () => {
       const next = await api.rename(id, name);
       renderedEditorId = null;
+      return next;
+    });
+  });
+  $('proxy-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const id = editingId;
+    if (!id) return;
+    run(async () => {
+      const proxy = view.editProxy.read();
+      const next = await api.setProxy(id, proxy);
+      // Reset this form only after the authoritative native save succeeded.
+      view.editProxy.render(next.accounts.find((account) => account.id === id)?.proxy);
       return next;
     });
   });

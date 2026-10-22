@@ -5,6 +5,7 @@ use crate::domain::{
     error::{AppError, Result},
     navigation::NavigationPolicy,
     platform::{self, Platform},
+    proxy::ProxyConfig,
 };
 use uuid::Uuid;
 
@@ -52,11 +53,13 @@ impl<R: AccountRepository> Accounts<R> {
         name: &str,
         platform_id: &str,
         website_url: Option<&str>,
+        proxy: ProxyConfig,
     ) -> Result<()> {
         let name = name.trim();
         if !account::valid_name(name) {
             return Err(AppError::NameInvalid);
         }
+        proxy.validate()?;
         let platform = platform::platform(&self.platforms, platform_id)?;
         let navigation = NavigationPolicy::new(platform, website_url)?;
         let website_url = if platform_id == "website" {
@@ -71,6 +74,7 @@ impl<R: AccountRepository> Accounts<R> {
             platform_id: platform_id.into(),
             archived: false,
             website_url,
+            proxy,
         });
         self.commit(next)
     }
@@ -99,6 +103,18 @@ impl<R: AccountRepository> Accounts<R> {
             .find(|a| a.id == id)
             .ok_or(AppError::AccountUnknown)?
             .archived = archived;
+        self.commit(next)
+    }
+
+    pub fn set_proxy(&mut self, id: &str, proxy: ProxyConfig) -> Result<()> {
+        self.account(id)?;
+        proxy.validate()?;
+        let mut next = self.document.clone();
+        next.accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(AppError::AccountUnknown)?
+            .proxy = proxy;
         self.commit(next)
     }
 

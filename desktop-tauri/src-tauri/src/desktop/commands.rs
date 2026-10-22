@@ -4,6 +4,7 @@ use crate::{
     domain::{
         account::Settings,
         error::{AppError, Result},
+        proxy::ProxyConfig,
     },
 };
 use tauri::{State, Webview};
@@ -41,11 +42,27 @@ pub async fn account_create(
     name: String,
     platform_id: String,
     website_url: Option<String>,
+    proxy: Option<ProxyConfig>,
 ) -> Result<Snapshot> {
     execute(webview, state, move |desktop| {
-        desktop.create(&name, &platform_id, website_url.as_deref())
+        desktop.create(
+            &name,
+            &platform_id,
+            website_url.as_deref(),
+            proxy.unwrap_or_default(),
+        )
     })
     .await
+}
+
+#[tauri::command]
+pub async fn account_set_proxy(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+    proxy: ProxyConfig,
+) -> Result<Snapshot> {
+    execute(webview, state, move |desktop| desktop.set_proxy(&id, proxy)).await
 }
 
 #[tauri::command]

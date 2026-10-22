@@ -1,8 +1,11 @@
 import { filterAccounts } from './model.mjs';
+import { createProxyForm } from './views/proxy.mjs';
 
 // DOM-only view: no native commands, persistence, or business transactions.
 export function createShellView(document) {
   const $ = (id) => document.getElementById(id);
+  const createProxy = createProxyForm(document, 'create');
+  const editProxy = createProxyForm(document, 'edit');
   function syncWebsiteForm(current, busy) {
     const website = $('platform').value === 'website';
     $('website-field').hidden = !website;
@@ -15,6 +18,7 @@ export function createShellView(document) {
     if (!account) return;
     if (resetName) {
       $('edit-name').value = account.name;
+      editProxy.render(account.proxy);
     }
     $('editor-title').textContent = `管理：${account.name}`;
     $('archive').textContent = account.archived ? '恢复到账号列表' : '归档（保留登录数据）';
@@ -86,7 +90,10 @@ export function createShellView(document) {
     $('close').disabled = value || !current?.activeId;
     $('retry').disabled = value || !available;
     syncWebsiteForm(current, value);
+    createProxy.sync(value || !current);
+    editProxy.sync(value || !current);
   }
 
-  return Object.freeze({ $, syncWebsiteForm, setBusy, renderEditor, renderAccounts, renderSnapshot });
+  return Object.freeze({ $, syncWebsiteForm, setBusy, renderEditor, renderAccounts, renderSnapshot,
+    createProxy, editProxy });
 }

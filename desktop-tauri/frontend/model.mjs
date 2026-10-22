@@ -16,12 +16,13 @@ export function filterAccounts(accounts, platforms, query = '', archivedOnly = f
 
 export function errorMessage(code) {
   const messages = {
+    PROXY_INVALID: '代理配置无效：请填写主机和 1–65535 端口，不支持带认证的地址。',
     NAME_INVALID: '备注需为 1–64 个字符，不能包含控制字符。',
     ACCOUNT_LIMIT: '开发版最多保存 20 个账号（包括已归档账号）。',
     ACCOUNT_UNKNOWN: '账号不存在，请重新同步状态。',
     ACCOUNT_NOT_OPEN: '该账号页面尚未打开。',
     ACCOUNT_ARCHIVED: '请先恢复这个已归档账号，再打开页面。',
-    ACCOUNT_STILL_OPEN: '页面尚未关闭，未执行归档，请重试。',
+    ACCOUNT_STILL_OPEN: '页面尚未关闭，未执行归档或网络配置修改。请重试。',
     PLATFORM_UNAVAILABLE: '这个平台尚未完成 Tauri 适配。',
     WEBSITE_URL_INVALID: '请输入 HTTPS 域名地址；不支持本地地址、IP、账号密码、非标准端口或带 ? / # 的临时链接。',
     WEBSITE_URL_UNEXPECTED: '只有自定义网站账号可以设置网站地址。',

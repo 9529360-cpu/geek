@@ -1,3 +1,4 @@
+use super::proxy::ProxyConfig;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -13,6 +14,8 @@ pub struct Account {
     pub archived: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub website_url: Option<String>,
+    #[serde(default)]
+    pub proxy: ProxyConfig,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
