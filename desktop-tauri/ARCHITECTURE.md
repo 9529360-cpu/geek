@@ -13,8 +13,13 @@ create a microservice, a crate per entity, an event bus or empty feature scaffol
 without an active caller. Extract a crate only when a real build/runtime boundary needs
 it. Domain/application code already avoid Tauri and OS implementation dependencies.
 
-The only existing-client source dependency is a **build-time platform catalog adapter**:
+Existing-client source dependencies are explicit **build-time adapters**:
 `scripts/export-platforms.cjs` reads the repository's canonical `src/platform-catalog.cjs`.
+`scripts/prepare-frontend.cjs` reuses the original `ui/index.html`, presentation styles,
+fonts and platform icon data. It removes all Electron scripts and turns original inline
+styles into an external stylesheet; it does not weaken the Tauri CSP. The resulting
+bundle lives under `src-tauri/target/ui`, not a second handwritten product UI. Exact
+markup/style parity tests keep this dependency reviewable. See UI-PARITY.md.
 No Electron modules, globals, IPC, profiles or JavaScript runtime are used at execution.
 This subtree is therefore runtime-independent, but not yet a fully extractable standalone
 repository. Moving the catalog requires a deliberate shared-contract change, not a copy
@@ -88,7 +93,8 @@ reported as failure. There is no claim of atomicity across native windows and th
 Restore changes metadata only. Neither operation deletes cookies or browser storage.
 
 Activation ensures a hidden/off-screen owner-bound guest, fits it, hides other known
-accounts, shows/focuses the target, then commits presentation selection. Failure tries to
+accounts, shows/focuses the target only when content is not suspended, then commits
+presentation selection. Hidden selection is allowed while a modal is open. Failure tries to
 hide/close the target and restore the previous view; it must not report a new active
 account that was never shown. Close does not log out. Hidden background reception is a
 separate runtime acceptance question, not inferred from the presence of a guest.
@@ -208,3 +214,22 @@ PR and exact-head Actions results hold live progress; this document holds durabl
 - Cargo lock guidance: https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 - Rustfmt configuration: https://rust-lang.github.io/rustfmt/
 - Windows DPAPI: https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata
+
+## Original UI and native presentation
+
+The shell retains the original platform-family tabs, collapsible account navigation,
+application center and modal entry points. Its controller talks only to named gateway
+operations. Unsupported controls stay disabled, not wired to success-shaped stubs.
+
+The shell reports the measured `webview-container` rectangle in CSS/logical pixels.
+Rust validates finite bounded coordinates and clips to the current client area using
+its scale factor. No copied sidebar/header constants determine native guest placement.
+A layout request with `visible=false` hides guests before acknowledging a modal. If a
+hide fails, the frontend does not open the modal. Selection may change while suspended,
+but no guest is revealed until a visible layout resumes; UUID/profile stay unchanged.
+Window controls accept only a typed action enum and always target the main window.
+The close action uses the ordinary close request, preserving the tray preference.
+
+DOM/synthetic-host tests and offline Chromium comparisons are not native WebView2
+acceptance. Real DPI changes, native child visibility and drag/window behavior require
+Windows runtime verification in addition to compilation and use-case tests.

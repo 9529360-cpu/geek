@@ -29,7 +29,7 @@ impl Viewport {
         let values = [self.x, self.y, self.width, self.height];
         if values
             .iter()
-            .any(|n| !n.is_finite() || *n < 0.0 || *n > 32768.0)
+            .any(|n| !n.is_finite() || !(0.0..=32768.0).contains(n))
             || self.width < 1.0
             || self.height < 1.0
         {

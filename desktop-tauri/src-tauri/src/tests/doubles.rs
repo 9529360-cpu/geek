@@ -116,6 +116,9 @@ impl DesktopHost for FakeHost {
     fn focus(&mut self, id: &str) -> Result<()> {
         self.action("focus", id, |_| {})
     }
+    fn focus_shell(&mut self) -> Result<()> {
+        self.action("focus_shell", "shell", |_| {})
+    }
     fn close(&mut self, id: &str) -> Result<()> {
         self.action("close", id, |s| {
             if s.close_pending {

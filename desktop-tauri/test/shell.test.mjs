@@ -86,6 +86,7 @@ test('overlay is shown only after native hide succeeds; collapsed layout uses me
   failures.add('hide');
   await click('btn-app-center');
   assert.equal(get('add-overlay').classList.contains('hidden'), true);
+  assert.equal(get('runtime-status').parentElement.id, 'side-nav');
   failures.clear();
   await click('btn-collapse');
   assert.equal(get('side-nav').classList.contains('collapsed'), true);

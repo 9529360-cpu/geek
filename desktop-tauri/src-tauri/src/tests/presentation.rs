@@ -20,6 +20,10 @@ fn modal_suspension_keeps_identity_and_never_reveals_newly_selected_guests() {
     workspace.activate(&a).unwrap();
     workspace.layout(viewport(false)).unwrap();
     assert!(host.0.lock().unwrap().visible.is_empty());
+    assert_eq!(
+        host.0.lock().unwrap().calls.last(),
+        Some(&("focus_shell".into(), "shell".into()))
+    );
     assert_eq!(workspace.snapshot().active_id.as_deref(), Some(a.as_str()));
     workspace.activate(&b).unwrap();
     assert!(host.0.lock().unwrap().visible.is_empty());
@@ -79,4 +83,17 @@ fn window_controls_have_a_typed_allowlist_and_do_not_rebind_accounts() {
         r#"{"x":0,"y":0,"width":1,"height":1,"visible":true,"script":"bad"}"#
     )
     .is_err());
+}
+
+#[test]
+fn failed_shell_focus_keeps_guests_hidden_and_does_not_acknowledge_a_modal() {
+    let (mut workspace, _, host, a, _) = fixture();
+    workspace.activate(&a).unwrap();
+    host.0.lock().unwrap().fail = Some(("focus_shell", "shell".into()));
+    assert!(workspace.layout(viewport(false)).is_err());
+    assert!(host.0.lock().unwrap().visible.is_empty());
+    assert_eq!(workspace.snapshot().active_id.as_deref(), Some(a.as_str()));
+    host.0.lock().unwrap().fail = None;
+    workspace.layout(viewport(true)).unwrap();
+    assert!(host.0.lock().unwrap().visible.contains(&a));
 }

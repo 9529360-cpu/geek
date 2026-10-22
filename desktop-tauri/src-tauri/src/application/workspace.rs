@@ -177,13 +177,15 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
                 self.host.fit(&account.id)?;
             }
         }
-        if viewport.visible {
-            if let Some(id) = &self.active_id {
-                if self.host.is_open(id) && self.host.show(id).is_err() {
+        let active = self.active_id.as_deref().filter(|id| self.host.is_open(id));
+        match (viewport.visible, active) {
+            (true, Some(id)) => {
+                if self.host.show(id).and_then(|_| self.host.focus(id)).is_err() {
                     let _ = self.host.hide(id);
                     return Err(AppError::WebviewFailed);
                 }
             }
+            _ => self.host.focus_shell()?,
         }
         self.content_visible = viewport.visible;
         Ok(())

@@ -1,6 +1,6 @@
 /* Runtime adaptation only. Original palette, geometry, icons and dialogs are reused. */
 [hidden] { display: none !important; }
-.side-nav { transition: none; }
+.side-nav { transition: none; position: relative; }
 .nav-account, .tab-item, .add-platform-card { font-family: inherit; color: inherit; text-align: left; }
 .nav-account { width: 100%; }
 .side-nav .nav-account .nav-account-name { font-size: 16px; color: #18a058; }
@@ -11,12 +11,15 @@ button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity:
 .add-dialog .row-item input { min-width: 0; }
 .runtime-note { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
 .runtime-status {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  max-width: calc(100vw - 32px);
-  padding: 10px 16px;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  font-size: 12px;
   border: 1px solid var(--danger);
   border-radius: var(--radius-md);
   background: var(--bg-surface);

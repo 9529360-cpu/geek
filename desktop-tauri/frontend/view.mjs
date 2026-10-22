@@ -8,6 +8,7 @@ export function createShellView(document) {
   const on = (id, event, action) => wire(id).addEventListener(event, action);
   $('settings-global').append($('runtime-settings-template').content.cloneNode(true));
   $('add-status').before($('create-proxy-template').content.cloneNode(true));
+  $('side-nav').append($('runtime-status'));
   $('nav-version').textContent = 'Tauri \u5f00\u53d1\u7248';
   $('settings-account-email').textContent = '\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
   $('settings-account-quota').textContent = '\u8ba2\u9605\u5c1a\u672a\u8fc1\u79fb';

@@ -111,6 +111,14 @@ impl DesktopHost for TauriHost {
             .map_err(|_| AppError::WebviewFailed)
     }
 
+    fn focus_shell(&mut self) -> Result<()> {
+        self.app
+            .get_webview("shell")
+            .ok_or(AppError::WebviewFailed)?
+            .set_focus()
+            .map_err(|_| AppError::WebviewFailed)
+    }
+
     fn close(&mut self, id: &str) -> Result<()> {
         self.guest(id)?.close().map_err(|_| AppError::WebviewFailed)
     }

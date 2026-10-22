@@ -4,7 +4,12 @@ Windows 专用独立开发版。Tauri 是桌面框架，Rust 负责本地后端�
 
 ## 开发与验证
 
-需要 Windows、Microsoft C++ Build Tools（桌面 C++ 工作负载及 Windows SDK）、Rust MSVC stable、Node.js 22+ 和 WebView2 Evergreen Runtime。前端没有 npm 依赖或打包步骤，Node 在构建时导出仓库的平台元数据。
+需要 Windows、Microsoft C++ Build Tools（桌面 C++ 工作负载及 Windows SDK）、Rust MSVC stable、Node.js 22+ 和 WebView2 Evergreen Runtime。前端没有 npm 依赖。Node 在构建时组装原版 UI 并导出平台元数据。
+
+The original Geek layout is the baseline, not the previous sidebar-form prototype.
+The build reuses `ui/index.html`, original CSS/fonts and platform icon data, then loads
+only Tauri-specific controller modules. Original Electron files remain unchanged.
+`target/ui` is rebuilt automatically by Cargo's build script; do not edit the bundle.
 
 在仓库根目录运行：
 
@@ -21,17 +26,17 @@ EXE 位于 `desktop-tauri/src-tauri/target/release/geek-tauri.exe`。`tauri-wind
 ## 可操作的代码路径
 
 - 添加账号、打开、切换、刷新、关闭；WhatsApp/纯净版、Telegram Z/K、Messenger、Instagram 和自定义 Website 入口。普通网页入口不等于认证后功能已经验收。
-- 按账号备注或平台搜索；“管理”中改名、归档和恢复。管理对象与当前活动账号分开，不能用焦点替换操作归属。
+- 按账号备注或平台搜索；右键“账号设置”中改名和归档，设置内搜索和恢复。管理对象与当前活动账号分开，不能用焦点替换操作归属。
 - 归档由一个 Rust 用例完成：校验归属、关闭对应页面、提交归档状态。前端不再自行串联关闭和归档命令。关闭失败不写入；保存失败不更新元数据，账号仍可重开。归档不删除浏览器数据，仍计入 20 个账号上限。
 - “仅看已归档账号”中可恢复。恢复只改变归档状态，不自动打开页面，不更换 UUID 或 profile 路径。没有永久删除功能。
-- Windows 系统托盘：左键恢复主窗口，右键可打开窗口或完全退出。关闭到托盘默认关闭，可在“桌面设置”中显式启用并持久保存。托盘创建失败时不隐藏窗口；菜单退出仍关闭所有账号。
+- Windows 系统托盘：左键恢复主窗口，右键可打开窗口或完全退出。关闭到托盘默认关闭，可在原版“设置”的桌面选项中显式启用并持久保存。托盘创建失败时不隐藏窗口；菜单退出仍关闭所有账号。
 - 独立 native 子 WebView 布局和高 DPI 尺寸换算；管理界面禁用网页缩放快捷键，避免 CSS 外壳与 native 页面区域错位。账号页面的网页缩放不改变外壳布局。
 
 LINE / LINE Business 按维护者要求暂不处理，前端和 Rust 均保持禁用。新增平台元数据继续由 `src/platform-catalog.cjs` 构建时导出，不维护第二份默认平台 URL 表。
 
 ## 账号级浏览器代理
 
-创建账号时即可设置网络，首次打开网页前生效。已有账号在“管理”中选择跟随系统、HTTP 或 SOCKS5 后保存。“跟随系统”使用 Windows 网络设置，不承诺一定直连。HTTP/SOCKS5 支持 ASCII 主机名、规范 IP 地址（IPv6 需方括号）和 1–65535 端口；暂不支持账号密码认证、PAC、绕过列表或任意浏览器参数。
+创建账号时即可设置网络，首次打开网页前生效。已有账号在右键“代理设置”中选择跟随系统、HTTP 或 SOCKS5 后保存。“跟随系统”使用 Windows 网络设置，不承诺一定直连。HTTP/SOCKS5 支持 ASCII 主机名、规范 IP 地址（IPv6 需方括号）和 1–65535 端口；暂不支持账号密码认证、PAC、绕过列表或任意浏览器参数。
 
 Rust 先验证固定账号和配置，再关闭该账号的页面。只有页面已从原生视图列表移除，才保存加密账号文档；不会自动重连。相同配置不关闭页面、不重复写入。关闭失败或尚未关闭时保留旧配置；保存失败则保留旧配置和可重新打开的账号。其他账号、Cookie 和 profile 归属不变。保存成功后，由用户主动点击账号重新打开。
 
@@ -61,7 +66,7 @@ schema 3 新增账号代理配置。schema 1/2 可继续读取，缺失代理时
 - 仅本地 `shell` 获得显式账号/布局/设置命令，所有命令再次验证 sender label、父窗口和本地 origin。父窗口不能获得通配授权；第三方页面无这些权限、通用文件/Shell/eval API 或 privileged preload。
 - 远程弹窗、下载和网页权限默认拒绝，不关闭沙箱或 web security。
 - 窗口关闭回调不获取 Desktop 的阻塞锁，避免与等待 UI 线程的 WebView 创建命令相互等待。关闭到托盘偏好在成功落盘后才发布到运行时。
-- 管理和编辑在侧栏完成，不用会被 native 子 WebView 遮挡的网页模态层；账号名称使用 textContent，不拼接 HTML。
+- Original dialogs first suspend native guests and resume them after closing. A failed hide blocks the dialog. Account names use textContent, never HTML interpolation.
 
 ## 测试证据范围与后续工作
 
@@ -101,3 +106,23 @@ The Node entrypoint checks line limits, architecture boundaries and the canonica
 `contracts/commands.json` against native commands, registration, permissions and the
 frontend gateway before discovering all tests. Windows Rust tests also exercise lifecycle
 and persistence failures with fake ports; they do not claim real account acceptance.
+
+## UI parity and current adaptation boundaries
+
+The original sidebar, platform-family tabs, toolbar, app-center account dialog,
+account context menu, name/proxy dialogs and settings remain the UI baseline.
+Window minimize/maximize/close/drag use typed Rust commands; native guest geometry
+tracks the actual chat container and is suspended while a modal/menu is open.
+
+Wired paths: create one account with proxy, switch accounts/families, rename, reload,
+close, archive, search/restore, tray preference and native window controls.
+Not yet wired: batch create, drag reorder, name color/font settings, restart/lock,
+auth/subscription, theme/startup options, translation/notes/broadcast and attachments.
+Those original controls are disabled with unavailable guidance, not removed or
+pretended to work. LINE remains disabled. Visual parity is not full feature parity.
+
+`test/ui-parity.test.mjs` checks original main markup and byte-identical styles,
+removal of Electron scripts/inline handlers and the measured viewport contract.
+Other shell tests exercise actual migrated controllers against synthetic native
+responses. These do not replace original-vs-migrated screenshots or real WebView2
+runtime checks. See UI-PARITY.md for the durable migration requirement.

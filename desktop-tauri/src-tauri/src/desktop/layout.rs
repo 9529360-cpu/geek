@@ -4,7 +4,10 @@ use crate::domain::{
 };
 use tauri::{LogicalPosition, LogicalSize, Webview, Window};
 
-pub fn bounds(window: &Window, viewport: Viewport) -> Result<(LogicalPosition<f64>, LogicalSize<f64>)> {
+pub fn bounds(
+    window: &Window,
+    viewport: Viewport,
+) -> Result<(LogicalPosition<f64>, LogicalSize<f64>)> {
     let scale = window.scale_factor().map_err(|_| AppError::WebviewFailed)?;
     let size = window
         .inner_size()

@@ -1,5 +1,8 @@
 use crate::domain::{
-    account::Account, document::Document, error::Result, navigation::NavigationPolicy,
+    account::Account,
+    document::Document,
+    error::Result,
+    navigation::NavigationPolicy,
     presentation::{Viewport, WindowAction},
 };
 
@@ -21,6 +24,7 @@ pub trait DesktopHost {
     fn show(&mut self, id: &str) -> Result<()>;
     fn hide(&mut self, id: &str) -> Result<()>;
     fn focus(&mut self, id: &str) -> Result<()>;
+    fn focus_shell(&mut self) -> Result<()>;
     fn close(&mut self, id: &str) -> Result<()>;
     fn reload(&mut self, id: &str) -> Result<()>;
     fn tray_available(&self) -> bool;
