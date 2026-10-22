@@ -12,7 +12,8 @@ fn main() {
     fs::write(out.join("platforms.json"), output.stdout).expect("write catalog");
     let manifest = tauri_build::AppManifest::new().commands(&[
         "desktop_snapshot", "account_create", "account_activate",
-        "account_close", "account_reload", "desktop_layout",
+        "account_close", "account_reload", "desktop_layout", "account_rename",
+        "account_set_archived", "desktop_settings",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("Tauri build configuration failed");

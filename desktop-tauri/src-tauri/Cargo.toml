@@ -9,7 +9,7 @@ description = "Windows-only Geek Tauri migration prototype"
 tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
-tauri = { version = "=2.12.5", features = ["unstable"] }
+tauri = { version = "=2.12.5", features = ["unstable", "tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "=1.18.1", features = ["v4"] }

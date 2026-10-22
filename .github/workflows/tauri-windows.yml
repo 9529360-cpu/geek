@@ -19,11 +19,30 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Frontend and boundary contracts
-        run: node --test desktop-tauri/test/frontend.test.mjs
+      - name: Frontend behavior and boundary contracts
+        run: node --test desktop-tauri/test
+      - name: Retain exact source snapshot for independent checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: geek-tauri-source-${{ github.sha }}
+          path: |
+            desktop-tauri/frontend/
+            desktop-tauri/test/
+            desktop-tauri/scripts/
+            desktop-tauri/src-tauri/src/
+            desktop-tauri/src-tauri/Cargo.toml
+            desktop-tauri/src-tauri/build.rs
+            desktop-tauri/src-tauri/tauri.conf.json
+            desktop-tauri/src-tauri/capabilities/
+            desktop-tauri/src-tauri/permissions/
+            desktop-tauri/README.md
+            src/platform-catalog.cjs
+          if-no-files-found: error
+          retention-days: 7
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal
-      - name: Windows Rust tests (DPAPI, store, policy)
+      - name: Windows Rust tests (DPAPI, store, policy, tray state)
         run: cargo +stable test --manifest-path desktop-tauri/src-tauri/Cargo.toml
       - name: Build standalone prototype executable (not an installer or release)
         run: cargo +stable build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
