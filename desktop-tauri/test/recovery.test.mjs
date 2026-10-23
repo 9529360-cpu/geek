@@ -47,6 +47,7 @@ test('retry cannot replay a failed save and keeps a modal suspended with its dra
 
 test('a failed recovery remains retryable without enabling account mutations or duplicate reads', async () => {
   const ui = await fixture({ initialFailures: ['desktop_snapshot'] });
+  assert.equal(names(ui).filter((name) => name === 'desktop_snapshot').length, 1);
   await ui.click('runtime-retry');
   assert.equal(ui.get('btn-app-center').disabled, true);
   assert.equal(ui.get('runtime-retry').disabled, false);
