@@ -1,8 +1,10 @@
 //! Cancellable display and SendIntent transforms. This owner never selects a chat or sends.
 use super::{
+    ports::{TranslationCacheClock, TranslationCacheRepository},
     request_control::RequestControl,
     session::{SessionLease, SessionService},
     session_ports::{SessionRepository, SessionTransport},
+    translation_cache::{DisplayCacheKey, DisplayTranslationCache},
     translation_ports::{
         OutgoingTranslation, TranslationGateway, TranslationIntent, TranslationRequest,
     },
@@ -17,7 +19,7 @@ use crate::domain::{
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, TryLockError},
+    sync::{atomic::AtomicU64, atomic::Ordering, Arc, Mutex, TryLockError},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -32,6 +34,8 @@ pub struct PreparedTranslation {
     pub control: RequestControl,
     request: TranslationRequest,
     cache_key: [u8; 32],
+    display_cache_key: Option<DisplayCacheKey>,
+    cache_sequence: u64,
 }
 
 #[derive(Clone)]
@@ -50,6 +54,8 @@ struct TransformWork<'a> {
     control: &'a RequestControl,
     request: &'a TranslationRequest,
     cache_key: &'a [u8; 32],
+    display_cache_key: Option<&'a DisplayCacheKey>,
+    cache_sequence: Option<u64>,
     refresh: bool,
 }
 
@@ -64,6 +70,7 @@ struct CacheEntry {
     key: [u8; 32],
     text: String,
     expires: Instant,
+    sequence: Option<u64>,
 }
 
 type TokenSlot = Arc<Mutex<Option<TokenEntry>>>;
@@ -73,6 +80,8 @@ pub struct TranslationService<R: SessionRepository, T: SessionTransport, G: Tran
     gateway: Arc<G>,
     tokens: Mutex<HashMap<String, TokenSlot>>,
     cache: Mutex<VecDeque<CacheEntry>>,
+    display_cache: Option<DisplayTranslationCache>,
+    cache_sequence: AtomicU64,
     auto_after: u64,
 }
 
@@ -83,11 +92,25 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             gateway,
             tokens: Mutex::new(HashMap::new()),
             cache: Mutex::new(VecDeque::new()),
+            display_cache: None,
+            cache_sequence: AtomicU64::new(1),
             auto_after: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|t| t.as_secs() + 1)
                 .unwrap_or(u64::MAX),
         }
+    }
+
+    /// Cache failure is optional capability loss, never an authentication/startup failure.
+    pub fn new_with_cache(
+        session: Arc<SessionService<R, T>>,
+        gateway: Arc<G>,
+        repository: Box<dyn TranslationCacheRepository>,
+        clock: Arc<dyn TranslationCacheClock>,
+    ) -> Self {
+        let mut service = Self::new(session, gateway);
+        service.display_cache = Some(DisplayTranslationCache::open(repository, clock));
+        service
     }
 
     pub fn auto_after(&self) -> u64 {
@@ -145,6 +168,22 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             &incoming.message_id,
             &request,
         );
+        let cache_sequence = self
+            .cache_sequence
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map_err(|_| AppError::TranslationLimit)?;
+        let display_cache_key = self.display_cache.as_ref().map(|cache| {
+            cache.key(
+                &account,
+                &lease,
+                &incoming.chat_id,
+                &incoming.message_id,
+                &request,
+                cache_sequence,
+            )
+        });
         let control = control.with_cancel(Arc::clone(&lease.cancel));
         Ok(PreparedTranslation {
             account,
@@ -153,6 +192,8 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             control,
             request,
             cache_key,
+            display_cache_key,
+            cache_sequence,
         })
     }
 
@@ -303,8 +344,15 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             .map(|entry| entry.text.clone()))
     }
 
-    fn remember(&self, key: [u8; 32], text: &str) -> Result<()> {
+    fn remember(&self, key: [u8; 32], text: &str, sequence: Option<u64>) -> Result<()> {
         let mut cache = self.cache.lock().map_err(|_| AppError::StateUnavailable)?;
+        if let Some(sequence) = sequence {
+            if cache.iter().any(|entry| {
+                entry.key == key && entry.sequence.is_some_and(|previous| previous > sequence)
+            }) {
+                return Ok(());
+            }
+        }
         cache.retain(|entry| entry.expires > Instant::now() && entry.key != key);
         let mut bytes = cache.iter().map(|entry| entry.text.len()).sum::<usize>();
         while bytes.saturating_add(text.len()) > CACHE_BYTES || cache.len() >= CACHE_ENTRIES {
@@ -318,6 +366,7 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
                 key,
                 text: text.to_owned(),
                 expires: Instant::now() + Duration::from_secs(900),
+                sequence,
             });
         }
         Ok(())
@@ -330,6 +379,8 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             control: &work.control,
             request: &work.request,
             cache_key: &work.cache_key,
+            display_cache_key: work.display_cache_key.as_ref(),
+            cache_sequence: Some(work.cache_sequence),
             refresh: work.incoming.refresh,
         })
     }
@@ -341,6 +392,8 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             control: &work.control,
             request: &work.request,
             cache_key: &work.cache_key,
+            display_cache_key: None,
+            cache_sequence: None,
             refresh: false,
         })
     }
@@ -351,6 +404,13 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             if let Some(text) = self.cached(work.cache_key)? {
                 self.current(work)?;
                 return Ok(text);
+            }
+            if let (Some(cache), Some(key)) = (&self.display_cache, work.display_cache_key) {
+                if let Some(text) = cache.lookup(key, work.control)? {
+                    self.current(work)?;
+                    // Do not renew a nearly expired durable result with a 15-minute memory TTL.
+                    return Ok(text);
+                }
             }
         }
         let mut token = self.token(work, false)?;
@@ -387,7 +447,11 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             return Err(AppError::TranslationOutputInvalid);
         }
         self.current(work)?;
-        self.remember(*work.cache_key, &reply.text)?;
+        self.remember(*work.cache_key, &reply.text, work.cache_sequence)?;
+        if let (Some(cache), Some(key)) = (&self.display_cache, work.display_cache_key) {
+            cache.remember(key, &reply.text, work.control);
+            self.current(work)?;
+        }
         Ok(reply.text)
     }
 }

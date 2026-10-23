@@ -1,7 +1,7 @@
 use crate::{
     application::{
-        accounts::Accounts, send_runner::SendRunner, send_translation::SendTranslation,
-        workspace::Workspace,
+        accounts::Accounts, ports::SystemTranslationCacheClock, send_runner::SendRunner,
+        send_translation::SendTranslation, workspace::Workspace,
     },
     desktop::{
         broadcast::BroadcastDesktop,
@@ -21,6 +21,7 @@ use crate::{
         broadcast_repository::EncryptedBroadcastRepository, catalog, http::HttpTransport, profiles,
         repository::EncryptedRepository, service_api::NativeApi,
         session_repository::EncryptedSessionRepository,
+        translation_cache_repository::EncryptedTranslationCacheRepository,
     },
 };
 use std::sync::{Arc, Mutex};
@@ -94,10 +95,15 @@ pub fn run() {
             )?);
             let api = Arc::new(NativeApi::new(Arc::new(HttpTransport::new()?)));
             let session = Arc::new(NativeSession::open(
-                EncryptedSessionRepository::open(root)?,
+                EncryptedSessionRepository::open(root.clone())?,
                 Arc::clone(&api),
             )?);
-            let translator = Arc::new(NativeTranslation::new(Arc::clone(&session), api));
+            let translator = Arc::new(NativeTranslation::new_with_cache(
+                Arc::clone(&session),
+                api,
+                Box::new(EncryptedTranslationCacheRepository::new(root)),
+                Arc::new(SystemTranslationCacheClock),
+            ));
             let sending = Arc::new(SendRunner::new(
                 Arc::new(SendGuest::new(
                     Arc::clone(&platform),

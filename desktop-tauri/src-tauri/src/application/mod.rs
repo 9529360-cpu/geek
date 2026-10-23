@@ -19,5 +19,6 @@ pub mod session_ports;
 mod session_quota;
 pub mod snapshot;
 pub mod translation;
+mod translation_cache;
 pub mod translation_ports;
 pub mod workspace;

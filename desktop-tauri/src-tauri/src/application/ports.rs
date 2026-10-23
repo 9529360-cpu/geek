@@ -1,7 +1,8 @@
 pub use super::request_control::RequestControl;
 pub use super::session_ports::{SessionRepository, SessionTransport};
 pub use super::translation_ports::{
-    OutgoingTranslation, TranslationGateway, TranslationIntent, TranslationReply,
+    OutgoingTranslation, SystemTranslationCacheClock, TranslationCacheClock,
+    TranslationCacheRepository, TranslationGateway, TranslationIntent, TranslationReply,
     TranslationRequest, TranslationToken,
 };
 use crate::domain::{

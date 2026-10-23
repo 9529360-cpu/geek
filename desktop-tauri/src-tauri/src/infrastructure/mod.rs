@@ -10,3 +10,4 @@ pub mod repository;
 pub mod service_api;
 pub mod session_repository;
 pub mod system_http;
+pub mod translation_cache_repository;

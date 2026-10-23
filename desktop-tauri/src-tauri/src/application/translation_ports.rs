@@ -5,7 +5,31 @@ use crate::domain::{
     proxy::ProxyConfig,
     session::SessionToken,
     translation::{valid_chat_id, validate_text},
+    translation_cache::TranslationCacheDocument,
 };
+
+/// Optional completed-result storage, owned by the existing translation service.
+/// Load/save failures cannot grant quota or turn an already paid result into a retry.
+pub trait TranslationCacheRepository: Send + 'static {
+    fn load(&self) -> Result<Option<TranslationCacheDocument>>;
+    fn save(&mut self, document: &TranslationCacheDocument) -> Result<()>;
+}
+
+/// Wall clock for durable age only. Request budgets continue to use monotonic time.
+pub trait TranslationCacheClock: Send + Sync + 'static {
+    fn now_secs(&self) -> u64;
+}
+
+pub struct SystemTranslationCacheClock;
+
+impl TranslationCacheClock for SystemTranslationCacheClock {
+    fn now_secs(&self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| time.as_secs())
+            .unwrap_or(0)
+    }
+}
 
 /// Native-owned service intent. This never admits arbitrary guest HTTP headers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

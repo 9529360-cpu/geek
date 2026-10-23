@@ -55,7 +55,7 @@ frontend/app.mjs                       main.rs
 | application/accounts | Single account document; validate candidate, persist, then publish memory | Public mutable state, secondary config owner, native code |
 | application/broadcast | Independent encrypted job document, bounded scheduler, immutable targets and single-use submit admission | Workspace/network waits under its owner lock, replay of uncertain effects |
 | application/session | Encrypted login generation, expiring server quota authority and cancellation leases | Renderer tokens, local billing or network work under its authority lock |
-| application/translation | Bounded incoming/outgoing transforms, account-specific tokens, request identities and memory cache | Composer/send ownership, automatic new IDs after uncertain outcomes |
+| application/translation | Bounded incoming/outgoing transforms, account-specific tokens, request identities and completed-result caches | Composer/send ownership, automatic new IDs after uncertain outcomes |
 | application/send_intent + send_runner | Interactive intent identity, bounded foreground work, one commit admission and receipt settlement | Workspace/network waits under its owner lock, replay of confirmed or uncertain effects |
 | application/workspace | Activate/close/reload/archive/settings orchestration; active account | Browser profile rewriting, network jobs under its lock |
 | application/ports | Repository and native-host contracts | Concrete implementation or generic arbitrary-command interfaces |
@@ -478,7 +478,32 @@ cache hits require valid fresh positive quota. Only in-progress replies retry au
 with the same payload, ID and deadline; an unauthorized short token may refresh once.
 No ambiguous network failure allocates a new logical ID. The canonical output safety module
 checks received text before DOM display, and a charged quality failure needs explicit
-refresh rather than automatic replay. Neither cache nor logical request history is durable.
+refresh rather than automatic replay. Outgoing results and logical request history remain
+session-local; different send intents never coalesce by source text.
+
+The same TranslationService also owns optional completed incoming results through the
+TranslationCacheRepository port. The independent `translation-cache.dpapi` schema 1 uses
+DPAPI and synchronized atomic replacement under the existing instance lock. It stores no
+raw source text, credentials or executable requests. Domain validation bounds 256 entries,
+1 MiB of translated UTF-8, 128 KiB per result and less than 2 MiB of actual serialized JSON.
+Results expire 30 days after their original wall-clock save time; hits do not extend that
+time, and zero/future/rolled-back clock readings cannot authorize durable hits.
+
+The stable incoming key hashes a versioned, length-prefixed contract: verified subscription
+user ID/account number, native account/platform, chat/message, exact source text and effective
+language/provider/route. It excludes ephemeral request UUID and login generation. Current
+SessionLease carries its verified user and remains separately checked for cancellation and
+authority. Admission and fresh positive server quota precede both cache lookups; the lease is
+checked again before returning. An explicit refresh skips both caches. No cache restores quota
+authority, permits historical auto admission or broadens a platform's send capability.
+
+The repository is composed after the profile lock without constructor I/O. A load/decrypt/schema
+failure disables durable caching for the process and preserves the original bytes. Successful
+network results remain in the existing memory cache even if their optional disk save fails;
+the paid success is not converted to a retry signal. Writes serialize only cache candidates,
+never hold Workspace/session authority over I/O, and publish durable state only after the
+atomic save. This is not a durable billing/request ledger: a crash after server billing but
+before local persistence can still lose the result. Existing Electron cache files are not read.
 
 `infrastructure/service_api` implements fixed worker endpoint contracts. `http` disables
 environment proxies, redirects, connection reuse and protocol retries; every operation

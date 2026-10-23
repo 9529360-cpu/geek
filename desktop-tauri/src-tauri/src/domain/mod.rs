@@ -18,4 +18,5 @@ pub mod proxy;
 pub mod send_intent;
 pub mod session;
 pub mod translation;
+pub mod translation_cache;
 pub mod url_policy;

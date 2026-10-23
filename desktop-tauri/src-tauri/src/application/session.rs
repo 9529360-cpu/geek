@@ -14,6 +14,7 @@ use uuid::Uuid;
 pub struct SessionLease {
     pub generation: String,
     pub token: SessionToken,
+    pub user: SessionUser,
     pub cancel: Arc<AtomicBool>,
 }
 
@@ -110,7 +111,7 @@ impl<R: SessionRepository> SessionInner<R> {
                 .document
                 .record
                 .as_ref()
-                .is_none_or(|record| record.token != lease.token)
+                .is_none_or(|record| record.token != lease.token || record.user != lease.user)
         {
             return Err(AppError::SessionChanged);
         }
@@ -220,6 +221,7 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
         Ok(SessionLease {
             generation: inner.generation.clone(),
             token: record.token.clone(),
+            user: record.user.clone(),
             cancel: Arc::clone(&inner.cancel),
         })
     }
