@@ -91,7 +91,7 @@ test('a pending maximize is coalesced without blocking close or account operatio
   assert.equal(ui.get('btn-win-max').disabled, false);
 });
 
-test('window failures do not refresh or unlock a pending account mutation', async () => {
+test('window failures do not refresh, unlock, or contaminate a pending account mutation', async () => {
   const gate = deferred();
   const ui = await fixture({ beforeInvoke: (name) => {
     if (name === 'account_rename') return gate.promise;
@@ -109,8 +109,8 @@ test('window failures do not refresh or unlock a pending account mutation', asyn
     assert.equal(ui.get('btn-win-min').disabled, false);
     assert.equal(ui.get('account-settings-save').disabled, true);
     assert.equal(ui.get('account-settings-name').value, 'Draft retained');
-    assert.ok(ui.get('runtime-status-message').textContent);
-    assert.doesNotMatch(ui.get('runtime-status-message').textContent, /private|token|never-echo/);
+    assert.equal(ui.get('runtime-status-message').textContent, '');
+    assert.equal(ui.get('runtime-retry').hidden, true);
     assert.equal(ui.calls.filter(([name]) => name === 'desktop_snapshot').length, before);
     assert.equal(ui.calls.filter(([name]) => name === 'account_rename').length, 1);
   } finally {
@@ -202,4 +202,52 @@ test('a pending account activation does not block titlebar drag', async () => {
   }
   assert.equal(ui.state.activeId, 'b');
   assert.equal(ui.calls.filter(([name]) => name === 'account_activate').length, 1);
+});
+
+
+test('window failure cannot replace an existing account recovery error', async () => {
+  const ui = await fixture({ initialFailures: ['desktop_snapshot'], beforeInvoke: (name) => {
+    if (name === 'desktop_window') throw 'WEBVIEW_FAILED';
+  } });
+  const before = ui.get('runtime-status-message').textContent;
+  assert.ok(before);
+  assert.equal(ui.get('runtime-retry').hidden, false);
+  ui.get('btn-win-min').fire('click');
+  await flush();
+  assert.equal(ui.get('runtime-status-message').textContent, before);
+  assert.equal(ui.get('runtime-retry').hidden, false);
+});
+
+test('window failure during a pending save does not create stale account recovery UI', async () => {
+  const gate = deferred();
+  const ui = await fixture({ beforeInvoke: (name) => {
+    if (name === 'account_rename') return gate.promise;
+    if (name === 'desktop_window') throw 'WEBVIEW_FAILED';
+  } });
+  await ui.context('b', 1);
+  ui.get('account-settings-name').value = 'Saved despite chrome failure';
+  ui.get('account-settings-save').fire('click');
+  try {
+    await flush();
+    ui.get('btn-win-min').fire('click');
+    await flush();
+    assert.equal(ui.get('runtime-status-message').textContent, '');
+    assert.equal(ui.get('runtime-retry').hidden, true);
+  } finally {
+    gate.resolve();
+    await ui.shell.idle();
+  }
+  assert.equal(ui.state.accounts[1].name, 'Saved despite chrome failure');
+  assert.equal(ui.get('runtime-status-message').textContent, '');
+  assert.equal(ui.get('runtime-retry').hidden, true);
+});
+
+test('idle window failure is visible but does not offer account-state recovery', async () => {
+  const ui = await fixture({ beforeInvoke: (name) => {
+    if (name === 'desktop_window') throw 'WEBVIEW_FAILED';
+  } });
+  ui.get('btn-win-min').fire('click');
+  await flush();
+  assert.ok(ui.get('runtime-status-message').textContent);
+  assert.equal(ui.get('runtime-retry').hidden, true);
 });
