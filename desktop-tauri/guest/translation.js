@@ -36,6 +36,20 @@ function context() {
 }
 
 const policyFor = (id) => configuration?.settings?.chats?.[id] || configuration?.settings?.global;
+const entryKey = (entry) => JSON.stringify([entry.chatId, entry.messageId, entry.text, entry.sessionGeneration, entry.policyRevision]);
+function semantics(settings, chatId) {
+  const policy = settings?.chats?.[chatId] || settings?.global;
+  return JSON.stringify([policy?.messageFrom, policy?.messageTarget, policy?.provider, policy?.route]);
+}
+
+function reconcileSettings(previous, next) {
+  const retained = [...entries.values()].filter((entry) => semantics(previous, entry.chatId) === semantics(next, entry.chatId));
+  entries.clear();
+  for (const entry of retained) {
+    entry.policyRevision = next.revision;
+    entries.set(entryKey(entry), entry);
+  }
+}
 function visible(root) {
   if (!root?.isConnected || document.visibilityState === 'hidden') return false;
   const rect = root.getBoundingClientRect();
@@ -146,7 +160,8 @@ function scan() {
     const text = textOf(node);
     if (!node || !messageId || messageId.length > 256 || !text || text.length > 10000
         || new TextEncoder().encode(text).length > 32768 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) continue;
-    const key = JSON.stringify([chat.id, messageId, text, configuration.sessionGeneration, configuration.settings.revision]);
+    const key = entryKey({ chatId: chat.id, messageId, text,
+      sessionGeneration: configuration.sessionGeneration, policyRevision: configuration.settings.revision });
     let entry = entries.get(key);
     if (!entry) {
       const bytes = [...entries.values()].reduce((sum, item) => sum + item.text.length * 2 + (item.output?.length || 0) * 2, 0);
@@ -201,9 +216,13 @@ const api = Object.freeze({
     if (revoked || !value || !window.__geekTauriPlatform?.matches(value.generation)
         || (binding && binding !== value.generation)) return false;
     binding ||= value.generation;
-    const changed = !configuration || configuration.sessionGeneration !== value.sessionGeneration
-      || configuration.settings.revision !== value.settings?.revision;
-    if (changed) { clearPresentation(); entries.clear(); needsBaseline = true; }
+    const sessionChanged = !configuration || configuration.sessionGeneration !== value.sessionGeneration;
+    const policyChanged = configuration?.settings?.revision !== value.settings?.revision;
+    if (sessionChanged || policyChanged) {
+      clearPresentation(); needsBaseline = true;
+      if (sessionChanged) entries.clear();
+      else reconcileSettings(configuration.settings, value.settings);
+    }
     if (configuration?.active !== value.active) needsBaseline = true;
     if (!value.active) clearPresentation();
     configuration = value;

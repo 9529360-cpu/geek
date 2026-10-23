@@ -333,7 +333,11 @@ cancellation cannot undo a request the service already accepted.
 
 The guest offers named configure/context/poll/deliver/revoke operations without native
 permissions or credentials. Logical UUID and attempt survive uncertain manual retries;
-an explicit paid refresh creates a new UUID. Initial rows at every chat/config activation
+an explicit paid refresh creates a new UUID. Within one login generation, appearance and
+non-semantic settings revisions cancel pending work but preserve request identity and
+completed output. Only changed effective source/target/provider/route starts a new intent;
+editing another chat's override cannot discard this chat's uncertain request.
+Initial rows at every chat/config activation
 remain manual-only, supplemented by a native per-activation timestamp cutoff. Automatic
 admission requires verified incoming metadata, a new timestamp and allowed chat policy.
 Target-Chinese messages already containing Han text preserve the original automatic skip.

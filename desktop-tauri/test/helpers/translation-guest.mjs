@@ -83,7 +83,7 @@ export function guest({ policy = {}, iframe = false } = {}) {
     if (known) messages.set(id, { id: { remote: state.chatId, fromMe }, t: sentAt });
     return { root, node, span, box: () => root.querySelector('.geek-translation-result') };
   };
-  const deliver = (request, result) => api.deliver(generation, subscription, 0, request.id, request.attempt, result);
+  const deliver = (request, result, revision = 0) => api.deliver(generation, subscription, revision, request.id, request.attempt, result);
   const rightClick = (row) => {
     document.fire('contextmenu', { target: row.node, clientX: 10, clientY: 10 });
     return document.body.children.find((node) => node.id === 'geek-translation-menu')?.children[0];
