@@ -256,7 +256,7 @@ export function mountShell({ document, window, api }) {
   window.addEventListener('resize', requestLayout);
   const observer = window.ResizeObserver ? new window.ResizeObserver(requestLayout) : null;
   observer?.observe($('webview-container'));
-  if (api) run(async () => { render(await api.snapshot()); await syncLayout(true); });
+  if (api) run(async () => { render(await api.snapshot()); await syncLayout(true); }, true, false);
   else {
     setBusy(false);
     view.status('\u8bf7\u4ece Tauri Windows \u5f00\u53d1\u7248\u542f\u52a8\uff1b\u6d4f\u89c8\u5668\u9884\u89c8\u4e0d\u6a21\u62df\u8d26\u53f7\u529f\u80fd\u3002');
