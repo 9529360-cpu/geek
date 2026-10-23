@@ -34,7 +34,7 @@ export function mountShell({ document, window, api }) {
     if (panel === 'account-library-overlay') renderLibrary();
     setBusy(busy);
   }
-  function run(operation, clearStatus = true) {
+  function run(operation, clearStatus = true, refreshOnError = true) {
     if (busy || !api) return Promise.resolve(false);
     setBusy(true);
     if (clearStatus) view.status();
@@ -43,7 +43,9 @@ export function mountShell({ document, window, api }) {
         await operation();
         return true;
       } catch (error) {
-        try { render(await api.snapshot()); } catch { /* Keep the last authoritative snapshot. */ }
+        if (refreshOnError) {
+          try { render(await api.snapshot()); } catch { /* Keep the last authoritative snapshot. */ }
+        }
         view.status(errorMessage(typeof error === 'string' ? error : 'UNKNOWN'));
         return false;
       } finally { setBusy(false); }
@@ -215,7 +217,7 @@ export function mountShell({ document, window, api }) {
   on('runtime-retry', 'click', () => run(async () => {
     render(await api.snapshot());
     await syncLayout(!panel);
-  }));
+  }, true, false));
   document.querySelector('.top-bar').addEventListener('mousedown', (event) => {
     if (event.button === 0 && !event.target.closest('button, input, select, .tab-item')) {
       windowAction('drag');
