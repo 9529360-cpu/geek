@@ -379,6 +379,10 @@ history retains at most 20000 records; output plus reserved output is bounded to
 Confirmed and uncertain tombstones are never evicted to authorize replay. An explicit
 next attempt after definite precommit failure can rebind the current composer revision
 and recover retained paid output, while its previous nonce is permanently fenced.
+Attempt numbers describe trusted page gestures, not native poll counts: the first
+observed attempt may exceed one, and cancelled local attempts may be skipped before a
+later strictly increasing retry is observed. This never reopens an active or committed
+record; account/document/session, fingerprint and composer checks still apply.
 Appearance-only revisions do not change billing identity; source, effective translation
 parameters, route or login generation changes do. The history is not durable across restart.
 

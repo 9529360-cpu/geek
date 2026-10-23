@@ -11,6 +11,122 @@ use std::time::Duration;
 use uuid::Uuid;
 
 #[test]
+fn a_first_observed_guest_retry_is_admitted_once_and_retains_all_existing_replay_guards() {
+    let mut owner = SendIntents::new();
+    let (account, binding, session, mut request) = fixture(true);
+    // The guest cancelled attempt 1 before a native poll, then received a new
+    // trusted gesture for the unchanged source after hide/show or A -> B -> A.
+    request.attempt = 2;
+    request.composer_revision += 2;
+    assert!(owner.status(&request.id).is_none());
+    let Admission::Start(ticket) = owner
+        .admit(
+            account.clone(),
+            binding.clone(),
+            session.clone(),
+            request.clone(),
+        )
+        .expect("a never-admitted intent must not depend on observing its cancelled guest attempt")
+    else {
+        panic!("the first native observation must start exactly one execution");
+    };
+    assert_eq!(ticket.request.attempt, 2);
+    assert!(ticket.output.is_none());
+    assert!(matches!(
+        owner.admit(account.clone(), binding.clone(), session.clone(), request.clone()),
+        Ok(Admission::Status(status)) if status.attempt == 2 && status.state == SendState::Transforming
+    ));
+    let mut stale = request.clone();
+    stale.attempt = 1;
+    assert!(matches!(
+        owner.admit(account.clone(), binding.clone(), session.clone(), stale),
+        Err(AppError::SendIntentConflict)
+    ));
+    owner
+        .remember_output(&ticket, "Paid once for this logical intent".into())
+        .unwrap();
+    owner.fail(&ticket, AppError::SendIntentChanged).unwrap();
+    let retry = next(&mut owner, &ticket);
+    assert_eq!(retry.request.attempt, 3);
+    assert_eq!(
+        retry.output.as_deref(),
+        Some("Paid once for this logical intent")
+    );
+    assert!(matches!(
+        owner.begin_commit(&ticket),
+        Err(AppError::SendIntentConflict)
+    ));
+    assert!(owner.begin_commit(&retry).unwrap());
+    assert!(!owner.begin_commit(&retry).unwrap());
+    let sent = owner.settle(&retry, confirmed()).unwrap();
+    let mut replay = retry.request.clone();
+    replay.attempt += 1;
+    assert!(matches!(
+        owner.admit(account, binding, session, replay),
+        Ok(Admission::Status(status)) if status == sent && !status.retryable
+    ));
+}
+
+#[test]
+fn a_retry_can_skip_guest_only_attempts_without_repeating_paid_work_or_reviving_old_tickets() {
+    let mut owner = SendIntents::new();
+    let first = start(&mut owner, true);
+    let mut request = first.request.clone();
+    request.attempt = 3;
+    request.composer_revision += 4;
+    let admit = |owner: &mut SendIntents, request| {
+        owner.admit(
+            first.account.clone(),
+            first.binding.clone(),
+            first.session_generation.clone(),
+            request,
+        )
+    };
+    assert!(!matches!(
+        admit(&mut owner, request.clone()),
+        Ok(Admission::Start(_))
+    ));
+    assert_eq!(
+        owner.status(&first.request.id).unwrap().state,
+        SendState::Transforming
+    );
+    owner
+        .remember_output(&first, "Already paid before the local cancellation".into())
+        .unwrap();
+    owner.fail(&first, AppError::TranslationCancelled).unwrap();
+    // Attempt 2 existed only in the guest and was cancelled before a native poll.
+    let Admission::Start(current) = admit(&mut owner, request.clone()).unwrap() else {
+        panic!("a newer trusted retry must not require observing every local attempt");
+    };
+    assert_eq!(
+        current.output.as_deref(),
+        Some("Already paid before the local cancellation")
+    );
+    assert_eq!(current.request.attempt, 3);
+    assert!(matches!(admit(&mut owner, request.clone()),
+        Ok(Admission::Status(status)) if status.attempt == 3 && status.state == SendState::Ready));
+    let mut stale = request.clone();
+    stale.attempt = 2;
+    assert!(matches!(
+        admit(&mut owner, stale),
+        Err(AppError::SendIntentConflict)
+    ));
+    assert!(matches!(
+        owner.remember_output(&first, "Late old output".into()),
+        Err(AppError::SendIntentConflict)
+    ));
+    assert!(matches!(
+        owner.begin_commit(&first),
+        Err(AppError::SendIntentConflict)
+    ));
+    assert!(owner.begin_commit(&current).unwrap());
+    let terminal = owner.settle(&current, confirmed()).unwrap();
+    request.attempt = 9;
+    assert!(matches!(admit(&mut owner, request),
+        Ok(Admission::Status(status)) if status == terminal && !status.retryable));
+}
+
+#[test]
 fn explicit_retry_rebinds_only_its_composer_and_keeps_the_logical_paid_result() {
     let mut owner = SendIntents::new();
     let old = start(&mut owner, true);

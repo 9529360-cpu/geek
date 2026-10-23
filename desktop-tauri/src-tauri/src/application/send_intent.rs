@@ -118,7 +118,9 @@ impl SendIntents {
                 }
                 return Ok(Admission::Status(record.status.clone()));
             }
-            if request.attempt != record.status.attempt.saturating_add(1)
+            // Polling need not observe attempts cancelled entirely inside the
+            // guest. Only a newer explicit attempt may replace retryable work.
+            if request.attempt <= record.status.attempt
                 || request.composer_revision < record.composer_revision
             {
                 return Err(AppError::SendIntentConflict);
@@ -128,9 +130,9 @@ impl SendIntents {
             }
             record.output.clone()
         } else {
-            if request.attempt != 1 {
-                return Err(AppError::SendIntentConflict);
-            }
+            // Local guest cancellation can advance attempts before the first
+            // native poll. Retained tombstones make an unknown ID authoritative
+            // evidence that this owner has never admitted or submitted it.
             if self.records.len() >= self.max_records {
                 return Err(AppError::SendIntentLimit);
             }

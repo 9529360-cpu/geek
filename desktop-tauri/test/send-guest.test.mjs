@@ -173,6 +173,37 @@ test('precommit network failure retries the same ID and attempt increases only o
   assert.deepEqual(ui.prepare(first), { ok: false, code: 'SEND_INTENT_CHANGED' });
 });
 
+test('cancellation before the native first poll retains the same ID and advances the retry attempt', async () => {
+  for (const cancelBeforeObservation of [
+    async (ui) => { ui.api.deactivate(generation); ui.configure(); },
+    async (ui) => { const source = ui.state.text; await ui.input('Temporary edit'); await ui.input(source); },
+  ]) {
+    const ui = guest();
+    ui.enter();
+    // Observe the UUID port, not poll: native has not seen or admitted attempt 1.
+    const [firstId] = ui.state.generatedIds;
+    assert.ok(firstId); assert.equal(ui.state.generatedIds.length, 1);
+    await cancelBeforeObservation(ui);
+    ui.enter();
+    const firstObserved = ui.poll().request;
+    assert.equal(firstObserved.id, firstId); assert.equal(firstObserved.attempt, 2);
+    assert.equal(ui.state.generatedIds.length, 1);
+    assert.equal(ui.state.sent.length, 0); assert.equal(ui.state.cleared.length, 0);
+  }
+  const known = guest(); const firstObserved = start(known);
+  assert.deepEqual(known.prepare(firstObserved), { ok: true });
+  known.api.cancel(generation, firstObserved.id, firstObserved.attempt);
+  known.enter(); // Attempt 2 is cancelled locally before native can observe it.
+  known.api.deactivate(generation); known.configure(); known.enter();
+  const nextObserved = known.poll().request;
+  assert.equal(nextObserved.id, firstObserved.id); assert.equal(nextObserved.attempt, 3);
+  assert.ok(nextObserved.composerRevision >= firstObserved.composerRevision);
+  assert.equal(known.state.generatedIds.length, 1);
+  assert.equal(known.prepare({ ...firstObserved, attempt: 2 }).ok, false);
+  assert.deepEqual(known.prepare(nextObserved), { ok: true });
+  assert.equal(known.state.sent.length, 0); assert.equal(known.state.cleared.length, 0);
+});
+
 test('appearance-only changes retain logical identity while old revision output is rejected', () => {
   const ui = guest(); const first = start(ui);
   assert.deepEqual(ui.prepare(first), { ok: true });

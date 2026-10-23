@@ -143,7 +143,7 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
   editor.setAttribute('data-testid', 'conversation-compose-box-input'); editor.textContent = text; footer.append(editor);
   const button = new Element('button'); button.setAttribute('data-testid', 'compose-btn-send'); footer.append(button);
   const icon = new Element('span'); icon.setAttribute('data-icon', 'send'); button.append(icon);
-  const state = { generation, now: 0, text, chatId: '100@c.us', sent: [], cleared: [], handlers: new Map() };
+  const state = { generation, now: 0, text, chatId: '100@c.us', sent: [], cleared: [], generatedIds: [], handlers: new Map() };
   const chats = new Map();
   const model = (id) => {
     if (!chats.has(id)) chats.set(id, { id, canSend: true, isGroup: id.endsWith('@g.us'), composeQuotedMsg: null,
@@ -166,7 +166,8 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
   const window = { WPP, __geekTauriPlatform: { matches: (id) => id === state.generation },
     setTimeout: (callback) => { timers.set(++timerId, callback); return timerId; }, clearTimeout: (id) => timers.delete(id) };
   window.top = iframe ? {} : window;
-  runInNewContext(bundle, { window, document, crypto: { randomUUID }, TextEncoder, MutationObserver: Observer,
+  const createId = () => { const id = randomUUID(); state.generatedIds.push(id); return id; };
+  runInNewContext(bundle, { window, document, crypto: { randomUUID: createId }, TextEncoder, MutationObserver: Observer,
     performance: { now: () => state.now } });
   const api = window.__geekTauriSend;
   const configuration = { generation, sessionGeneration: session, active: true,
