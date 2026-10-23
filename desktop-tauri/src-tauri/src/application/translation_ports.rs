@@ -1,5 +1,46 @@
 use super::request_control::RequestControl;
-use crate::domain::{error::Result, proxy::ProxyConfig, session::SessionToken};
+use crate::domain::{
+    account::valid_id,
+    error::{AppError, Result},
+    proxy::ProxyConfig,
+    session::SessionToken,
+    translation::{valid_chat_id, validate_text},
+};
+
+/// Native-owned service intent. This never admits arbitrary guest HTTP headers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TranslationIntent {
+    MessageDisplay,
+    OutgoingSend,
+}
+
+impl TranslationIntent {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MessageDisplay => "message-display",
+            Self::OutgoingSend => "outgoing-send",
+        }
+    }
+}
+
+/// A transform within an already admitted SendIntent, with its stable billing ID.
+/// Composer ownership, trusted gestures and submission remain with that owner.
+#[derive(Clone)]
+pub struct OutgoingTranslation {
+    pub id: String,
+    pub chat_id: String,
+    pub text: String,
+    pub policy_revision: u64,
+}
+
+impl OutgoingTranslation {
+    pub fn validate(&self) -> Result<()> {
+        if !valid_id(&self.id) || !valid_chat_id(&self.chat_id) {
+            return Err(AppError::TranslationInvalid);
+        }
+        validate_text(&self.text)
+    }
+}
 
 pub struct TranslationToken {
     pub token: SessionToken,
@@ -9,6 +50,7 @@ pub struct TranslationToken {
 #[derive(Clone)]
 pub struct TranslationRequest {
     pub id: String,
+    pub intent: TranslationIntent,
     pub text: String,
     pub source: String,
     pub target: String,

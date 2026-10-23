@@ -14,11 +14,11 @@ test('translation model rejects invalid policy values and never echoes unknown n
   assert.doesNotMatch(translationError('password=private'), /password|private/);
 });
 
-test('received-message settings save a complete account policy and unsupported sending stays disabled', async () => {
+test('received-message settings save a complete policy without enabling outgoing translation', async () => {
   const ui = await fixture(); await ui.click('btn-translation');
   assert.equal(ui.panel, 'translation-popover');
   assert.equal(ui.get('translation-chat-hint').textContent.includes('Ann'), true);
-  assert.equal(ui.get('translation-send').disabled, true);
+  assert.equal(ui.get('translation-send').disabled, false);
   assert.equal(ui.get('translation-enabled').disabled, true);
   await ui.input('translation-receive-auto', true);
   await ui.input('translation-group', true);
@@ -32,6 +32,40 @@ test('received-message settings save a complete account policy and unsupported s
   assert.equal(authority.global.translateHistory, false);
   assert.match(ui.get('translation-global-status').textContent, /已保存/);
   assert.equal(ui.calls.filter(([name]) => name === 'update')[0][1].expectedRevision, 1);
+});
+
+test('original sending controls persist the synchronized enable flags and independent source/target', async () => {
+  const ui = await fixture(); await ui.click('btn-translation');
+  await ui.input('translation-send', true);
+  await ui.input('translation-send-from', 'zh');
+  await ui.input('translation-send-to', 'it');
+  await ui.input('translation-include-zh', false);
+  const policy = ui.backend.accounts[0].translation.global;
+  assert.equal(policy.enabled, true); assert.equal(policy.autoSend, true);
+  assert.equal(policy.source, 'zh'); assert.equal(policy.target, 'it'); assert.equal(policy.includeZh, false);
+  assert.equal(policy.messageTarget, 'zh'); assert.equal(policy.translationMode, 'click');
+  await ui.input('translation-send', false);
+  assert.equal(ui.backend.accounts[0].translation.global.enabled, false);
+  assert.equal(ui.backend.accounts[0].translation.global.autoSend, false);
+});
+
+test('per-chat sending keeps the captured native chat and saving failure preserves only its draft', async () => {
+  const ui = await fixture(); await ui.click('btn-translation');
+  await ui.input('translation-chat-override', true);
+  ui.chats.set('a', { id: 'a-other', name: 'Another chat' });
+  ui.failures.set('update', 'STORE_IO'); await ui.input('translation-enabled', true);
+  assert.equal(ui.get('translation-enabled').checked, true);
+  assert.equal(ui.backend.accounts[0].translation.chats['a-ann'].enabled, false);
+  assert.equal(ui.backend.accounts[0].translation.chats['a-other'], undefined);
+  assert.match(ui.get('translation-chat-status').textContent, /草稿/);
+  ui.failures.delete('update'); await ui.click('translation-chat-retry');
+  await ui.input('translation-target', 'fr');
+  const policy = ui.backend.accounts[0].translation.chats['a-ann'];
+  assert.equal(policy.enabled, true); assert.equal(policy.autoSend, true); assert.equal(policy.target, 'fr');
+  assert.equal(ui.backend.accounts[0].translation.global.enabled, false);
+  ui.switchAccount('b');
+  assert.equal(ui.get('translation-send').checked, false);
+  assert.equal(ui.get('translation-send-to').value, 'en');
 });
 
 test('failed save retains draft without publishing it and retries only after explicit action', async () => {

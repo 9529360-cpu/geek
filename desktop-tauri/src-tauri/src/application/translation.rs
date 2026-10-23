@@ -1,9 +1,11 @@
-//! Bounded incoming-message transforms. This owner never selects a chat or sends.
+//! Cancellable display and SendIntent transforms. This owner never selects a chat or sends.
 use super::{
     request_control::RequestControl,
     session::{SessionLease, SessionService},
     session_ports::{SessionRepository, SessionTransport},
-    translation_ports::{TranslationGateway, TranslationRequest},
+    translation_ports::{
+        OutgoingTranslation, TranslationGateway, TranslationIntent, TranslationRequest,
+    },
 };
 use crate::domain::{
     account::Account,
@@ -30,6 +32,25 @@ pub struct PreparedTranslation {
     pub control: RequestControl,
     request: TranslationRequest,
     cache_key: [u8; 32],
+}
+
+#[derive(Clone)]
+pub struct PreparedOutgoingTranslation {
+    pub account: Account,
+    pub lease: SessionLease,
+    pub control: RequestControl,
+    request: TranslationRequest,
+    cache_key: [u8; 32],
+}
+
+/// A borrowed execution view shares transport/auth/cache without conflating admission.
+struct TransformWork<'a> {
+    account: &'a Account,
+    lease: &'a SessionLease,
+    control: &'a RequestControl,
+    request: &'a TranslationRequest,
+    cache_key: &'a [u8; 32],
+    refresh: bool,
 }
 
 struct TokenEntry {
@@ -111,29 +132,20 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
         let lease = self.session.capture_lease()?;
         let request = TranslationRequest {
             id: incoming.id.clone(),
+            intent: TranslationIntent::MessageDisplay,
             text: incoming.text.clone(),
             source: policy.message_from.clone(),
             target: policy.message_target.clone(),
             provider: policy.provider.clone(),
             route: policy.route.clone(),
         };
-        // Length-prefix components so message text cannot collide with separators.
-        let mut digest = Sha256::new();
-        for component in [
-            &lease.generation,
-            &account.id,
+        let cache_key = transform_cache_key(
+            &lease,
+            &account,
             &incoming.chat_id,
             &incoming.message_id,
-            &request.text,
-            &request.source,
-            &request.target,
-            &request.provider,
-            &request.route,
-        ] {
-            digest.update((component.len() as u64).to_le_bytes());
-            digest.update(component.as_bytes());
-        }
-        let cache_key = digest.finalize().into();
+            &request,
+        );
         let control = control.with_cancel(Arc::clone(&lease.cancel));
         Ok(PreparedTranslation {
             account,
@@ -145,36 +157,82 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
         })
     }
 
-    fn current(&self, work: &PreparedTranslation) -> Result<()> {
-        work.control.check()?;
-        self.session.validate_lease(&work.lease)
+    /// SendIntent supplies its existing budget; preparation never grants more time.
+    /// Identity sends are admitted and executed by SendIntent without this service.
+    pub fn prepare_outgoing(
+        &self,
+        account: Account,
+        outgoing: OutgoingTranslation,
+        control: RequestControl,
+    ) -> Result<PreparedOutgoingTranslation> {
+        let control = control.limited(Duration::from_secs(35));
+        control.check()?;
+        outgoing.validate()?;
+        if account.archived || !matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure")
+        {
+            return Err(AppError::TranslationUnavailable);
+        }
+        let policy = account.translation.policy(&outgoing.chat_id);
+        policy.validate()?;
+        if outgoing.policy_revision != account.translation.revision
+            || !policy.should_translate_outgoing(&outgoing.text)
+        {
+            return Err(AppError::TranslationUnavailable);
+        }
+        let lease = self.session.capture_lease()?;
+        let request = TranslationRequest {
+            id: outgoing.id.clone(),
+            intent: TranslationIntent::OutgoingSend,
+            text: outgoing.text.clone(),
+            source: policy.source.clone(),
+            target: policy.target.clone(),
+            provider: policy.provider.clone(),
+            route: policy.route.clone(),
+        };
+        // Separate sends must never coalesce, even with identical source text.
+        let cache_key =
+            transform_cache_key(&lease, &account, &outgoing.chat_id, &outgoing.id, &request);
+        let control = control.with_cancel(Arc::clone(&lease.cancel));
+        control.check()?;
+        Ok(PreparedOutgoingTranslation {
+            account,
+            lease,
+            control,
+            request,
+            cache_key,
+        })
     }
 
-    fn auth_result<U>(&self, work: &PreparedTranslation, result: Result<U>) -> Result<U> {
+    fn current(&self, work: &TransformWork<'_>) -> Result<()> {
+        work.control.check()?;
+        self.session.validate_lease(work.lease)
+    }
+
+    fn auth_result<U>(&self, work: &TransformWork<'_>, result: Result<U>) -> Result<U> {
         match result {
             Err(error @ (AppError::SessionRequired | AppError::SessionAccountDisabled)) => {
-                self.session.reject_auth(&work.lease, error)?;
+                self.session.reject_auth(work.lease, error)?;
                 Err(error)
             }
             result => result,
         }
     }
 
-    fn authorize_quota(&self, work: &PreparedTranslation) -> Result<()> {
+    fn authorize_quota(&self, work: &TransformWork<'_>) -> Result<()> {
         self.current(work)?;
-        let quota = match self.session.authoritative_quota(&work.lease)? {
+        let quota = match self.session.authoritative_quota(work.lease)? {
             Some(value) => value,
             None => {
                 let result = self.gateway.quota(
                     work.lease.token.as_str(),
                     &work.account.proxy,
-                    &work.control,
+                    work.control,
                 );
                 let value = self.auth_result(work, result)?;
                 self.current(work)?;
-                self.session.accept_quota(&work.lease, Some(value))?;
+                self.session.accept_quota(work.lease, Some(value))?;
                 self.session
-                    .authoritative_quota(&work.lease)?
+                    .authoritative_quota(work.lease)?
                     .ok_or(AppError::SessionChanged)?
             }
         };
@@ -186,7 +244,7 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
 
     /// Single-flight token acquisition is scoped to this account and subscription.
     /// The lock is never the account/workspace or subscription authority mutex.
-    fn token(&self, work: &PreparedTranslation, force: bool) -> Result<SessionToken> {
+    fn token(&self, work: &TransformWork<'_>, force: bool) -> Result<SessionToken> {
         let slot = {
             let mut slots = self.tokens.lock().map_err(|_| AppError::StateUnavailable)?;
             if slots.len() >= 20 && !slots.contains_key(&work.account.id) {
@@ -214,7 +272,7 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
         let response = self.gateway.translation_token(
             work.lease.token.as_str(),
             &work.account.proxy,
-            &work.control,
+            work.control,
         );
         let response = self.auth_result(work, response)?;
         self.current(work)?;
@@ -267,9 +325,31 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
     }
 
     pub fn execute(&self, work: &PreparedTranslation) -> Result<String> {
+        self.execute_transform(&TransformWork {
+            account: &work.account,
+            lease: &work.lease,
+            control: &work.control,
+            request: &work.request,
+            cache_key: &work.cache_key,
+            refresh: work.incoming.refresh,
+        })
+    }
+
+    pub fn execute_outgoing(&self, work: &PreparedOutgoingTranslation) -> Result<String> {
+        self.execute_transform(&TransformWork {
+            account: &work.account,
+            lease: &work.lease,
+            control: &work.control,
+            request: &work.request,
+            cache_key: &work.cache_key,
+            refresh: false,
+        })
+    }
+
+    fn execute_transform(&self, work: &TransformWork<'_>) -> Result<String> {
         self.authorize_quota(work)?; // A cache hit still requires a fresh positive server balance.
-        if !work.incoming.refresh {
-            if let Some(text) = self.cached(&work.cache_key)? {
+        if !work.refresh {
+            if let Some(text) = self.cached(work.cache_key)? {
                 self.current(work)?;
                 return Ok(text);
             }
@@ -280,9 +360,9 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             self.current(work)?;
             let result = self.gateway.translate(
                 token.as_str(),
-                &work.request,
+                work.request,
                 &work.account.proxy,
-                &work.control,
+                work.control,
             );
             match result {
                 Err(AppError::TranslationInProgress) => {
@@ -294,7 +374,7 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
                 }
                 Err(AppError::TranslationQuotaExhausted) => {
                     self.current(work)?;
-                    self.session.accept_quota(&work.lease, Some(0))?;
+                    self.session.accept_quota(work.lease, Some(0))?;
                     return Err(AppError::TranslationQuotaExhausted);
                 }
                 result => break self.auth_result(work, result)?,
@@ -303,12 +383,39 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
         self.current(work)?;
         // Server billing is final, including a success whose balance lookup was null.
         self.session
-            .accept_quota(&work.lease, reply.remaining_chars)?;
+            .accept_quota(work.lease, reply.remaining_chars)?;
         if reply.text.trim().is_empty() || reply.text.len() > 128 * 1024 {
             return Err(AppError::TranslationOutputInvalid);
         }
         self.current(work)?;
-        self.remember(work.cache_key, &reply.text)?;
+        self.remember(*work.cache_key, &reply.text)?;
         Ok(reply.text)
     }
+}
+
+fn transform_cache_key(
+    lease: &SessionLease,
+    account: &Account,
+    chat_id: &str,
+    operation_id: &str,
+    request: &TranslationRequest,
+) -> [u8; 32] {
+    // Length-prefix components so source text cannot collide with separators.
+    let mut digest = Sha256::new();
+    for component in [
+        request.intent.as_str(),
+        &lease.generation,
+        &account.id,
+        chat_id,
+        operation_id,
+        &request.text,
+        &request.source,
+        &request.target,
+        &request.provider,
+        &request.route,
+    ] {
+        digest.update((component.len() as u64).to_le_bytes());
+        digest.update(component.as_bytes());
+    }
+    digest.finalize().into()
 }

@@ -72,12 +72,17 @@ impl TranslationPolicy {
         {
             return Err(AppError::TranslationInvalid);
         }
-        // These require a separate native SendIntent/history admission owner.
-        // Reject unsupported truthy flags instead of silently promising behavior.
-        if self.enabled || self.auto_send || self.translate_history {
+        // History still requires a separate bounded admission owner.
+        if self.translate_history {
             return Err(AppError::TranslationUnavailable);
         }
         Ok(())
+    }
+
+    pub fn should_translate_outgoing(&self, text: &str) -> bool {
+        self.enabled
+            && self.auto_send
+            && (self.include_zh || !text.chars().any(|c| ('\u{3400}'..='\u{9fff}').contains(&c)))
     }
 }
 

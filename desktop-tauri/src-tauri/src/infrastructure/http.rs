@@ -1,6 +1,6 @@
 //! Native-only fixed service transport. No renderer URL, headers or network fallback.
 use crate::{
-    application::ports::RequestControl,
+    application::ports::{RequestControl, TranslationIntent},
     domain::{
         error::{AppError, Result},
         proxy::ProxyConfig,
@@ -8,6 +8,9 @@ use crate::{
 };
 use std::{sync::Arc, time::Duration};
 use zeroize::Zeroizing;
+
+#[cfg(test)]
+mod tests;
 
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
@@ -50,6 +53,7 @@ pub struct FixedRequest<'a> {
     pub body: Option<&'a str>,
     pub request_id: Option<&'a str>,
     pub deadline_ms: Option<u64>,
+    pub translation_intent: Option<TranslationIntent>,
 }
 
 impl FixedRequest<'_> {
@@ -60,6 +64,7 @@ impl FixedRequest<'_> {
             body: None,
             request_id: None,
             deadline_ms: None,
+            translation_intent: None,
         }
     }
 }
@@ -128,32 +133,7 @@ impl HttpTransport {
                 builder.proxy(reqwest::Proxy::all(endpoint).map_err(|_| AppError::ProxyInvalid)?);
         }
         let client = builder.build().map_err(|_| AppError::NetworkUnavailable)?;
-        let method = reqwest::Method::from_bytes(request.endpoint.method().as_bytes())
-            .map_err(|_| AppError::NetworkUnavailable)?;
-        let mut outgoing = client
-            .request(method, request.endpoint.url())
-            .header("Accept", "application/json");
-        if let Some(token) = request.bearer {
-            outgoing = outgoing.bearer_auth(token);
-        }
-        if let Some(body) = request.body {
-            outgoing = outgoing
-                .header("Content-Type", "application/json")
-                .body(body.to_owned());
-        }
-        if let Some(id) = request.request_id {
-            outgoing = outgoing.header("X-Request-ID", id);
-        }
-        if let Some(budget) = request.deadline_ms {
-            outgoing = outgoing
-                .header(
-                    "X-Geek-Deadline-Ms",
-                    budget
-                        .min(30_000)
-                        .min(control.remaining()?.as_millis() as u64),
-                )
-                .header("X-Geek-Translation-Intent", "message-display");
-        }
+        let outgoing = service_request(&client, request, control)?;
         self.runtime.block_on(async {
             let work = async {
                 control.check()?;
@@ -186,6 +166,45 @@ impl HttpTransport {
             }
         })
     }
+}
+
+fn service_request(
+    client: &reqwest::Client,
+    request: &FixedRequest<'_>,
+    control: &RequestControl,
+) -> Result<reqwest::RequestBuilder> {
+    control.check()?;
+    if (request.endpoint == Endpoint::Translate) != request.translation_intent.is_some() {
+        return Err(AppError::NetworkResponseInvalid);
+    }
+    let method = reqwest::Method::from_bytes(request.endpoint.method().as_bytes())
+        .map_err(|_| AppError::NetworkUnavailable)?;
+    let mut outgoing = client
+        .request(method, request.endpoint.url())
+        .header("Accept", "application/json");
+    if let Some(token) = request.bearer {
+        outgoing = outgoing.bearer_auth(token);
+    }
+    if let Some(body) = request.body {
+        outgoing = outgoing
+            .header("Content-Type", "application/json")
+            .body(body.to_owned());
+    }
+    if let Some(id) = request.request_id {
+        outgoing = outgoing.header("X-Request-ID", id);
+    }
+    if let Some(budget) = request.deadline_ms {
+        outgoing = outgoing.header(
+            "X-Geek-Deadline-Ms",
+            budget
+                .min(30_000)
+                .min(control.remaining()?.as_millis() as u64),
+        );
+    }
+    if let Some(intent) = request.translation_intent {
+        outgoing = outgoing.header("X-Geek-Translation-Intent", intent.as_str());
+    }
+    Ok(outgoing)
 }
 
 fn map_network(error: reqwest::Error) -> AppError {

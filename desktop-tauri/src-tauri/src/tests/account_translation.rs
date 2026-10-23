@@ -3,6 +3,8 @@ use crate::domain::{error::AppError, translation::TranslationPolicy};
 
 fn policy(language: &str) -> TranslationPolicy {
     TranslationPolicy {
+        enabled: true,
+        auto_send: true,
         message_target: language.into(),
         font_size: 15,
         ..TranslationPolicy::default()

@@ -5,6 +5,7 @@ pub mod layout;
 pub mod platform_bridge;
 pub mod platform_sessions;
 pub mod security;
+pub mod send_guest;
 pub mod session;
 pub mod translation;
 pub mod translation_guest;

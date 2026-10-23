@@ -74,7 +74,7 @@ schema 5 新增各账号的翻译策略与聊天覆盖，保留 schema 4 的字�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：发送前翻译与 SendIntent、Telegram 翻译/群发、附件桥、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 群发、极客登录与接收翻译的实现范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram 翻译/群发、回复/提及/附件的发送翻译、附件桥、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 群发、极客登录、接收翻译与普通文字发送翻译的实现范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -118,10 +118,11 @@ tracks the actual chat container and is suspended while a modal/menu is open.
 
 Wired paths: create 1-10 accounts with proxy, switch accounts/families, save account
 name/font/color, drag reorder within a family, reload, close, archive, search/restore,
-tray preference, native window controls, WhatsApp broadcast, Geek login/quota and
-WhatsApp incoming-message translation with account/chat settings.
-Not yet wired: restart/lock, registration/purchase, theme/startup options, outgoing
-translation/SendIntent, notes, Telegram translation/broadcast and attachments.
+tray preference, native window controls, WhatsApp broadcast, Geek login/quota,
+WhatsApp incoming-message translation and plain-text outgoing translation with
+account/chat settings and an independent SendIntent owner.
+Not yet wired: restart/lock, registration/purchase, theme/startup options, notes,
+Telegram translation/broadcast, rich-context outgoing translation and attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 
@@ -198,6 +199,18 @@ WhatsApp / 纯净版支持“点击翻译”和右键翻译当前可见消息，
 
 翻译 HTTP 请求使用账号保存的 HTTP/SOCKS5/系统路由。系统模式通过 Windows `GetProxyConfigurationAsync` 对固定服务 URL 解析 PAC/WPAD/系统设置，使用返回的首个代理；仅无代理且系统明确允许时直连。解析或连接失败不会偷偷换代理或直连。独立 HTTP 客户端禁用环境代理覆盖、重定向和底层自动重试，SOCKS5 的目标 DNS 在代理侧解析。这里没有客户代理实连或 Windows PAC 真机验证的声明。
 
-发送前翻译、自动发送和 Telegram 翻译仍等待独立的 SendIntent/平台适配器迁移，当前原位禁用。接收翻译 owner 没有发送或修改输入框的能力。测试使用合成账户和响应，不访问真实订阅或计费服务；实际 Windows/WebView2、WhatsApp 登录与服务联调由维护者另行验收。
+接收翻译 owner 没有发送或修改输入框的能力。Telegram 翻译仍未迁移。测试使用合成账户和响应，不访问真实订阅或计费服务；实际 Windows/WebView2、WhatsApp 登录与服务联调由维护者另行验收。
 
 接口来源：仓库的 `scripts/geek-subscription-worker*.js`、`scripts/geek-translate-worker.js`；系统代理参考 [Windows ProxyConfiguration](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.proxyconfiguration) 与 [GetProxyConfigurationAsync](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.networkinformation.getproxyconfigurationasync)；HTTP 行为参考 [reqwest 0.13.5 ClientBuilder](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html)。
+
+## WhatsApp 普通文字发送翻译与 SendIntent
+
+原翻译面板的发送开关、源/目标语言、包含中文和当前聊天覆盖已接通。开启后，由真实 Enter 或原发送按钮发起一次翻译并发送，不增加二次确认模式；关闭后使用 WhatsApp 原生发送行为。包含中文关闭且正文含汉字时，沿用原规则发送原文，这条 identity 路径不要求极客登录或翻译余额。
+
+`application/send_intent` 独立拥有请求 UUID、账号/文档/会话、聊天、输入内容和 composer revision；`send_runner` 最多一个实际 worker 和一条等待任务，与接收翻译的队列分离。总期限为 50 秒，翻译子步骤最多 35 秒且不能延长总期限。隐藏账号、打开覆盖弹窗或切换账号会撤销原生 presentation lease；重新显示不会恢复旧任务，也不改变账号/文档 identity 或后台群发归属。关闭、重载、导航、退出会话和策略变更也会阻止旧任务继续提交。
+
+这一批只接普通文字。翻译前及提交前都核对 WhatsApp 模型、输入框节点、文本、聊天、策略和 revision；回复/引用、提及、附件/说明、编辑/转发、预览或无法识别的富内容会明确拦住，保留草稿。翻译是独立 transform，使用固定 `outgoing-send` 服务意图和原请求 UUID；翻译错误或质量不合格不会降级发送原文。显式重试可恢复同一请求和已成功取得的译文，旧 attempt 不能提交或覆盖新 attempt。改变正文、登录会话或实际翻译参数才建立新请求；仅改外观或其他聊天设置不会创建新计费编号。
+
+提交使用锁定 WA-JS 的显式聊天目标和单次许可，不写入译文再模拟 Enter。禁用隐式提及和链接预览，只接受真实消息 ID 与 ACK≥1。原草稿保留至确认；清空前再次比较聊天、模型、输入框、正文和 revision，用户已输入新内容则保留。清空失败仍显示已发送，不把消息变成可重试失败。回执丢失、提交后取消或结果不明进入 uncertain，不自动重发；原草稿未修改时，即使关掉翻译开关，也继续阻止重复发送，需先核对聊天记录。
+
+请求历史和已完成译文只在内存中保留，不宣称重启后恰好一次发送。原生最多 20000 条请求记录，待用译文与预留合计最多 2 MiB；每个页面最多 128 条意图，正文/译文及预留限制为 2 MiB。已确认清空或经用户编辑释放的终态会释放正文和 DOM 引用，保留提交凭据；达到页面记录上限会提示手动重新打开该账号页面，不驱逐旧凭据后允许重放。测试覆盖合成浏览器输入、同源 Rust 状态机和取消竞态；真实 WhatsApp 服务回执、Windows 输入法与付费服务联调仍需维护者真机验收。

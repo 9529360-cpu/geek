@@ -1,10 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub type Result<T> = std::result::Result<T, AppError>;
 
 /// Stable IPC codes only: never serialize native errors, URLs or user data.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AppError {
     LayoutInvalid,
@@ -35,6 +35,15 @@ pub enum AppError {
     PlatformUnavailable,
     ProfileInUse,
     ProxyInvalid,
+    SendIntentInvalid,
+    SendIntentConflict,
+    SendIntentState,
+    SendIntentLimit,
+    SendIntentBusy,
+    SendIntentUnsupported,
+    SendIntentChanged,
+    SendIntentReceiptMissing,
+    SendIntentUncertain,
     SessionInvalid,
     SessionRequired,
     SessionChanged,
@@ -96,6 +105,15 @@ impl AppError {
             Self::PlatformUnavailable => "PLATFORM_UNAVAILABLE",
             Self::ProfileInUse => "PROFILE_IN_USE",
             Self::ProxyInvalid => "PROXY_INVALID",
+            Self::SendIntentInvalid => "SEND_INTENT_INVALID",
+            Self::SendIntentConflict => "SEND_INTENT_CONFLICT",
+            Self::SendIntentState => "SEND_INTENT_STATE",
+            Self::SendIntentLimit => "SEND_INTENT_LIMIT",
+            Self::SendIntentBusy => "SEND_INTENT_BUSY",
+            Self::SendIntentUnsupported => "SEND_INTENT_UNSUPPORTED",
+            Self::SendIntentChanged => "SEND_INTENT_CHANGED",
+            Self::SendIntentReceiptMissing => "SEND_INTENT_RECEIPT_MISSING",
+            Self::SendIntentUncertain => "SEND_INTENT_UNCERTAIN",
             Self::SessionInvalid => "SESSION_INVALID",
             Self::SessionRequired => "SESSION_REQUIRED",
             Self::SessionChanged => "SESSION_CHANGED",

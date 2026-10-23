@@ -80,6 +80,7 @@ impl SessionTransport for NativeApi {
                 body: Some(body.as_str()),
                 request_id: None,
                 deadline_ms: None,
+                translation_intent: None,
             },
             control,
         )?;
@@ -182,6 +183,7 @@ impl TranslationGateway for NativeApi {
                 body: Some(body.as_str()),
                 request_id: Some(&request.id),
                 deadline_ms: Some((control.remaining()?.as_millis() as u64).min(30_000)),
+                translation_intent: Some(request.intent),
             },
             control,
         )?;

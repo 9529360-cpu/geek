@@ -54,7 +54,7 @@ impl NativePlatform {
             .ok_or(BroadcastIssue::AccountUnavailable)
     }
 
-    fn guest(&self, binding: &GuestBinding) -> PlatformResult<Webview> {
+    pub(super) fn guest(&self, binding: &GuestBinding) -> PlatformResult<Webview> {
         if !matches!(binding.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
             return Err(BroadcastIssue::CapabilityUnavailable);
         }

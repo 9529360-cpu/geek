@@ -1,5 +1,8 @@
 use crate::{
-    application::{accounts::Accounts, workspace::Workspace},
+    application::{
+        accounts::Accounts, send_runner::SendRunner, send_translation::SendTranslation,
+        workspace::Workspace,
+    },
     desktop::{
         broadcast::BroadcastDesktop,
         commands,
@@ -7,6 +10,7 @@ use crate::{
         platform_bridge::NativePlatform,
         platform_sessions::PlatformSessions,
         security,
+        send_guest::SendGuest,
         session::{NativeSession, NativeTranslation},
         translation::TranslationDesktop,
         translation_guest::TranslationGuest,
@@ -81,6 +85,17 @@ pub fn run() {
                 Arc::clone(&api),
             )?);
             let translator = Arc::new(NativeTranslation::new(Arc::clone(&session), api));
+            let sending = Arc::new(SendRunner::new(
+                Arc::new(SendGuest::new(
+                    Arc::clone(&platform),
+                    Arc::clone(&workspace),
+                    Arc::clone(&sessions),
+                )),
+                Arc::new(SendTranslation::new(
+                    Arc::clone(&session),
+                    Arc::clone(&translator),
+                )),
+            ));
             let translation = Arc::new(TranslationDesktop::new(
                 Arc::clone(&workspace),
                 sessions,
@@ -92,6 +107,7 @@ pub fn run() {
             app.manage(Arc::clone(&broadcast));
             app.manage(session);
             app.manage(Arc::clone(&translation));
+            app.manage(Arc::clone(&sending));
             let window = WindowBuilder::new(app, "main")
                 .title("极客 · Tauri Windows 开发版")
                 .decorations(false)
@@ -114,6 +130,7 @@ pub fn run() {
             window.add_child(shell, LogicalPosition::new(0.0, 0.0), window.inner_size()?)?;
             broadcast.start()?;
             translation.start()?;
+            sending.start()?;
             Ok(())
         })
         .build(tauri::generate_context!());
@@ -124,6 +141,9 @@ pub fn run() {
                     owner.shutdown();
                 }
                 if let Some(owner) = handle.try_state::<Arc<TranslationDesktop>>() {
+                    owner.shutdown();
+                }
+                if let Some(owner) = handle.try_state::<Arc<SendRunner>>() {
                     owner.shutdown();
                 }
             }

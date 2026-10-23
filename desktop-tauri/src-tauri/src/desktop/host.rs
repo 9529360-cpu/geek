@@ -28,7 +28,9 @@ fn label(id: &str) -> String {
 
 fn revoke_document(guest: &Webview, generation: &str) {
     if let Ok(value) = serde_json::to_string(generation) {
-        let _ = guest.eval(format!("window.__geekTauriTranslation?.revoke({value}); window.__geekTauriPlatform?.revoke({value})"));
+        let _ = guest.eval(format!(
+            "window.__geekTauriSend?.revoke({value}); window.__geekTauriTranslation?.revoke({value}); window.__geekTauriPlatform?.revoke({value})"
+        ));
     }
 }
 
@@ -129,11 +131,24 @@ impl DesktopHost for TauriHost {
     }
 
     fn show(&mut self, id: &str) -> Result<()> {
-        self.guest(id)?.show().map_err(|_| AppError::WebviewFailed)
+        self.guest(id)?
+            .show()
+            .map_err(|_| AppError::WebviewFailed)?;
+        self.sessions.set_visible(id, true);
+        Ok(())
     }
 
     fn hide(&mut self, id: &str) -> Result<()> {
-        self.guest(id)?.hide().map_err(|_| AppError::WebviewFailed)
+        let guest = self.guest(id)?;
+        // Order revocation and script enqueue against commit, without awaiting a callback.
+        self.sessions.hide_and_enqueue(id, |binding| {
+            let generation =
+                serde_json::to_string(&binding.generation).map_err(|_| AppError::WebviewFailed)?;
+            guest
+                .eval(format!("window.__geekTauriSend?.deactivate({generation})"))
+                .map_err(|_| AppError::WebviewFailed)
+        })?;
+        guest.hide().map_err(|_| AppError::WebviewFailed)
     }
 
     fn focus(&mut self, id: &str) -> Result<()> {

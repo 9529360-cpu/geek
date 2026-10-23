@@ -55,7 +55,8 @@ frontend/app.mjs                       main.rs
 | application/accounts | Single account document; validate candidate, persist, then publish memory | Public mutable state, secondary config owner, native code |
 | application/broadcast | Independent encrypted job document, bounded scheduler, immutable targets and single-use submit admission | Workspace/network waits under its owner lock, replay of uncertain effects |
 | application/session | Encrypted login generation, expiring server quota authority and cancellation leases | Renderer tokens, local billing or network work under its authority lock |
-| application/translation | Bounded incoming transforms, account-specific tokens, request identities and memory cache | Composer/send ownership, automatic new IDs after uncertain outcomes |
+| application/translation | Bounded incoming/outgoing transforms, account-specific tokens, request identities and memory cache | Composer/send ownership, automatic new IDs after uncertain outcomes |
+| application/send_intent + send_runner | Interactive intent identity, bounded foreground work, one commit admission and receipt settlement | Workspace/network waits under its owner lock, replay of confirmed or uncertain effects |
 | application/workspace | Activate/close/reload/archive/settings orchestration; active account | Browser profile rewriting, network jobs under its lock |
 | application/ports | Repository and native-host contracts | Concrete implementation or generic arbitrary-command interfaces |
 | infrastructure | Encryption/atomic writes/process lock/profile paths/catalog decoding | UI operations or calls back into use-case implementations |
@@ -181,13 +182,13 @@ OS configuration in effect; HTTP/SOCKS5 use `WebviewBuilder::proxy_url`. No raw 
 credentials, PAC or bypass list cross this interface. View closure is not proof that the
 WebView2 environment has exited: rebuilding the same profile can fail and require an app
 restart, never an identity change. Proxy HTTP/HTTPS routing is not a VPN, DNS firewall or
-WebRTC/UDP egress guarantee. The incoming translation HTTP adapter separately consumes
+WebRTC/UDP egress guarantee. The translation HTTP adapter separately consumes
 the same immutable account route; global login and explicit quota refresh use System.
 
 ## 6. Feature boundaries for subsequent implementation
 
-The table describes ownership constraints. Implemented WhatsApp broadcast, auth and
-incoming translation subsets are specified below; remaining entries guide subsequent work.
+The table describes ownership constraints. Implemented WhatsApp broadcast, auth,
+incoming translation and plain-text SendIntent subsets are specified below; remaining entries guide subsequent work.
 Introduce each owner only with a working caller, tests and an integration path.
 
 | Feature owner | Inputs/state and commit rule |
@@ -319,7 +320,7 @@ successful translation. Only the existing server decides billing; no client usag
 
 `Account.translation` contains one revision, global policy and at most 100 chat overrides.
 The existing Accounts owner persists mutations before publishing snapshots. Unknown,
-archived or unsupported accounts, stale revisions and unsupported sending/history flags
+archived or unsupported accounts, stale revisions and unsupported history flags
 fail before writes. Default/legacy policy is manual-only. Reading older schemas never
 eagerly rewrites them; an actual successful mutation upgrades to schema 5.
 
@@ -342,7 +343,7 @@ remain manual-only, supplemented by a native per-activation timestamp cutoff. Au
 admission requires verified incoming metadata, a new timestamp and allowed chat policy.
 Target-Chinese messages already containing Han text preserve the original automatic skip.
 The current node identity, body, message/chat, native generation, login generation and
-policy revision must still match before rendering. No composer interception is installed.
+policy revision must still match before rendering. This receive owner installs no composer interception.
 
 `application/translation` holds account-specific short-token slots and a bounded 15-minute
 memory cache (256 entries / 1 MiB), with session/account/chat/message/parameter keys. Even
@@ -363,11 +364,67 @@ No extra handwritten unsafe or general-purpose network/URL IPC is introduced.
 
 Session/context commands share the native authorization/blocking boundary but use their
 own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
-The original UI provides login, quota, account/chat translation settings and incoming
-display. Sending, Telegram translation, registration/purchase and bulk history remain
-explicitly unavailable until their corresponding owners and adapters are implemented.
+The original UI provides login, quota, account/chat translation settings, incoming
+display and the plain-text outgoing path specified below. Rich-context sending,
+Telegram translation, registration/purchase and bulk history remain explicitly unavailable
+until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
 that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
+
+## Interactive SendIntent ownership
+
+`application/send_intent` owns each UUID, native account/document/session binding,
+chat, source, composer revision, frozen effective policy and attempt nonce. Its in-memory
+history retains at most 20000 records; output plus reserved output is bounded to 2 MiB.
+Confirmed and uncertain tombstones are never evicted to authorize replay. An explicit
+next attempt after definite precommit failure can rebind the current composer revision
+and recover retained paid output, while its previous nonce is permanently fenced.
+Appearance-only revisions do not change billing identity; source, effective translation
+parameters, route or login generation changes do. The history is not durable across restart.
+
+`application/send_runner` owns one actual worker and at most one waiting ticket, separate
+from incoming work. Cancellation keeps the actual slot occupied until the thread exits;
+an old flight cannot cancel a newer queued attempt. The complete ticket has a 50-second
+monotonic budget, with a shared-cancellation translation sub-budget capped at 35 seconds.
+Session and native presentation leases are attached before work. Hiding a guest revokes
+interactive work immediately without changing its identity or background broadcast lease.
+All owner/Workspace locks end before platform evaluation, network calls or waits.
+
+`send_translation` implements a cancellable transform using the existing token/quota
+service. The typed `OutgoingSend` service intent fixes the HTTP contract and UUID. Identity
+paths never consult quota or require login. Transform errors and quality failures never
+fall back to raw sending; repeated gestures on the same request retain its billing UUID.
+The transform has no platform/composer capability. Fresh session validity is required
+before reusing paid output and immediately before the native commit gate.
+
+`desktop/send_guest` exposes only packaged configure/poll/prepare/commit/read/deliver/
+cancel/deactivate/revoke semantics. The remote document gains no native IPC or credentials. Only a
+trusted ordinary Enter or original send-button click admits an intent. Translation off
+passes through native WhatsApp behavior, except for an unchanged draft already submitted
+with a confirmed or uncertain result. Only deliberate editing/clearing releases that guard.
+
+Presentation revocation plus guest deactivation enqueue and the final commit check plus
+script enqueue share one short native gate. Callback waiting always occurs after it is
+released. This relies on the pinned Tauri/Wry non-tracing eval dispatch being asynchronous;
+enabling Tauri's tracing feature requires rechecking that property. A hidden-then-shown
+guest receives a fresh lease, and deactivation cannot revive an earlier attempt.
+
+The guest requires the pinned WA-JS active chat model and plain composer DOM to agree.
+Reply/quote, mentions/entities, attachments/captions, edits/forwards, previews and unknown
+rich contexts fail before paid work and again before commit. Before one explicit-target
+`sendTextMessage` call, the chat, source, model/node identity, revision, session and policy
+must still match. Implicit mentions and link previews are disabled. A consumed permit
+cannot be replayed, and the submitted attempt stays in the poll heartbeat until native
+settlement so receipt waits cannot be mistaken for abandoned work.
+
+Only a real message ID and ACK >= 1 confirm delivery. Callback loss after dispatch is
+uncertain, never an instruction to submit again. The source draft remains until ACK;
+cleanup checks the original chat/model/node/source/revision and uses the pinned no-chatId
+`setInputText('')` path, whose mutation occurs before its first Promise suspension. A newer
+draft is retained, and cleanup failure cannot downgrade a confirmed send into retryable
+failure. Native cancellation targets the held original WebView even after generation
+revocation. Browser/Rust synthetic tests and Windows builds do not prove authenticated
+WhatsApp or paid-service acceptance.
 
 The original four-step workbench and task center expose this contract. A measured task bar
 strip is reserved above native guest bounds before displaying controls; z-index alone cannot

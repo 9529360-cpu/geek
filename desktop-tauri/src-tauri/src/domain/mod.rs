@@ -11,6 +11,7 @@ pub mod navigation;
 pub mod platform;
 pub mod presentation;
 pub mod proxy;
+pub mod send_intent;
 pub mod session;
 pub mod translation;
 pub mod url_policy;

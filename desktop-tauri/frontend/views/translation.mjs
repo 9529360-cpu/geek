@@ -4,10 +4,11 @@ const globalFields = {
   'translation-message-to': 'messageTarget', 'translation-message-from': 'messageFrom', 'translation-server': 'route',
   'translation-display': 'displayTranslation', 'translation-manual': 'messageAction', 'translation-group': 'groupAuto',
   'translation-font-size': 'fontSize', 'translation-font-color': 'fontColor',
+  'translation-send': 'enabled', 'translation-send-from': 'source', 'translation-send-to': 'target',
+  'translation-include-zh': 'includeZh',
 };
-const chatFields = { 'translation-channel-message-to': 'messageTarget', 'translation-message-action': 'messageAction' };
-const unavailableFields = ['translation-send', 'translation-send-from', 'translation-send-to', 'translation-enabled',
-  'translation-target', 'translation-auto-send', 'translation-include-zh'];
+const chatFields = { 'translation-channel-message-to': 'messageTarget', 'translation-message-action': 'messageAction',
+  'translation-enabled': 'enabled', 'translation-target': 'target' };
 
 export function createTranslationView(document, actions) {
   const $ = (id) => document.getElementById(id);
@@ -35,16 +36,12 @@ export function createTranslationView(document, actions) {
   }
   for (const id of ['translation-message-to', 'translation-channel-message-to', 'translation-send-to', 'translation-target']) languages(id);
   for (const id of ['translation-message-from', 'translation-send-from']) languages(id, true);
-  for (const id of unavailableFields) {
-    $(id).dataset.unavailable = 'true'; $(id).disabled = true;
-    $(id).title = '发送前翻译尚未迁移，消息仍按原文发送';
-  }
   $('translation-send').closest('.translation-card').querySelector('.translation-card-sub').textContent
-    = '发送前翻译尚未迁移；当前按原文发送。';
+    = '按 Enter 或点击发送后翻译并发送，原文保留至发送确认。仅支持普通文字。';
   for (const id of ['translation-receive-auto', 'translation-channel-receive-auto']) {
     $(id).closest('.translation-switch-row').querySelector('small').textContent = '仅自动翻译新收到的可见消息；过去消息可点击翻译';
   }
-  popover.querySelector('.translation-intro').textContent = '收到消息可点击或右键翻译，也可自动显示译文。发送前翻译和历史批量翻译尚未迁移。';
+  popover.querySelector('.translation-intro').textContent = '收到的消息翻成你看的语言，发送时翻成对方看的语言。历史批量翻译尚未迁移。';
   $('btn-translation').title = '翻译设置'; $('btn-translation').setAttribute('aria-label', '翻译设置');
   bind('btn-translation', 'click', actions.toggle);
   bind('translation-close', 'click', actions.close);
@@ -136,20 +133,21 @@ export function createTranslationView(document, actions) {
     $('translation-global-retry').disabled ||= Boolean(globalDraft?.saving);
     $('translation-chat-override').disabled = !canEdit || !hasChat || contextPending;
     $('translation-group').disabled = !canEdit || globalPolicy.translationMode !== 'auto';
+    $('translation-send-from').disabled = !canEdit || !globalPolicy.enabled;
+    $('translation-send-to').disabled = !canEdit || !globalPolicy.enabled;
+    $('translation-target').disabled = !canEdit || !hasChat || !override || !chatPolicy.enabled;
     $('translation-global-reset').textContent = confirmation ? '确认恢复推荐设置' : '恢复翻译推荐设置';
     fields(globalFields, globalPolicy); fields(chatFields, chatPolicy);
     $('translation-receive-auto').checked = globalPolicy.translationMode === 'auto';
     $('translation-channel-receive-auto').checked = chatPolicy.translationMode === 'auto';
     $('translation-chat-override').checked = override;
     $('translation-chat-custom').classList.toggle('hidden', !override);
-    $('translation-send').checked = false; $('translation-enabled').checked = false;
-    $('translation-send-from').value = globalPolicy.source; $('translation-send-to').value = globalPolicy.target;
-    $('translation-target').value = chatPolicy.target; $('translation-include-zh').checked = globalPolicy.includeZh;
+    $('translation-auto-send').checked = chatPolicy.enabled && chatPolicy.autoSend;
     popover.querySelector('.translation-head-copy').querySelector('small').textContent
       = account ? `${account.name} · 独立保存，修改后自动生效` : '请先选择账号';
     $('translation-chat-mode').textContent = contextPending ? '正在读取聊天…' : hasChat ? (override ? '单独设置' : '跟随全局') : '未检测到聊天';
     $('translation-chat-mode').dataset.state = hasChat ? (override ? 'custom' : 'global') : 'idle';
-    $('translation-chat-hint').textContent = !supported ? '当前仅支持 WhatsApp 接收翻译。'
+    $('translation-chat-hint').textContent = !supported ? '当前仅支持 WhatsApp 翻译。'
       : contextError || (hasChat ? `当前聊天：${context.chat.name || '未命名聊天'}。本次设置固定到此聊天。` : '请先在当前账号打开一个聊天，再重新打开翻译设置。');
     const status = sessionStatus(session, sessionError);
     $('translation-service-state').textContent = status.label; $('translation-service-state').dataset.state = status.kind;
@@ -178,6 +176,7 @@ export function createTranslationView(document, actions) {
       result[key] = typeof base[key] === 'boolean' ? $(id).checked : key === 'fontSize' ? Number($(id).value) : $(id).value;
     }
     result.translationMode = $(autoId).checked ? 'auto' : 'click';
+    result.autoSend = result.enabled;
     if (result.translationMode === 'auto') result.displayTranslation = true;
     if (autoId === 'translation-receive-auto' && result.translationMode === 'click') result.groupAuto = false;
     return result;

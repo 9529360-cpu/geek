@@ -117,22 +117,23 @@ fn chat_policy_overrides_global_and_disabled_display_never_calls_the_gateway() {
 }
 
 #[test]
-fn unsupported_outgoing_and_history_flags_fail_before_any_network_operation() {
+fn sending_flags_do_not_change_incoming_admission_and_history_remains_unavailable() {
     let h = setup();
-    for (enabled, auto_send, history) in [
-        (true, false, false),
-        (false, true, false),
-        (false, false, true),
-    ] {
+    for (enabled, auto_send) in [(true, false), (false, true), (true, true)] {
         let mut account = account(ProxyConfig::System);
         account.translation.global.enabled = enabled;
         account.translation.global.auto_send = auto_send;
-        account.translation.global.translate_history = history;
-        assert!(matches!(
-            h.engine.prepare(account, incoming("unsupported")),
-            Err(AppError::TranslationUnavailable)
-        ));
+        assert!(h
+            .engine
+            .prepare(account, incoming("sending-enabled"))
+            .is_ok());
     }
+    let mut history = account(ProxyConfig::System);
+    history.translation.global.translate_history = true;
+    assert!(matches!(
+        h.engine.prepare(history, incoming("history")),
+        Err(AppError::TranslationUnavailable)
+    ));
     for platform in ["telegram", "line", "website"] {
         let mut account = account(ProxyConfig::System);
         account.platform_id = platform.into();

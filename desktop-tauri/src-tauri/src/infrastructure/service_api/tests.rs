@@ -1,4 +1,5 @@
 use super::*;
+use crate::application::ports::TranslationIntent;
 use serde_json::{json, Value};
 use std::{collections::VecDeque, sync::Mutex, time::Duration};
 
@@ -12,6 +13,7 @@ struct Observed {
     body: Option<Value>,
     id: Option<String>,
     budget: Option<u64>,
+    intent: Option<TranslationIntent>,
 }
 
 struct Step {
@@ -38,6 +40,7 @@ impl ServiceHttp for Script {
             body: request.body.map(|body| serde_json::from_str(body).unwrap()),
             id: request.request_id.map(str::to_owned),
             budget: request.deadline_ms,
+            intent: request.translation_intent,
         });
         let step = self
             .steps
@@ -90,6 +93,7 @@ fn user() -> Value {
 fn request() -> TranslationRequest {
     TranslationRequest {
         id: "00000000-0000-4000-8000-000000000042".into(),
+        intent: TranslationIntent::MessageDisplay,
         text: "Hello \"fixture\"\n你好".into(),
         source: "auto".into(),
         target: "it".into(),
@@ -130,6 +134,7 @@ fn login_sends_only_the_original_json_contract_over_system_without_bearer() {
         Some(json!({ "email": EMAIL, "password": password }))
     );
     assert!(call.bearer.is_none() && call.id.is_none() && call.budget.is_none());
+    assert!(call.intent.is_none());
 }
 
 #[test]
@@ -152,6 +157,7 @@ fn refresh_requires_me_identity_and_consistent_status_but_accepts_zero_balance()
         assert!(matches!(call.proxy, ProxyConfig::System));
         assert_eq!(call.bearer.as_deref(), Some("fixture-login-token"));
         assert!(call.body.is_none() && call.id.is_none() && call.budget.is_none());
+        assert!(call.intent.is_none());
     }
 }
 
@@ -207,6 +213,7 @@ fn quota_and_short_token_keep_the_frozen_account_proxy_and_unix_seconds() {
         assert_eq!(call.proxy, route);
         assert_eq!(call.bearer.as_deref(), Some("fixture-login-token"));
         assert!(call.body.is_none());
+        assert!(call.intent.is_none());
     }
 }
 
@@ -230,6 +237,7 @@ fn translation_success_has_no_ok_envelope_and_null_balance_does_not_trigger_retr
     assert_eq!(call.proxy, route);
     assert_eq!(call.bearer.as_deref(), Some("fixture-short-token"));
     assert_eq!(call.id.as_deref(), Some(request.id.as_str()));
+    assert_eq!(call.intent, Some(TranslationIntent::MessageDisplay));
     assert!(call
         .budget
         .is_some_and(|budget| budget > 0 && budget <= 10_000));
@@ -240,6 +248,30 @@ fn translation_success_has_no_ok_envelope_and_null_balance_does_not_trigger_retr
             "route": "backup", "operationRoute": "backup",
         }))
     );
+}
+
+#[test]
+fn outgoing_intent_changes_only_the_typed_header_and_preserves_recovery_id_and_billable_payload() {
+    let (api, script) = api([reply(200, translated()), reply(200, translated())]);
+    let mut outgoing = request();
+    outgoing.intent = TranslationIntent::OutgoingSend;
+    for _ in 0..2 {
+        api.translate("fixture-short-token", &outgoing, &proxy(), &control())
+            .unwrap();
+    }
+    let calls = script.observed.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    for call in calls.iter() {
+        assert_eq!(call.intent, Some(TranslationIntent::OutgoingSend));
+        assert_eq!(call.id.as_deref(), Some(outgoing.id.as_str()));
+        assert_eq!(
+            call.body,
+            Some(json!({
+                "text": outgoing.text, "source": "auto", "target": "it", "provider": "auto",
+                "route": "backup", "operationRoute": "backup",
+            }))
+        );
+    }
 }
 
 #[test]

@@ -8,6 +8,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub struct RequestControl {
     deadline: Instant,
@@ -27,6 +30,17 @@ impl RequestControl {
     pub fn with_cancel(mut self, cancelled: Arc<AtomicBool>) -> Self {
         self.parents.push(cancelled);
         self
+    }
+
+    /// A child budget can only shorten the deadline and shares all cancellation.
+    pub fn limited(&self, timeout: Duration) -> Self {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .map_or(self.deadline, |deadline| self.deadline.min(deadline));
+        Self {
+            deadline,
+            ..self.clone()
+        }
     }
 
     pub fn cancel(&self) {

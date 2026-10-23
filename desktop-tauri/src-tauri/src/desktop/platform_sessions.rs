@@ -1,5 +1,8 @@
 //! Native guest incarnation and document identity, independent of UI selection.
-use crate::domain::broadcast::{BroadcastIssue, GuestBinding};
+use crate::domain::{
+    broadcast::{BroadcastIssue, GuestBinding},
+    error::{AppError, Result as AppResult},
+};
 use std::{
     collections::HashMap,
     sync::{
@@ -17,6 +20,8 @@ struct Session {
     binding: GuestBinding,
     loaded: bool,
     cancel: Arc<AtomicBool>,
+    visible: bool,
+    presentation_cancel: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -31,6 +36,7 @@ impl PlatformSessions {
         if let Ok(mut sessions) = self.sessions.lock() {
             if let Some(old) = sessions.get(id) {
                 old.cancel.store(true, Ordering::Release);
+                old.presentation_cancel.store(true, Ordering::Release);
             }
             sessions.insert(
                 id.to_owned(),
@@ -43,6 +49,8 @@ impl PlatformSessions {
                     },
                     loaded: false,
                     cancel: Arc::new(AtomicBool::new(false)),
+                    visible: false,
+                    presentation_cancel: Arc::new(AtomicBool::new(true)),
                 },
             );
         }
@@ -57,7 +65,9 @@ impl PlatformSessions {
             {
                 if started {
                     session.cancel.store(true, Ordering::Release);
+                    session.presentation_cancel.store(true, Ordering::Release);
                     session.cancel = Arc::new(AtomicBool::new(false));
+                    session.presentation_cancel = Arc::new(AtomicBool::new(!session.visible));
                     session.binding.generation = Uuid::new_v4().to_string();
                 }
                 session.loaded = !started;
@@ -69,7 +79,9 @@ impl PlatformSessions {
         if let Ok(mut sessions) = self.sessions.lock() {
             if let Some(session) = sessions.get_mut(id) {
                 session.cancel.store(true, Ordering::Release);
+                session.presentation_cancel.store(true, Ordering::Release);
                 session.cancel = Arc::new(AtomicBool::new(false));
+                session.presentation_cancel = Arc::new(AtomicBool::new(!session.visible));
                 session.binding.generation = Uuid::new_v4().to_string();
                 session.loaded = false;
             }
@@ -83,6 +95,7 @@ impl PlatformSessions {
         if let Ok(mut sessions) = self.sessions.lock() {
             if let Some(old) = sessions.remove(id) {
                 old.cancel.store(true, Ordering::Release);
+                old.presentation_cancel.store(true, Ordering::Release);
             }
         }
     }
@@ -161,5 +174,74 @@ impl PlatformSessions {
             .filter(|session| session.binding == *binding && session.loaded)
             .map(|session| Arc::clone(&session.cancel))
             .ok_or(BroadcastIssue::GuestChanged)
+    }
+
+    /// Visibility is a revocable effect lease, never the account or document identity.
+    pub fn set_visible(&self, id: &str, visible: bool) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(session) = sessions.get_mut(id) {
+                if session.visible != visible {
+                    session.presentation_cancel.store(true, Ordering::Release);
+                    session.presentation_cancel = Arc::new(AtomicBool::new(!visible));
+                    session.visible = visible;
+                }
+            }
+        }
+    }
+
+    pub fn presentation_cancellation(
+        &self,
+        binding: &GuestBinding,
+    ) -> Result<Arc<AtomicBool>, BroadcastIssue> {
+        if !self.valid(binding) {
+            return Err(BroadcastIssue::GuestChanged);
+        }
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BroadcastIssue::RuntimeFailed)?;
+        sessions
+            .get(&binding.account_id)
+            .filter(|session| session.binding == *binding && session.loaded && session.visible)
+            .map(|session| Arc::clone(&session.presentation_cancel))
+            .ok_or(BroadcastIssue::GuestChanged)
+    }
+
+    /// Serialize only commit admission and native script enqueue, never its callback wait.
+    pub fn enqueue_presented<T>(
+        &self,
+        binding: &GuestBinding,
+        enqueue: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        if !self.valid(binding) {
+            return Err(AppError::SendIntentChanged);
+        }
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?;
+        let presented = sessions.get(&binding.account_id).is_some_and(|session| {
+            session.binding == *binding && session.loaded && session.visible
+        });
+        if !presented {
+            return Err(AppError::SendIntentChanged);
+        }
+        enqueue()
+    }
+
+    /// Revoke the lease and queue guest deactivation in the same order as commit enqueue.
+    pub fn hide_and_enqueue(
+        &self,
+        id: &str,
+        enqueue: impl FnOnce(&GuestBinding) -> AppResult<()>,
+    ) -> AppResult<()> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?;
+        let session = sessions.get_mut(id).ok_or(AppError::AccountNotOpen)?;
+        session.presentation_cancel.store(true, Ordering::Release);
+        session.visible = false;
+        enqueue(&session.binding)
     }
 }
