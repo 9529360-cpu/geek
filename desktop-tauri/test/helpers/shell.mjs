@@ -2,7 +2,7 @@ import { connectDesktop } from '../../frontend/api/desktop.mjs';
 import { mountShell } from '../../frontend/controller.mjs';
 import { dom, settled } from './dom.mjs';
 
-export async function fixture({ initialFailures = [], initialState = {} } = {}) {
+export async function fixture({ initialFailures = [], initialState = {}, beforeInvoke = () => {} } = {}) {
   const ui = dom();
   const calls = [];
   const failures = new Set(initialFailures);
@@ -18,6 +18,7 @@ export async function fixture({ initialFailures = [], initialState = {} } = {}) 
   Object.assign(state, structuredClone(initialState));
   const api = connectDesktop(async (name, args) => {
     calls.push([name, structuredClone(args)]);
+    await beforeInvoke(name, args);
     const account = state.accounts.find((a) => a.id === args?.id);
     if (name === 'account_set_proxy' || name === 'account_set_archived' || name === 'account_close') {
       state.openedIds = state.openedIds.filter((id) => id !== args.id);

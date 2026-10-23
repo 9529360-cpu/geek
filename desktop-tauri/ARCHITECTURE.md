@@ -67,6 +67,17 @@ The architecture checker rejects common reverse dependencies, unowned Rust sourc
 unsafe outside the DPAPI adapter, frontend cycles/escapes, IPC bypass and manifest drift.
 It is a lexical maintenance guard, not a replacement for compiler checks or code review.
 
+Window chrome is a separate native adapter: `desktop_window` shares sender authorization
+and the blocking executor, but does not request `SharedDesktop` or wait on its mutex.
+Account/guest commands continue through the serialized workspace wrapper. The frontend
+likewise keeps window controls out of its account queue, with one pending request per
+window action; a pending maximize cannot block close. Only the original window buttons
+remain above modal overlays and inside their keyboard navigation boundary. Close still
+uses a normal close request and the last committed tray preference, never force-exit.
+This removes our account-lock dependency; it does not promise recovery from a blocked
+Windows UI thread, WebView2 runtime, or OS. Atomic persistence remains the authority if
+the user closes while a save is pending. Window actions do not replay that save.
+
 ## 3. State, identity and transactions
 
 `Account.id` is a canonical v4 UUID and never changes after creation. It owns one profile
@@ -102,9 +113,10 @@ separate runtime acceptance question, not inferred from the presence of a guest.
 ## 4. Threads and lifecycle
 
 All shell commands pass the same native sender check (WebView label + parent window
-+ precise bundled origin). They execute serial workspace mutations on Tauri's blocking
-executor, not on the UI thread or by blocking an async worker with disk I/O. The shared
-mutex protects the short desktop state/lifecycle operations and their commit ordering.
++ precise bundled origin) and use Tauri's blocking executor. Account/guest commands
+serialize through the workspace mutex; native window actions do not acquire that mutex.
+Neither path runs blocking work on an async worker. The workspace lock protects account
+state/lifecycle operations and their commit ordering, not window chrome.
 
 Native tray/close callbacks use atomics only, never the workspace lock: a command can be
 waiting for that UI thread to create a child view. Tray close behavior requires both a

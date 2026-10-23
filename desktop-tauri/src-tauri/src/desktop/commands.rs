@@ -8,24 +8,38 @@ use crate::{
         proxy::ProxyConfig,
     },
 };
-use tauri::{State, Webview};
+use tauri::{AppHandle, Manager, State, Webview};
 
-/// Authorization is uniform and cannot be supplied by JavaScript. Blocking
-/// storage/native calls run off the UI and async executor threads. The native
-/// callbacks only use atomics; they must never lock SharedDesktop.
-async fn execute<T, F>(webview: Webview, state: State<'_, SharedDesktop>, operation: F) -> Result<T>
+/// Every command authorizes its native sender before using the blocking executor.
+/// Window controls use this boundary without acquiring account/workspace state.
+async fn execute<T, F>(webview: Webview, operation: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(AppHandle) -> Result<T> + Send + 'static,
+{
+    authorize(&webview)?;
+    let app = webview.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || operation(app))
+        .await
+        .map_err(|_| AppError::StateUnavailable)?
+}
+
+/// Account mutations and guest layout remain serialized, off the UI thread.
+async fn execute_workspace<T, F>(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    operation: F,
+) -> Result<T>
 where
     T: Send + 'static,
     F: FnOnce(&mut NativeDesktop) -> Result<T> + Send + 'static,
 {
-    authorize(&webview)?;
     let shared = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    execute(webview, move |_| {
         let mut desktop = shared.lock().map_err(|_| AppError::StateUnavailable)?;
         operation(&mut desktop)
     })
     .await
-    .map_err(|_| AppError::StateUnavailable)?
 }
 
 #[tauri::command]
@@ -33,7 +47,7 @@ pub async fn desktop_snapshot(
     webview: Webview,
     state: State<'_, SharedDesktop>,
 ) -> Result<Snapshot> {
-    execute(webview, state, |desktop| Ok(desktop.snapshot())).await
+    execute_workspace(webview, state, |desktop| Ok(desktop.snapshot())).await
 }
 
 #[tauri::command]
@@ -45,7 +59,7 @@ pub async fn account_create(
     website_url: Option<String>,
     proxy: Option<ProxyConfig>,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| {
+    execute_workspace(webview, state, move |desktop| {
         desktop.create(
             &name,
             &platform_id,
@@ -66,7 +80,7 @@ pub async fn account_create_batch(
     proxy: Option<ProxyConfig>,
     count: u8,
 ) -> Result<CreatedAccounts> {
-    execute(webview, state, move |desktop| {
+    execute_workspace(webview, state, move |desktop| {
         desktop.create_batch(
             &name,
             &platform_id,
@@ -85,7 +99,7 @@ pub async fn account_set_proxy(
     id: String,
     proxy: ProxyConfig,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.set_proxy(&id, proxy)).await
+    execute_workspace(webview, state, move |desktop| desktop.set_proxy(&id, proxy)).await
 }
 
 #[tauri::command]
@@ -95,7 +109,7 @@ pub async fn account_rename(
     id: String,
     name: String,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.rename(&id, &name)).await
+    execute_workspace(webview, state, move |desktop| desktop.rename(&id, &name)).await
 }
 
 #[tauri::command]
@@ -105,7 +119,7 @@ pub async fn account_set_archived(
     id: String,
     archived: bool,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| {
+    execute_workspace(webview, state, move |desktop| {
         desktop.set_archived(&id, archived)
     })
     .await
@@ -117,7 +131,7 @@ pub async fn desktop_settings(
     state: State<'_, SharedDesktop>,
     settings: Settings,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| {
+    execute_workspace(webview, state, move |desktop| {
         desktop.set_settings(settings)
     })
     .await
@@ -129,7 +143,7 @@ pub async fn account_activate(
     state: State<'_, SharedDesktop>,
     id: String,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.activate(&id)).await
+    execute_workspace(webview, state, move |desktop| desktop.activate(&id)).await
 }
 
 #[tauri::command]
@@ -138,7 +152,7 @@ pub async fn account_close(
     state: State<'_, SharedDesktop>,
     id: String,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.close(&id)).await
+    execute_workspace(webview, state, move |desktop| desktop.close(&id)).await
 }
 
 #[tauri::command]
@@ -147,7 +161,7 @@ pub async fn account_reload(
     state: State<'_, SharedDesktop>,
     id: String,
 ) -> Result<Snapshot> {
-    execute(webview, state, move |desktop| desktop.reload(&id)).await
+    execute_workspace(webview, state, move |desktop| desktop.reload(&id)).await
 }
 
 #[tauri::command]
@@ -156,14 +170,10 @@ pub async fn desktop_layout(
     state: State<'_, SharedDesktop>,
     viewport: Viewport,
 ) -> Result<()> {
-    execute(webview, state, move |desktop| desktop.layout(viewport)).await
+    execute_workspace(webview, state, move |desktop| desktop.layout(viewport)).await
 }
 
 #[tauri::command]
-pub async fn desktop_window(
-    webview: Webview,
-    state: State<'_, SharedDesktop>,
-    action: WindowAction,
-) -> Result<()> {
-    execute(webview, state, move |desktop| desktop.window_action(action)).await
+pub async fn desktop_window(webview: Webview, action: WindowAction) -> Result<()> {
+    execute(webview, move |app| super::window::apply(&app, action)).await
 }

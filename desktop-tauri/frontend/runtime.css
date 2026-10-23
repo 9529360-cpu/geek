@@ -1,5 +1,8 @@
 /* Runtime adaptation only. Original palette, geometry, icons and dialogs are reused. */
 [hidden] { display: none !important; }
+/* Keep only native window controls above account modals, at their original position. */
+.top-bar { z-index: auto; }
+.win-controls { position: relative; z-index: 101; }
 .side-nav { transition: none; position: relative; }
 .nav-account, .tab-item, .add-platform-card { font-family: inherit; color: inherit; text-align: left; }
 .nav-account { width: 100%; }

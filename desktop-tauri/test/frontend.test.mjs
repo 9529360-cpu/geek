@@ -95,8 +95,16 @@ test('all commands share the same native sender gate and blocking executor', () 
   assert.match(commands, /authorize\(&webview\)\?;/);
   assert.match(commands, /spawn_blocking/);
   for (const section of commands.split('#[tauri::command]').slice(1)) {
-    assert.match(section, /\{\s*execute\(webview, state,/);
+    if (section.includes('pub async fn desktop_window(')) {
+      assert.match(section, /execute\(webview, move \|app\| super::window::apply\(&app, action\)\)/);
+      assert.doesNotMatch(section, /State|SharedDesktop|\.lock\(/);
+    } else assert.match(section, /\{\s*execute_workspace\(webview, state,/);
   }
+  assert.match(commands, /execute\(webview, move \|_\| \{\s*let mut desktop = shared\.lock\(/);
+  const window = read('../src-tauri/src/desktop/window.rs');
+  assert.match(window, /get_window\("main"\)/);
+  assert.match(window, /WindowAction::Close => window\.close\(\)/);
+  assert.doesNotMatch(window, /SharedDesktop|\.lock\(|\.destroy\(|\.exit\(/);
   assert.match(security, /webview\.label\(\) != "shell"/);
   assert.match(security, /webview\.window\(\)\.label\(\) != "main"/);
   assert.match(security, /shell_url/);

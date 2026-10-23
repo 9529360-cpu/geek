@@ -69,16 +69,23 @@ fn layout_validation_precedes_all_native_effects_and_clips_to_current_window() {
 }
 
 #[test]
-fn window_controls_have_a_typed_allowlist_and_do_not_rebind_accounts() {
-    let (mut workspace, _, host, a, _) = fixture();
-    workspace.activate(&a).unwrap();
-    workspace.window_action(WindowAction::Minimize).unwrap();
-    assert_eq!(
-        host.0.lock().unwrap().window_actions,
-        vec![WindowAction::Minimize]
-    );
-    assert_eq!(workspace.snapshot().active_id.as_deref(), Some(a.as_str()));
-    assert!(serde_json::from_str::<WindowAction>("\"execute\"").is_err());
+fn window_controls_keep_a_closed_typed_allowlist_without_account_arguments() {
+    for (wire, expected) in [
+        ("minimize", WindowAction::Minimize),
+        ("toggleMaximize", WindowAction::ToggleMaximize),
+        ("close", WindowAction::Close),
+        ("drag", WindowAction::Drag),
+    ] {
+        let json = serde_json::to_string(wire).unwrap();
+        assert_eq!(serde_json::from_str::<WindowAction>(&json).unwrap(), expected);
+    }
+    for wire in [
+        r#""execute""#,
+        r#""destroy""#,
+        r#"{"action":"close","id":"neighbor"}"#,
+    ] {
+        assert!(serde_json::from_str::<WindowAction>(wire).is_err());
+    }
     assert!(serde_json::from_str::<Viewport>(
         r#"{"x":0,"y":0,"width":1,"height":1,"visible":true,"script":"bad"}"#
     )

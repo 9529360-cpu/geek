@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { CODE, GENERATED_DIRS, REVIEW_LINES, MAX_LINES, checkFile, lineCount } = require('./architecture-policy.cjs');
+const { CODE, GENERATED_DIRS, REVIEW_LINES, MAX_LINES, checkFile, lineCount, maskNonCode } = require('./architecture-policy.cjs');
 
 function collect(root) {
   const files = new Map();
@@ -63,9 +63,27 @@ function checkCommands(files) {
   if (!get('src-tauri/build.rs').includes('command-manifest.cjs')) {
     failures.push('Build must read AppManifest commands from the canonical command manifest');
   }
-  for (const section of source.split('#[tauri::command]').slice(1)) {
-    if (!/\{\s*execute\(webview, state,/.test(section)) {
-      failures.push('Rust command bypasses shared sender authorization/execution boundary');
+  const [helpers, ...commands] = maskNonCode(source).split('#[tauri::command]');
+  const common = helpers.split('async fn execute_workspace')[0];
+  const workspace = helpers.slice(common.length);
+  if (!/authorize\(&webview\)\?;[\s\S]*spawn_blocking\(move \|\| operation\(app\)\)/.test(common)
+      || /\.lock\(/.test(common)) {
+    failures.push('Shared sender authorization/blocking executor is missing or acquires account state');
+  }
+  if (!/execute\(webview, move \|_\| \{\s*let mut desktop = shared\.lock\(\)/.test(workspace)
+      || !/operation\(&mut desktop\)/.test(workspace)) {
+    failures.push('Workspace serialization must run inside the shared authorization/execution boundary');
+  }
+  for (const section of commands) {
+    const name = /pub async fn (\w+)/.exec(section)?.[1];
+    if (name === 'desktop_window') {
+      // This one state-free command is narrow, not an exception to authorization.
+      if (!/\{\s*execute\(webview, move \|app\| super::window::apply\(&app, action\)\)\.await\s*\}/.test(section)
+          || /\b(?:state|SharedDesktop|NativeDesktop)\b|\.lock\(/.test(section)) {
+        failures.push('Window command must use shared authorization without account state');
+      }
+    } else if (!/\{\s*execute_workspace\(webview, state,/.test(section)) {
+      failures.push('Rust account command bypasses shared sender authorization/workspace execution boundary');
     }
   }
   return failures;

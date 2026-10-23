@@ -40,15 +40,16 @@ export function createShellView(document) {
   archive.textContent = '\u5f52\u6863\uff08\u4fdd\u7559\u767b\u5f55\u6570\u636e\uff09';
   $('account-settings-cancel').before(archive);
 
-  function busy(value, available, nativeAvailable) {
+  function busy(value, available, nativeAvailable, pendingWindows = new Set()) {
     connected = nativeAvailable;
     for (const element of document.querySelectorAll('button, input, select, textarea')) {
       element.disabled = value || !available || element.dataset.wired !== 'true' || element.dataset.unavailable === 'true';
     }
-    // Frameless window recovery must not depend on a successful account snapshot.
-    for (const id of ['btn-win-min', 'btn-win-max', 'btn-win-close', 'runtime-retry']) {
-      $(id).disabled = value || !connected;
+    // A slow account operation must not trap users in a frameless window.
+    for (const [id, action] of [['btn-win-min', 'minimize'], ['btn-win-max', 'toggleMaximize'], ['btn-win-close', 'close']]) {
+      $(id).disabled = !connected || pendingWindows.has(action);
     }
+    $('runtime-retry').disabled = value || !connected;
     $('runtime-retry').hidden = !connected || !$('runtime-status-message').textContent;
     for (const id of ['create-proxy-host', 'create-proxy-port']) {
       $(id).disabled ||= $('create-proxy-mode').value === 'system';

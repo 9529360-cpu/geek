@@ -70,7 +70,7 @@ test('IPC drift and an unauthorized command fail the manifest check', () => {
   assert.match(checkCommands(missing).join('\n'), /Tauri permission/);
   const bypass = new Map(source);
   const commands = 'src-tauri/src/desktop/commands.rs';
-  bypass.set(commands, bypass.get(commands).replace('execute(webview, state,', 'bypass(webview, state,'));
+  bypass.set(commands, bypass.get(commands).replace('execute_workspace(webview, state,', 'bypass(webview, state,'));
   assert.match(checkCommands(bypass).join('\n'), /authorization/);
 });
 
@@ -98,4 +98,25 @@ test('views cannot acquire the native API by importing its wrapper', () => {
     ['frontend/api/desktop.mjs', 'export const connectDesktop = () => null;\n'],
   ]);
   assert.match(checkFrontendGraph(files).join('\n'), /direction violation/);
+});
+
+
+test('window recovery cannot bypass authorization or reacquire account state', () => {
+  const source = collect(root);
+  const key = 'src-tauri/src/desktop/commands.rs';
+  for (const [before, after] of [
+    ['authorize(&webview)?;', ''],
+    ['spawn_blocking(move || operation(app))', 'spawn_blocking(move || Ok(()))'],
+    ['execute(webview, move |_| {', 'bypass(webview, move |_| {'],
+    ['execute(webview, move |app| super::window::apply(&app, action))', 'bypass(webview, move |app| super::window::apply(&app, action))'],
+    ['pub async fn desktop_window(webview: Webview,', "pub async fn desktop_window(webview: Webview, state: State<'_, SharedDesktop>,"],
+    ['let app = webview.app_handle().clone();', 'let state = shared.lock(); let app = webview.app_handle().clone();'],
+    ['execute_workspace(webview, state, |desktop| Ok(desktop.snapshot()))', 'execute(webview, |app| Ok(app.snapshot()))'],
+  ]) {
+    const changed = source.get(key).replace(before, after);
+    assert.notEqual(changed, source.get(key), before);
+    const mutant = new Map(source);
+    mutant.set(key, changed);
+    assert.match(checkCommands(mutant).join('\n'), /authorization|account state|serialization/, before);
+  }
 });

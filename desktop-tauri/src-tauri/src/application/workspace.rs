@@ -6,7 +6,7 @@ use super::{
 use crate::domain::{
     account::Settings,
     error::{AppError, Result},
-    presentation::{Viewport, WindowAction},
+    presentation::Viewport,
     proxy::ProxyConfig,
 };
 
@@ -199,10 +199,6 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         }
         self.host.reload(id)?;
         Ok(self.snapshot())
-    }
-
-    pub fn window_action(&mut self, action: WindowAction) -> Result<()> {
-        self.host.window_action(action)
     }
 
     /// Suspend before changing geometry. A failed modal hide never reports success.

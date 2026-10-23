@@ -9,6 +9,7 @@ export function mountShell({ document, window, api }) {
   const enqueue = serialQueue();
   let current = null;
   let busy = false;
+  const pendingWindows = new Set();
   let family = null;
   let selectedPlatform = null;
   let editingId = null;
@@ -17,7 +18,7 @@ export function mountShell({ document, window, api }) {
   const remembered = new Map();
   let layoutQueued = false;
   let layoutDirty = false;
-  const setBusy = (value) => { busy = value; view.busy(value, Boolean(current && api), Boolean(api)); };
+  const setBusy = (value) => { busy = value; view.busy(value, Boolean(current && api), Boolean(api), pendingWindows); };
   const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible));
 
   function render(next) {
@@ -47,6 +48,22 @@ export function mountShell({ document, window, api }) {
         return false;
       } finally { setBusy(false); }
     });
+  }
+  async function windowAction(action) {
+    // Shell controls never queue behind account I/O. Coalesce only the same action.
+    if (!api || pendingWindows.has(action)) return false;
+    pendingWindows.add(action);
+    setBusy(busy);
+    try {
+      await api.windowAction(action);
+      return true;
+    } catch (error) {
+      view.status(errorMessage(typeof error === 'string' ? error : 'UNKNOWN'));
+      return false;
+    } finally {
+      pendingWindows.delete(action);
+      setBusy(busy); // Never release another operation's account lock or clear its error.
+    }
   }
   async function hidePanel() {
     if (panel) $(panel).classList.add('hidden');
@@ -186,7 +203,7 @@ export function mountShell({ document, window, api }) {
     await syncLayout(!panel);
   }));
   for (const [id, action] of [['btn-win-min', 'minimize'], ['btn-win-max', 'toggleMaximize'], ['btn-win-close', 'close']]) {
-    on(id, 'click', () => run(() => api.windowAction(action), false));
+    on(id, 'click', () => windowAction(action));
   }
   // Re-read authority and geometry only; never replay a failed mutation.
   on('runtime-retry', 'click', () => run(async () => {
@@ -194,24 +211,27 @@ export function mountShell({ document, window, api }) {
     await syncLayout(!panel);
   }));
   document.querySelector('.top-bar').addEventListener('mousedown', (event) => {
-    if (event.button === 0 && !event.target.closest('button, input, select, .tab-item') && !busy && api) {
-      api.windowAction('drag').catch(() => view.status(errorMessage('WEBVIEW_FAILED')));
+    if (event.button === 0 && !event.target.closest('button, input, select, .tab-item')) {
+      windowAction('drag');
     }
   });
   document.addEventListener('click', (event) => {
+    if (event.target.closest('.win-controls')) return;
     if (panel && (event.target === $(panel) || (panel === 'ctx-menu' && !$(panel).contains(event.target)))) run(hidePanel);
   });
   document.addEventListener('keydown', (event) => {
     if (panel && event.key === 'Escape') { event.preventDefault(); run(hidePanel); }
     if (panel && event.key === 'Tab') {
-      const controls = [...$(panel).querySelectorAll('button, input, select')].filter((el) => !el.disabled && el.getClientRects().length);
+      const controls = [...$(panel).querySelectorAll('button, input, select'),
+        ...document.querySelector('.win-controls').querySelectorAll('button')]
+        .filter((el) => !el.disabled && el.getClientRects().length);
       if (!controls.length) return;
-      const first = controls[0]; const last = controls.at(-1);
-      if (event.shiftKey && (document.activeElement === first || !$(panel).contains(document.activeElement))) {
-        event.preventDefault(); last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || !$(panel).contains(document.activeElement))) {
-        event.preventDefault(); first.focus();
-      }
+      // Window chrome precedes dialogs in the DOM; traverse the explicit boundary,
+      // not browser tab order (which could otherwise enter background account tabs).
+      const index = controls.indexOf(document.activeElement);
+      const next = event.shiftKey ? (index <= 0 ? controls.length - 1 : index - 1) : (index + 1) % controls.length;
+      event.preventDefault();
+      controls[next].focus();
     }
   });
   function requestLayout() {

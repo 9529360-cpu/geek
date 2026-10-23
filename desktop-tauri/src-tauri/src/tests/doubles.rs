@@ -9,7 +9,7 @@ use crate::{
         document::Document,
         error::{AppError, Result},
         navigation::NavigationPolicy,
-        presentation::{Viewport, WindowAction},
+        presentation::Viewport,
         proxy::ProxyConfig,
     },
     infrastructure::catalog,
@@ -55,7 +55,6 @@ pub struct HostState {
     pub routes: HashMap<String, ProxyConfig>,
     pub close_pending: bool,
     pub viewport: Viewport,
-    pub window_actions: Vec<WindowAction>,
 }
 
 #[derive(Clone, Default)]
@@ -93,10 +92,6 @@ impl FakeHost {
 impl DesktopHost for FakeHost {
     fn set_viewport(&mut self, viewport: Viewport) {
         self.0.lock().unwrap().viewport = viewport;
-    }
-    fn window_action(&mut self, action: WindowAction) -> Result<()> {
-        self.0.lock().unwrap().window_actions.push(action);
-        Ok(())
     }
 
     fn is_open(&self, id: &str) -> bool {

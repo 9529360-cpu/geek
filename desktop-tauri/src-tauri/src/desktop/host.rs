@@ -5,7 +5,7 @@ use crate::{
         account::Account,
         error::{AppError, Result},
         navigation::NavigationPolicy,
-        presentation::{Viewport, WindowAction},
+        presentation::Viewport,
     },
     infrastructure::profiles::account_profile,
 };
@@ -44,10 +44,6 @@ impl TauriHost {
 impl DesktopHost for TauriHost {
     fn set_viewport(&mut self, viewport: Viewport) {
         self.viewport = viewport;
-    }
-
-    fn window_action(&mut self, action: WindowAction) -> Result<()> {
-        super::window::apply(&self.app, action)
     }
 
     fn is_open(&self, id: &str) -> bool {

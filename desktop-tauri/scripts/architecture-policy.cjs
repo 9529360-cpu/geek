@@ -73,4 +73,4 @@ function checkFile(path, source) {
   return failures;
 }
 
-module.exports = { MAX_LINES, REVIEW_LINES, CODE, GENERATED_DIRS, lineCount, checkFile };
+module.exports = { MAX_LINES, REVIEW_LINES, CODE, GENERATED_DIRS, lineCount, checkFile, maskNonCode };
