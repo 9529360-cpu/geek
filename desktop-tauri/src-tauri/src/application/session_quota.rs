@@ -32,6 +32,13 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
         remaining: Option<u64>,
         now: u64,
     ) -> Result<SessionSnapshot> {
+        let Some(revision) = inner.quota_revision.checked_add(1) else {
+            inner.authority = None;
+            return Err(AppError::StateUnavailable);
+        };
+        // Advance even for same-value, null or invalid observations, before optional
+        // mirror persistence. An in-flight refresh must not undo any of these events.
+        inner.quota_revision = revision;
         let Some(value) = remaining else {
             inner.authority = None;
             return inner.snapshot(now);
@@ -52,8 +59,8 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
         let record = candidate.record.as_mut().ok_or(AppError::SessionRequired)?;
         record.remaining_chars = Some(effective);
         if candidate != inner.document && inner.commit(candidate).is_err() {
-            // The translation has already completed and may have been charged.
-            // A failed mirror write cannot turn its result into a retry signal.
+            // The server authority is already accepted. A failed mirror write must
+            // neither revoke it nor turn a charged translation into a retry signal.
             inner.issue = Some(SessionIssue::PersistenceFailed);
         } else {
             inner.issue = None;

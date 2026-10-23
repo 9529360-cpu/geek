@@ -410,10 +410,16 @@ old leases. Explicit server rejection blocks authorization immediately even when
 durable tombstone fails; the UI retains identity with a persistence warning and does not
 claim logout succeeded. Old login, refresh and 401 responses cannot replace newer identity.
 
-Quota authority uses a monotonic 30-second TTL. Disk mirrors are not authority; concurrent
-replies for one generation retain the smaller balance. A null balance invalidates authority
-without turning a charged success into failure. Failed mirror persistence also preserves
-successful translation. Only the existing server decides billing; no client usage debit.
+Quota authority uses a monotonic 30-second TTL. Disk mirrors are not authority; ordinary
+quota and paid-translation replies for one generation retain the smaller balance. Explicit
+authenticated refresh may adopt an increased server balance, including recovery from zero.
+It captures the current lease and an in-memory quota revision before network I/O; a successful
+reply is accepted only if no quota result or revocation has since advanced that revision.
+A late successful refresh preserves the newer state. Current-lease authentication rejection
+still blocks the identity regardless of quota revision. No new persisted field is introduced.
+A null balance invalidates authority without turning a charged success into failure. Failed
+mirror persistence also preserves successful translation and verified balance authority.
+Only the existing server decides billing; no client usage debit.
 
 `Account.translation` contains one revision, global policy and at most 100 chat overrides.
 Each override stores only the original UI's seven local fields: enabled, autoSend, target,

@@ -102,7 +102,10 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
     }
 
     pub fn refresh(&self) -> Result<SessionSnapshot> {
-        let lease = self.capture_lease()?;
+        let (lease, quota_revision) = {
+            let inner = self.lock()?;
+            (inner.capture_lease()?, inner.quota_revision)
+        };
         let control =
             RequestControl::new(Duration::from_secs(30)).with_cancel(Arc::clone(&lease.cancel));
         let response = self
@@ -136,6 +139,14 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
             inner.issue = Some(SessionIssue::ResponseInvalid);
             return Err(AppError::NetworkResponseInvalid);
         }
+        if inner.quota_revision != quota_revision {
+            // A paid result, revocation or another refresh arrived while this snapshot
+            // was in flight. Its successful balance cannot replace that newer state.
+            return inner.snapshot(self.clock.now_ms());
+        }
+        // A current explicit server snapshot may reflect replenishment. Remove the
+        // old lower bound only after the lease and quota ordering checks, under this lock.
+        inner.authority = None;
         self.accept_quota_locked(
             &mut inner,
             Some(refreshed.remaining_chars),

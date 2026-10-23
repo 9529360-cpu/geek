@@ -36,6 +36,8 @@ pub(super) struct SessionInner<R> {
     pub cancel: Arc<AtomicBool>,
     pub pending_login: Option<PendingLogin>,
     pub authority: Option<QuotaAuthority>,
+    /// Process-local ordering of accepted quota observations, including revocation.
+    pub quota_revision: u64,
     pub auth_blocked: bool,
     pub issue: Option<SessionIssue>,
     visible_revision: u64,
@@ -43,6 +45,23 @@ pub(super) struct SessionInner<R> {
 }
 
 impl<R: SessionRepository> SessionInner<R> {
+    pub fn capture_lease(&self) -> Result<SessionLease> {
+        if self.auth_blocked {
+            return Err(AppError::SessionRequired);
+        }
+        let record = self
+            .document
+            .record
+            .as_ref()
+            .ok_or(AppError::SessionRequired)?;
+        Ok(SessionLease {
+            generation: self.generation.clone(),
+            token: record.token.clone(),
+            user: record.user.clone(),
+            cancel: Arc::clone(&self.cancel),
+        })
+    }
+
     pub fn commit(&mut self, mut candidate: SessionDocument) -> Result<()> {
         let revision = self
             .visible_revision
@@ -190,6 +209,7 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
                 cancel: Arc::new(AtomicBool::new(false)),
                 pending_login: None,
                 authority: None,
+                quota_revision: 0,
                 auth_blocked: false,
                 issue: None,
                 visible_revision,
@@ -209,21 +229,7 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
     }
 
     pub fn capture_lease(&self) -> Result<SessionLease> {
-        let inner = self.lock()?;
-        if inner.auth_blocked {
-            return Err(AppError::SessionRequired);
-        }
-        let record = inner
-            .document
-            .record
-            .as_ref()
-            .ok_or(AppError::SessionRequired)?;
-        Ok(SessionLease {
-            generation: inner.generation.clone(),
-            token: record.token.clone(),
-            user: record.user.clone(),
-            cancel: Arc::clone(&inner.cancel),
-        })
+        self.lock()?.capture_lease()
     }
 
     pub fn validate_lease(&self, lease: &SessionLease) -> Result<()> {
