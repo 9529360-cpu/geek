@@ -150,7 +150,7 @@ fn a_late_unauthorized_response_cannot_clear_a_newer_session() {
         Err(AppError::SessionChanged)
     ));
     assert!(matches!(
-        service.reject_unauthorized(&old),
+        service.reject_auth(&old, AppError::SessionRequired),
         Err(AppError::SessionChanged)
     ));
     assert!(matches!(

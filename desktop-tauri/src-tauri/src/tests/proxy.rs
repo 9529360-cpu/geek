@@ -1,7 +1,11 @@
 use super::doubles::fixture;
 use crate::{
     application::accounts::Accounts,
-    domain::{document::Document, error::AppError, proxy::ProxyConfig},
+    domain::{
+        document::{Document, SCHEMA_VERSION},
+        error::AppError,
+        proxy::ProxyConfig,
+    },
     infrastructure::{catalog, dpapi, repository::EncryptedRepository},
 };
 use std::fs;
@@ -234,7 +238,7 @@ fn encrypted_proxy_restart_and_legacy_migration_preserve_account_identity() {
         drop(accounts);
         let plain = dpapi::decrypt(&fs::read(root.path().join("accounts.dpapi")).unwrap()).unwrap();
         let document: Document = serde_json::from_slice(&plain).unwrap();
-        assert_eq!(document.schema_version, 4);
+        assert_eq!(document.schema_version, SCHEMA_VERSION);
         assert_eq!(document.accounts[0].id, id);
         assert_eq!(document.accounts[0].proxy, http());
     }

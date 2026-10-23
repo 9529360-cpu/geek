@@ -187,7 +187,7 @@ fn known_auth_denial_blocks_cached_and_in_flight_short_tokens_even_if_logout_can
     h.repository.0.lock().unwrap().fail_next = true;
     let lease = h.session.capture_lease().unwrap();
     assert!(matches!(
-        h.session.reject_unauthorized(&lease),
+        h.session.reject_auth(&lease, AppError::SessionRequired),
         Err(AppError::SessionPersistence)
     ));
     gate.release();

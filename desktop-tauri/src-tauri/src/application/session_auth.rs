@@ -143,10 +143,6 @@ impl<R: SessionRepository, T: SessionTransport> SessionService<R, T> {
         )
     }
 
-    pub fn reject_unauthorized(&self, lease: &SessionLease) -> Result<SessionSnapshot> {
-        self.reject_auth(lease, AppError::SessionRequired)
-    }
-
     /// Only current authentication denial can replace the durable session.
     pub fn reject_auth(&self, lease: &SessionLease, reason: AppError) -> Result<SessionSnapshot> {
         if !matches!(
