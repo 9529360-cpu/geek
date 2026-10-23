@@ -1,6 +1,9 @@
 use super::{
     broadcast::{BroadcastCatalog, BroadcastDesktop, CreateBroadcast, CreatedBroadcast},
     security::authorize,
+    session::NativeSession,
+    translation::TranslationDesktop,
+    translation_guest::TranslationContext,
     NativeDesktop, SharedDesktop,
 };
 use crate::{
@@ -11,6 +14,8 @@ use crate::{
         error::{AppError, Result},
         presentation::{Viewport, WindowAction},
         proxy::ProxyConfig,
+        session::SessionSnapshot,
+        translation::TranslationPolicy,
     },
 };
 use std::sync::Arc;
@@ -248,6 +253,70 @@ pub async fn broadcast_control(
     execute(webview, move |app| {
         app.state::<Arc<BroadcastDesktop>>()
             .control(&job_id, action)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn session_snapshot(webview: Webview) -> Result<SessionSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<NativeSession>>().snapshot()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn session_login(
+    webview: Webview,
+    email: String,
+    password: String,
+) -> Result<SessionSnapshot> {
+    let password = zeroize::Zeroizing::new(password);
+    execute(webview, move |app| {
+        app.state::<Arc<NativeSession>>()
+            .login(&email, password.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn session_refresh(webview: Webview) -> Result<SessionSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<NativeSession>>().refresh()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn session_logout(webview: Webview) -> Result<SessionSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<NativeSession>>().logout()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn translation_context(
+    webview: Webview,
+    account_id: String,
+) -> Result<TranslationContext> {
+    execute(webview, move |app| {
+        app.state::<Arc<TranslationDesktop>>().context(&account_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn account_update_translation(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+    chat_id: Option<String>,
+    policy: Option<TranslationPolicy>,
+    expected_revision: u64,
+) -> Result<Snapshot> {
+    execute_workspace(webview, state, move |desktop| {
+        desktop.update_translation(&id, chat_id.as_deref(), policy, expected_revision)
     })
     .await
 }

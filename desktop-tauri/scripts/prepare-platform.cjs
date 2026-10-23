@@ -33,6 +33,15 @@ function compose(root = ROOT) {
   return source;
 }
 
+function composeTranslation(root = ROOT) {
+  const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
+  return ['(function () {', "'use strict';",
+    'if (window !== window.top || window.__geekTauriTranslation) return;',
+    'const module = { exports: {} };', read('src/translation-output-safety.cjs'),
+    'const assessOutput = module.exports.assessTranslationOutput;',
+    read('desktop-tauri/guest/translation.js'), '})();', ''].join('\n');
+}
+
 function prepare(output, root = ROOT) {
   const installed = path.join(root, 'node_modules/@wppconnect/wa-js');
   const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
@@ -47,12 +56,14 @@ function prepare(output, root = ROOT) {
   fs.mkdirSync(output, { recursive: true });
   fs.writeFileSync(path.join(output, 'wppconnect-wa.js'), bundle);
   fs.writeFileSync(path.join(output, 'platform-bridge.js'), guest);
+  fs.writeFileSync(path.join(output, 'translation-guest.js'), composeTranslation(root));
   const licenses = ['LICENSE', 'dist/wppconnect-wa.js.LICENSE.txt'].map((name) =>
     `${name}\n\n${fs.readFileSync(path.join(installed, name), 'utf8')}`).join('\n\n');
   fs.writeFileSync(path.join(output, 'platform-licenses.txt'), licenses);
   const inputs = ['ui/platform-capabilities.js', 'ui/platform-adapter-contract.js',
     'ui/platform-transport-definitions.js', 'ui/broadcast-safety.js',
-    'desktop-tauri/guest/whatsapp.js', 'desktop-tauri/guest/bridge.js'];
+    'desktop-tauri/guest/whatsapp.js', 'desktop-tauri/guest/bridge.js',
+    'src/translation-output-safety.cjs', 'desktop-tauri/guest/translation.js'];
   const hash = (data) => crypto.createHash('sha256').update(data).digest('hex');
   const provenance = { waJsVersion: actual.version, waJsIntegrity: expected.integrity,
     bundleSha256: hash(bundle), inputs: Object.fromEntries(inputs.map((name) =>
@@ -64,4 +75,4 @@ if (require.main === module) {
   if (!process.argv[2]) throw new Error('An explicit Cargo output directory is required');
   prepare(path.resolve(process.argv[2]));
 }
-module.exports = { compose, prepare };
+module.exports = { compose, composeTranslation, prepare };

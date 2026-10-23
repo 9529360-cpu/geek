@@ -14,12 +14,12 @@ export function createShellView(document) {
   let recoverable = false;
   $('side-nav').append(runtimeStatus);
   $('nav-version').textContent = 'Tauri \u5f00\u53d1\u7248';
-  $('settings-account-email').textContent = '\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
-  $('settings-account-quota').textContent = '\u8ba2\u9605\u5c1a\u672a\u8fc1\u79fb';
+  $('settings-account-email').textContent = '正在读取…';
+  $('settings-account-quota').textContent = '字符余额未知';
   $('add-count').value = '1';
   $('add-count').title = '1–10 个；整批保存成功后只打开第一个账号';
   $('account-settings-name').maxLength = 64;
-  const pending = ['btn-restart', 'btn-lock', 'btn-contact-notes', 'btn-translation', 'btn-broadcast'];
+  const pending = ['btn-restart', 'btn-lock', 'btn-contact-notes'];
   for (const id of pending) {
     $(id).title += ' \u00b7 \u5c1a\u672a\u8fc1\u79fb';
     $(id).setAttribute('aria-label', $(id).title);
@@ -70,7 +70,8 @@ export function createShellView(document) {
   }
   function statusPanel(id) {
     // Keep recovery inside the current modal's keyboard focus boundary.
-    const target = id ? (['ctx-menu', 'broadcast-menu'].includes(id) ? $(id) : $(id).firstElementChild) : $('side-nav');
+    const floating = ['ctx-menu', 'broadcast-menu', 'translation-popover'];
+    const target = id ? (floating.includes(id) ? $(id) : $(id).firstElementChild) : $('side-nav');
     target.append(runtimeStatus);
     runtimeStatus.classList.toggle('in-dialog', Boolean(id));
   }

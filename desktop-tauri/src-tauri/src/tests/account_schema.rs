@@ -56,7 +56,7 @@ fn legacy_schemas_default_display_without_eager_or_failed_rewrites() {
         drop(store);
         let decoded: serde_json::Value =
             serde_json::from_slice(&dpapi::decrypt(&fs::read(&file).unwrap()).unwrap()).unwrap();
-        assert_eq!(decoded["schemaVersion"], 4);
+        assert_eq!(decoded["schemaVersion"], 5);
         assert_eq!(decoded["accounts"][0]["fontSize"], 22);
         assert_eq!(decoded["accounts"][0]["fontColor"], "#123ABC");
         let reopened = open();

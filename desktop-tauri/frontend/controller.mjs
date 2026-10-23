@@ -3,6 +3,8 @@ import { families, familyOf, visibleAccounts, viewportOf } from './models/shell.
 import { createShellView } from './view.mjs';
 import { batchCount } from './models/creation.mjs';
 import { createBroadcastController } from './controllers/broadcast.mjs';
+import { createSessionController } from './controllers/session.mjs';
+import { createTranslationController } from './controllers/translation.mjs';
 
 export function mountShell({ document, window, api }) {
   const view = createShellView(document);
@@ -21,10 +23,14 @@ export function mountShell({ document, window, api }) {
   let layoutDirty = false;
   let layoutPromise = Promise.resolve();
   let broadcast = null;
+  let session = null;
+  let translation = null;
   const setBusy = (value) => {
     busy = value;
     view.busy(value, Boolean(current && api), Boolean(api), pendingWindows);
     broadcast?.setShellBusy(value);
+    session?.setShellBusy(value);
+    translation?.setShellBusy(value);
   };
   const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible, $('broadcast-job-bar')));
 
@@ -40,7 +46,16 @@ export function mountShell({ document, window, api }) {
     view.accounts.render(next, family, { activate, context, moveAccount, family: selectFamily });
     if (panel === 'account-library-overlay') renderLibrary();
     broadcast?.renderShell(next);
+    translation?.renderShell(next);
     setBusy(busy);
+  }
+  function acceptTranslationSnapshot(next, id) {
+    const incoming = next.accounts.find((item) => item.id === id)?.translation;
+    const previous = current?.accounts.find((item) => item.id === id)?.translation;
+    if (!current || !incoming || incoming.revision < (previous?.revision || 0)) return;
+    // Translation persistence can finish after account selection or another shell
+    // mutation. Only its account-owned settings belong to this response.
+    render({ ...current, accounts: current.accounts.map((item) => item.id === id ? { ...item, translation: incoming } : item) });
   }
   function run(operation, clearStatus = true, refreshOnError = true) {
     if (busy || broadcast?.busy || !api) return Promise.resolve(false);
@@ -85,6 +100,8 @@ export function mountShell({ document, window, api }) {
     if (panel) $(panel).classList.add('hidden');
     panel = null;
     broadcast?.panelChanged(null);
+    session?.panelChanged(null);
+    translation?.panelChanged(null);
     view.statusPanel(null);
     await syncLayout(true);
     returnFocus?.focus();
@@ -98,6 +115,8 @@ export function mountShell({ document, window, api }) {
     view.statusPanel(id);
     $(id).classList.remove('hidden');
     broadcast?.panelChanged(id);
+    session?.panelChanged(id);
+    translation?.panelChanged(id);
     if (id === 'ctx-menu') {
       const menu = $(id);
       const rect = menu.getBoundingClientRect();
@@ -164,6 +183,10 @@ export function mountShell({ document, window, api }) {
   }
   broadcast = createBroadcastController({ document, window, api, getShellSnapshot: () => current,
     showPanel, hidePanel, requestLayout });
+  session = createSessionController({ document, api, showPanel, hidePanel, onChange: () => translation?.renderSession() });
+  translation = createTranslationController({ document, api, getShellSnapshot: () => current, showPanel, hidePanel,
+    acceptSnapshot: acceptTranslationSnapshot, getSession: () => ({ snapshot: session.snapshot, error: session.error }),
+    refreshSession: () => session.refresh(), openSession: () => session.open(), reportError: (message) => view.status(message) });
   on('btn-app-center', 'click', () => run(() => showPanel('add-overlay', () => {
     selectedPlatform = null;
     $('add-name').value = '';
@@ -207,7 +230,10 @@ export function mountShell({ document, window, api }) {
     const id = editingId;
     run(async () => { render(await api.setArchived(id, true)); await hidePanel(); });
   });
-  on('btn-settings', 'click', () => run(() => showPanel('settings-overlay', () => view.settings(current), 'close-to-tray')));
+  on('btn-settings', 'click', () => run(async () => {
+    await showPanel('settings-overlay', () => view.settings(current), 'close-to-tray');
+    void session.refresh();
+  }));
   on('settings-save', 'click', () => {
     const closeToTray = $('close-to-tray').checked;
     run(async () => { render(await api.settings({ closeToTray })); await hidePanel(); });
@@ -244,14 +270,17 @@ export function mountShell({ document, window, api }) {
   });
   document.addEventListener('click', (event) => {
     if (event.target.closest('.win-controls')) return;
+    if (panel === 'translation-popover' && !$(panel).contains(event.target) && !$('btn-translation').contains(event.target)) {
+      run(hidePanel); return;
+    }
     if (panel && (event.target === $(panel) || (panel === 'ctx-menu' && !$(panel).contains(event.target)))) run(hidePanel);
   });
   document.addEventListener('keydown', (event) => {
     if (panel && event.key === 'Escape') { event.preventDefault(); run(hidePanel); }
     if (panel && event.key === 'Tab') {
-      const controls = [...$(panel).querySelectorAll('button, input, select, textarea'),
+      const controls = [...$(panel).querySelectorAll('button, input, select, textarea, summary'),
         ...document.querySelector('.win-controls').querySelectorAll('button')]
-        .filter((el) => !el.disabled && el.getClientRects().length);
+        .filter((el) => !el.disabled && el.tabIndex !== -1 && el.getClientRects().length);
       if (!controls.length) return;
       // Window chrome precedes dialogs in the DOM; traverse the explicit boundary,
       // not browser tab order (which could otherwise enter background account tabs).
@@ -282,6 +311,9 @@ export function mountShell({ document, window, api }) {
     setBusy(false);
     view.status('\u8bf7\u4ece Tauri Windows \u5f00\u53d1\u7248\u542f\u52a8\uff1b\u6d4f\u89c8\u5668\u9884\u89c8\u4e0d\u6a21\u62df\u8d26\u53f7\u529f\u80fd\u3002');
   }
-  return { idle: async () => { await enqueue(() => {}); await broadcast.idle(); await enqueue(() => {}); },
-    dispose: () => { observer?.disconnect(); broadcast.dispose(); window.removeEventListener?.('resize', resize); } };
+  return { idle: async () => {
+    await enqueue(() => {}); await broadcast.idle(); await session.idle(); await translation.idle(); await enqueue(() => {});
+  }, dispose: () => {
+    observer?.disconnect(); broadcast.dispose(); session.dispose(); translation.dispose(); window.removeEventListener?.('resize', resize);
+  } };
 }

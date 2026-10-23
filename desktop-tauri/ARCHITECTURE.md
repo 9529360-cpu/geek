@@ -54,6 +54,8 @@ frontend/app.mjs                       main.rs
 | domain | Account/Settings/Document, UUID/name/schema validation, platform/navigation policy, typed errors | Tauri, I/O, UI state, network, side effects |
 | application/accounts | Single account document; validate candidate, persist, then publish memory | Public mutable state, secondary config owner, native code |
 | application/broadcast | Independent encrypted job document, bounded scheduler, immutable targets and single-use submit admission | Workspace/network waits under its owner lock, replay of uncertain effects |
+| application/session | Encrypted login generation, expiring server quota authority and cancellation leases | Renderer tokens, local billing or network work under its authority lock |
+| application/translation | Bounded incoming transforms, account-specific tokens, request identities and memory cache | Composer/send ownership, automatic new IDs after uncertain outcomes |
 | application/workspace | Activate/close/reload/archive/settings orchestration; active account | Browser profile rewriting, network jobs under its lock |
 | application/ports | Repository and native-host contracts | Concrete implementation or generic arbitrary-command interfaces |
 | infrastructure | Encryption/atomic writes/process lock/profile paths/catalog decoding | UI operations or calls back into use-case implementations |
@@ -94,7 +96,7 @@ No remove-then-rename sequence or plaintext fallback is permitted.
 
 The repository owns an exclusive process lock for its lifetime. Bad ciphertext, unknown
 schema, malformed IDs, duplicate IDs or invalid platform policy fail closed. Loading
-schema 1, 2 or 3 preserves IDs without eager writes; a successful mutation writes schema 4.
+schema 1, 2, 3 or 4 preserves IDs without eager writes; a successful mutation writes schema 5.
 A failed write keeps the old durable document and memory. The older prototype must not
 silently reset a newer document to downgrade it.
 
@@ -179,11 +181,13 @@ OS configuration in effect; HTTP/SOCKS5 use `WebviewBuilder::proxy_url`. No raw 
 credentials, PAC or bypass list cross this interface. View closure is not proof that the
 WebView2 environment has exited: rebuilding the same profile can fail and require an app
 restart, never an identity change. Proxy HTTP/HTTPS routing is not a VPN, DNS firewall or
-WebRTC/UDP egress guarantee, and does not affect the shell or Rust HTTP clients.
+WebRTC/UDP egress guarantee. The incoming translation HTTP adapter separately consumes
+the same immutable account route; global login and explicit quota refresh use System.
 
 ## 6. Feature boundaries for subsequent implementation
 
-The table describes ownership constraints. The implemented WhatsApp broadcast subset is specified below; other entries remain constraints for subsequent work.
+The table describes ownership constraints. Implemented WhatsApp broadcast, auth and
+incoming translation subsets are specified below; remaining entries guide subsequent work.
 Introduce each owner only with a working caller, tests and an integration path.
 
 | Feature owner | Inputs/state and commit rule |
@@ -298,6 +302,66 @@ Rust begins an operation once and polls that same ID. Native monotonic deadlines
 cancellation cover even a lost begin callback. Cleanup uses the originally held WebView and
 old generation token, including after native generation revocation. Guest cancel/revoke,
 expiry, and consumed attempt tombstones prevent late preparation or secondary card effects.
+
+## Session and incoming translation ownership
+
+`application/session*` owns one encrypted `session.dpapi`, independent of Workspace.
+Credentials are native-only zeroizing values. Login verifies server identity, saves a
+candidate, then rotates generation. Logout saves a token-free candidate before cancelling
+old leases. Explicit server rejection blocks authorization immediately even when its
+durable tombstone fails; the UI retains identity with a persistence warning and does not
+claim logout succeeded. Old login, refresh and 401 responses cannot replace newer identity.
+
+Quota authority uses a monotonic 30-second TTL. Disk mirrors are not authority; concurrent
+replies for one generation retain the smaller balance. A null balance invalidates authority
+without turning a charged success into failure. Failed mirror persistence also preserves
+successful translation. Only the existing server decides billing; no client usage debit.
+
+`Account.translation` contains one revision, global policy and at most 100 chat overrides.
+The existing Accounts owner persists mutations before publishing snapshots. Unknown,
+archived or unsupported accounts, stale revisions and unsupported sending/history flags
+fail before writes. Default/legacy policy is manual-only. Reading older schemas never
+eagerly rewrites them; an actual successful mutation upgrades to schema 5.
+
+`desktop/translation` polls only the visible owned WA document. It releases Workspace
+before readiness, DOM callbacks or network work. At most two workers and eight queued
+requests exist globally; each has an independent native flight ID, a frozen logical
+request, session lease, document cancellation flag and view/chat cancellation flag. The
+35-second monotonic budget includes queue/token/network/retry time. Changing view or
+policy cancels the old plane. Known cancellation is checked immediately before HTTP send;
+cancellation cannot undo a request the service already accepted.
+
+The guest offers named configure/context/poll/deliver/revoke operations without native
+permissions or credentials. Logical UUID and attempt survive uncertain manual retries;
+an explicit paid refresh creates a new UUID. Initial rows at every chat/config activation
+remain manual-only, supplemented by a native per-activation timestamp cutoff. Automatic
+admission requires verified incoming metadata, a new timestamp and allowed chat policy.
+Target-Chinese messages already containing Han text preserve the original automatic skip.
+The current node identity, body, message/chat, native generation, login generation and
+policy revision must still match before rendering. No composer interception is installed.
+
+`application/translation` holds account-specific short-token slots and a bounded 15-minute
+memory cache (256 entries / 1 MiB), with session/account/chat/message/parameter keys. Even
+cache hits require valid fresh positive quota. Only in-progress replies retry automatically
+with the same payload, ID and deadline; an unauthorized short token may refresh once.
+No ambiguous network failure allocates a new logical ID. The canonical output safety module
+checks received text before DOM display, and a charged quality failure needs explicit
+refresh rather than automatic replay. Neither cache nor logical request history is durable.
+
+`infrastructure/service_api` implements fixed worker endpoint contracts. `http` disables
+environment proxies, redirects, connection reuse and protocol retries; every operation
+uses a frozen account route with native TLS and bounded response reads. System routing
+is resolved per fixed URI by the safe Windows WinRT projection, including system/PAC/WPAD
+policy. Only the first ordered proxy is used, and resolver/proxy failure never falls back
+to another route. Direct needs an empty proxy list and affirmative OS permission. Unfinished
+WinRT resolution is explicitly cancelled; dropping a future alone is not cancellation.
+No extra handwritten unsafe or general-purpose network/URL IPC is introduced.
+
+Session/context commands share the native authorization/blocking boundary but use their
+own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
+The original UI provides login, quota, account/chat translation settings and incoming
+display. Sending, Telegram translation, registration/purchase and bulk history remain
+explicitly unavailable until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
 that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
 

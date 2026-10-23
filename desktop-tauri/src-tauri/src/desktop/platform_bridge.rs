@@ -77,7 +77,7 @@ impl NativePlatform {
         Ok(guest)
     }
 
-    fn evaluate(&self, binding: &GuestBinding, script: String) -> PlatformResult<Value> {
+    pub(super) fn evaluate(&self, binding: &GuestBinding, script: String) -> PlatformResult<Value> {
         let guest = self.guest(binding)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         guest
@@ -97,7 +97,7 @@ impl NativePlatform {
         serde_json::from_str(&value).map_err(|_| BroadcastIssue::RuntimeFailed)
     }
 
-    fn install(&self, binding: &GuestBinding) -> PlatformResult<()> {
+    pub(super) fn install(&self, binding: &GuestBinding) -> PlatformResult<()> {
         let gate = {
             let mut gates = self
                 .installers

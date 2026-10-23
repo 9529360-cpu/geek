@@ -101,6 +101,13 @@ test('all commands share the same native sender gate and blocking executor', () 
     } else if (/pub async fn broadcast_(catalog|create|snapshot|control)\(/.test(section)) {
       assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<BroadcastDesktop>>\(\)/);
       assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
+    } else if (/pub async fn session_(snapshot|login|refresh|logout)\(/.test(section)) {
+      assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<NativeSession>>\(\)/);
+      assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
+      if (section.includes('fn session_login(')) assert.match(section, /Zeroizing::new\(password\)/);
+    } else if (section.includes('pub async fn translation_context(')) {
+      assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<TranslationDesktop>>\(\)/);
+      assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
     } else assert.match(section, /\{\s*execute_workspace\(webview, state,/);
   }
   assert.match(commands, /execute\(webview, move \|_\| \{\s*let mut desktop = shared\.lock\(/);

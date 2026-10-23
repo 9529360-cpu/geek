@@ -1,12 +1,21 @@
 use crate::{
     application::{accounts::Accounts, workspace::Workspace},
     desktop::{
-        broadcast::BroadcastDesktop, commands, host::TauriHost, platform_bridge::NativePlatform,
-        platform_sessions::PlatformSessions, security, tray,
+        broadcast::BroadcastDesktop,
+        commands,
+        host::TauriHost,
+        platform_bridge::NativePlatform,
+        platform_sessions::PlatformSessions,
+        security,
+        session::{NativeSession, NativeTranslation},
+        translation::TranslationDesktop,
+        translation_guest::TranslationGuest,
+        tray,
     },
     infrastructure::{
-        broadcast_repository::EncryptedBroadcastRepository, catalog, profiles,
-        repository::EncryptedRepository,
+        broadcast_repository::EncryptedBroadcastRepository, catalog, http::HttpTransport, profiles,
+        repository::EncryptedRepository, service_api::NativeApi,
+        session_repository::EncryptedSessionRepository,
     },
 };
 use std::sync::{Arc, Mutex};
@@ -36,7 +45,13 @@ pub fn run() {
             commands::broadcast_catalog,
             commands::broadcast_create,
             commands::broadcast_snapshot,
-            commands::broadcast_control
+            commands::broadcast_control,
+            commands::session_snapshot,
+            commands::session_login,
+            commands::session_refresh,
+            commands::session_logout,
+            commands::translation_context,
+            commands::account_update_translation
         ])
         .on_window_event(tray::on_window_event)
         .setup(|app| {
@@ -56,12 +71,27 @@ pub fn run() {
                 Arc::clone(&sessions),
             ));
             let broadcast = Arc::new(BroadcastDesktop::new(
-                EncryptedBroadcastRepository::open(root)?,
-                platform,
-                sessions,
+                EncryptedBroadcastRepository::open(root.clone())?,
+                Arc::clone(&platform),
+                Arc::clone(&sessions),
             )?);
+            let api = Arc::new(NativeApi::new(Arc::new(HttpTransport::new()?)));
+            let session = Arc::new(NativeSession::open(
+                EncryptedSessionRepository::open(root)?,
+                Arc::clone(&api),
+            )?);
+            let translator = Arc::new(NativeTranslation::new(Arc::clone(&session), api));
+            let translation = Arc::new(TranslationDesktop::new(
+                Arc::clone(&workspace),
+                sessions,
+                Arc::clone(&session),
+                translator,
+                TranslationGuest::new(platform),
+            ));
             app.manage(workspace);
             app.manage(Arc::clone(&broadcast));
+            app.manage(session);
+            app.manage(Arc::clone(&translation));
             let window = WindowBuilder::new(app, "main")
                 .title("极客 · Tauri Windows 开发版")
                 .decorations(false)
@@ -83,6 +113,7 @@ pub fn run() {
             app.state::<tray::TrayState>().set_available(available);
             window.add_child(shell, LogicalPosition::new(0.0, 0.0), window.inner_size()?)?;
             broadcast.start()?;
+            translation.start()?;
             Ok(())
         })
         .build(tauri::generate_context!());
@@ -90,6 +121,9 @@ pub fn run() {
         Ok(app) => app.run(|handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(owner) = handle.try_state::<Arc<BroadcastDesktop>>() {
+                    owner.shutdown();
+                }
+                if let Some(owner) = handle.try_state::<Arc<TranslationDesktop>>() {
                     owner.shutdown();
                 }
             }

@@ -28,7 +28,7 @@ fn label(id: &str) -> String {
 
 fn revoke_document(guest: &Webview, generation: &str) {
     if let Ok(value) = serde_json::to_string(generation) {
-        let _ = guest.eval(format!("window.__geekTauriPlatform?.revoke({value})"));
+        let _ = guest.eval(format!("window.__geekTauriTranslation?.revoke({value}); window.__geekTauriPlatform?.revoke({value})"));
     }
 }
 

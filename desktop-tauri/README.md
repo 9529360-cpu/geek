@@ -44,7 +44,7 @@ Rust 先验证固定账号和配置，再关闭该账号的页面。只有页面
 
 代理在创建 WebView2 页面前传入。创建失败时不会移除代理再尝试连接。代理不通可能表现为网页网络错误；“已打开”不表示网络连通或已登录。WebView2 可能在页面关闭后仍保留原 profile 的浏览器环境；修改代理后重新打开失败时，应退出并重启开发版，不应清空 profile 或改为系统网络来掩盖失败。
 
-这只是浏览器 HTTP/HTTPS 请求的代理配置，不是 VPN 或网络防火墙，不承诺覆盖 WebRTC、UDP、DNS 或浏览器的全部流量，也不修改管理界面或后续 Rust 服务请求的网络配置。单元和界面测试验证规则、归属、持久化和创建参数接线；实际代理连通性及平台兼容性仍属于单独的 Windows 运行验证。
+这不是 VPN 或网络防火墙，不承诺覆盖 WebRTC、UDP、DNS 或浏览器的全部流量，也不修改 Windows 全局代理。已迁移的 Rust 翻译请求独立读取同一账号的代理设置；极客账户登录与主动刷新余额使用系统路由。单元和界面测试验证规则、归属、持久化和创建参数接线；实际代理连通性及平台兼容性仍属于单独的 Windows 运行验证。
 
 ## Website 账号约束
 
@@ -58,7 +58,7 @@ identifier 为 `com.geek.desktop.tauri.prototype`。数据位于独立的 local 
 
 `accounts.dpapi` 使用当前 Windows 用户 DPAPI 加密账号元数据和桌面设置；同目录原子替换成功后才更新权威内存。独占进程锁阻止同目录双写。损坏文件、解密失败、未知 schema 均阻止启动，不清空或明文回退。
 
-schema 4 新增账号字号和颜色，schema 3 的账号代理配置继续保留。schema 1/2/3 可继续读取，缺失代理时默认跟随系统，缺失显示设置时默认 16 像素与 `#18A058`，账号 ID 不变；启动不会主动重写旧数据。下一次成功修改才写入 schema 4。旧开发版会拒绝更高版本，不能通过清空数据来降级。
+schema 5 新增各账号的翻译策略与聊天覆盖，保留 schema 4 的字号/颜色及 schema 3 的代理设置。schema 1/2/3/4 可继续读取，缺失代理时默认跟随系统，缺失显示设置时默认 16 像素与 `#18A058`，缺失翻译策略时默认点击翻译、自动翻译关闭，账号 ID 不变；启动不会主动重写旧数据。下一次成功修改才写入 schema 5。旧开发版会拒绝更高版本，不能通过清空数据来降级。
 
 浏览器会话由各账号 WebView2 profile 管理。DPAPI 只保护本应用的账号文档，不表示整个浏览器目录统一加密，也不防同 Windows 用户下的恶意进程。关闭页面/归档后该页面不再收消息；仅隐藏页面或主窗口是否能稳定后台收消息，留待维护者真机验收。
 
@@ -74,7 +74,7 @@ schema 4 新增账号字号和颜色，schema 3 的账号代理配置继续保�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：翻译/订阅、Telegram 群发和附件桥、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 群发的实现范围与恢复边界见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：发送前翻译与 SendIntent、Telegram 翻译/群发、附件桥、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 群发、极客登录与接收翻译的实现范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -118,9 +118,10 @@ tracks the actual chat container and is suspended while a modal/menu is open.
 
 Wired paths: create 1-10 accounts with proxy, switch accounts/families, save account
 name/font/color, drag reorder within a family, reload, close, archive, search/restore,
-tray preference, native window controls and the WhatsApp broadcast workflow.
-Not yet wired: restart/lock,
-auth/subscription, theme/startup options, translation/notes, Telegram broadcast and attachments.
+tray preference, native window controls, WhatsApp broadcast, Geek login/quota and
+WhatsApp incoming-message translation with account/chat settings.
+Not yet wired: restart/lock, registration/purchase, theme/startup options, outgoing
+translation/SendIntent, notes, Telegram translation/broadcast and attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 
@@ -178,3 +179,23 @@ settings, and open/closed guest state are preserved. No extra ordering store is 
 平台桥只执行打包的命名语义调用，未向页面开放脚本、路径、密钥或 native IPC。构建复用原版 capability/adapter/safety 纯合同及锁定的 WA-JS，附带依赖许可和输入哈希。异步结果经有界 mailbox 返回；原生使用单调时钟期限，取消或导航会使旧 mailbox 和准备结果失效。每个 document 的 attempt ID 单次使用，达到有界容量则拒绝继续，不丢弃旧凭据来允许重放。
 
 离线 VM、真实控制器、并发 Rust 替身和 Windows DPAPI 测试覆盖上述边界；浏览器截图与严格 CSP 测试只证明外壳联动，不能代替真实 WhatsApp / WebView2 发送验收。开发验证不登录客户账号、不发送真实消息。
+
+## 极客登录与 WhatsApp 接收翻译
+
+个人中心复用原登录界面，已接通邮箱/密码登录、账户号、余额查询与退出。登录响应必须与 `/api/me` 返回的身份一致，凭据成功写入独立 `session.dpapi` 后才发布会话。登录 token 和翻译短 token 均仅由 Rust 持有，不回传 shell 或远程页面；密码在命令入口和服务入口使用清零包装，界面提交后立即清空密码字段。注册、购买字符包等入口仍标明尚未迁移。
+
+余额与扣费以既有订阅/翻译 Worker 为准，不本地扣减、不额外调用 usage 接口。余额授权有 30 秒单调时钟有效期，重启后的磁盘余额只作显示；缓存译文仍需有效会话与新鲜正余额。翻译成功返回 `remaining_chars: null` 时保留成功译文，同时撤销余额授权并显示待确认。成功后的余额镜像保存失败不会把已计费译文变成可重复执行的失败。退出保存失败不假称已经退出；服务端明确拒绝当前身份时，即使本地清除保存失败，也立即阻止后续授权并取消旧工作。
+
+原工具栏翻译设置支持账号独立的接收模式、源/目标语言、群聊自动翻译、点击/右键入口、译文显示、线路、字号颜色及当前聊天覆盖。整个账号的设置共用 revision，旧面板不能覆盖新修改；写盘失败保留原配置和界面草稿，重试须由用户发起。保存不改变账号 UUID、代理或浏览器 profile。
+
+WhatsApp / 纯净版支持“点击翻译”和右键翻译当前可见消息，以及新收到消息的自动翻译。进入聊天、开启自动模式或重新显示账号时，已在页面上的消息按历史处理，只提供手动入口。自动请求只接收 WA-JS 元数据确认的入站消息，检查当前激活时间和群聊许可；目标中文时，已有汉字的消息按原规则跳过自动翻译。方向/时间未知、自己的消息和旧历史不会自动提交。译文只能写回同一账号、文档、会话、策略 revision、聊天、消息 ID、正文及当前 DOM 节点；聊天虚拟列表复用节点时不能挂入旧译文。
+
+执行层最多两个并发 worker、八条等待任务，手动请求优先，排队/取 token/HTTP/409 查询共用 35 秒期限。账号关闭、重载、导航、切聊天、隐藏、修改策略或退出会话均撤销对应工作；取消不能撤回服务端已收到的请求。每个逻辑请求冻结 UUID、文本、语言、线路和账号代理。只有 `request_in_progress` 可在原期限内查询同一请求；短 token 失效最多更新一次并保持原 ID。不确定网络错误不自动新建请求，点击重试查询同一次结果。显式“重新翻译”才创建新请求并跳过本地缓存，可能重新计费。
+
+复用原 `src/translation-output-safety.cjs` 校验译文，保留数字、链接和问句等保护，使用 `textContent` 挂载。已成功但未通过质量校验的结果不会形成普通点击重试循环，右键提供明确重新计费的重译入口。完成缓存仅在内存中保存，最多 256 项/1 MiB/15 分钟，按会话、账号、聊天、消息和翻译参数隔离；不宣称重启后保留译文或请求去重记录。
+
+翻译 HTTP 请求使用账号保存的 HTTP/SOCKS5/系统路由。系统模式通过 Windows `GetProxyConfigurationAsync` 对固定服务 URL 解析 PAC/WPAD/系统设置，使用返回的首个代理；仅无代理且系统明确允许时直连。解析或连接失败不会偷偷换代理或直连。独立 HTTP 客户端禁用环境代理覆盖、重定向和底层自动重试，SOCKS5 的目标 DNS 在代理侧解析。这里没有客户代理实连或 Windows PAC 真机验证的声明。
+
+发送前翻译、自动发送和 Telegram 翻译仍等待独立的 SendIntent/平台适配器迁移，当前原位禁用。接收翻译 owner 没有发送或修改输入框的能力。测试使用合成账户和响应，不访问真实订阅或计费服务；实际 Windows/WebView2、WhatsApp 登录与服务联调由维护者另行验收。
+
+接口来源：仓库的 `scripts/geek-subscription-worker*.js`、`scripts/geek-translate-worker.js`；系统代理参考 [Windows ProxyConfiguration](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.proxyconfiguration) 与 [GetProxyConfigurationAsync](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.networkinformation.getproxyconfigurationasync)；HTTP 行为参考 [reqwest 0.13.5 ClientBuilder](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html)。

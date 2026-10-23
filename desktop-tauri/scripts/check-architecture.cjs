@@ -87,6 +87,19 @@ function checkCommands(files) {
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
         failures.push('Broadcast command must use shared authorization and its independent owner without account state');
       }
+    } else if (['session_snapshot', 'session_login', 'session_refresh', 'session_logout'].includes(name)) {
+      const guarded = name === 'session_login'
+        ? /\{\s*let password = zeroize::Zeroizing::new\(password\);\s*execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<NativeSession>>\(\)\s*\./
+        : /\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<NativeSession>>\(\)\s*\./;
+      if (!guarded.test(section)
+          || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
+        failures.push('Session command must use shared authorization and its independent owner without account state');
+      }
+    } else if (name === 'translation_context') {
+      if (!/\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<TranslationDesktop>>\(\)\s*\./.test(section)
+          || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
+        failures.push('Translation command must use shared authorization and its independent owner without account state');
+      }
     } else if (!/\{\s*execute_workspace\(webview, state,/.test(section)) {
       failures.push('Rust account command bypasses shared sender authorization/workspace execution boundary');
     }
@@ -109,7 +122,7 @@ function checkFrontendGraph(files) {
   for (const [name, source] of files) {
     if (!name.startsWith('frontend/') || !name.endsWith('.mjs')) continue;
     const dependencies = [];
-    for (const [, specifier] of source.matchAll(/\b(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
+    for (const [, specifier] of source.matchAll(/^\s*(?:import\s+(?:[^;'"]*?\s+from\s+)?|export\s+[^;'"]*?\s+from\s+)['"]([^'"]+)['"]/gm)) {
       if (!specifier.startsWith('.')) {
         failures.push(`${name}: undeclared external frontend dependency`);
         continue;

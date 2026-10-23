@@ -2,10 +2,10 @@ name: tauri-windows-prototype
 on:
   push:
     branches: [master, 'feat/tauri-windows-rust']
-    paths: ['desktop-tauri/**', 'ui/**', 'package.json', 'package-lock.json', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+    paths: ['desktop-tauri/**', 'ui/**', 'package.json', 'package-lock.json', 'src/platform-catalog.cjs', 'src/translation-output-safety.cjs', '.github/workflows/tauri-windows.yml']
   pull_request:
     branches: [master]
-    paths: ['desktop-tauri/**', 'ui/**', 'package.json', 'package-lock.json', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+    paths: ['desktop-tauri/**', 'ui/**', 'package.json', 'package-lock.json', 'src/platform-catalog.cjs', 'src/translation-output-safety.cjs', '.github/workflows/tauri-windows.yml']
 permissions:
   contents: read
 concurrency:
@@ -55,6 +55,7 @@ jobs:
             desktop-tauri/UI-PARITY.md
             ui/
             src/platform-catalog.cjs
+            src/translation-output-safety.cjs
             package.json
             package-lock.json
             AGENTS.md

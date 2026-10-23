@@ -5,6 +5,7 @@ import { dom } from './helpers/dom.mjs';
 import { mountShell } from '../frontend/controller.mjs';
 
 const names = (ui) => ui.calls.map(([name]) => name);
+const sessionMutations = ['session_login', 'session_refresh', 'session_logout', 'account_update_translation'];
 
 test('initial snapshot failure leaves window controls and read-only recovery available', async () => {
   const ui = await fixture({ initialFailures: ['desktop_snapshot'] });
@@ -24,7 +25,10 @@ test('initial snapshot failure leaves window controls and read-only recovery ava
   assert.equal(ui.get('runtime-status').classList.contains('hidden'), true);
   assert.equal(ui.calls.filter(([name]) => name === 'desktop_layout').at(-1)[1].viewport.visible, true);
   assert.equal(ui.state.accounts.length, 2);
-  assert.ok(names(ui).every((name) => ['desktop_snapshot', 'desktop_layout', 'desktop_window', 'broadcast_snapshot'].includes(name)));
+  const readOnlyCommands = ['desktop_snapshot', 'desktop_layout', 'desktop_window', 'broadcast_snapshot', 'session_snapshot'];
+  assert.ok(names(ui).every((name) => readOnlyCommands.includes(name)));
+  assert.equal(names(ui).filter((name) => name === 'session_snapshot').length, 1);
+  assert.equal(names(ui).some((name) => sessionMutations.includes(name)), false);
 });
 
 test('retry cannot replay a failed save and keeps a modal suspended with its draft intact', async () => {
@@ -52,8 +56,10 @@ test('a failed recovery remains retryable without enabling account mutations or 
   assert.equal(ui.get('btn-app-center').disabled, true);
   assert.equal(ui.get('runtime-retry').disabled, false);
   assert.equal(ui.get('runtime-status').classList.contains('hidden'), false);
-  assert.ok(names(ui).every((name) => name === 'desktop_snapshot'));
+  assert.ok(names(ui).every((name) => ['desktop_snapshot', 'session_snapshot'].includes(name)));
   assert.equal(names(ui).filter((name) => name === 'desktop_snapshot').length, 2);
+  assert.equal(names(ui).filter((name) => name === 'session_snapshot').length, 1);
+  assert.equal(names(ui).some((name) => sessionMutations.includes(name)), false);
 });
 
 test('browser preview does not enable window commands or pretend to recover native state', async () => {

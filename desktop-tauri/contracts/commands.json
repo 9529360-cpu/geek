@@ -137,6 +137,46 @@
         "action"
       ],
       "response": "BroadcastSnapshot"
+    },
+    {
+      "name": "session_snapshot",
+      "arguments": [],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "session_login",
+      "arguments": [
+        "email",
+        "password"
+      ],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "session_refresh",
+      "arguments": [],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "session_logout",
+      "arguments": [],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "translation_context",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "TranslationContext"
+    },
+    {
+      "name": "account_update_translation",
+      "arguments": [
+        "id",
+        "chatId",
+        "policy",
+        "expectedRevision"
+      ],
+      "response": "Snapshot"
     }
   ]
 }

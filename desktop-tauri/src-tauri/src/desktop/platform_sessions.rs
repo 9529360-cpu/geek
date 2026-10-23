@@ -1,12 +1,22 @@
 //! Native guest incarnation and document identity, independent of UI selection.
 use crate::domain::broadcast::{BroadcastIssue, GuestBinding};
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
 use uuid::Uuid;
+
+#[cfg(test)]
+mod tests;
 
 struct Session {
     incarnation: String,
     binding: GuestBinding,
     loaded: bool,
+    cancel: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -19,6 +29,9 @@ impl PlatformSessions {
     pub fn created(&self, id: &str, platform: &str) -> String {
         let incarnation = Uuid::new_v4().to_string();
         if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(old) = sessions.get(id) {
+                old.cancel.store(true, Ordering::Release);
+            }
             sessions.insert(
                 id.to_owned(),
                 Session {
@@ -29,6 +42,7 @@ impl PlatformSessions {
                         generation: Uuid::new_v4().to_string(),
                     },
                     loaded: false,
+                    cancel: Arc::new(AtomicBool::new(false)),
                 },
             );
         }
@@ -42,6 +56,8 @@ impl PlatformSessions {
                 .filter(|s| s.incarnation == incarnation)
             {
                 if started {
+                    session.cancel.store(true, Ordering::Release);
+                    session.cancel = Arc::new(AtomicBool::new(false));
                     session.binding.generation = Uuid::new_v4().to_string();
                 }
                 session.loaded = !started;
@@ -52,6 +68,8 @@ impl PlatformSessions {
     pub fn invalidate(&self, id: &str) {
         if let Ok(mut sessions) = self.sessions.lock() {
             if let Some(session) = sessions.get_mut(id) {
+                session.cancel.store(true, Ordering::Release);
+                session.cancel = Arc::new(AtomicBool::new(false));
                 session.binding.generation = Uuid::new_v4().to_string();
                 session.loaded = false;
             }
@@ -63,7 +81,9 @@ impl PlatformSessions {
 
     pub fn removed(&self, id: &str) {
         if let Ok(mut sessions) = self.sessions.lock() {
-            sessions.remove(id);
+            if let Some(old) = sessions.remove(id) {
+                old.cancel.store(true, Ordering::Release);
+            }
         }
     }
 
@@ -126,5 +146,20 @@ impl PlatformSessions {
     pub fn valid(&self, binding: &GuestBinding) -> bool {
         self.binding(&binding.account_id, &binding.platform_id)
             .is_ok_and(|current| current == *binding)
+    }
+
+    pub fn cancellation(&self, binding: &GuestBinding) -> Result<Arc<AtomicBool>, BroadcastIssue> {
+        if !self.valid(binding) {
+            return Err(BroadcastIssue::GuestChanged);
+        }
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| BroadcastIssue::RuntimeFailed)?;
+        sessions
+            .get(&binding.account_id)
+            .filter(|session| session.binding == *binding && session.loaded)
+            .map(|session| Arc::clone(&session.cancel))
+            .ok_or(BroadcastIssue::GuestChanged)
     }
 }

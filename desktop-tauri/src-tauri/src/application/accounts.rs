@@ -7,6 +7,7 @@ use crate::domain::{
     navigation::NavigationPolicy,
     platform::{self, Platform},
     proxy::ProxyConfig,
+    translation::{valid_chat_id, TranslationPolicy, TranslationSettings},
 };
 use uuid::Uuid;
 
@@ -105,6 +106,7 @@ impl<R: AccountRepository> Accounts<R> {
                 archived: false,
                 website_url: website_url.clone(),
                 proxy: proxy.clone(),
+                translation: TranslationSettings::default(),
             });
         }
         self.commit(next)?;
@@ -216,6 +218,52 @@ impl<R: AccountRepository> Accounts<R> {
     pub fn set_settings(&mut self, settings: Settings) -> Result<()> {
         let mut next = self.document.clone();
         next.settings = settings;
+        self.commit(next)
+    }
+
+    pub fn update_translation(
+        &mut self,
+        id: &str,
+        chat_id: Option<&str>,
+        policy: Option<TranslationPolicy>,
+        expected_revision: u64,
+    ) -> Result<()> {
+        let current = self.openable_account(id)?;
+        if !matches!(current.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
+            return Err(AppError::TranslationUnavailable);
+        }
+        if current.translation.revision != expected_revision {
+            return Err(AppError::TranslationSettingsConflict);
+        }
+        if let Some(policy) = &policy {
+            policy.validate()?;
+        }
+        let mut settings = current.translation.clone();
+        match chat_id {
+            None => settings.global = policy.ok_or(AppError::TranslationInvalid)?,
+            Some(chat_id) if valid_chat_id(chat_id) => {
+                if let Some(policy) = policy {
+                    settings.chats.insert(chat_id.to_owned(), policy);
+                } else {
+                    settings.chats.remove(chat_id);
+                }
+            }
+            _ => return Err(AppError::TranslationInvalid),
+        }
+        if settings == current.translation {
+            return Ok(());
+        }
+        settings.revision = settings
+            .revision
+            .checked_add(1)
+            .ok_or(AppError::TranslationLimit)?;
+        settings.validate()?;
+        let mut next = self.document.clone();
+        next.accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(AppError::AccountUnknown)?
+            .translation = settings;
         self.commit(next)
     }
 

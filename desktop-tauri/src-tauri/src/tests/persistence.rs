@@ -106,7 +106,7 @@ fn old_schema_loads_without_rebinding_or_eager_rewrite() {
     store.rename(&id, "Updated").unwrap();
     let doc: serde_json::Value =
         serde_json::from_slice(&dpapi::decrypt(&fs::read(file).unwrap()).unwrap()).unwrap();
-    assert_eq!(doc["schemaVersion"], 4);
+    assert_eq!(doc["schemaVersion"], 5);
 }
 
 #[test]
@@ -254,6 +254,7 @@ fn archived_accounts_cannot_bypass_the_limit() {
             archived: true,
             website_url: None,
             proxy: Default::default(),
+            translation: Default::default(),
         })
         .collect();
     assert!(validate(&records, &all).is_ok());
@@ -267,6 +268,7 @@ fn archived_accounts_cannot_bypass_the_limit() {
         archived: false,
         website_url: None,
         proxy: Default::default(),
+        translation: Default::default(),
     });
     assert!(matches!(
         validate(&excessive, &all),

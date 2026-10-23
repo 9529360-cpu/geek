@@ -19,5 +19,11 @@ commands.allow = [
   "broadcast_catalog",
   "broadcast_create",
   "broadcast_snapshot",
-  "broadcast_control"
+  "broadcast_control",
+  "session_snapshot",
+  "session_login",
+  "session_refresh",
+  "session_logout",
+  "translation_context",
+  "account_update_translation"
 ]

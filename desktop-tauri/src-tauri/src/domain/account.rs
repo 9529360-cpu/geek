@@ -1,4 +1,5 @@
 use super::proxy::ProxyConfig;
+use super::translation::TranslationSettings;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -30,6 +31,8 @@ pub struct Account {
     pub website_url: Option<String>,
     #[serde(default)]
     pub proxy: ProxyConfig,
+    #[serde(default)]
+    pub translation: TranslationSettings,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]

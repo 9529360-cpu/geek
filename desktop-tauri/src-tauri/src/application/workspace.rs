@@ -8,6 +8,7 @@ use crate::domain::{
     error::{AppError, Result},
     presentation::Viewport,
     proxy::ProxyConfig,
+    translation::TranslationPolicy,
 };
 
 /// Serial use-case owner. Native callbacks must never lock this coordinator.
@@ -44,6 +45,29 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
             settings: self.accounts.settings().clone(),
             tray_available: self.host.tray_available(),
         }
+    }
+
+    /// Read-only admission; no network or native callback runs under this lock.
+    pub fn visible_account(&self) -> Option<crate::domain::account::Account> {
+        if !self.content_visible {
+            return None;
+        }
+        self.active_id
+            .as_deref()
+            .filter(|id| self.host.is_open(id))
+            .and_then(|id| self.accounts.openable_account(id).ok())
+    }
+
+    pub fn update_translation(
+        &mut self,
+        id: &str,
+        chat_id: Option<&str>,
+        policy: Option<TranslationPolicy>,
+        expected_revision: u64,
+    ) -> Result<Snapshot> {
+        self.accounts
+            .update_translation(id, chat_id, policy, expected_revision)?;
+        Ok(self.snapshot())
     }
 
     pub fn create(

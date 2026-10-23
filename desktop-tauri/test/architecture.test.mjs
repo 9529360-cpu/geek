@@ -100,6 +100,28 @@ test('views cannot acquire the native API by importing its wrapper', () => {
   assert.match(checkFrontendGraph(files).join('\n'), /direction violation/);
 });
 
+test('import discovery accepts original field IDs and still detects multiline imports', () => {
+  const files = new Map([
+    ['frontend/views/example.mjs', "const fields = ['translation-message-from', 'translation-send-from'];\n"],
+  ]);
+  assert.deepEqual(checkFrontendGraph(files), []);
+  files.set('frontend/views/example.mjs', "import {\n  connectDesktop,\n} from '../api/desktop.mjs';\n");
+  files.set('frontend/api/desktop.mjs', 'export const connectDesktop = () => null;\n');
+  assert.match(checkFrontendGraph(files).join('\n'), /direction violation/);
+});
+
+test('session and translation commands cannot acquire workspace or bypass authorization', () => {
+  const files = collect(root);
+  const key = 'src-tauri/src/desktop/commands.rs';
+  for (const owner of ['NativeSession', 'TranslationDesktop']) {
+    for (const replacement of ['SharedDesktop', 'OtherOwner']) {
+      const mutant = new Map(files);
+      mutant.set(key, files.get(key).replace(`app.state::<Arc<${owner}>>()`, `app.state::<Arc<${replacement}>>()`));
+      assert.match(checkCommands(mutant).join('\n'), /(?:Session|Translation) command.*authorization/);
+    }
+  }
+});
+
 
 test('window recovery cannot bypass authorization or reacquire account state', () => {
   const source = collect(root);

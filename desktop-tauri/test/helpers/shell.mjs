@@ -21,6 +21,10 @@ export async function fixture({ initialFailures = [], initialState = {}, beforeI
     await beforeInvoke(name, args);
     const account = state.accounts.find((a) => a.id === args?.id);
     if (name === 'broadcast_snapshot') return { revision: 0, jobs: [] };
+    if (name === 'session_snapshot' || name === 'session_refresh') {
+      return { revision: 0, state: 'signedOut', user: null, remainingChars: null, quotaFresh: false, issue: null };
+    }
+    if (name === 'translation_context') return { accountId: args.accountId, generation: 1, available: true, chat: null };
     if (name === 'account_set_proxy' || name === 'account_set_archived' || name === 'account_close') {
       state.openedIds = state.openedIds.filter((id) => id !== args.id);
       if (state.activeId === args.id) state.activeId = null;

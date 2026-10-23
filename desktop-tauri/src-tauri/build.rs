@@ -20,6 +20,7 @@ fn main() {
     fs::write(out.join("platforms.json"), output.stdout).expect("write catalog");
     println!("cargo:rerun-if-changed=../guest");
     println!("cargo:rerun-if-changed=../scripts/prepare-platform.cjs");
+    println!("cargo:rerun-if-changed=../../src/translation-output-safety.cjs");
     println!("cargo:rerun-if-changed=../../package-lock.json");
     let platform = Command::new("node")
         .arg("../scripts/prepare-platform.cjs")

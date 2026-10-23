@@ -1,5 +1,9 @@
 pub mod broadcast_repository;
 pub mod catalog;
 pub mod dpapi;
+pub mod http;
 pub mod profiles;
 pub mod repository;
+pub mod service_api;
+pub mod session_repository;
+pub mod system_http;

@@ -23,5 +23,12 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     broadcastCreate: (draft) => invoke('broadcast_create', { draft }),
     broadcastSnapshot: () => invoke('broadcast_snapshot'),
     broadcastControl: (jobId, action) => invoke('broadcast_control', { jobId, action }),
+    sessionSnapshot: () => invoke('session_snapshot'),
+    sessionLogin: (email, password) => invoke('session_login', { email, password }),
+    sessionRefresh: () => invoke('session_refresh'),
+    sessionLogout: () => invoke('session_logout'),
+    translationContext: (accountId) => invoke('translation_context', { accountId }),
+    updateTranslation: (id, chatId, policy, expectedRevision) =>
+      invoke('account_update_translation', { id, chatId, policy, expectedRevision }),
   });
 }
