@@ -1,5 +1,6 @@
 import { createAccountView } from './views/accounts.mjs';
 import { proxyFromFields } from './models/proxy.mjs';
+import { accountDisplay, displayFromFields } from './models/account-display.mjs';
 
 export function createShellView(document) {
   const $ = (id) => document.getElementById(id);
@@ -24,6 +25,7 @@ export function createShellView(document) {
     $(id).setAttribute('aria-label', $(id).title);
   }
   for (const id of ['add-count', 'add-name', 'add-custom-url', 'account-settings-name', 'proxy-openProxy',
+    'account-settings-fontSize', 'account-settings-fontColor',
     'proxy-protocal', 'proxy-host', 'proxy-port', 'close-to-tray', 'search', 'archived-only',
     'create-proxy-mode', 'create-proxy-host', 'create-proxy-port']) wire(id);
   for (const option of $('proxy-protocal').options) option.disabled = !['http', 'socks5'].includes(option.value);
@@ -73,8 +75,15 @@ export function createShellView(document) {
     runtimeStatus.classList.toggle('in-dialog', Boolean(id));
   }
   function editor(account) {
+    const { fontSize, fontColor } = accountDisplay(account);
     $('account-settings-target').textContent = account.name;
     $('account-settings-name').value = account.name;
+    $('account-settings-fontSize').value = fontSize;
+    $('account-settings-fontColor').value = fontColor;
+  }
+  function readDisplay() {
+    return displayFromFields($('account-settings-name').value,
+      $('account-settings-fontSize').value, $('account-settings-fontColor').value);
   }
   function proxy(account) {
     $('proxy-openProxy').checked = account.proxy?.mode !== 'system' && Boolean(account.proxy);
@@ -93,5 +102,5 @@ export function createShellView(document) {
       ? '\u6258\u76d8\u53f3\u952e\u83dc\u5355\u53ef\u5b8c\u5168\u9000\u51fa\u3002'
       : '\u6258\u76d8\u4e0d\u53ef\u7528\uff0c\u5173\u95ed\u7a97\u53e3\u5c06\u9000\u51fa\u5e94\u7528\u3002';
   }
-  return { $, on, wire, accounts, busy, status, statusPanel, editor, proxy, readProxy, settings };
+  return { $, on, wire, accounts, busy, status, statusPanel, editor, readDisplay, proxy, readProxy, settings };
 }

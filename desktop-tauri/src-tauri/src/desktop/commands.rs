@@ -113,6 +113,34 @@ pub async fn account_rename(
 }
 
 #[tauri::command]
+pub async fn account_update_display(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+    name: String,
+    font_size: u8,
+    font_color: String,
+) -> Result<Snapshot> {
+    execute_workspace(webview, state, move |desktop| {
+        desktop.update_display(&id, &name, font_size, &font_color)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn account_move(
+    webview: Webview,
+    state: State<'_, SharedDesktop>,
+    id: String,
+    target_id: String,
+) -> Result<Snapshot> {
+    execute_workspace(webview, state, move |desktop| {
+        desktop.move_account(&id, &target_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn account_set_archived(
     webview: Webview,
     state: State<'_, SharedDesktop>,

@@ -99,6 +99,8 @@ impl<R: AccountRepository> Accounts<R> {
             next.accounts.push(Account {
                 id,
                 name,
+                font_size: account::DEFAULT_FONT_SIZE,
+                font_color: account::DEFAULT_FONT_COLOR.into(),
                 platform_id: platform_id.into(),
                 archived: false,
                 website_url: website_url.clone(),
@@ -121,6 +123,69 @@ impl<R: AccountRepository> Accounts<R> {
             .find(|a| a.id == id)
             .ok_or(AppError::AccountUnknown)?
             .name = name.into();
+        self.commit(next)
+    }
+
+    pub fn update_display(
+        &mut self,
+        id: &str,
+        name: &str,
+        font_size: u8,
+        font_color: &str,
+    ) -> Result<()> {
+        let current = self.account(id)?;
+        let name = name.trim();
+        if !account::valid_name(name) {
+            return Err(AppError::NameInvalid);
+        }
+        if !account::valid_appearance(font_size, font_color) {
+            return Err(AppError::AppearanceInvalid);
+        }
+        let font_color = font_color.to_ascii_uppercase();
+        if current.name == name
+            && current.font_size == font_size
+            && current.font_color == font_color
+        {
+            return Ok(());
+        }
+        let mut next = self.document.clone();
+        let target = next
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(AppError::AccountUnknown)?;
+        target.name = name.into();
+        target.font_size = font_size;
+        target.font_color = font_color;
+        self.commit(next)
+    }
+
+    /// Resolve both owners against current authority, never a renderer-supplied index.
+    pub fn move_account(&mut self, id: &str, target_id: &str) -> Result<()> {
+        let account = self.openable_account(id)?;
+        let target = self.openable_account(target_id)?;
+        let family = &platform::platform(&self.platforms, &account.platform_id)?.family;
+        let target_family = &platform::platform(&self.platforms, &target.platform_id)?.family;
+        if family != target_family {
+            return Err(AppError::AccountOrderInvalid);
+        }
+        if id == target_id {
+            return Ok(());
+        }
+        let from = self
+            .accounts()
+            .iter()
+            .position(|a| a.id == id)
+            .ok_or(AppError::AccountUnknown)?;
+        let to = self
+            .accounts()
+            .iter()
+            .position(|a| a.id == target_id)
+            .ok_or(AppError::AccountUnknown)?;
+        let mut next = self.document.clone();
+        let moved = next.accounts.remove(from);
+        // Match the original UI: downward goes after the target, upward before it.
+        next.accounts.insert(to, moved);
         self.commit(next)
     }
 

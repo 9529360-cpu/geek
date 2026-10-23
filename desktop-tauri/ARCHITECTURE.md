@@ -93,7 +93,7 @@ No remove-then-rename sequence or plaintext fallback is permitted.
 
 The repository owns an exclusive process lock for its lifetime. Bad ciphertext, unknown
 schema, malformed IDs, duplicate IDs or invalid platform policy fail closed. Loading
-schema 1 or 2 preserves IDs without eager writes; a successful mutation writes schema 3.
+schema 1, 2 or 3 preserves IDs without eager writes; a successful mutation writes schema 4.
 A failed write keeps the old durable document and memory. The older prototype must not
 silently reset a newer document to downgrade it.
 
@@ -102,6 +102,18 @@ its active selection if necessary -> commit archived metadata. A close failure p
 the write. A later disk failure leaves a closed, non-archived, recoverable account and is
 reported as failure. There is no claim of atomicity across native windows and the disk.
 Restore changes metadata only. Neither operation deletes cookies or browser storage.
+
+Account display settings (name, integer font size and hexadecimal color) commit as one
+candidate through Accounts. The original defaults fill absent display fields in older
+schemas; invalid persisted values still fail closed. There is no renderer-owned
+appearance store. A no-op save does not rewrite the document. The legacy rename path
+preserves the account's display fields.
+
+Account order is the document's existing vector order. The move use case accepts two
+stable IDs, validates both as non-archived members of the same platform family, and
+resolves their current positions in Rust. It changes only that order after persistence
+succeeds, without native lifecycle effects or changing active selection. The frontend
+does not submit a full account array, mutate order optimistically, or replay failed moves.
 
 Activation ensures a hidden/off-screen owner-bound guest, fits it, hides other known
 accounts, shows/focuses the target only when content is not suspended, then commits

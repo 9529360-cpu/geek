@@ -31,13 +31,13 @@ test('retry cannot replay a failed save and keeps a modal suspended with its dra
   const ui = await fixture();
   await ui.context('b', 1);
   ui.get('account-settings-name').value = 'Unsaved draft';
-  ui.failures.add('account_rename');
+  ui.failures.add('account_update_display');
   await ui.click('account-settings-save');
   assert.equal(ui.get('runtime-status').classList.contains('hidden'), false);
   assert.ok(ui.get('account-settings-overlay').contains(ui.get('runtime-retry')));
   ui.failures.clear();
   await ui.click('runtime-retry');
-  assert.equal(names(ui).filter((name) => name === 'account_rename').length, 1);
+  assert.equal(names(ui).filter((name) => name === 'account_update_display').length, 1);
   assert.equal(ui.state.accounts[1].name, 'b');
   assert.equal(ui.get('account-settings-name').value, 'Unsaved draft');
   assert.equal(ui.get('account-settings-overlay').classList.contains('hidden'), false);

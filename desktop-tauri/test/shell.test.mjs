@@ -6,7 +6,7 @@ test('original sidebar and menu keep edits bound to B while A stays active; save
   const { get, state, failures, calls, context, click } = await fixture();
   await context('b', 1);
   get('account-settings-name').value = 'B renamed';
-  failures.add('account_rename');
+  failures.add('account_update_display');
   await click('account-settings-save');
   assert.equal(state.activeId, 'a');
   assert.equal(state.accounts[1].name, 'b');
@@ -17,7 +17,9 @@ test('original sidebar and menu keep edits bound to B while A stays active; save
   assert.equal(state.accounts[1].name, 'B renamed');
   assert.equal(state.activeId, 'a');
   assert.equal(get('account-settings-overlay').classList.contains('hidden'), true);
-  assert.deepEqual(calls.filter(([n]) => n === 'account_rename').at(-1)[1], { id: 'b', name: 'B renamed' });
+  assert.deepEqual(calls.filter(([n]) => n === 'account_update_display').at(-1)[1], {
+    id: 'b', name: 'B renamed', fontSize: 16, fontColor: '#18A058',
+  });
 });
 
 test('archive and searchable restore use the original account-settings entry without reconnecting', async () => {

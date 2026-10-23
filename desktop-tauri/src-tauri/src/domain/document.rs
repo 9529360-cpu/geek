@@ -7,7 +7,7 @@ use super::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -30,7 +30,7 @@ impl Default for Document {
 
 impl Document {
     pub fn validate(&self, platforms: &[Platform]) -> Result<()> {
-        if !matches!(self.schema_version, 1 | 2 | SCHEMA_VERSION) {
+        if !matches!(self.schema_version, 1 | 2 | 3 | SCHEMA_VERSION) {
             return Err(AppError::StoreVersion);
         }
         validate_accounts(&self.accounts, platforms)
@@ -46,6 +46,9 @@ pub fn validate_accounts(accounts: &[Account], platforms: &[Platform]) -> Result
     for a in accounts {
         if !account::valid_id(&a.id) || !account::valid_name(&a.name) || !ids.insert(&a.id) {
             return Err(AppError::StoreInvalid);
+        }
+        if !account::valid_appearance(a.font_size, &a.font_color) {
+            return Err(AppError::AppearanceInvalid);
         }
         a.proxy.validate()?;
         let platform = platform::platform(platforms, &a.platform_id)?;

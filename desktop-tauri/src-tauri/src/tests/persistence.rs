@@ -1,7 +1,7 @@
 use crate::{
     application::accounts::Accounts,
     domain::{
-        account::{Account, Settings, MAX_ACCOUNTS},
+        account::{Account, Settings, DEFAULT_FONT_COLOR, DEFAULT_FONT_SIZE, MAX_ACCOUNTS},
         document::validate_accounts as validate,
         error::{AppError, Result},
     },
@@ -106,7 +106,7 @@ fn old_schema_loads_without_rebinding_or_eager_rewrite() {
     store.rename(&id, "Updated").unwrap();
     let doc: serde_json::Value =
         serde_json::from_slice(&dpapi::decrypt(&fs::read(file).unwrap()).unwrap()).unwrap();
-    assert_eq!(doc["schemaVersion"], 3);
+    assert_eq!(doc["schemaVersion"], 4);
 }
 
 #[test]
@@ -185,16 +185,22 @@ fn persistence_failure_never_publishes_any_mutation() {
     store
         .create("Original", "whatsapp", None, Default::default())
         .unwrap();
+    store
+        .create("Neighbor", "whatsapp", None, Default::default())
+        .unwrap();
     let before = store.accounts().to_vec();
     let id = before[0].id.clone();
+    let other = before[1].id.clone();
     let file = root.path().join("accounts.dpapi");
     let backup = root.path().join("synthetic-backup");
     fs::rename(&file, &backup).unwrap();
     fs::create_dir(&file).unwrap();
     assert!(store
-        .create("Second", "whatsapp", None, Default::default())
+        .create("Third", "whatsapp", None, Default::default())
         .is_err());
     assert!(store.rename(&id, "Changed").is_err());
+    assert!(store.update_display(&id, "Changed", 24, "#FFFFFF").is_err());
+    assert!(store.move_account(&id, &other).is_err());
     assert!(store.set_archived(&id, true).is_err());
     assert!(store
         .set_settings(Settings {
@@ -242,6 +248,8 @@ fn archived_accounts_cannot_bypass_the_limit() {
         .map(|_| Account {
             id: Uuid::new_v4().to_string(),
             name: "Synthetic".into(),
+            font_size: DEFAULT_FONT_SIZE,
+            font_color: DEFAULT_FONT_COLOR.into(),
             platform_id: "whatsapp".into(),
             archived: true,
             website_url: None,
@@ -253,6 +261,8 @@ fn archived_accounts_cannot_bypass_the_limit() {
     excessive.push(Account {
         id: Uuid::new_v4().to_string(),
         name: "Extra".into(),
+        font_size: DEFAULT_FONT_SIZE,
+        font_color: DEFAULT_FONT_COLOR.into(),
         platform_id: "whatsapp".into(),
         archived: false,
         website_url: None,

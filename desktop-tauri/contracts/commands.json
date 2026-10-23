@@ -44,6 +44,24 @@
       "response": "Snapshot"
     },
     {
+      "name": "account_update_display",
+      "arguments": [
+        "id",
+        "name",
+        "fontSize",
+        "fontColor"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_move",
+      "arguments": [
+        "id",
+        "targetId"
+      ],
+      "response": "Snapshot"
+    },
+    {
       "name": "account_set_archived",
       "arguments": [
         "id",

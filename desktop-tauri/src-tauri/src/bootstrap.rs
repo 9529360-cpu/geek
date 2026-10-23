@@ -22,6 +22,8 @@ pub fn run() {
             commands::account_reload,
             commands::desktop_layout,
             commands::account_rename,
+            commands::account_update_display,
+            commands::account_move,
             commands::account_set_archived,
             commands::desktop_settings,
             commands::desktop_window

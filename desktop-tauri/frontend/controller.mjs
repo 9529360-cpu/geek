@@ -30,7 +30,7 @@ export function mountShell({ document, window, api }) {
     }
     const groups = families(next);
     if (!groups.some((item) => item.key === family)) family = groups[0]?.key || null;
-    view.accounts.render(next, family, { activate, context, family: selectFamily });
+    view.accounts.render(next, family, { activate, context, moveAccount, family: selectFamily });
     if (panel === 'account-library-overlay') renderLibrary();
     setBusy(busy);
   }
@@ -105,6 +105,10 @@ export function mountShell({ document, window, api }) {
     const id = list.find((account) => account.id === remembered.get(key))?.id || list[0]?.id;
     if (id) activate(id);
   }
+  function moveAccount(id, targetId) {
+    if (panel) return Promise.resolve(false);
+    return run(async () => { render(await api.moveAccount(id, targetId)); });
+  }
   function edit(id) {
     return run(() => showPanel('account-settings-overlay', () => {
       editingId = id;
@@ -177,8 +181,11 @@ export function mountShell({ document, window, api }) {
   }));
   on('account-settings-save', 'click', () => {
     const id = editingId;
-    const name = $('account-settings-name').value.trim();
-    run(async () => { render(await api.rename(id, name)); await hidePanel(); });
+    run(async () => {
+      const { name, fontSize, fontColor } = view.readDisplay();
+      render(await api.updateDisplay(id, name, fontSize, fontColor));
+      await hidePanel();
+    });
   });
   on('proxy-save', 'click', () => {
     const id = editingId;

@@ -26,7 +26,8 @@ EXE 位于 `desktop-tauri/src-tauri/target/release/geek-tauri.exe`。`tauri-wind
 ## 可操作的代码路径
 
 - 添加账号、打开、切换、刷新、关闭；WhatsApp/纯净版、Telegram Z/K、Messenger、Instagram 和自定义 Website 入口。普通网页入口不等于认证后功能已经验收。
-- 按账号备注或平台搜索；右键“账号设置”中改名和归档，设置内搜索和恢复。管理对象与当前活动账号分开，不能用焦点替换操作归属。
+- 按账号备注或平台搜索；右键“账号设置”中保存名称、字号和颜色，也可归档，设置内搜索和恢复。管理对象与当前活动账号分开，不能用焦点替换操作归属。
+- 同一平台分组内拖拽账号排序，成功保存后更新列表，重启后保留。WhatsApp 两种入口、Telegram Z/K 分别在各自分组内排序；排序不切换、打开或关闭任何账号。
 - 归档由一个 Rust 用例完成：校验归属、关闭对应页面、提交归档状态。前端不再自行串联关闭和归档命令。关闭失败不写入；保存失败不更新元数据，账号仍可重开。归档不删除浏览器数据，仍计入 20 个账号上限。
 - “仅看已归档账号”中可恢复。恢复只改变归档状态，不自动打开页面，不更换 UUID 或 profile 路径。没有永久删除功能。
 - Windows 系统托盘：左键恢复主窗口，右键可打开窗口或完全退出。关闭到托盘默认关闭，可在原版“设置”的桌面选项中显式启用并持久保存。托盘创建失败时不隐藏窗口；菜单退出仍关闭所有账号。
@@ -56,7 +57,7 @@ identifier 为 `com.geek.desktop.tauri.prototype`。数据位于独立的 local 
 
 `accounts.dpapi` 使用当前 Windows 用户 DPAPI 加密账号元数据和桌面设置；同目录原子替换成功后才更新权威内存。独占进程锁阻止同目录双写。损坏文件、解密失败、未知 schema 均阻止启动，不清空或明文回退。
 
-schema 3 新增账号代理配置。schema 1/2 可继续读取，缺失代理时默认跟随系统，账号 ID 不变；启动不会主动重写旧数据。下一次成功修改才写入 schema 3。旧开发版会拒绝更高版本，不能通过清空数据来降级。
+schema 4 新增账号字号和颜色，schema 3 的账号代理配置继续保留。schema 1/2/3 可继续读取，缺失代理时默认跟随系统，缺失显示设置时默认 16 像素与 `#18A058`，账号 ID 不变；启动不会主动重写旧数据。下一次成功修改才写入 schema 4。旧开发版会拒绝更高版本，不能通过清空数据来降级。
 
 浏览器会话由各账号 WebView2 profile 管理。DPAPI 只保护本应用的账号文档，不表示整个浏览器目录统一加密，也不防同 Windows 用户下的恶意进程。关闭页面/归档后该页面不再收消息；仅隐藏页面或主窗口是否能稳定后台收消息，留待维护者真机验收。
 
@@ -114,9 +115,10 @@ account context menu, name/proxy dialogs and settings remain the UI baseline.
 Window minimize/maximize/close/drag use typed Rust commands; native guest geometry
 tracks the actual chat container and is suspended while a modal/menu is open.
 
-Wired paths: create 1-10 accounts with proxy, switch accounts/families, rename, reload,
-close, archive, search/restore, tray preference and native window controls.
-Not yet wired: drag reorder, name color/font settings, restart/lock,
+Wired paths: create 1-10 accounts with proxy, switch accounts/families, save account
+name/font/color, drag reorder within a family, reload, close, archive, search/restore,
+tray preference and native window controls.
+Not yet wired: restart/lock,
 auth/subscription, theme/startup options, translation/notes/broadcast and attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
@@ -142,3 +144,20 @@ activation does not roll back saved accounts or retry creation, and the UI repor
 that the accounts are saved so users can reopen them instead of adding duplicates.
 The older single-create command remains compatible and uses the same transaction owner.
 No Electron profiles are imported. This is not proof of real platform login/reception.
+
+## Account display and order
+
+The original account settings dialog saves name, integer font size (10-28), and
+`#RRGGBB` color as one transaction. New and older accounts default to 16 and
+`#18A058`; colors are normalized to uppercase on save. Invalid input or a failed
+save leaves every prior field intact, and the dialog retains the user's draft.
+The account being edited remains fixed even when another account is active.
+The older rename command remains compatible and preserves display preferences.
+
+Drag an account onto another in the same visible family to reorder: downward moves
+after the target, upward moves before it. Rust resolves both IDs against the current
+document rather than accepting an index or an entire renderer-owned account array.
+Archived, unknown, and cross-family targets are rejected. External drag payloads
+are ignored. A successful save is required before the UI changes order; failure
+does not retry the move automatically. UUIDs, profiles, active selection, proxy
+settings, and open/closed guest state are preserved. No extra ordering store is used.

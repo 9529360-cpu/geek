@@ -128,6 +128,9 @@ fn unknown_accounts_never_reach_the_host() {
         assert!(desktop.reload(id).is_err());
         assert!(desktop.set_archived(id, true).is_err());
         assert!(desktop.rename(id, "Invalid owner").is_err());
+        assert!(desktop
+            .update_display(id, "Invalid owner", 16, "#18A058")
+            .is_err());
         assert!(desktop.set_proxy(id, Default::default()).is_err());
         assert_eq!(host.0.lock().unwrap().calls, calls);
         assert_eq!(repository.0.lock().unwrap().saves, saves);

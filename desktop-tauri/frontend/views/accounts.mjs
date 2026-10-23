@@ -1,8 +1,11 @@
 import { filterAccounts } from '../model.mjs';
 import { families, visibleAccounts } from '../models/shell.mjs';
+import { accountDisplay } from '../models/account-display.mjs';
+import { createAccountOrder } from './account-order.mjs';
 
 export function createAccountView(document) {
   const $ = (id) => document.getElementById(id);
+  const order = createAccountOrder($('nav-accounts'));
   function button(className, label, callback) {
     const element = document.createElement('button');
     element.type = 'button';
@@ -23,6 +26,8 @@ export function createAccountView(document) {
   }
   function render(snapshot, family, handlers) {
     const accounts = visibleAccounts(snapshot, family);
+    const visibleIds = new Set(accounts.map((account) => account.id));
+    order.reset();
     $('side-nav').classList.toggle('compact', accounts.length <= 2);
     $('nav-accounts').replaceChildren();
     if (!accounts.length) {
@@ -33,7 +38,9 @@ export function createAccountView(document) {
     }
     for (const account of accounts) {
       const active = account.id === snapshot.activeId;
-      const row = button(`nav-account${active ? ' active' : ''}`, account.name, () => handlers.activate(account.id));
+      const row = button(`nav-account${active ? ' active' : ''}`, account.name, (event) => {
+        if (order.allowClick(event)) handlers.activate(account.id);
+      });
       row.dataset.id = account.id;
       row.setAttribute('aria-pressed', String(active));
       row.title = `${account.name} \u00b7 ${snapshot.openedIds.includes(account.id) ? '\u5df2\u6253\u5f00' : '\u672a\u6253\u5f00'}`;
@@ -42,8 +49,12 @@ export function createAccountView(document) {
       const title = document.createElement('span');
       title.className = 'nav-account-name';
       title.textContent = account.name;
+      const { fontSize, fontColor } = accountDisplay(account);
+      title.style.fontSize = `${fontSize}px`;
+      title.style.color = fontColor;
       main.append(icon(account.platformId), title);
       row.append(main);
+      order.bind(row, account.id, visibleIds, handlers.moveAccount);
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
         handlers.context(account.id, event.clientX, event.clientY);

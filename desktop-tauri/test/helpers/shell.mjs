@@ -28,6 +28,14 @@ export async function fixture({ initialFailures = [], initialState = {}, beforeI
       throw name === 'desktop_layout' || name === 'account_activate' ? 'WEBVIEW_FAILED' : 'STORE_IO';
     }
     if (name === 'account_rename') account.name = args.name;
+    if (name === 'account_update_display') {
+      Object.assign(account, { name: args.name, fontSize: args.fontSize, fontColor: args.fontColor });
+    }
+    if (name === 'account_move') {
+      const from = state.accounts.findIndex((item) => item.id === args.id);
+      const to = state.accounts.findIndex((item) => item.id === args.targetId);
+      state.accounts.splice(to, 0, state.accounts.splice(from, 1)[0]);
+    }
     if (name === 'account_set_proxy') account.proxy = args.proxy;
     if (name === 'account_set_archived') account.archived = args.archived;
     if (name === 'account_activate') { state.activeId = args.id; if (!state.openedIds.includes(args.id)) state.openedIds.push(args.id); }

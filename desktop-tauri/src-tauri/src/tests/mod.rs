@@ -1,4 +1,7 @@
 mod account_batch;
+mod account_display;
+mod account_order;
+mod account_schema;
 mod desktop;
 mod doubles;
 mod persistence;

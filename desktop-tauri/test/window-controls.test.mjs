@@ -40,7 +40,7 @@ test('window controls dispatch while the first account snapshot is still pending
 
 test('a pending account save keeps window controls independent', async () => {
   const gate = deferred();
-  const ui = await fixture({ beforeInvoke: (name) => name === 'account_rename' ? gate.promise : undefined });
+  const ui = await fixture({ beforeInvoke: (name) => name === 'account_update_display' ? gate.promise : undefined });
   await ui.context('b', 1);
   ui.get('account-settings-name').value = 'Saved once';
   ui.get('account-settings-save').fire('click');
@@ -62,7 +62,7 @@ test('a pending account save keeps window controls independent', async () => {
     await ui.shell.idle();
   }
   assert.equal(ui.state.accounts[1].name, 'Saved once');
-  assert.equal(ui.calls.filter(([name]) => name === 'account_rename').length, 1);
+  assert.equal(ui.calls.filter(([name]) => name === 'account_update_display').length, 1);
 });
 
 test('a pending maximize is coalesced without blocking close or account operations', async () => {
@@ -94,7 +94,7 @@ test('a pending maximize is coalesced without blocking close or account operatio
 test('window failures do not refresh, unlock, or contaminate a pending account mutation', async () => {
   const gate = deferred();
   const ui = await fixture({ beforeInvoke: (name) => {
-    if (name === 'account_rename') return gate.promise;
+    if (name === 'account_update_display') return gate.promise;
     if (name === 'desktop_window') throw 'https://private.invalid/?token=never-echo';
   } });
   await ui.context('b', 1);
@@ -112,7 +112,7 @@ test('window failures do not refresh, unlock, or contaminate a pending account m
     assert.equal(ui.get('runtime-status-message').textContent, '');
     assert.equal(ui.get('runtime-retry').hidden, true);
     assert.equal(ui.calls.filter(([name]) => name === 'desktop_snapshot').length, before);
-    assert.equal(ui.calls.filter(([name]) => name === 'account_rename').length, 1);
+    assert.equal(ui.calls.filter(([name]) => name === 'account_update_display').length, 1);
   } finally {
     gate.resolve();
     await ui.shell.idle();
@@ -152,7 +152,7 @@ test('modal keyboard traversal includes window controls but no background accoun
 
 test('a pending modal save still allows keyboard access to close', async () => {
   const gate = deferred();
-  const ui = await fixture({ beforeInvoke: (name) => name === 'account_rename' ? gate.promise : undefined });
+  const ui = await fixture({ beforeInvoke: (name) => name === 'account_update_display' ? gate.promise : undefined });
   await ui.context('b', 1);
   ui.get('account-settings-save').focus();
   ui.get('account-settings-save').fire('click');
@@ -221,7 +221,7 @@ test('window failure cannot replace an existing account recovery error', async (
 test('window failure during a pending save does not create stale account recovery UI', async () => {
   const gate = deferred();
   const ui = await fixture({ beforeInvoke: (name) => {
-    if (name === 'account_rename') return gate.promise;
+    if (name === 'account_update_display') return gate.promise;
     if (name === 'desktop_window') throw 'WEBVIEW_FAILED';
   } });
   await ui.context('b', 1);

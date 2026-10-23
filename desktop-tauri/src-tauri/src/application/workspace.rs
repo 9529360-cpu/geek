@@ -80,6 +80,23 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         Ok(self.snapshot())
     }
 
+    pub fn update_display(
+        &mut self,
+        id: &str,
+        name: &str,
+        font_size: u8,
+        font_color: &str,
+    ) -> Result<Snapshot> {
+        self.accounts
+            .update_display(id, name, font_size, font_color)?;
+        Ok(self.snapshot())
+    }
+
+    pub fn move_account(&mut self, id: &str, target_id: &str) -> Result<Snapshot> {
+        self.accounts.move_account(id, target_id)?;
+        Ok(self.snapshot())
+    }
+
     pub fn set_archived(&mut self, id: &str, archived: bool) -> Result<Snapshot> {
         self.accounts.account(id)?;
         // One Rust-owned operation, not a frontend close-then-archive transaction.

@@ -234,7 +234,7 @@ fn encrypted_proxy_restart_and_legacy_migration_preserve_account_identity() {
         drop(accounts);
         let plain = dpapi::decrypt(&fs::read(root.path().join("accounts.dpapi")).unwrap()).unwrap();
         let document: Document = serde_json::from_slice(&plain).unwrap();
-        assert_eq!(document.schema_version, 3);
+        assert_eq!(document.schema_version, 4);
         assert_eq!(document.accounts[0].id, id);
         assert_eq!(document.accounts[0].proxy, http());
     }

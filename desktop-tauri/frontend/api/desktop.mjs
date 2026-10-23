@@ -11,6 +11,8 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
       invoke('account_create_batch', { name, platformId, websiteUrl, proxy, count }),
     setProxy: (id, proxy) => invoke('account_set_proxy', { id, proxy }),
     rename: (id, name) => invoke('account_rename', { id, name }),
+    updateDisplay: (id, name, fontSize, fontColor) => invoke('account_update_display', { id, name, fontSize, fontColor }),
+    moveAccount: (id, targetId) => invoke('account_move', { id, targetId }),
     setArchived: (id, archived) => invoke('account_set_archived', { id, archived }),
     activate: (id) => invoke('account_activate', { id }),
     close: (id) => invoke('account_close', { id }),
