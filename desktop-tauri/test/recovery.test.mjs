@@ -45,13 +45,14 @@ test('retry cannot replay a failed save and keeps a modal suspended with its dra
   assert.equal(ui.state.activeId, 'a');
 });
 
-test('a failed recovery remains retryable without enabling account mutations', async () => {
+test('a failed recovery remains retryable without enabling account mutations or duplicate reads', async () => {
   const ui = await fixture({ initialFailures: ['desktop_snapshot'] });
   await ui.click('runtime-retry');
   assert.equal(ui.get('btn-app-center').disabled, true);
   assert.equal(ui.get('runtime-retry').disabled, false);
   assert.equal(ui.get('runtime-status').classList.contains('hidden'), false);
   assert.ok(names(ui).every((name) => name === 'desktop_snapshot'));
+  assert.equal(names(ui).filter((name) => name === 'desktop_snapshot').length, 2);
 });
 
 test('browser preview does not enable window commands or pretend to recover native state', async () => {
