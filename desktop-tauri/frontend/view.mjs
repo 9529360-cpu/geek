@@ -10,6 +10,7 @@ export function createShellView(document) {
   $('add-status').before($('create-proxy-template').content.cloneNode(true));
   const runtimeStatus = $('runtime-status');
   let connected = false;
+  let recoverable = false;
   $('side-nav').append(runtimeStatus);
   $('nav-version').textContent = 'Tauri \u5f00\u53d1\u7248';
   $('settings-account-email').textContent = '\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
@@ -50,16 +51,17 @@ export function createShellView(document) {
       $(id).disabled = !connected || pendingWindows.has(action);
     }
     $('runtime-retry').disabled = value || !connected;
-    $('runtime-retry').hidden = !connected || !$('runtime-status-message').textContent;
+    $('runtime-retry').hidden = !connected || !recoverable || !$('runtime-status-message').textContent;
     for (const id of ['create-proxy-host', 'create-proxy-port']) {
       $(id).disabled ||= $('create-proxy-mode').value === 'system';
     }
     for (const id of ['proxy-protocal', 'proxy-host', 'proxy-port']) $(id).disabled ||= !$('proxy-openProxy').checked;
   }
-  function status(message = '') {
+  function status(message = '', canRecover = Boolean(message)) {
+    recoverable = Boolean(message) && canRecover;
     $('runtime-status-message').textContent = message;
     runtimeStatus.classList.toggle('hidden', !message);
-    $('runtime-retry').hidden = !connected || !message;
+    $('runtime-retry').hidden = !connected || !recoverable || !message;
     for (const id of ['add-status', 'account-settings-status', 'settings-status']) {
       if ($(id)) $(id).textContent = message;
     }
