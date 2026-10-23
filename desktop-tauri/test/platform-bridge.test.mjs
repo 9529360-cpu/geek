@@ -64,7 +64,9 @@ test('catalog uses canonical chats, excludes unsupported Wids and discovers capa
   assert.equal(entry.error, undefined);
   assert.deepEqual(entry.value.chats.map(({ id }) => id), Object.values(ids));
   assert.deepEqual(entry.value.chats.map(({ kind }) => kind), ['contact', 'contact', 'group']);
-  assert.deepEqual(entry.value.capabilities, { text: true, scheduled: true, attachments: false, tagAll: true, vcards: true });
+  assert.deepEqual(entry.value.capabilities, { text: true, scheduled: true, attachments: false, tagAll: true,
+    vcards: true, groupMembers: false });
+  assert.equal(entry.value.labels, null);
   assert.deepEqual(f.sends, []);
 });
 

@@ -74,7 +74,7 @@ schema 6 将聊天翻译覆盖收敛为原界面可独立设置的七个字段�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram 自动接收及发送翻译/群发、提及/附件的发送翻译、媒体引用、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 文字与附件群发、文件收件人导入与异常导出、极客登录、WhatsApp 接收翻译、Telegram 手动接收翻译、普通文字及同聊天文字引用回复的发送翻译范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram Web A 自动接收、Telegram 发送翻译/群发、提及/附件的发送翻译、媒体引用、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 文字与附件群发、文件/粘贴/群成员/平台标签受众与异常导出、极客登录、WhatsApp 接收翻译、Telegram 手动接收及 Web K 新消息自动翻译、普通文字及同聊天文字引用回复的发送翻译范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -119,11 +119,11 @@ tracks the actual chat container and is suspended while a modal/menu is open.
 Wired paths: create 1-10 accounts with proxy, switch accounts/families, save account
 name/font/color, drag reorder within a family, reload, close, archive, search/restore,
 tray preference, native window controls, WhatsApp broadcast, Geek login/quota,
-WhatsApp incoming-message translation, Telegram Web A/K manual incoming translation,
+WhatsApp incoming-message translation, Telegram Web A/K manual incoming translation and Web K new-message auto translation,
 WhatsApp plain-text outgoing translation and same-chat
 text replies with account/chat settings and an independent SendIntent owner.
 Not yet wired: restart/lock, registration/purchase, theme/startup options, notes,
-Telegram automatic/outgoing translation and broadcast, interactive mentions, media replies and interactive attachments.
+Telegram Web A automatic translation, Telegram outgoing translation and broadcast, interactive mentions, media replies and interactive attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 
@@ -182,6 +182,14 @@ CSV/TXT 收件人导入沿用原文件入口，支持 UTF-8/BOM、逗号/分号/
 
 导入经锁定 WA-JS `queryExists` 和 `chat.find` 核对平台身份、加载实际聊天模型，再按 canonical ID 去重，支持当前列表之外的号码。`null` 只计为未核验，不能断言未注册；姓名取实际模型，缺失则保持空。每批两个只读查询、单次等待五秒、总流程十分钟限额；超时或账号/目录代次失效不发布部分结果。原生选择框取消、导入失败或迟到响应保留旧文件受众，手选联系人/群组另行保留。同代次的已核验联系人随短期目录刷新保留，最多 2000 个；换代次后必须重新核验。导入只扩展现有 catalog，创建仍走同一任务 owner 和冻结校验。
 
+“粘贴联系人号码”沿用原文本框，每行一个完整号码，最大 128 KiB、2000 个不同候选；空行忽略，重复和无效行分别统计。点击“核验号码”后复用文件导入的同一平台核验、目录租约和发布流程。文本修改立即使先前核验失效，修改后再改回原文也不能接收旧请求结果；重新核验成功后才能创建。粘贴、文件和手选受众分别保留，账号/面板/目录或输入版本变化后的迟到结果不覆盖草稿。
+
+“排除联系人”和“排除群组”保留原版语义：从全部聊天中减去明确选择的对象，两类排除合并后同样作用于手选、文件、粘贴、群成员及平台标签来源。进入排除模式时固定当时的聊天范围，目录刷新不会自动增加收件人；明确点击“更新对象”才用当前目录重建范围，并保留两类排除项。最终人数和实际排除数在现有受众计数与确认区显示。排除选择属于当前账号的编辑草稿，尚未迁移原版持久化列表；创建时只提交最终明确 ID 集合，后台不会重新计算动态受众。
+
+“向所选群组成员私聊发送”复用原群组多选框，一次最多选择 20 个目录中的普通群。点击“读取成员”后逐群读取真实 ParticipantModel，按已证明的自身 PN/LID 排除自己，再进入相同的联系人核验和 canonical ID 去重流程。缺少某个自身命名空间时，只能用严格匹配的 PN/LID 对补齐；无法可靠排除本人就拒绝解析。单群原始成员最多 10000，合并后最多 2000 个不同候选，超限整次拒绝，不截断名单。枚举和核验共用原来的十分钟期限、账号与目录租约，不创建另一个发送队列。
+
+“平台标签”读取当前账号的真实 WhatsApp 标签选项，最多 256 个；标签暂不可用不影响普通聊天目录。点击“读取对象”后，按标签 ID 精确匹配原目录聊天模型的 labels 字段，保留普通联系人和普通群组；不使用名称优先的 withLabels 查询，也不从标签名称或 count 猜受众。每批最多检查 200 个原目录 ID，拒绝目录以外的结果。群成员和标签选择一旦修改，旧解析结果立即失效；成功后的对象与其他来源分别保留，确认页和定时任务使用同一份固定名单，不在到点时重新展开。
+
 任务原位置的“导出异常 CSV”按点击时的账号、任务及 revision 生成只读快照，进行中有异常也可导出，不要求账号在线。保留“联系人/聊天ID/失败原因”前三列，加“发送状态”，区分 `NOT_SUBMITTED`、`UNCERTAIN` 和 `TASK_ISSUE`；不导出已确认或尚未执行的对象，不把存储失败编造成某个联系人失败。使用 UTF-8 BOM、CRLF、引号转义和公式前缀文本化；原生保存框选址，临时文件写完并同步后原子替换。路径不返回前端，取消不报成功，不改任务状态，也不自动重发。
 
 一个账号只能执行一个任务，其他任务排队；不同账号最多四个 worker 并发，每个 worker 每次只处理一个目标。当前账号任务条和全部账号任务中心可暂停、继续、停止并查看结果。任务条显示前先依据实际高度缩小原生聊天区域，避免 native WebView 覆盖操作按钮。关闭、刷新、修改代理或归档账号会撤销该 guest 的代次，并停止其未结束任务，包括定时任务。
@@ -190,7 +198,7 @@ CSV/TXT 收件人导入沿用原文件入口，支持 UTF-8/BOM、逗号/分号/
 
 任务存储由独立 Rust owner 管理，沿用现有 DPAPI、原子替换和应用进程锁；不在账号 Workspace 锁内等待网页、回执或间隔。创建请求 UUID 去重，迟到创建响应或重试不会生成第二个任务。未确认的发送检查点在恢复后记录为 uncertain 并跳过；曾执行任务需要人工核对后继续，未开始的即时队列也不自动发送。未开始的定时任务恢复后可到点准备，但应用必须运行且对应账号页面需要就绪；不会后台自动打开所有账号。到点账号未就绪最多准备 20 次，之后显示明确失败。
 
-每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB；附件正文不写进该文档。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。Telegram 群发、粘贴号码及未接通的高级选项仍保留原位置并标明不可用。
+每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB；附件正文不写进该文档。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。Telegram 群发、本地保存的群组标签及常用消息/列表存储仍保留原位置并标明不可用。
 
 平台桥只执行打包的命名语义调用，未向页面开放脚本、路径、密钥或 native IPC。构建复用原版 capability/adapter/safety 纯合同及锁定的 WA-JS，附带依赖许可和输入哈希。异步结果经有界 mailbox 返回；原生使用单调时钟期限，取消或导航会使旧 mailbox 和准备结果失效。每个 document 的 attempt ID 单次使用，达到有界容量则拒绝继续，不丢弃旧凭据来允许重放。
 
@@ -208,7 +216,9 @@ CSV/TXT 收件人导入沿用原文件入口，支持 UTF-8/BOM、逗号/分号/
 
 WhatsApp / 纯净版支持“点击翻译”和右键翻译当前可见消息，以及新收到消息的自动翻译。进入聊天、开启自动模式或重新显示账号时，已在页面上的消息按历史处理，只提供手动入口。自动请求只接收 WA-JS 元数据确认的入站消息，检查当前激活时间和群聊许可；目标中文时，已有汉字的消息按原规则跳过自动翻译。方向/时间未知、自己的消息和旧历史不会自动提交。译文只能写回同一账号、文档、会话、策略 revision、聊天、消息 ID、正文及当前 DOM 节点；聊天虚拟列表复用节点时不能挂入旧译文。
 
-Telegram Web A（Z 入口）和 Web K 已接通普通可见文字的点击/右键翻译，沿用账号及当前聊天设置、同一 TranslationService、缓存和请求 UUID。只接收精确 `web.telegram.org/a` 或 `/k` 的当前普通聊天；Web A 同时核对 hash、标题 peer 和以聊天为 key 的列表节点，Web K 核对每条消息的 peer/message ID。只提取正文，排除时间、引用预览、媒体、特殊列表及不明确身份；切聊天、复用节点或正文变化会拒绝旧结果。Telegram 自动接收、历史批量翻译和发送翻译仍明确禁用，Rust 策略入口及请求入口同步拒绝，不靠灰色按钮维持限制。
+Telegram Web A（Z 入口）和 Web K 已接通普通可见文字的点击/右键翻译，沿用账号及当前聊天设置、同一 TranslationService、缓存和请求 UUID。只接收精确 `web.telegram.org/a` 或 `/k` 的当前普通聊天；Web A 同时核对 hash、标题 peer 和以聊天为 key 的列表节点，Web K 核对每条消息的 peer/message ID。只提取正文，排除时间、引用预览、媒体、特殊列表及不明确身份；切聊天、复用节点或正文变化会拒绝旧结果。
+
+Web K 另支持新入站普通文字自动翻译：只读监听平台 history_multiappend 事件，同时核对当前普通聊天实例、自己与发送者身份、消息时间、同步 history mirror 和当前可见正文。群聊须显式开启群聊自动翻译；频道、论坛、Saved Messages、系统消息、自己发出的消息、媒体、编辑与旧历史不进入自动流程。事件证据尚未对应到镜像/DOM 时最多等待五秒，证据矛盾直接撤销；重放不能重新创建付费编号。切聊天、隐藏、开关或策略变化都会清除未提交证据，重新启用不补翻历史；平台证据接口缺失时保留手动入口。短期证据最多 1000 个消息身份和 2 MiB，已提交证据最多保留 45 秒，已完成译文仍由原显示 owner 保存。Web A 生产页面缺少可靠的消息时间接口，继续只开放手动翻译；Telegram 发送翻译和历史批量翻译仍由界面与 Rust 入口共同禁用。
 
 执行层最多两个并发 worker、八条等待任务，手动请求优先，排队/取 token/HTTP/409 查询共用 35 秒期限。账号关闭、重载、导航、切聊天、隐藏、修改策略或退出会话均撤销对应工作；取消不能撤回服务端已收到的请求。每个逻辑请求冻结 UUID、文本、语言、线路和账号代理。只有 `request_in_progress` 可在原期限内查询同一请求；短 token 失效最多更新一次并保持原 ID。不确定网络错误不自动新建请求，点击重试查询同一次结果。显式“重新翻译”才创建新请求并跳过本地缓存，可能重新计费。
 

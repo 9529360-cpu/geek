@@ -117,7 +117,12 @@ fn telegram_automatic_and_outgoing_cannot_bypass_policy_or_request_admission() {
             h.engine.prepare(account.clone(), automatic),
             Err(AppError::TranslationUnavailable)
         ));
-        for field in ["enabled", "autoSend", "groupAuto", "translationMode"] {
+        let unsupported = if platform == "telegram-z" {
+            vec!["enabled", "autoSend", "groupAuto", "translationMode"]
+        } else {
+            vec!["enabled", "autoSend"]
+        };
+        for field in unsupported {
             let mut candidate = account.clone();
             match field {
                 "enabled" => candidate.translation.global.enabled = true,
@@ -228,59 +233,61 @@ fn telegram_settings_save_atomically_reject_unsupported_switches_and_keep_other_
 
 #[test]
 fn schemas_one_through_six_load_telegram_defaults_and_strict_chat_rows_without_eager_writes() {
-    for version in 1..=6 {
-        for legacy_row in [None, Some(false), Some(true)] {
-            let id = Uuid::new_v4().to_string();
-            let mut value = json!({"schemaVersion": version, "accounts": [{"id": id,
-                "name": "Synthetic Telegram", "platformId": "telegram-z"}]});
-            if let Some(full) = legacy_row {
-                let policy = TranslationPolicy::default();
-                value["accounts"][0]["translation"] = json!({"revision": 0, "global": policy,
+    for platform in ["telegram-z", "telegram-k"] {
+        for version in 1..=6 {
+            for legacy_row in [None, Some(false), Some(true)] {
+                let id = Uuid::new_v4().to_string();
+                let mut value = json!({"schemaVersion": version, "accounts": [{"id": id,
+                "name": "Synthetic Telegram", "platformId": platform}]});
+                if let Some(full) = legacy_row {
+                    let policy = TranslationPolicy::default();
+                    value["accounts"][0]["translation"] = json!({"revision": 0, "global": policy,
                     "chats": {"tg:123": if full { serde_json::to_value(&policy).unwrap() }
                         else { serde_json::to_value(ChatTranslationPolicy::from_policy(&policy)).unwrap() }}});
-            }
-            let repository = MemoryRepository::default();
-            repository.0.lock().unwrap().document =
-                Some(serde_json::from_value::<Document>(value).unwrap());
-            let mut accounts =
-                Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
-            assert_eq!(repository.0.lock().unwrap().saves, 0);
-            accounts
-                .update_translation(&id, None, Some(TranslationPolicy::default().into()), 0)
-                .unwrap();
-            assert_eq!(repository.0.lock().unwrap().saves, 0);
-            assert_eq!(
-                repository
-                    .0
-                    .lock()
-                    .unwrap()
-                    .document
-                    .as_ref()
-                    .unwrap()
-                    .schema_version,
-                version
-            );
-            let policy = TranslationPolicy {
-                message_target: "it".into(),
-                ..TranslationPolicy::default()
-            };
-            accounts
-                .update_translation(&id, None, Some(policy.into()), 0)
-                .unwrap();
-            let saved =
-                serde_json::to_value(repository.0.lock().unwrap().document.as_ref().unwrap())
+                }
+                let repository = MemoryRepository::default();
+                repository.0.lock().unwrap().document =
+                    Some(serde_json::from_value::<Document>(value).unwrap());
+                let mut accounts =
+                    Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
+                assert_eq!(repository.0.lock().unwrap().saves, 0);
+                accounts
+                    .update_translation(&id, None, Some(TranslationPolicy::default().into()), 0)
                     .unwrap();
-            assert_eq!(saved["schemaVersion"], 6);
-            if legacy_row.is_some() {
+                assert_eq!(repository.0.lock().unwrap().saves, 0);
                 assert_eq!(
-                    saved["accounts"][0]["translation"]["chats"]["tg:123"]
-                        .as_object()
+                    repository
+                        .0
+                        .lock()
                         .unwrap()
-                        .len(),
-                    7
+                        .document
+                        .as_ref()
+                        .unwrap()
+                        .schema_version,
+                    version
                 );
+                let policy = TranslationPolicy {
+                    message_target: "it".into(),
+                    ..TranslationPolicy::default()
+                };
+                accounts
+                    .update_translation(&id, None, Some(policy.into()), 0)
+                    .unwrap();
+                let saved =
+                    serde_json::to_value(repository.0.lock().unwrap().document.as_ref().unwrap())
+                        .unwrap();
+                assert_eq!(saved["schemaVersion"], 6);
+                if legacy_row.is_some() {
+                    assert_eq!(
+                        saved["accounts"][0]["translation"]["chats"]["tg:123"]
+                            .as_object()
+                            .unwrap()
+                            .len(),
+                        7
+                    );
+                }
+                assert_eq!(repository.0.lock().unwrap().saves, 1);
             }
-            assert_eq!(repository.0.lock().unwrap().saves, 1);
         }
     }
 }
@@ -306,4 +313,107 @@ fn stored_telegram_automatic_policies_and_cross_platform_chat_ids_fail_validatio
         };
         assert!(document.validate(&platforms).is_err());
     }
+}
+
+#[test]
+fn telegram_k_auto_uses_shared_billing_cache_and_requires_cutoff_group_and_current_policy() {
+    let h = setup();
+    let mut account = account(ProxyConfig::System);
+    account.platform_id = "telegram-k".into();
+    account.translation.global.translation_mode = "auto".into();
+    let mut automatic = event();
+    automatic.manual = false;
+    automatic.chat_id = "tg:123".into();
+    automatic.sent_at = h.engine.auto_after();
+    let work = h
+        .engine
+        .prepare(account.clone(), automatic.clone())
+        .unwrap();
+    h.gateway.token_reply(Ok(token("telegram-auto")), None);
+    h.gateway
+        .translation_reply(Ok(translated("Traduzione", Some(80))), None);
+    assert_eq!(h.engine.execute(&work).unwrap(), "Traduzione");
+    assert_eq!(h.engine.execute(&work).unwrap(), "Traduzione");
+    assert_eq!(h.gateway.calls(Operation::Translate).len(), 1);
+    assert_eq!(
+        h.gateway.calls(Operation::Translate)[0]
+            .request
+            .as_ref()
+            .unwrap()
+            .id,
+        automatic.id
+    );
+    for date in [0, h.engine.auto_after() - 1, now() + 600] {
+        let mut old = automatic.clone();
+        old.sent_at = date;
+        assert!(matches!(
+            h.engine.prepare(account.clone(), old),
+            Err(AppError::TranslationUnavailable)
+        ));
+    }
+    automatic.chat_id = "tg:-123".into();
+    assert!(matches!(
+        h.engine.prepare(account.clone(), automatic.clone()),
+        Err(AppError::TranslationUnavailable)
+    ));
+    account.translation.global.group_auto = true;
+    assert!(h.engine.prepare(account.clone(), automatic.clone()).is_ok());
+    let mut chat = ChatTranslationPolicy::from_policy(&account.translation.global);
+    chat.translation_mode = "click".into();
+    account
+        .translation
+        .chats
+        .insert(automatic.chat_id.clone(), chat);
+    assert!(matches!(
+        h.engine.prepare(account.clone(), automatic.clone()),
+        Err(AppError::TranslationUnavailable)
+    ));
+    automatic.manual = true;
+    assert!(h.engine.prepare(account.clone(), automatic.clone()).is_ok());
+    automatic.manual = false;
+    account.platform_id = "telegram-z".into();
+    assert!(matches!(
+        h.engine.prepare(account, automatic),
+        Err(AppError::TranslationUnavailable)
+    ));
+    assert_eq!(h.gateway.calls(Operation::Translate).len(), 1);
+}
+
+#[test]
+fn telegram_k_auto_settings_rollback_conflict_and_restart_keep_a_manual_only() {
+    let repository = MemoryRepository::default();
+    let mut accounts = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
+    accounts
+        .create("K", "telegram-k", None, ProxyConfig::System)
+        .unwrap();
+    accounts
+        .create("A", "telegram-z", None, ProxyConfig::System)
+        .unwrap();
+    let id = accounts.accounts()[0].id.clone();
+    let before = accounts.accounts().to_vec();
+    let policy = TranslationPolicy {
+        translation_mode: "auto".into(),
+        group_auto: true,
+        ..TranslationPolicy::default()
+    };
+    repository.0.lock().unwrap().fail_save = true;
+    assert_eq!(
+        accounts.update_translation(&id, None, Some(policy.clone().into()), 0),
+        Err(AppError::StoreIo)
+    );
+    assert_eq!(accounts.accounts(), before);
+    repository.0.lock().unwrap().fail_save = false;
+    accounts
+        .update_translation(&id, None, Some(policy.clone().into()), 0)
+        .unwrap();
+    assert_eq!(
+        accounts.update_translation(&id, None, Some(TranslationPolicy::default().into()), 0),
+        Err(AppError::TranslationSettingsConflict)
+    );
+    let reopened = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
+    assert_eq!(reopened.account(&id).unwrap().translation.global, policy);
+    assert_eq!(reopened.accounts()[1], before[1]);
+    let saves = repository.0.lock().unwrap().saves;
+    let _ = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
+    assert_eq!(repository.0.lock().unwrap().saves, saves);
 }

@@ -19,6 +19,7 @@ impl BroadcastDesktop {
             reason_code: None,
             capabilities: CatalogCapabilities::default(),
             chats: Vec::new(),
+            labels: None,
         };
         let binding = match self
             .platform
@@ -44,6 +45,7 @@ impl BroadcastDesktop {
         result.catalog_id = Uuid::new_v4().to_string();
         result.capabilities = native.capabilities;
         result.chats = native.chats;
+        result.labels = native.labels;
         result.ready = result.capabilities.text;
         if !result.ready {
             result.reason_code = Some(BroadcastIssue::CapabilityUnavailable);
@@ -114,6 +116,39 @@ impl BroadcastDesktop {
     }
 }
 
+pub(super) fn valid_label_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+pub(super) fn validate_labels(labels: &mut Option<Vec<CatalogLabel>>) -> Result<()> {
+    let Some(labels) = labels else {
+        return Ok(());
+    };
+    if labels.len() > 256 {
+        return Err(AppError::BroadcastUnavailable);
+    }
+    let mut seen = HashSet::new();
+    for label in labels {
+        if !valid_label_id(&label.id) || !seen.insert(label.id.clone()) {
+            return Err(AppError::BroadcastUnavailable);
+        }
+        label.name = label
+            .name
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(256)
+            .collect();
+        if label.name.is_empty() {
+            label.name.clone_from(&label.id);
+        }
+    }
+    Ok(())
+}
+
 fn merge_catalog_chats(
     mut native: Vec<CatalogChat>,
     mut imported: Vec<CatalogChat>,
@@ -152,6 +187,7 @@ fn merge_catalog_chats(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn contact(index: usize, name: &str) -> CatalogChat {
         CatalogChat {
@@ -160,6 +196,77 @@ mod tests {
             real_name: name.into(),
             kind: ChatKind::Contact,
         }
+    }
+
+    fn catalog_value() -> serde_json::Value {
+        json!({
+            "capabilities": {
+                "text": true, "scheduled": true, "vcards": false,
+                "tagAll": false, "attachments": false
+            },
+            "chats": []
+        })
+    }
+
+    #[test]
+    fn old_catalogs_default_audience_capabilities_without_changing_base_readiness() {
+        let old = native_catalog(catalog_value()).unwrap();
+        assert!(old.capabilities.text);
+        assert!(!old.capabilities.group_members);
+        assert!(old.labels.is_none());
+        let mut value = catalog_value();
+        value["labels"] = json!([]);
+        value["capabilities"]["groupMembers"] = json!(true);
+        let empty = native_catalog(value).unwrap();
+        assert!(empty.capabilities.group_members);
+        assert!(empty.labels.unwrap().is_empty());
+        let mut value = catalog_value();
+        value["labels"] = serde_json::Value::Null;
+        assert!(native_catalog(value).unwrap().labels.is_none());
+    }
+
+    #[test]
+    fn label_metadata_is_bounded_sanitized_and_never_infers_membership_from_counts() {
+        let mut value = catalog_value();
+        value["labels"] = json!([
+            { "id": "label_1-A", "name": "A\nB\t" },
+            { "id": "2", "name": "" },
+            { "id": "3", "name": "😀".repeat(257) }
+        ]);
+        let labels = native_catalog(value).unwrap().labels.unwrap();
+        assert_eq!(labels[0].name, "AB");
+        assert_eq!(labels[1].name, "2");
+        assert_eq!(labels[2].name, "😀".repeat(256));
+        for bad in [
+            json!([{ "id": "", "name": "x" }]),
+            json!([{ "id": "a".repeat(129), "name": "x" }]),
+            json!([{ "id": "label 1", "name": "x" }]),
+            json!([{ "id": "标签", "name": "x" }]),
+            json!([{ "id": "a", "name": "x" }, { "id": "a", "name": "y" }]),
+            json!([{ "id": "a", "name": "x", "count": 100 }]),
+            json!([{ "id": "a", "name": "x", "chatIds": ["100@c.us"] }]),
+            json!([{ "id": 1, "name": "x" }]),
+        ] {
+            let mut value = catalog_value();
+            value["labels"] = bad;
+            assert!(native_catalog(value).is_err());
+        }
+        let mut value = catalog_value();
+        value["labels"] = json!((0..256)
+            .map(|i| json!({ "id": i.to_string(), "name": "" }))
+            .collect::<Vec<_>>());
+        assert_eq!(
+            native_catalog(value.clone()).unwrap().labels.unwrap().len(),
+            256
+        );
+        value["labels"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "id": "256", "name": "" }));
+        assert!(native_catalog(value).is_err());
+        let mut value = catalog_value();
+        value["capabilities"]["groupMembers"] = json!("true");
+        assert!(native_catalog(value).is_err());
     }
 
     #[test]

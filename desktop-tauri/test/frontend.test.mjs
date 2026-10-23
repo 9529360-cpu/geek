@@ -94,11 +94,13 @@ test('all commands share the same native sender gate and blocking executor', () 
   const security = read('../src-tauri/src/desktop/security.rs');
   assert.match(commands, /authorize\(&webview\)\?;/);
   assert.match(commands, /spawn_blocking/);
+  const broadcastCommands = ['catalog', 'create', 'snapshot', 'control', 'pick_attachments', 'release_attachments',
+    'import_contacts', 'resolve_recipients', 'resolve_audience', 'export_failures'];
   for (const section of commands.split('#[tauri::command]').slice(1)) {
     if (section.includes('pub async fn desktop_window(')) {
       assert.match(section, /execute\(webview, move \|app\| super::window::apply\(&app, action\)\)/);
       assert.doesNotMatch(section, /State|SharedDesktop|\.lock\(/);
-    } else if (/pub async fn broadcast_(catalog|create|snapshot|control|pick_attachments|release_attachments|import_contacts|export_failures)\(/.test(section)) {
+    } else if (broadcastCommands.includes(section.match(/pub async fn broadcast_(\w+)\(/)?.[1])) {
       assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<BroadcastDesktop>>\(\)/);
       assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
     } else if (/pub async fn session_(snapshot|login|refresh|logout)\(/.test(section)) {

@@ -6,8 +6,10 @@ use super::{
 use std::collections::HashSet;
 
 pub const MAX_IMPORT_BYTES: usize = 5 * 1024 * 1024;
+pub const MAX_PASTED_RECIPIENT_BYTES: usize = 128 * 1024;
 const MAX_COLUMNS: usize = 64;
 
+#[derive(Default)]
 pub struct BroadcastImportCandidates {
     pub candidates: Vec<String>,
     pub duplicate_count: usize,
@@ -30,12 +32,7 @@ pub fn parse_broadcast_import(bytes: &[u8]) -> Result<BroadcastImportCandidates>
         .next_nonempty()?
         .ok_or(AppError::BroadcastImportEmpty)?;
     let header = Header::read(&first)?;
-    let mut result = BroadcastImportCandidates {
-        candidates: Vec::new(),
-        duplicate_count: 0,
-        invalid_count: 0,
-        skipped_count: 0,
-    };
+    let mut result = BroadcastImportCandidates::default();
     let mut seen = HashSet::new();
     if header.is_none() {
         result.accept(&first, &Header::plain(), &mut seen)?;
@@ -44,13 +41,32 @@ pub fn parse_broadcast_import(bytes: &[u8]) -> Result<BroadcastImportCandidates>
     while let Some(record) = records.next_nonempty()? {
         result.accept(&record, &header, &mut seen)?;
     }
-    if result.candidates.is_empty() {
-        return Err(AppError::BroadcastImportEmpty);
+    result.finish()
+}
+
+pub fn parse_broadcast_pasted_recipients(text: &str) -> Result<BroadcastImportCandidates> {
+    if text.len() > MAX_PASTED_RECIPIENT_BYTES {
+        return Err(AppError::BroadcastImportLimit);
     }
-    Ok(result)
+    let mut result = BroadcastImportCandidates::default();
+    let mut seen = HashSet::new();
+    for line in text.split(['\r', '\n']) {
+        if !line.trim().is_empty() {
+            result.accept_candidate(line, RecipientKind::Phone, &mut seen)?;
+        }
+    }
+    result.finish()
 }
 
 impl BroadcastImportCandidates {
+    fn finish(self) -> Result<Self> {
+        if self.candidates.is_empty() {
+            Err(AppError::BroadcastImportEmpty)
+        } else {
+            Ok(self)
+        }
+    }
+
     fn accept(
         &mut self,
         row: &[String],
@@ -67,7 +83,19 @@ impl BroadcastImportCandidates {
             .is_some_and(|column| row[column].trim() != "NOT_SUBMITTED")
         {
             self.skipped_count += 1;
-        } else if let Some(candidate) = normalize_candidate(&row[header.recipient], header.kind) {
+        } else {
+            self.accept_candidate(&row[header.recipient], header.kind, seen)?;
+        }
+        Ok(())
+    }
+
+    fn accept_candidate(
+        &mut self,
+        value: &str,
+        kind: RecipientKind,
+        seen: &mut HashSet<String>,
+    ) -> Result<()> {
+        if let Some(candidate) = normalize_candidate(value, kind) {
             if !seen.insert(candidate.clone()) {
                 self.duplicate_count += 1;
             } else {

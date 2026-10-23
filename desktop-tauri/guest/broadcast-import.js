@@ -1,6 +1,6 @@
 // Read-only identity resolution for a bounded native-selected recipient batch.
 // No opening/activating chats, composer access, send or account-wide enumeration.
-function createBroadcastContactResolver({ runtime, identity, supported, requireMethods }) {
+function createBroadcastContactResolver({ runtime, identity, supported, requireMethods, selfGuard }) {
   const userId = (value) => /^[0-9]{1,30}@(c\.us|lid)$/.test(value);
   const issue = (code) => Object.assign(new Error(code), { code });
   return async function resolveContacts(payload, valid) {
@@ -11,7 +11,11 @@ function createBroadcastContactResolver({ runtime, identity, supported, requireM
           || !(/^[0-9]{6,15}$/.test(v) || userId(v)))) throw issue('CAPABILITY_UNAVAILABLE');
     const W = runtime();
     requireMethods(W, ['conn.isMainReady', 'contact.queryExists', 'chat.find', 'chat.get']);
-    const check = () => { if (!valid()) throw issue('GUEST_CHANGED'); };
+    const own = payload.selfIds === undefined ? null : selfGuard(W, payload.selfIds);
+    const check = () => {
+      if (!valid() || runtime() !== W) throw issue('GUEST_CHANGED');
+      own?.check();
+    };
     const wait = async (action) => {
       check();
       let timer;
@@ -26,6 +30,7 @@ function createBroadcastContactResolver({ runtime, identity, supported, requireM
     const rows = [];
     for (const candidate of candidates) {
       const requested = candidate.includes('@') ? candidate : `${candidate}@c.us`;
+      if (own?.isSelf(requested)) { rows.push({ candidate, chat: null }); continue; }
       const found = await wait(() => W.contact.queryExists(requested));
       const aliases = new Set([identity(found?.wid), identity(found?.lid)].filter(userId));
       if (!aliases.has(requested)) { rows.push({ candidate, chat: null }); continue; }
@@ -51,6 +56,7 @@ function createBroadcastContactResolver({ runtime, identity, supported, requireM
           || !supported(loaded, id) || identity(loaded?.id) !== id) {
         rows.push({ candidate, chat: null }); continue;
       }
+      if (own?.isSelf(id)) { rows.push({ candidate, chat: null }); continue; }
       const name = (value) => typeof value === 'string' && !aliases.has(value)
         && !/^[+\d\s()-]+$/.test(value) ? value.slice(0, 256) : '';
       rows.push({ candidate, chat: { id, kind: 'contact',

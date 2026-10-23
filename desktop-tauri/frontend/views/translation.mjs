@@ -136,7 +136,8 @@ export function createTranslationView(document, actions) {
     $('translation-send-from').disabled = !canEdit || !globalPolicy.enabled;
     $('translation-send-to').disabled = !canEdit || !globalPolicy.enabled;
     $('translation-target').disabled = !canEdit || !hasChat || !override || !chatPolicy.enabled;
-    const unavailableTitle = supported ? 'Telegram 仅支持手动消息翻译' : '此平台尚未接通翻译';
+    const unavailableTitle = !supported ? '此平台尚未接通翻译'
+      : capabilities.automatic ? 'Telegram 发送翻译暂不可用' : 'Telegram 仅支持手动消息翻译';
     for (const id of ['translation-send', 'translation-send-from', 'translation-send-to', 'translation-include-zh',
       'translation-enabled', 'translation-target', 'translation-auto-send']) {
       $(id).disabled ||= !capabilities.outgoing;

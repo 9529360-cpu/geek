@@ -20,12 +20,16 @@ function createWhatsAppAdapter() {
       throw issue('CAPABILITY_UNAVAILABLE');
     }
   };
+  const audiences = createBroadcastAudienceResolver({ runtime, identity, supported, requireMethods });
 
   function capabilities() {
     const W = runtime();
     const text = typeof W.chat?.sendTextMessage === 'function' && typeof W.chat?.get === 'function';
     return { text, scheduled: text, attachments: text && typeof W.chat?.sendFileMessage === 'function',
       tagAll: text && typeof W.group?.getParticipants === 'function',
+      groupMembers: typeof W.group?.getParticipants === 'function' && typeof W.contact?.queryExists === 'function'
+        && typeof W.chat?.find === 'function' && typeof W.whatsapp?.UserPrefs?.getMaybeMePnUser === 'function'
+        && typeof W.whatsapp?.UserPrefs?.getMaybeMeLidUser === 'function',
       vcards: typeof W.chat?.sendVCardContactMessage === 'function'
         && typeof W.contact?.getPnLidEntry === 'function' };
   }
@@ -184,7 +188,8 @@ function createWhatsAppAdapter() {
   }
 
   return { capabilities, ready, listChats, prepare, dispatch, dispatchAttachment,
-    resolveContacts: createBroadcastContactResolver({ runtime, identity, supported, requireMethods }),
+    audienceOptions: audiences.audienceOptions, groupMembers: audiences.groupMembers, labelMembers: audiences.labelMembers,
+    resolveContacts: createBroadcastContactResolver({ runtime, identity, supported, requireMethods, selfGuard: audiences.selfGuard }),
     getCurrentChat: () => identity(runtime().chat?.getActiveChat?.()?.id),
     openChat: () => { throw issue('CAPABILITY_UNAVAILABLE'); },
     setComposerText: () => { throw issue('CAPABILITY_UNAVAILABLE'); },

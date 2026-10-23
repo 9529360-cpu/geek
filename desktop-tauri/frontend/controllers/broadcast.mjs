@@ -1,6 +1,6 @@
-import { emptyDraft, normalizeCatalog, normalizeAttachments, normalizeImportedContacts, draftPayload,
-  submissionFor, hasExportableIssues, executing, terminal } from '../models/broadcast.mjs';
-import { errorCode, errorMessage } from '../models/broadcast-status.mjs';
+import { emptyDraft, normalizeCatalog, normalizeAttachments, normalizeImportedContacts, normalizeResolvedRecipients, draftPayload,
+  submissionFor, hasExportableIssues, audienceSourceKinds, recipientSourceIssue, executing, terminal } from '../models/broadcast.mjs';
+import { errorCode, errorMessage, audienceSourceError } from '../models/broadcast-status.mjs';
 import { wire, unavailable } from '../views/broadcast-elements.mjs';
 import { createBroadcastEditor } from '../views/broadcast-editor.mjs';
 import { createBroadcastJobs } from '../views/broadcast-jobs.mjs';
@@ -12,6 +12,8 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   const attachmentsAvailable = ['broadcastPickAttachments', 'broadcastReleaseAttachments']
     .every((name) => typeof api?.[name] === 'function');
   const importAvailable = typeof api?.broadcastImportContacts === 'function';
+  const resolveAvailable = typeof api?.broadcastResolveRecipients === 'function';
+  const audienceAvailable = typeof api?.broadcastResolveAudience === 'function';
   const exportAvailable = typeof api?.broadcastExportFailures === 'function';
   const operations = new Set();
   const drafts = new Map();
@@ -69,7 +71,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     if (mismatch()) editor.status(errorMessage('BROADCAST_ACCOUNT_CHANGED'), 'error');
     else editor.status(lastStatus.text, lastStatus.state, lastStatus.retry);
     editor.availability({ shellBusy, creating, loading, mismatch: mismatch(), apiAvailable, pendingControls,
-      attachmentsAvailable, attachmentBusy: picking || removingAttachment, importAvailable, importBusy: importing });
+      attachmentsAvailable, attachmentBusy: picking || removingAttachment, importAvailable, resolveAvailable, audienceAvailable, importBusy: importing });
   }
 
   function render() {
@@ -166,24 +168,43 @@ export function createBroadcastController({ document, window, api, getShellSnaps
       && editorEpoch === epoch && !mismatch() && owner() && !owner().archived;
   }
 
-  async function importContacts() {
-    if (disposed || creating || shellBusy || loading || importing || picking || removingAttachment || !importAvailable
+  async function importContacts(kind = 'file') {
+    const available = kind === 'file' ? importAvailable : kind === 'paste' ? resolveAvailable : audienceAvailable;
+    if (disposed || creating || shellBusy || loading || importing || picking || removingAttachment || !available
       || panel !== 'broadcast-overlay' || mismatch() || !catalog?.ready || !owner() || owner().archived) return;
+    const draft = editor.read();
+    if (kind !== 'file' && audienceSourceKinds[draft.audienceMode] !== kind) return;
+    const source = draft.sources[kind];
     const accountId = editorOwner;
     const epoch = editorEpoch;
     const catalogId = catalog.catalogId;
-    importing = true; editor.importStatus('正在读取并核验联系人…', 'loading'); render();
+    const status = kind === 'file' ? editor.importStatus : (text, state) => editor.sourceStatus(kind, text, state);
+    const current = () => {
+      const latest = editor.read().sources[kind];
+      return selectionCurrent(accountId, epoch) && catalog?.catalogId === catalogId && (kind === 'file'
+        || latest.revision === source.revision && JSON.stringify(latest.selection) === JSON.stringify(source.selection));
+    };
     try {
-      const result = await api.broadcastImportContacts(accountId, catalogId);
-      if (!selectionCurrent(accountId, epoch) || catalog?.catalogId !== catalogId) return;
-      if (result === null) { editor.importStatus(); return; }
-      const imported = normalizeImportedContacts(result, accountId);
-      catalog = imported.catalog; editor.imported(imported); stash();
+      const issue = kind !== 'file' && recipientSourceIssue(kind, source, catalog);
+      if (issue) throw issue;
+      importing = true; status(kind === 'paste' ? '正在核验号码…' : kind === 'file' ? '正在读取并核验联系人…' : '正在读取对象…', 'loading'); render();
+      const result = kind === 'file' ? await api.broadcastImportContacts(accountId, catalogId)
+        : kind === 'paste' ? await api.broadcastResolveRecipients(accountId, catalogId, source.selection)
+          : await api.broadcastResolveAudience(accountId, catalogId, kind === 'groups'
+            ? { kind, groupIds: source.selection } : { kind, labelId: source.selection });
+      if (!current()) return;
+      if (result === null && kind === 'file') { status(); return; }
+      const imported = kind === 'file' ? normalizeImportedContacts(result, accountId) : normalizeResolvedRecipients(result, accountId, kind === 'label');
+      const changedSource = kind !== 'file' && recipientSourceIssue(kind, source, imported.catalog);
+      if (changedSource) throw changedSource;
+      catalog = imported.catalog;
+      if (kind === 'file') editor.imported(imported); else editor.resolved(kind, imported, source.revision);
+      stash();
     } catch (error) {
-      if (selectionCurrent(accountId, epoch) && catalog?.catalogId === catalogId) editor.importStatus(errorMessage(error), 'error');
+      if (current()) status(kind === 'file' ? errorMessage(error) : audienceSourceError(error, kind), 'error');
     } finally {
       importing = false;
-      if (!disposed && !selectionCurrent(accountId, epoch) && editorOwner === accountId) editor.importStatus();
+      if (!disposed && !current() && editorOwner === accountId) status();
       if (!disposed) render();
     }
   }
@@ -347,11 +368,15 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
 
   editor = createBroadcastEditor({ document,
-    onChange: () => { stash(); refreshEditor(); },
+    onChange: (reason) => {
+      if (reason === 'audience-updated') lastStatus = { text: '发送对象已更新，排除项已保留', state: 'ready', retry: false };
+      stash(); refreshEditor();
+    },
     onSubmit: (continued) => track(submit(continued)), onClose: () => track(closePanel().catch(report)),
     onRetry: () => track(loadCatalog()), onControl: (id, action) => track(control(id, action)),
     onPickAttachments: () => track(pickAttachments()), onRemoveAttachment: (id) => track(removeAttachment(id)),
     onImportContacts: () => track(importContacts()),
+    onResolveSource: (kind) => track(importContacts(kind)),
   });
   jobsView = createBroadcastJobs({ document, window, requestLayout,
     onOpen: () => track(openTasks().catch(report)), onClose: () => track(closePanel().catch(report)),

@@ -10,7 +10,7 @@ export function deferred() {
 export function catalog(accountId = 'a', overrides = {}) {
   return { accountId, accountName: accountId === 'a' ? 'Alice account' : 'Bob account', platformId: 'whatsapp',
     catalogId: `${accountId}-catalog`, ready: true, reasonCode: null,
-    capabilities: { text: true, scheduled: true, vcards: true, tagAll: true, attachments: false },
+    capabilities: { text: true, scheduled: true, vcards: true, tagAll: true, attachments: false, groupMembers: false }, labels: null,
     chats: [
       { id: `${accountId}-ann`, name: 'Ann', realName: 'Annie', kind: 'contact' },
       { id: `${accountId}-ben`, name: 'Ben', realName: '', kind: 'contact' },
@@ -81,7 +81,7 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
       if (name === 'pick' && Array.isArray(override?.attachments)) for (const file of override.attachments) {
         attachmentRefs.set(`${value}:${file?.id}`, structuredClone(file));
       }
-      if (name === 'import' && override?.accountId === value.accountId && override.catalog?.accountId === value.accountId) {
+      if (['import', 'resolve', 'audience'].includes(name) && override?.accountId === value.accountId && override.catalog?.accountId === value.accountId) {
         importedCatalogs.set(value.accountId, structuredClone(override.catalog));
         catalogLeases.set(`${value.accountId}:${override.catalog.catalogId}`, structuredClone(override.catalog));
       }
@@ -92,6 +92,7 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     if (name === 'catalog') return structuredClone(importedCatalogs.get(value) || catalog(value, accountCatalogs[value]));
     if (name === 'snapshot') return structuredClone(backend);
     if (name === 'import') return null;
+    if (name === 'resolve' || name === 'audience') throw 'BROADCAST_IMPORT_UNAVAILABLE';
     if (name === 'export') return { ...value, revision: backend.revision, rowCount: 1, saved: true };
     if (name === 'pick') return null;
     if (name === 'release') {
@@ -138,6 +139,8 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     broadcastPickAttachments: (accountId) => invoke('pick', accountId),
     broadcastReleaseAttachments: (accountId, attachmentIds) => invoke('release', { accountId, attachmentIds }),
     broadcastImportContacts: (accountId, catalogId) => invoke('import', { accountId, catalogId }),
+    broadcastResolveRecipients: (accountId, catalogId, text) => invoke('resolve', { accountId, catalogId, text }),
+    broadcastResolveAudience: (accountId, catalogId, source) => invoke('audience', { accountId, catalogId, source }),
     broadcastExportFailures: (accountId, jobId) => invoke('export', { accountId, jobId }) };
   async function showPanel(id, fill, focusId) {
     if (panel) ui.get(panel).classList.add('hidden');

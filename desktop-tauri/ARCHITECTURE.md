@@ -323,25 +323,51 @@ cancellation cover even a lost begin callback. Cleanup uses the originally held 
 old generation token, including after native generation revocation. Guest cancel/revoke,
 expiry, and consumed attempt tombstones prevent late preparation or secondary card effects.
 
-### Recipient files and exception reports
+### Recipient sources and exception reports
 
 `domain/broadcast_import` is a bounded UTF-8 CSV/TXT parser. Only explicit phone/chat-ID
 columns become candidates; file names/contact names do not grant target authority. Statused
-exports admit only `NOT_SUBMITTED`, never uncertain targets or task rows. `desktop/broadcast/imports`
-selects a native file, resolves batches through the fixed WA-JS bridge, validates the exact
-returned candidate order and canonical contact models, then extends the existing catalog lease.
+exports admit only `NOT_SUBMITTED`, never uncertain targets or task rows. Its pasted-number
+parser accepts one complete phone number per nonempty line, bounded at 128 KiB and 2000 unique
+candidates; it shares the strict phone normalizer without guessing country codes or accepting
+file/chat-ID syntax. File and pasted-text entry points share the same native import gate and
+catalog resolver. They resolve batches through the fixed WA-JS bridge, validate the exact
+returned candidate order and canonical contact models, then extend the existing catalog lease.
 The source catalog must remain live for that account/generation through the final catalog lock.
 No query, picker or disk wait owns Workspace, job state or the catalog mutex. A single finite
 import gate bounds external queries; late shell responses are rejected by the editor epoch.
 Verified directory-external contacts are capped at 2000 per lease; new selections survive eviction,
 and normal directory entries stay separate so repeated imports cannot grow the lease indefinitely.
+Pasted results additionally bind the editor's exact text revision; an A-to-B-to-A edit cannot adopt
+an earlier response. Input edits revoke send eligibility immediately, independently of native query
+completion. File, pasted, group-member, platform-label and manual audience drafts remain separate.
+
+`desktop/broadcast/audiences` resolves the two additional typed sources through that same
+`RecipientImport` gate, lease and absolute ten-minute deadline. Group IDs must belong to the
+source catalog's native directory; at most 20 groups are read one at a time. Real participant
+IDs are filtered against proved own PN/LID identities before the common two-contact resolver,
+and against the same frozen identity again after canonical resolution. An uncovered self
+namespace, changed identity or more than 2000 unique candidates rejects the operation.
+Optional label metadata belongs to the catalog lease. Label membership checks inspect up to
+200 native catalog IDs per call, compare model labels to the exact label ID, and accept only
+the requested subset. Ordinary label groups keep their existing catalog authority; they do
+not pass through the contact-only resolver. No label name-first lookup, arbitrary group/label
+script, dynamic scheduled expansion or additional task owner is introduced.
+
+Typed exclusion sets are account-local editor state, following the original product's all-chats
+minus-explicit-exclusions semantics. The two sets filter every source before the existing create
+command receives final IDs. Exclusion modes freeze the catalog population on entry; refresh may
+invalidate an ID but cannot silently add targets. An explicit update action rebuilds this frozen
+population from the current directory while retaining exclusions. This introduces no new persisted audience owner,
+dynamic scheduled query, queue or sending capability.
 
 `application/broadcast_report` snapshots the existing owner, including projected storage failure,
 then releases the lock before domain CSV encoding. Explicit account/job ownership is required;
 no online guest is needed. Rows distinguish not-submitted, uncertain and task issues, without
 turning unexecuted targets into failures. `infrastructure/broadcast_files` performs bounded reads
-and atomic report replacement. Native pick/save dialogs are the only path authority; the shell
-commands accept IDs, never paths, file bytes or CSV bodies. Neither operation changes job state,
+and atomic report replacement. Native pick/save dialogs are the only path authority; the file
+commands accept IDs, never paths, file bytes or CSV bodies. Pasted text has its own narrow bounded
+command and cannot select a path. None of these operations changes job state,
 checkpoints, persistence schema, retry policy or the sending owner.
 
 ## Session and incoming translation ownership
@@ -396,12 +422,23 @@ Target-Chinese messages already containing Han text preserve the original automa
 The current node identity, body, message/chat, native generation, login generation and
 policy revision must still match before rendering. This receive owner installs no composer interception.
 
-Telegram Web A/K adapters share that same request/display owner. They admit only manual visible
-ordinary text under exact native platform/URL/session bindings. Web A validates the route and
+Telegram Web A/K adapters share that same request/display owner for visible ordinary text under
+exact native platform/URL/session bindings. Web A validates the route and
 header peer against a chat-keyed MessageList identity; Web K validates each row's peer and message
 ID. Unknown text structures, media, threads and special lists fail closed. Body extraction excludes
-metadata and reply previews. Both the native policy and incoming-request boundary reject automatic
-or outgoing Telegram requests. `TranslationGuest` uses fixed private Telegram DOM evaluation and
+metadata and reply previews. Web A remains manual-only because its production state API is not
+exposed and localized date titles are not reliable timestamp authority. Web K also admits new
+incoming text only when a history_multiappend observation matches the current ordinary chat
+instance, own/sender identity, time, history-only synchronous mirror and visible message body.
+Its guest-local observations carry no UUID or requests: the shared owner still assigns every
+logical request. Unknown provenance remains manual; missing mirror/DOM may match the same event
+for five seconds, but contradictory metadata, edits, view changes and policy changes revoke it.
+Observed identities are never evicted to authorize replay; bounded capacity falls back to manual.
+Pending automatic delivery requires the same short-lived proof; a completed translation does not
+depend on that proof's lifetime. Both guest and native policy require groupAuto for negative
+Telegram peers, with channels/forums/special chats additionally excluded by the guest. Both native
+policy and request ingress still reject Web A automatic and all Telegram outgoing requests.
+`TranslationGuest` uses fixed private Telegram evaluation and
 does not broaden `NativePlatform`, load WPP on Telegram, or install another cache, scheduler or IPC.
 
 `application/translation` holds account-specific short-token slots and a bounded 15-minute
@@ -425,7 +462,7 @@ Session/context commands share the native authorization/blocking boundary but us
 own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
 The original UI provides login, quota, account/chat translation settings, incoming
 display and the plain-text/same-chat text-reply outgoing paths specified below. Interactive
-mentions, media replies, interactive attachments, Telegram automatic/outgoing translation, registration/purchase
+mentions, media replies, interactive attachments, Telegram Web A automatic and Telegram outgoing translation, registration/purchase
 and bulk history remain explicitly unavailable
 until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee

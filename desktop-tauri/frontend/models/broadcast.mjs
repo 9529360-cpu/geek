@@ -3,6 +3,31 @@ export const terminal = new Set(['completed', 'stopped', 'failed']);
 export const executing = new Set(['starting', 'running', 'paused', 'stopping']);
 export const pending = new Set(['scheduled', 'queued']);
 export const attachmentLimits = Object.freeze({ count: 10, fileBytes: 512 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 });
+export const audienceSourceKinds = Object.freeze({ paste: 'paste', 'group-members': 'groups', label: 'label' });
+
+export function emptyRecipientSources() {
+  return Object.fromEntries(['paste', 'groups', 'label'].map((kind) => [kind,
+    { selection: kind === 'groups' ? [] : '', revision: 0, verifiedRevision: null, recipientIds: [], summary: null }]));
+}
+
+export function recipientSourceIssue(kind, source, catalog) {
+  if (!source) return 'BROADCAST_SOURCE_EMPTY';
+  const selected = source.selection;
+  if (kind === 'paste') {
+    if (typeof selected !== 'string' || !selected.trim()) return 'BROADCAST_PASTE_UNVERIFIED';
+    return new TextEncoder().encode(selected).length > 128 * 1024 ? 'BROADCAST_IMPORT_LIMIT' : null;
+  }
+  if (kind === 'groups') {
+    if (catalog?.capabilities.groupMembers !== true) return 'BROADCAST_SOURCE_UNAVAILABLE';
+    if (!Array.isArray(selected) || !selected.length) return 'BROADCAST_SOURCE_EMPTY';
+    if (selected.length > 20) return 'BROADCAST_SOURCE_LIMIT';
+    return selected.some((id) => !catalog.chats.some((chat) => chat.id === id && chat.kind === 'group'))
+      ? 'BROADCAST_SOURCE_STALE' : null;
+  }
+  if (!Array.isArray(catalog?.labels)) return 'BROADCAST_SOURCE_UNAVAILABLE';
+  if (!selected) return 'BROADCAST_SOURCE_EMPTY';
+  return catalog.labels.some((label) => label.id === selected) ? null : 'BROADCAST_SOURCE_STALE';
+}
 
 export function normalizeAttachments(value = []) {
   if (!Array.isArray(value)) throw 'BROADCAST_ATTACHMENT_INVALID';
@@ -31,7 +56,9 @@ export function localSchedule(now = Date.now()) {
 
 export function emptyDraft(accountId, now = Date.now()) {
   return { accountId, recipientIds: [], audienceMode: 'custom', manualRecipientIds: [], importedRecipientIds: [],
-    importFileName: '', importSummary: null, message: '', vcardIds: [], attachments: [], tagAll: false,
+    importFileName: '', importSummary: null, sources: emptyRecipientSources(),
+    exclusionBaseIds: null, excludedContactIds: [], excludedGroupIds: [],
+    message: '', vcardIds: [], attachments: [], tagAll: false,
     intervalMin: 5, intervalMax: 10, scheduleEnabled: false, scheduleTime: localSchedule(now) };
 }
 
@@ -46,13 +73,21 @@ export function normalizeCatalog(value, accountId) {
       realName: typeof chat.realName === 'string' ? chat.realName : '', kind: chat.kind };
   });
   if (value.ready && (typeof value.catalogId !== 'string' || !value.catalogId)) throw 'BROADCAST_CATALOG_INVALID';
-  return { ...value, chats, capabilities: { ...value.capabilities } };
+  let labels = value.labels ?? null;
+  if (labels !== null) {
+    if (!Array.isArray(labels)) throw 'BROADCAST_CATALOG_INVALID';
+    const seenLabels = new Set();
+    labels = labels.map((label) => {
+      if (!label || typeof label.id !== 'string' || !label.id || seenLabels.has(label.id)
+        || typeof label.name !== 'string') throw 'BROADCAST_CATALOG_INVALID';
+      seenLabels.add(label.id); return { id: label.id, name: label.name };
+    });
+  }
+  return { ...value, chats, labels, capabilities: { ...value.capabilities } };
 }
 
-export function normalizeImportedContacts(value, accountId) {
-  if (!value || value.accountId !== accountId || typeof value.fileName !== 'string'
-    || !value.fileName.trim() || value.fileName.length > 512 || /[\x00-\x1f\x7f/\\]/.test(value.fileName)
-    || !Array.isArray(value.recipientIds) || value.recipientIds.length > 2000
+export function normalizeResolvedRecipients(value, accountId, allowGroups = false) {
+  if (!value || value.accountId !== accountId || !Array.isArray(value.recipientIds) || value.recipientIds.length > 2000
     || new Set(value.recipientIds).size !== value.recipientIds.length) throw 'BROADCAST_IMPORT_INVALID';
   const summary = {};
   for (const key of ['total', 'accepted', 'duplicates', 'invalid', 'unresolved', 'skipped']) {
@@ -66,15 +101,21 @@ export function normalizeImportedContacts(value, accountId) {
   }
   let catalog;
   try { catalog = normalizeCatalog(value.catalog, accountId); } catch { throw 'BROADCAST_IMPORT_INVALID'; }
-  const contacts = new Set(catalog.chats.filter((chat) => chat.kind === 'contact').map((chat) => chat.id));
+  const contacts = new Set(catalog.chats.filter((chat) => allowGroups || chat.kind === 'contact').map((chat) => chat.id));
   if (!catalog.ready || value.recipientIds.some((id) => typeof id !== 'string' || !contacts.has(id))) throw 'BROADCAST_IMPORT_INVALID';
   if (!value.recipientIds.length) throw 'BROADCAST_IMPORT_EMPTY';
-  return { accountId, fileName: value.fileName, catalog, recipientIds: value.recipientIds.slice(), summary };
+  return { accountId, catalog, recipientIds: value.recipientIds.slice(), summary };
 }
 
-export function importSummaryText(summary) {
-  if (!summary) return '尚未导入联系人';
-  return [`已导入 ${summary.accepted} 个联系人`, summary.duplicates && `重复 ${summary.duplicates} 个`,
+export function normalizeImportedContacts(value, accountId) {
+  if (typeof value?.fileName !== 'string' || !value.fileName.trim() || value.fileName.length > 512
+    || /[\x00-\x1f\x7f/\\]/.test(value.fileName)) throw 'BROADCAST_IMPORT_INVALID';
+  return { ...normalizeResolvedRecipients(value, accountId), fileName: value.fileName };
+}
+
+export function importSummaryText(summary, action = '已导入', noun = '联系人') {
+  if (!summary) return action === '已导入' ? '尚未导入联系人' : '请先核验号码';
+  return [`${action} ${summary.accepted} 个${noun}`, summary.duplicates && `重复 ${summary.duplicates} 个`,
     summary.invalid && `格式无效 ${summary.invalid} 个`, summary.unresolved && `未核验 ${summary.unresolved} 个`,
     summary.skipped && `已跳过 ${summary.skipped} 个`].filter(Boolean).join('，');
 }
@@ -88,6 +129,15 @@ export function matchingChats(chats, query = '', kind = null) {
 export function draftPayload(draft, catalog, now = Date.now()) {
   if (!catalog?.ready || catalog.accountId !== draft.accountId) throw 'BROADCAST_ACCOUNT_NOT_READY';
   if (!catalog.capabilities.text) throw 'BROADCAST_UNSUPPORTED';
+  const sourceKind = audienceSourceKinds[draft.audienceMode];
+  if (sourceKind) {
+    const source = draft.sources?.[sourceKind];
+    const issue = recipientSourceIssue(sourceKind, source, catalog);
+    if (issue) throw issue;
+    if (!Number.isSafeInteger(source.verifiedRevision) || source.verifiedRevision !== source.revision) {
+      throw sourceKind === 'paste' ? 'BROADCAST_PASTE_UNVERIFIED' : 'BROADCAST_SOURCE_UNVERIFIED';
+    }
+  }
   const recipientIds = [...new Set(draft.recipientIds)];
   const targets = recipientIds.map((id) => catalog.chats.find((chat) => chat.id === id));
   if (!targets.length) throw 'BROADCAST_AUDIENCE_EMPTY';

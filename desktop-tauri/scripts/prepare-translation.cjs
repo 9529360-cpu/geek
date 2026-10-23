@@ -6,6 +6,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const translationInputs = Object.freeze([
   'src/translation-output-safety.cjs',
   'desktop-tauri/guest/translation-adapter-whatsapp.js',
+  'desktop-tauri/guest/translation-telegram-k-incoming.js',
   'desktop-tauri/guest/translation-adapter-telegram.js',
   'desktop-tauri/guest/translation.js',
 ]);

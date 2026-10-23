@@ -1,7 +1,8 @@
 use super::{
     broadcast::{
-        BroadcastCatalog, BroadcastDesktop, CreateBroadcast, CreatedBroadcast,
-        ExportedBroadcastFailures, ImportedBroadcastContacts, PickedBroadcastAttachments,
+        BroadcastAudienceSource, BroadcastCatalog, BroadcastDesktop, CreateBroadcast,
+        CreatedBroadcast, ExportedBroadcastFailures, ImportedBroadcastContacts,
+        PickedBroadcastAttachments, ResolvedBroadcastRecipients,
     },
     security::authorize,
     session::NativeSession,
@@ -237,6 +238,34 @@ pub async fn broadcast_import_contacts(
     execute(webview, move |app| {
         app.state::<Arc<BroadcastDesktop>>()
             .import_contacts(&app, &account_id, &catalog_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_resolve_recipients(
+    webview: Webview,
+    account_id: String,
+    catalog_id: String,
+    text: String,
+) -> Result<ResolvedBroadcastRecipients> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>()
+            .resolve_recipients(&account_id, &catalog_id, &text)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_resolve_audience(
+    webview: Webview,
+    account_id: String,
+    catalog_id: String,
+    source: BroadcastAudienceSource,
+) -> Result<ResolvedBroadcastRecipients> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>()
+            .resolve_audience(&account_id, &catalog_id, source)
     })
     .await
 }

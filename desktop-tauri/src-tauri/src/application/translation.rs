@@ -12,7 +12,7 @@ use crate::domain::{
     error::{AppError, Result},
     proxy::ProxyConfig,
     session::SessionToken,
-    translation::{supports_receive, IncomingTranslation},
+    translation::{receive_requires_group_auto, supports_receive, IncomingTranslation},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -124,7 +124,7 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
                             .text
                             .chars()
                             .any(|c| ('\u{3400}'..='\u{9fff}').contains(&c)))
-                    || (incoming.chat_id.ends_with("@g.us") && !policy.group_auto)))
+                    || (receive_requires_group_auto(&incoming.chat_id) && !policy.group_auto)))
         {
             return Err(AppError::TranslationUnavailable);
         }

@@ -81,11 +81,8 @@ impl TranslationPolicy {
 
     pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
         self.validate()?;
-        if is_telegram(platform)
-            && (self.enabled
-                || self.auto_send
-                || self.group_auto
-                || self.translation_mode != "click")
+        if (is_telegram(platform) && (self.enabled || self.auto_send))
+            || (platform == "telegram-z" && (self.group_auto || self.translation_mode != "click"))
         {
             return Err(AppError::TranslationUnavailable);
         }
@@ -291,6 +288,12 @@ pub fn supports_receive(platform: &str) -> bool {
     matches!(platform, "whatsapp" | "whatsapp-pure") || is_telegram(platform)
 }
 
+/// Negative Telegram peers include groups and channels. Requiring groupAuto
+/// for both is conservative; the guest additionally rejects nonordinary chats.
+pub fn receive_requires_group_auto(id: &str) -> bool {
+    id.ends_with("@g.us") || (valid_telegram_chat_id(id) && id.starts_with("tg:-"))
+}
+
 /// A separate receive namespace. Never accepted by WhatsApp send/broadcast IDs.
 pub fn valid_telegram_chat_id(id: &str) -> bool {
     id.strip_prefix("tg:").is_some_and(|peer| {
@@ -359,7 +362,7 @@ impl IncomingTranslation {
         {
             return Err(AppError::TranslationInvalid);
         }
-        if is_telegram(platform) && !self.manual {
+        if platform == "telegram-z" && !self.manual {
             return Err(AppError::TranslationUnavailable);
         }
         Ok(())

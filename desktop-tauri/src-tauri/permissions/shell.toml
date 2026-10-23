@@ -20,6 +20,8 @@ commands.allow = [
   "broadcast_pick_attachments",
   "broadcast_release_attachments",
   "broadcast_import_contacts",
+  "broadcast_resolve_recipients",
+  "broadcast_resolve_audience",
   "broadcast_export_failures",
   "broadcast_create",
   "broadcast_snapshot",

@@ -50,6 +50,8 @@ pub fn run() {
             commands::broadcast_pick_attachments,
             commands::broadcast_release_attachments,
             commands::broadcast_import_contacts,
+            commands::broadcast_resolve_recipients,
+            commands::broadcast_resolve_audience,
             commands::broadcast_export_failures,
             commands::broadcast_create,
             commands::broadcast_snapshot,

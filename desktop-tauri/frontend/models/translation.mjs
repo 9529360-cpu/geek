@@ -60,7 +60,7 @@ export function isWhatsApp(account) {
 export function translationCapabilities(account) {
   const whatsapp = isWhatsApp(account);
   const telegram = Boolean(account && !account.archived && ['telegram-z', 'telegram-k'].includes(account.platformId));
-  return { receive: whatsapp || telegram, automatic: whatsapp, outgoing: whatsapp };
+  return { receive: whatsapp || telegram, automatic: whatsapp || (telegram && account.platformId === 'telegram-k'), outgoing: whatsapp };
 }
 
 export function validatePlatformPolicy(account, policy) {

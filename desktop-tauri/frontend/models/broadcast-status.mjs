@@ -27,6 +27,12 @@ const messages = {
   BROADCAST_CATALOG_INVALID: '聊天列表无法验证，请重新读取。',
   BROADCAST_CATALOG_STALE: '账号页面或聊天列表已变化，请重新读取并确认发送对象。',
   BROADCAST_AUDIENCE_EMPTY: '请至少选择一个发送对象。',
+  BROADCAST_PASTE_UNVERIFIED: '请先核验当前号码，再确认发送对象。',
+  BROADCAST_SOURCE_EMPTY: '请先选择来源。',
+  BROADCAST_SOURCE_LIMIT: '最多选择 20 个群组。',
+  BROADCAST_SOURCE_STALE: '所选来源已失效，请重新选择并读取。',
+  BROADCAST_SOURCE_UNAVAILABLE: '当前账号暂时无法读取此来源。',
+  BROADCAST_SOURCE_UNVERIFIED: '请先读取当前来源，再确认发送对象。',
   BROADCAST_IMPORT_INVALID: '联系人文件格式无效，请检查号码列或聊天ID列。',
   BROADCAST_IMPORT_LIMIT: '联系人文件最多 5 MiB，最多 2000 个不同收件人。',
   BROADCAST_IMPORT_EMPTY: '没有可核验的收件人，原选择已保留。',
@@ -72,4 +78,23 @@ export function errorCode(error) {
 export function errorMessage(error) {
   const code = errorCode(error);
   return messages[code] || '该步骤未完成，请查看账号状态并重试。';
+}
+
+export function pasteErrorMessage(error) {
+  return {
+    BROADCAST_IMPORT_INVALID: '号码格式无效，请每行填写一个完整国际号码。',
+    BROADCAST_IMPORT_LIMIT: '粘贴内容最多 128 KiB，最多 2000 个不同号码。',
+    BROADCAST_IMPORT_EMPTY: '没有可核验的号码，输入已保留。',
+    BROADCAST_IMPORT_UNAVAILABLE: '号码暂时无法核验，请重试。',
+  }[errorCode(error)] || errorMessage(error);
+}
+
+export function audienceSourceError(error, kind) {
+  if (kind === 'paste') return pasteErrorMessage(error);
+  return {
+    BROADCAST_IMPORT_INVALID: '来源无法验证，请重新选择。',
+    BROADCAST_IMPORT_LIMIT: kind === 'groups' ? '最多选择 20 个群组，最多 2000 个收件人。' : '最多读取 2000 个收件人。',
+    BROADCAST_IMPORT_EMPTY: '没有可发送的对象，原选择已保留。',
+    BROADCAST_IMPORT_UNAVAILABLE: '来源暂时无法读取，请重试。',
+  }[errorCode(error)] || errorMessage(error);
 }

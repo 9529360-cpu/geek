@@ -4,6 +4,17 @@
 #broadcast-overlay .bc-dropzone[data-open="true"] {
   display:flex;
 }
+#broadcast-overlay #bc-exclude-contacts-select,
+#broadcast-overlay #bc-exclude-groups-select,
+#broadcast-overlay #bc-group-members-select {
+  height:auto;
+}
+#broadcast-overlay #bc-exclude-contacts-select option:checked,
+#broadcast-overlay #bc-exclude-groups-select option:checked,
+#broadcast-overlay #bc-group-members-select option:checked {
+  background:var(--accent-soft) !important;
+  color:var(--accent) !important;
+}
 #broadcast-overlay .bc-files {
   display:flex;
   flex-wrap:wrap;

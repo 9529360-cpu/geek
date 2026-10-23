@@ -66,10 +66,15 @@ function begin(request) {
         return true;
       case 'catalog': {
         const chats = await transport.listChats();
-        return { capabilities: transport.capabilities(), chats };
+        const labels = await transport.audienceOptions(valid);
+        return { capabilities: transport.capabilities(), chats, labels };
       }
       case 'resolveContacts':
         return transport.resolveContacts(request.payload, valid);
+      case 'groupMembers':
+        return transport.groupMembers(request.payload, valid);
+      case 'labelMembers':
+        return transport.labelMembers(request.payload, valid);
       case 'prepare': {
         const attemptId = request.payload.attemptId;
         if (!token(attemptId) || attempts.has(attemptId) || attempts.size >= 20000 || prepared.size >= 8) {

@@ -25,7 +25,9 @@ function attach(generation, platform) {
   if (revoked || (binding && binding !== generation) || (platformId && platformId !== platform)) return false;
   if (!adapter) {
     if (['whatsapp', 'whatsapp-pure'].includes(platform)) adapter = whatsappTranslationAdapter();
-    else if (['telegram-z', 'telegram-k'].includes(platform)) adapter = telegramTranslationAdapter(platform, clearPresentation);
+    else if (['telegram-z', 'telegram-k'].includes(platform)) {
+      adapter = telegramTranslationAdapter(platform, () => { clearPresentation(); needsBaseline = true; }, automaticEligibility);
+    }
     else return false;
     platformId = platform;
   }
@@ -36,6 +38,12 @@ function attach(generation, platform) {
 const context = () => adapter?.context() || null;
 
 const policyFor = (id) => configuration?.settings?.chats?.[id] || configuration?.settings?.global;
+function automaticEligibility(id) {
+  const policy = policyFor(id);
+  return !revoked && configuration?.active && configuration.sessionGeneration && !needsBaseline && chatKey === id
+    && policy?.displayTranslation && policy.translationMode === 'auto'
+    ? { after: configuration.autoAfter, groupAuto: policy.groupAuto } : null;
+}
 const entryKey = (entry) => JSON.stringify([entry.chatId, entry.messageId, entry.text, entry.sessionGeneration, entry.policyRevision]);
 function semantics(settings, chatId) {
   const policy = settings?.chats?.[chatId] || settings?.global;
@@ -66,7 +74,7 @@ function clearPresentation() {
   }
 }
 
-function canUse(entry) {
+function canUse(entry, automatic = entry.pending && entry.manual === false) {
   if (revoked || !configuration?.active || !configuration.sessionGeneration || !adapter?.matches(binding)
       || entry.sessionGeneration !== configuration.sessionGeneration
       || entry.policyRevision !== configuration.settings.revision
@@ -75,7 +83,9 @@ function canUse(entry) {
   if (chat?.id !== entry.chatId) return false;
   const current = adapter.read(entry.root, chat);
   return current?.node === entry.node && current.messageId === entry.messageId && current.text === entry.text
-    && current.observation === entry.observation;
+    && current.observation === entry.observation
+    && (!automatic || platformId !== 'telegram-k' || (current.incoming && current.sentAt === entry.sentAt
+      && current.automaticProof === entry.automaticProof));
 }
 
 function paint(entry) {
@@ -91,16 +101,17 @@ function paint(entry) {
 }
 
 function submit(entry, manual, refresh = false) {
-  if (entry.pending || !canUse(entry)) return;
+  if (entry.pending || !canUse(entry, !manual)) return;
   if (entry.receivedSuccess && !refresh) return;
   const policy = policyFor(entry.chatId);
   if (manual && !policy.messageAction) return;
   if (!manual && (!adapter.automatic || entry.manualOnly || policy.translationMode !== 'auto' || !entry.incoming || !entry.sentAt
-      || entry.sentAt < configuration.autoAfter || (entry.chatId.endsWith('@g.us') && !policy.groupAuto)
+      || entry.sentAt < configuration.autoAfter || ((entry.chatId.endsWith('@g.us') || entry.chatId.startsWith('tg:-')) && !policy.groupAuto)
       || (policy.messageTarget === 'zh' && /[\u3400-\u9fff]/.test(entry.text)))) return;
   if ([...entries.values()].filter((item) => item.pending).length >= 10) {
     entry.state = 'error'; entry.error = 'TRANSLATION_LIMIT'; paint(entry); return;
   }
+  if (!manual && adapter.claimAutomatic && !adapter.claimAutomatic(entry)) return;
   if (!entry.id || refresh) {
     entry.id = crypto.randomUUID(); entry.attempt = 0; entry.refresh = refresh; entry.receivedSuccess = false;
   }
@@ -162,6 +173,9 @@ function scan() {
       entries.set(key, entry);
     }
     entry.root = root; entry.node = node; entry.observation = info.observation;
+    if (!entry.pending && platformId === 'telegram-k') {
+      entry.incoming = info.incoming; entry.sentAt = info.sentAt; entry.automaticProof = info.automaticProof;
+    }
     // Entering a chat or enabling auto never bills rows already on screen.
     if (baseline) entry.manualOnly = true;
     if (entry.pending && performance.now() - entry.started > 37000) {
@@ -178,7 +192,7 @@ function scan() {
 document.addEventListener('contextmenu', (event) => {
   if (event.isTrusted !== true || !configuration?.active) return;
   const root = event.target?.closest?.(adapter?.rowSelector || '.geek-no-message');
-  const entry = [...entries.values()].find((item) => item.root === root && canUse(item));
+  const entry = [...entries.values()].find((item) => item.root === root && canUse(item, false));
   if (!entry || !policyFor(entry.chatId)?.messageAction || entry.pending) return;
   event.preventDefault(); event.stopPropagation();
   menu?.remove();
@@ -207,11 +221,14 @@ const api = Object.freeze({
     const sessionChanged = !configuration || configuration.sessionGeneration !== value.sessionGeneration;
     const policyChanged = configuration?.settings?.revision !== value.settings?.revision;
     if (sessionChanged || policyChanged) {
+      adapter.resetAutomatic?.();
       clearPresentation(); needsBaseline = true;
       if (sessionChanged) entries.clear();
       else reconcileSettings(configuration.settings, value.settings);
     }
-    if (configuration?.active !== value.active) needsBaseline = true;
+    if (configuration?.active !== value.active || configuration?.autoAfter !== value.autoAfter) {
+      needsBaseline = true; adapter.resetAutomatic?.();
+    }
     if (!value.active) clearPresentation();
     configuration = value;
     return true;
@@ -250,7 +267,7 @@ const api = Object.freeze({
   },
   revoke(expected) {
     if (binding !== expected) return;
-    revoked = true; clearPresentation(); entries.clear(); configuration = null;
+    revoked = true; adapter.close?.(); clearPresentation(); entries.clear(); configuration = null;
   },
 });
 Object.defineProperty(window, '__geekTauriTranslation', { value: api });

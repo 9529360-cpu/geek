@@ -4,7 +4,7 @@ import { createAudienceView } from './broadcast-audience.mjs';
 import { createWorkbenchView } from './broadcast-workbench.mjs';
 
 export function createBroadcastEditor({ document, onChange, onSubmit, onClose, onRetry, onControl,
-  onPickAttachments, onRemoveAttachment, onImportContacts }) {
+  onPickAttachments, onRemoveAttachment, onImportContacts, onResolveSource }) {
   const $ = (id) => document.getElementById(id);
   const listeners = [];
   const bind = (id, event, fn) => {
@@ -18,7 +18,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   let pendingSignature = '';
   let availability = {};
   let attachments = [];
-  const audience = createAudienceView(document, onChange);
+  const audience = createAudienceView(document, onChange, onResolveSource);
   const workbench = createWorkbenchView(document, onRetry, onChange);
   $('broadcast-close').setAttribute('aria-label', '关闭群发编辑器');
   $('broadcast-message').setAttribute('aria-label', '群发消息内容');
@@ -63,8 +63,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   });
   for (const id of ['bc-save-message', 'bc-delete-message',
     'bc-saved-accordion-toggle', 'bc-saved-messages', 'broadcast-save-group', 'broadcast-show-all-groups',
-    'broadcast-saved-groups', 'broadcast-delete-group', 'bc-paste-numbers',
-    'bc-group-members-select', 'bc-label-select', 'bc-exclude-contacts-select', 'bc-exclude-groups-select',
+    'broadcast-saved-groups', 'broadcast-delete-group',
     'bc-saved-lists', 'bc-save-list', 'bc-delete-list', 'broadcast-export']) unavailable($(id));
   const fileLabel = $('broadcast-add-file').closest('label')?.querySelector('.bc-switch-label');
   if (fileLabel) fileLabel.textContent = '添加附件，最多 10 个';
@@ -73,7 +72,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   $('broadcast-dropzone').querySelector('strong').textContent = '点击选择图片、视频或文件';
   $('broadcast-dropzone').querySelector('small').textContent = '单个 512 MiB，总计 1 GiB';
   $('bc-group-tag-list').textContent = '自定义标签尚未迁移';
-  $('broadcast-save-group').textContent = '保存为标签 · 尚未迁移';
+  $('broadcast-save-group').textContent = '保存为标签（尚未迁移）';
   $('bc-saved-message-list').textContent = '常用消息存储尚未迁移';
 
   function syncRanges() {
@@ -117,7 +116,8 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     const ready = Boolean(catalog?.ready && !next.loading && !next.mismatch);
     const filesBlocked = blocked || next.attachmentBusy || next.importBusy || next.mismatch || !next.attachmentsAvailable;
     const canPick = ready && catalog?.capabilities.attachments;
-    audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable);
+    audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable,
+      { canPaste: next.resolveAvailable, canAudience: next.audienceAvailable, editable: !blocked && ready && !next.attachmentBusy });
     workbench.availability(blocked);
     for (const id of ['broadcast-message', 'broadcast-insert-sa', 'broadcast-insert-var', 'broadcast-insert-nr',
       'bc-multiversion', 'bc-range-min', 'bc-range-max', 'broadcast-close', 'broadcast-cancel']) wire($(id), blocked);
@@ -187,7 +187,9 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     },
     catalog(next) { catalog = next; audience.set(next); },
     imported(result) { catalog = result.catalog; audience.imported(result); },
+    resolved(kind, result, revision) { catalog = result.catalog; audience.resolved(kind, result, revision); },
     importStatus: audience.importStatus,
+    sourceStatus: audience.sourceStatus,
     attachments(next) { attachments = next.map((file) => ({ ...file })); renderAttachments(); },
     showAttachments() { $('broadcast-dropzone').dataset.open = 'true'; },
     render(jobs, activeJob) { workbench.render(read(), catalog, owner, activeJob); renderSchedules(jobs); scheduleVisibility(); },
@@ -202,8 +204,11 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     },
     focusError(code) {
       if (/SCHEDULE/.test(code)) { workbench.setStep('settings'); $('broadcast-schedule-time').focus(); }
-      else if (/AUDIENCE|CATALOG|ACCOUNT|IMPORT/.test(code)) {
-        workbench.setStep('audience'); $(read().audienceMode === 'excel' ? 'broadcast-import-csv' : 'broadcast-search').focus();
+      else if (/AUDIENCE|CATALOG|ACCOUNT|IMPORT|PASTE|SOURCE/.test(code)) {
+        const mode = read().audienceMode;
+        const target = mode === 'excel' ? 'broadcast-import-csv' : mode === 'paste' ? 'bc-paste-numbers'
+          : mode === 'group-members' || mode === 'label' || mode.startsWith('exclude-') ? `bc-${mode}-select` : 'broadcast-search';
+        workbench.setStep('audience'); $(target).focus();
       }
       else if (/INTERVAL/.test(code)) { workbench.setStep('settings'); $('bc-range-min').focus(); }
       else { workbench.setStep('content'); $(/ATTACHMENT|FILE/.test(code) ? 'broadcast-dropzone' : 'broadcast-message').focus(); }

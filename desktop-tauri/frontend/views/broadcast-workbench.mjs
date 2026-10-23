@@ -42,7 +42,7 @@ export function createWorkbenchView(document, retry, changed) {
   }
   const preview = element(document, 'div', 'bc-review-preview');
   const previewText = element(document, 'p'); previewText.dataset.review = 'message';
-  preview.append(element(document, 'small', '', '首个对象的消息预览 · 随机版本以发送时为准'), previewText);
+  preview.append(element(document, 'small', '', '首个对象的消息预览，随机版本以发送时为准'), previewText);
   const launch = statusNode(document, 'broadcast-launch-check', 'bc-launch-check');
   review.append(grid, preview, launch); body.append(review);
   const footer = overlay.querySelector('.bc-footer__btns');
@@ -73,10 +73,11 @@ export function createWorkbenchView(document, retry, changed) {
     const count = draft.recipientIds.length;
     const scheduledAt = draft.scheduleEnabled ? new Date(draft.scheduleTime).getTime() : null;
     const account = owner?.name || catalog?.accountName || '当前账号';
-    values.get('account').textContent = `${account} · WhatsApp`;
-    values.get('audience').textContent = count ? `${count} 个对象` : '尚未选择对象';
+    values.get('account').textContent = `${account}，WhatsApp`;
+    values.get('audience').textContent = draft.excludedRecipientCount
+      ? `${count} 个对象，已排除 ${draft.excludedRecipientCount} 个` : count ? `${count} 个对象` : '尚未选择对象';
     values.get('time').textContent = draft.scheduleEnabled ? (scheduledAt > Date.now() ? formatTime(scheduledAt) : '请选择未来的时间') : '立即发送';
-    values.get('interval').textContent = `${draft.intervalMin}–${draft.intervalMax} 秒 · 随机等待`;
+    values.get('interval').textContent = `${draft.intervalMin}–${draft.intervalMax} 秒，随机等待`;
     const files = draft.attachments?.length || 0;
     values.get('extras').textContent = `${files} 个附件，${draft.vcardIds.length} 张名片${draft.tagAll ? '，@全体群成员' : ''}`;
     values.get('mode').textContent = '固定账号与受众快照';

@@ -142,6 +142,24 @@
       "response": "Option<ImportedBroadcastContacts>"
     },
     {
+      "name": "broadcast_resolve_recipients",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "text"
+      ],
+      "response": "ResolvedBroadcastRecipients"
+    },
+    {
+      "name": "broadcast_resolve_audience",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "source"
+      ],
+      "response": "ResolvedBroadcastRecipients"
+    },
+    {
       "name": "broadcast_export_failures",
       "arguments": [
         "accountId",

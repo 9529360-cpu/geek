@@ -1,13 +1,14 @@
 // Read-only Web A/K adapters. Message/pending/result ownership stays in translation.js.
 // Source contracts: Ajaxy/telegram-tt Message/MessageMeta/Avatar and
 // morethanwords/tweb ChatBubbles: data-mid + data-peer-id, .message and .time.
-function telegramTranslationAdapter(platform, invalidate) {
+function telegramTranslationAdapter(platform, invalidate, eligibility) {
   const isA = platform === 'telegram-z';
   const rowSelector = isA ? '.Message[data-message-id]' : '.bubble[data-mid][data-peer-id]';
   const versions = new WeakMap();
   const owners = new WeakMap();
   const listOwners = new WeakMap();
   let epoch = 0;
+  let incoming = null;
   const integer = (value, signed = false) => {
     if (!(signed ? /^-?[1-9]\d{0,18}$/ : /^[1-9]\d{0,18}$/).test(value)) return false;
     const number = BigInt(value);
@@ -57,7 +58,9 @@ function telegramTranslationAdapter(platform, invalidate) {
   const observer = new MutationObserver(changed);
   observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true,
     attributes: true, attributeFilter: ['class', 'data-message-id', 'data-mid', 'data-peer-id', 'data-type', 'hidden', 'aria-hidden'] });
-  window.addEventListener('hashchange', () => { epoch += 1; invalidate(); });
+  const invalidated = () => { epoch += 1; incoming?.reset(); invalidate(); };
+  window.addEventListener('hashchange', invalidated);
+  document.addEventListener('visibilitychange', invalidated);
   const flush = () => changed(observer.takeRecords());
 
   function scope() {
@@ -84,7 +87,7 @@ function telegramTranslationAdapter(platform, invalidate) {
     if (chats.length !== 1) return null;
     const lists = [...chats[0].querySelectorAll('.bubbles-inner')].filter(displayed);
     if (lists.length !== 1) return null;
-    return { peer, container: lists[0] };
+    return { peer, outer: chats[0], container: lists[0] };
   }
 
   // Only the actual body is read. Metadata/reply previews never become source text.
@@ -111,9 +114,14 @@ function telegramTranslationAdapter(platform, invalidate) {
   }
   // Capture the currently loaded list before the first native poll or user gesture.
   scope();
+  if (!isA) incoming = telegramKIncoming(scope, eligibility, invalidated);
   return {
-    platform: 'telegram', automatic: false, rowSelector, matches,
+    platform: 'telegram', automatic: !isA, rowSelector, matches,
+    resetAutomatic() { incoming?.reset(); },
+    claimAutomatic(entry) { return incoming?.claim(entry) === true; },
+    close() { incoming?.close(); },
     context() {
+      incoming?.sync();
       const current = scope();
       return current ? { id: `tg:${current.peer}`, name: current.peer } : null;
     },
@@ -141,7 +149,8 @@ function telegramTranslationAdapter(platform, invalidate) {
       const node = nodes[0]; const text = plainText(node);
       if (!text) return null;
       owners.set(root, chat.id);
-      return { node, messageId, text, incoming: false, sentAt: 0, observation: `${epoch}:${versions.get(root) || 0}` };
+      return { node, messageId, text, incoming: false, sentAt: 0,
+        ...incoming?.proof(root, messageId, text), observation: `${epoch}:${versions.get(root) || 0}` };
     },
   };
 }

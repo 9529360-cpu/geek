@@ -1,7 +1,10 @@
 use crate::domain::{
     broadcast::BroadcastIssue,
     broadcast::MAX_TARGETS,
-    broadcast_import::{parse_broadcast_import, MAX_IMPORT_BYTES},
+    broadcast_import::{
+        parse_broadcast_import, parse_broadcast_pasted_recipients, MAX_IMPORT_BYTES,
+        MAX_PASTED_RECIPIENT_BYTES,
+    },
     broadcast_report::{BroadcastFailureReport, BroadcastFailureRow, BroadcastFailureStatus},
     error::AppError,
 };
@@ -254,4 +257,113 @@ fn explicit_contact_ids_use_current_namespace_rules_and_phone_formats_do_not_gue
         parse_broadcast_import(b"123456@c.us\n"),
         Err(AppError::BroadcastImportEmpty)
     ));
+}
+
+#[test]
+fn pasted_numbers_accept_line_endings_and_phone_formatting_without_guessing_a_country() {
+    let result = parse_broadcast_pasted_recipients(
+        "\r\n 000123 \r+39 (02) 123-456\n3902123456\r\n+1 (202) 555-0101\n \n",
+    )
+    .unwrap();
+    assert_eq!(result.candidates, ["000123", "3902123456", "12025550101"]);
+    assert_eq!(result.duplicate_count, 1);
+    assert_eq!(result.invalid_count, 0);
+    assert_eq!(result.skipped_count, 0);
+}
+
+#[test]
+fn pasted_lines_never_extract_numbers_from_csv_headers_ids_names_or_arbitrary_text() {
+    let invalid = [
+        "phone",
+        "聊天ID",
+        "\"123456\"",
+        "Alice,123456",
+        "123456;Alice",
+        "123456\tAlice",
+        "tel:123456",
+        "123456 ext 9",
+        "123456@c.us",
+        "123456@lid",
+        "123456@g.us",
+        "+123+456",
+        "12--3456",
+        "12()3456",
+        "(123456",
+        "123456)",
+        "１２３４５６",
+        "12345",
+        "1234567890123456",
+        "\t123456",
+        "123\u{0}456",
+    ];
+    let text = format!("123456\n{}\n", invalid.join("\n"));
+    let result = parse_broadcast_pasted_recipients(&text).unwrap();
+    assert_eq!(result.candidates, ["123456"]);
+    assert_eq!(result.invalid_count, invalid.len());
+    assert_eq!(result.duplicate_count, 0);
+    assert_eq!(result.skipped_count, 0);
+}
+
+#[test]
+fn pasted_and_file_phone_rows_use_the_same_strict_normalization_and_deduplication() {
+    let text = "123456\n+1 (202) 555-0101\n12025550101\n000123\n12-3457\n12--3458\n";
+    let pasted = parse_broadcast_pasted_recipients(text).unwrap();
+    let file = parse_broadcast_import(format!("phone\n{text}").as_bytes()).unwrap();
+    assert_eq!(pasted.candidates, file.candidates);
+    assert_eq!(pasted.duplicate_count, file.duplicate_count);
+    assert_eq!(pasted.invalid_count, file.invalid_count);
+    assert_eq!(pasted.skipped_count, file.skipped_count);
+}
+
+#[test]
+fn pasted_text_limit_counts_utf8_bytes_and_accepts_exactly_128_kib() {
+    let mut exact = String::from("123456\n");
+    exact.extend(std::iter::repeat_n(
+        ' ',
+        MAX_PASTED_RECIPIENT_BYTES - exact.len(),
+    ));
+    assert_eq!(
+        parse_broadcast_pasted_recipients(&exact)
+            .unwrap()
+            .candidates,
+        ["123456"]
+    );
+    exact.push(' ');
+    assert!(matches!(
+        parse_broadcast_pasted_recipients(&exact),
+        Err(AppError::BroadcastImportLimit)
+    ));
+    let unicode = format!("123456\n{}", "界".repeat(MAX_PASTED_RECIPIENT_BYTES / 3));
+    assert!(unicode.chars().count() < MAX_PASTED_RECIPIENT_BYTES);
+    assert!(matches!(
+        parse_broadcast_pasted_recipients(&unicode),
+        Err(AppError::BroadcastImportLimit)
+    ));
+}
+
+#[test]
+fn pasted_unique_limit_rejects_the_whole_list_instead_of_truncating_or_counting_duplicates() {
+    let mut text = (0..MAX_TARGETS)
+        .map(|index| format!("1202555{index:04}\n"))
+        .collect::<String>();
+    text.push_str("+1 (202) 555-0000\nbad\n");
+    let result = parse_broadcast_pasted_recipients(&text).unwrap();
+    assert_eq!(result.candidates.len(), MAX_TARGETS);
+    assert_eq!(result.duplicate_count, 1);
+    assert_eq!(result.invalid_count, 1);
+    text.push_str("12025559999\n");
+    assert!(matches!(
+        parse_broadcast_pasted_recipients(&text),
+        Err(AppError::BroadcastImportLimit)
+    ));
+}
+
+#[test]
+fn empty_or_all_invalid_paste_is_rejected_before_contact_verification() {
+    for text in ["", " \r\n\t\n", "phone\n", "abc\n12345\n", "123456@lid\n"] {
+        assert!(matches!(
+            parse_broadcast_pasted_recipients(text),
+            Err(AppError::BroadcastImportEmpty)
+        ));
+    }
 }

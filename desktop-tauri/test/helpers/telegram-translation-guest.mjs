@@ -84,13 +84,14 @@ export function telegramGuest(variant = 'a', { policy = {}, peer = '123', iframe
   const avatar = make('div', 'Avatar'); avatar.setAttribute('data-peer-id', peer);
   chatInfo.append(avatar); header.append(chatInfo); if (isA) outer.append(header);
   let list = make('div', isA ? 'MessageList' : 'bubbles-inner'); outer.append(list); document.body.append(outer);
-  const state = { now: 0 };
+  const state = { now: 0, unix: 1001 };
   const listeners = new Map();
   const window = { innerWidth: 960, innerHeight: 640, location: new URL(`https://web.telegram.org/${variant}/#${peer}`),
     addEventListener(type, listener) { listeners.set(type, [...(listeners.get(type) || []), listener]); } };
   window.top = iframe ? {} : window;
+  class ClockDate extends Date { static now() { return state.unix * 1000; } }
   runInNewContext(composeTranslation(), { window, document, MutationObserver, crypto: { randomUUID }, TextEncoder,
-    performance: { now: () => state.now } });
+    Date: ClockDate, performance: { now: () => state.now } });
   const api = window.__geekTauriTranslation;
   const configuration = { generation, platformId: isA ? 'telegram-z' : 'telegram-k', sessionGeneration: subscription,
     active: true, autoAfter: 1000, settings: { revision: 0, chats: {}, global: { ...defaultPolicy, ...policy } } };
@@ -98,10 +99,13 @@ export function telegramGuest(variant = 'a', { policy = {}, peer = '123', iframe
   const poll = () => JSON.parse(JSON.stringify(api.poll(generation)));
   let nextId = 10;
   function add({ id = String(++nextId), text = 'Please send 100 units tomorrow.', quote = false, meta = '12:04',
-    rowPeer = window.location.hash.slice(1), media = false, hidden = false } = {}) {
-    const root = make('div', isA ? 'Message message-list-item' : 'bubble is-in');
+    rowPeer = window.location.hash.slice(1), media = false, hidden = false, timestamp = '1001', outgoing = false } = {}) {
+    const root = make('div', isA ? 'Message message-list-item' : `bubble ${outgoing ? 'is-out' : 'is-in'}`);
     if (isA) { root.id = `message-${id}`; root.setAttribute('data-message-id', id); }
-    else { root.setAttribute('data-mid', id); root.setAttribute('data-peer-id', rowPeer); root.setAttribute('data-timestamp', '1001'); }
+    else {
+      root.setAttribute('data-mid', id); root.setAttribute('data-peer-id', rowPeer);
+      root.setAttribute('data-timestamp', timestamp); root.setAttribute('role', 'article');
+    }
     const wrapper = make('div', isA ? 'message-content-wrapper' : 'bubble-content-wrapper'); root.append(wrapper);
     const content = make('div', isA ? 'message-content text' : 'bubble-content'); wrapper.append(content);
     const inner = isA ? make('div', 'content-inner') : content; if (isA) content.append(inner);

@@ -30,11 +30,13 @@ use uuid::Uuid;
 type NativeBroadcast = BroadcastService<EncryptedBroadcastRepository, NativePlatform>;
 
 mod attachments;
+mod audiences;
 mod catalog;
 mod imports;
 mod reports;
 pub use attachments::PickedBroadcastAttachments;
-pub use imports::ImportedBroadcastContacts;
+pub use audiences::BroadcastAudienceSource;
+pub use imports::{ImportedBroadcastContacts, ResolvedBroadcastRecipients};
 pub use reports::ExportedBroadcastFailures;
 
 #[cfg(test)]
@@ -50,6 +52,15 @@ pub struct CatalogCapabilities {
     vcards: bool,
     tag_all: bool,
     attachments: bool,
+    #[serde(default)]
+    group_members: bool,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CatalogLabel {
+    id: String,
+    name: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -73,6 +84,8 @@ enum ChatKind {
 struct NativeCatalog {
     capabilities: CatalogCapabilities,
     chats: Vec<CatalogChat>,
+    #[serde(default)]
+    labels: Option<Vec<CatalogLabel>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -86,6 +99,7 @@ pub struct BroadcastCatalog {
     reason_code: Option<BroadcastIssue>,
     capabilities: CatalogCapabilities,
     chats: Vec<CatalogChat>,
+    labels: Option<Vec<CatalogLabel>>,
 }
 
 #[derive(Clone)]
@@ -155,6 +169,7 @@ fn native_catalog(value: serde_json::Value) -> Result<NativeCatalog> {
     if result.chats.len() > 20_000 {
         return Err(AppError::BroadcastUnavailable);
     }
+    catalog::validate_labels(&mut result.labels)?;
     let mut seen = HashSet::new();
     result
         .chats

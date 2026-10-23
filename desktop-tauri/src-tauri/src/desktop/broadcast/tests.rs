@@ -202,6 +202,7 @@ mod ingress {
             reason_code: None,
             capabilities: native.capabilities,
             chats: native.chats,
+            labels: native.labels,
         }
     }
 
