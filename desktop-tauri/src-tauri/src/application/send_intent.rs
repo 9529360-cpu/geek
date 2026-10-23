@@ -4,7 +4,7 @@ use crate::domain::{
     account::{valid_id, Account},
     broadcast::GuestBinding,
     error::{AppError, Result},
-    send_intent::{OutgoingSend, SendOutcome, SendState, SendStatus},
+    send_intent::{OutgoingSend, SendContext, SendOutcome, SendState, SendStatus},
     translation::validate_text,
 };
 use sha2::{Digest, Sha256};
@@ -295,7 +295,10 @@ impl SendIntents {
                     record.status.state = SendState::Confirmed;
                     record.status.issue = None;
                     record.status.receipt = Some(receipt);
-                    record.status.draft_cleared = Some(draft_cleared);
+                    // Reply cleanup has no reviewed atomic platform contract yet.
+                    record.status.draft_cleared = Some(
+                        draft_cleared && matches!(&ticket.request.context, SendContext::Plain {}),
+                    );
                 }
             }
             SendOutcome::NotSubmitted { issue } => {
@@ -365,7 +368,9 @@ fn ensure_live(record: &mut Record, ticket: &SendTicket) -> Result<()> {
 fn retryable(issue: AppError) -> bool {
     !matches!(
         issue,
-        AppError::TranslationOutputInvalid | AppError::TranslationResultUnavailable
+        AppError::TranslationOutputInvalid
+            | AppError::TranslationResultUnavailable
+            | AppError::SendIntentConflict
     )
 }
 
@@ -402,6 +407,8 @@ fn fingerprint(
     let policy = account.translation.policy(&request.chat_id);
     let translate = policy.should_translate_outgoing(&request.text);
     let proxy = serde_json::to_string(&account.proxy).map_err(|_| AppError::SendIntentInvalid)?;
+    let context =
+        serde_json::to_string(&request.context).map_err(|_| AppError::SendIntentInvalid)?;
     let mut digest = Sha256::new();
     let parts: &[&str] = &[
         &account.id,
@@ -411,6 +418,7 @@ fn fingerprint(
         session.unwrap_or_default(),
         &request.chat_id,
         &request.text,
+        &context,
         &proxy,
         if translate { "translation" } else { "identity" },
         if translate { &policy.source } else { "" },

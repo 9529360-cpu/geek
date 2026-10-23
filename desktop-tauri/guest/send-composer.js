@@ -1,22 +1,21 @@
-// The pinned WA-JS model and a plain composer must agree before paid work or send.
+// The pinned WA-JS model, plain source and optional text reply must agree.
 function createSendComposer(changed) {
   const selector = '#main footer [contenteditable="true"], #main [data-testid="conversation-compose-box-input"], '
     + '#main [contenteditable="true"][data-tab="10"]';
-  const contextFields = ['composeQuotedMsg', 'composeQuotedMsgRemoteJid', 'quotedMsgAdminGroupJid', 'attachMediaContents'];
   const allowedTags = new Set(['DIV', 'P', 'SPAN', 'BR']);
   const allowedAttributes = new Set(['class', 'dir', 'style', 'data-lexical-text', 'data-lexical-linebreak']);
   let revision = 1;
   let previous = null;
   let emitter = null;
+  let watchedChat = null;
+  let watchedQuote = null;
   let suppressed = false;
   let disposed = false;
   const normalize = (value) => String(value || '').replace(/\r\n?/g, '\n').replace(/\u200b/g, '').trim();
   const identity = (chat) => typeof chat?.id === 'string' ? chat.id : chat?.id?._serialized || '';
   const visible = (node) => Boolean(node?.isConnected && node.getClientRects().length && !node.hidden);
   const issue = (code = 'SEND_INTENT_UNSUPPORTED') => Object.assign(new Error(code), { code });
-  const empty = (value) => value == null || value === false || value === ''
-    || (Array.isArray(value) && value.length === 0)
-    || (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype && Object.keys(value).length === 0);
+  const context = createSendContext({ normalize, visible, issue });
 
   function advance(reason, trusted = false) {
     if (suppressed || disposed) return;
@@ -24,6 +23,19 @@ function createSendComposer(changed) {
     changed({ reason, trusted, revision });
   }
   const activeChanged = () => advance('chat');
+  const quoteChanged = () => advance('quote');
+  function watchModels(chat, quote) {
+    if (watchedChat !== chat) {
+      for (const field of context.fields) watchedChat?.off?.(`change:${field}`, quoteChanged);
+      watchedChat = typeof chat?.on === 'function' && typeof chat.off === 'function' ? chat : null;
+      for (const field of context.fields) watchedChat?.on(`change:${field}`, quoteChanged);
+    }
+    if (watchedQuote !== quote) {
+      for (const field of ['id', 'body', 'type', 'notifyName', 'senderObj']) watchedQuote?.off?.(`change:${field}`, quoteChanged);
+      watchedQuote = typeof quote?.on === 'function' && typeof quote.off === 'function' ? quote : null;
+      for (const field of ['id', 'body', 'type', 'notifyName', 'senderObj']) watchedQuote?.on(`change:${field}`, quoteChanged);
+    }
+  }
   function watchRuntime() {
     const W = window.WPP;
     if (emitter === W) return;
@@ -39,11 +51,14 @@ function createSendComposer(changed) {
     const editors = [...document.querySelectorAll(selector)].filter(visible);
     const editor = editors.length === 1 ? editors[0] : null;
     const text = editor ? normalize(editor.innerText) : '';
-    return { W, chat, chatId, editor, text, footer: editor?.closest('footer') || null };
+    const quoteState = context.state(chat, W);
+    watchModels(chat, quoteState.model);
+    return { W, chat, chatId, editor, text, quoteState, footer: editor?.closest('footer') || null };
   }
   function synchronize(value) {
     if (previous && (previous.chatId !== value.chatId || previous.chat !== value.chat
-        || previous.editor !== value.editor || previous.text !== value.text)) advance('context');
+        || previous.editor !== value.editor || previous.text !== value.text
+        || !context.sameState(previous.quoteState, value.quoteState))) advance('context');
     previous = value;
     return { ...value, composerRevision: revision };
   }
@@ -60,19 +75,6 @@ function createSendComposer(changed) {
     };
     return visit(editor);
   }
-  function extraContext(footer, editor) {
-    const suspicious = '[contenteditable="false"], img, video, audio, canvas, textarea, '
-      + '[data-testid*="quoted"], [data-testid*="preview"], [data-testid*="forward"], '
-      + '[data-testid*="edit-message"], [data-testid*="media-editor"], [data-mention-jid], [data-mention-id]';
-    if ([...footer.querySelectorAll(suspicious)].some(visible)) return true;
-    // A reply/edit/forward banner with an unfamiliar selector is not plain text.
-    const outsideText = (node) => {
-      if (node === editor || node.nodeType === 1 && (node.matches('button, [role="button"], svg') || !visible(node))) return false;
-      if (node.nodeType === 3) return Boolean(node.textContent.trim());
-      return [...node.childNodes].some(outsideText);
-    };
-    return [...footer.childNodes].some(outsideText);
-  }
   function read() {
     const value = synchronize(raw());
     const { W, chat, chatId, editor, footer, text } = value;
@@ -85,26 +87,24 @@ function createSendComposer(changed) {
         || typeof W.chat?.sendTextMessage !== 'function' || typeof chat.getComposeContents !== 'function') throw issue();
     if (!text || text.length > 10000 || new TextEncoder().encode(text).length > 32768
         || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) throw issue('SEND_INTENT_INVALID');
-    const attributes = chat.attributes || {};
-    for (const key of contextFields) {
-      if (!(key in chat) && !Object.hasOwn(attributes, key)) throw issue();
-      if (!empty(key in chat ? chat[key] : attributes[key])) throw issue();
-    }
     const contents = chat.getComposeContents();
     if (!contents || typeof contents !== 'object' || Array.isArray(contents) || typeof contents.text !== 'string'
         || Object.keys(contents).some((key) => !['text', 'timestamp'].includes(key))
-        || normalize(contents.text) !== text || !plainTree(editor) || extraContext(footer, editor)
+        || normalize(contents.text) !== text || !plainTree(editor)
         || /(^|\s)@[\p{L}\p{N}_]/u.test(text)) throw issue();
-    return value;
+    return { ...value, ...context.read(value) };
   }
   function currentChat() {
     try { return synchronize(raw()).chatId || null; } catch { return null; }
   }
   function matches(record, value) {
     return value.chatId === record.chatId && value.editor === record.editor && value.chat === record.chat
-      && value.text === record.text && value.composerRevision === record.composerRevision;
+      && value.text === record.text && value.composerRevision === record.composerRevision && context.matches(record, value);
   }
   function clear(record) {
+    // Pinned setInputText has no verified quote cleanup contract. A confirmed
+    // reply keeps its entire source and quote; it must never clear only the text.
+    if (record.context?.kind !== 'plain') return false;
     let value;
     try { value = read(); } catch { return false; }
     if (!matches(record, value) || typeof value.W.chat.setInputText !== 'function') return false;
@@ -130,20 +130,22 @@ function createSendComposer(changed) {
   const observer = new MutationObserver((records) => {
     if (!previous?.editor || suppressed) return;
     const editor = previous.editor;
-    if (records.some((record) => editor.contains(record.target)
+    const scope = previous.quoteState.source ? previous.footer : editor;
+    if (records.some((record) => scope?.contains(record.target)
         || [...record.addedNodes || [], ...record.removedNodes || []].some((node) => node === editor || node.contains?.(editor)))) {
       advance('node');
     }
   });
   observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true,
-    attributes: true, attributeFilter: ['contenteditable', 'data-testid', 'data-tab'] });
+    attributes: true, attributeFilter: ['contenteditable', 'data-testid', 'data-tab', 'data-mention-jid',
+      'data-mention-id', 'role', 'hidden', 'aria-label', 'title'] });
   document.addEventListener('beforeinput', input, true);
   document.addEventListener('input', input, true);
   return { selector, read, currentChat, matches, clear,
     get revision() { return revision; },
     rawText: () => { try { return raw().text; } catch { return ''; } },
     dispose() {
-      disposed = true; observer.disconnect(); emitter?.off?.('chat.active_chat', activeChanged);
+      disposed = true; observer.disconnect(); emitter?.off?.('chat.active_chat', activeChanged); watchModels(null, null);
       document.removeEventListener('beforeinput', input, true); document.removeEventListener('input', input, true);
     },
   };

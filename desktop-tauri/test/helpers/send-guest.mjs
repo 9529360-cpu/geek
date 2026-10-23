@@ -144,14 +144,57 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
   const button = new Element('button'); button.setAttribute('data-testid', 'compose-btn-send'); footer.append(button);
   const icon = new Element('span'); icon.setAttribute('data-icon', 'send'); button.append(icon);
   const state = { generation, now: 0, text, chatId: '100@c.us', sent: [], cleared: [], generatedIds: [], handlers: new Map() };
+  class ModelEvents {
+    constructor() { this.handlers = new Map(); }
+    on(name, callback) {
+      const handlers = this.handlers.get(name) || new Set(); handlers.add(callback); this.handlers.set(name, handlers);
+    }
+    off(name, callback) { this.handlers.get(name)?.delete(callback); }
+    field(name, initial) {
+      let value = initial;
+      Object.defineProperty(this, name, { enumerable: true, configurable: true,
+        get: () => value, set: (next) => { if (next === value) return; value = next;
+          for (const callback of this.handlers.get(`change:${name}`) || []) callback(this, next); },
+      });
+    }
+  }
+  const wid = (id) => ({ _serialized: id, toString: () => id });
+  class MsgKey {
+    constructor(serialized) {
+      const [fromMe, remote, id, participant] = serialized.split('_');
+      this.fromMe = fromMe === 'true'; this.remote = wid(remote); this.id = id;
+      this.participant = participant ? wid(participant) : undefined; this._serialized = serialized;
+    }
+    toString() { return this._serialized; }
+    equals(value) { return value instanceof MsgKey && value._serialized === this._serialized; }
+    static fromString(value) {
+      if (!/^(true|false)_[^_]+_[^_]+(?:_[^_]+)?$/.test(value)) throw new Error('Invalid synthetic message key');
+      return new MsgKey(value);
+    }
+  }
+  class ContactModel { constructor(name) { this.name = name; this.displayName = name; } }
+  class MsgModel extends ModelEvents {
+    constructor(key, body, author) {
+      super(); this.field('id', key); this.field('body', body); this.field('type', 'chat');
+      this.field('notifyName', author); this.field('senderObj', new ContactModel(author));
+      this.replyable = true; this.isStatusV3 = false; this.isMedia = false;
+    }
+  }
+  const messages = new Map(); state.messages = messages;
   const chats = new Map();
   const model = (id) => {
-    if (!chats.has(id)) chats.set(id, { id, canSend: true, isGroup: id.endsWith('@g.us'), composeQuotedMsg: null,
-      composeQuotedMsgRemoteJid: null, quotedMsgAdminGroupJid: null, attachMediaContents: null,
-      getComposeContents: () => ({ text: state.text, timestamp: 1 }) });
+    if (!chats.has(id)) {
+      const chat = new ModelEvents();
+      Object.assign(chat, { id, canSend: true, isGroup: id.endsWith('@g.us'),
+        msgs: new Map(), getComposeContents: () => ({ text: state.text, timestamp: 1 }) });
+      for (const name of ['composeQuotedMsg', 'composeQuotedMsgRemoteJid', 'quotedMsgAdminGroupJid', 'attachMediaContents']) chat.field(name, null);
+      chats.set(id, chat);
+    }
     return chats.get(id);
   };
   const WPP = { isInjected: true, isReady: true,
+    whatsapp: { MsgKey, MsgModel, ContactModel, MsgStore: { get: (key) => messages.get(String(key)) },
+      canReplyMsg: (message) => message.replyable === true },
     on: (name, callback) => state.handlers.set(name, callback), off: (name) => state.handlers.delete(name),
     chat: { getActiveChat: () => model(state.chatId),
       sendTextMessage: (...args) => { state.sent.push(args); return state.transport ? state.transport(...args) : Promise.resolve({ id: 'receipt-1', ack: 1 }); },
@@ -191,12 +234,25 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
     const next = new Element('div'); next.setAttribute('contenteditable', 'true'); next.setAttribute('data-testid', 'conversation-compose-box-input');
     next.textContent = state.text; editor.replaceWith(next); editor = next; return editor;
   };
-  const prepare = (request, output = 'Invia 100 unità domani.', translated = true, sessionId = configuration.sessionGeneration) =>
-    copy(api.prepare(generation, sessionId, request.id, request.attempt, output, translated));
+  const prepare = (request, output = 'Invia 100 unità domani.', translated = true,
+    sessionId = configuration.sessionGeneration, context = request.context) =>
+    copy(api.prepare(generation, sessionId, request.id, request.attempt, output, translated, context));
   const commit = (request, permit = randomUUID()) => ({ permit, accepted: api.commit(generation, request.id, request.attempt, permit) });
   const read = (request, permit) => copy(api.read(generation, request.id, request.attempt, permit));
   const deliver = (request, outcome) => api.deliver(generation, request.id, request.attempt, outcome);
   const feedback = () => document.querySelector('#geek-translation-send-progress')?.textContent || '';
+  const reply = ({ body = 'Original order for 100 units.', author = 'Alice', chatId = state.chatId,
+    id = 'QUOTE1', byKey = false, chatStore = false } = {}) => {
+    const message = new MsgModel(new MsgKey(`false_${chatId}_${id}`), body, author);
+    if (chatStore) model(chatId).msgs.set(message.id, message);
+    else messages.set(message.id.toString(), message);
+    const banner = new Element('div'); banner.className = 'reply-banner';
+    const authorNode = new Element('span'); authorNode.setAttribute('dir', 'auto'); authorNode.textContent = author;
+    const bodyNode = new Element('div'); bodyNode.setAttribute('dir', 'auto'); bodyNode.textContent = body;
+    banner.append(authorNode, bodyNode); footer.append(banner);
+    model(state.chatId).composeQuotedMsg = byKey ? message.id : message;
+    return { message, banner, author: authorNode, body: bodyNode };
+  };
   return { api, window, document, main, footer, get editor() { return editor; }, button, icon, state, model, configuration,
-    configure, poll, enter, click, input, switchChat, replaceEditor, prepare, commit, read, deliver, feedback };
+    configure, poll, enter, click, input, switchChat, replaceEditor, prepare, commit, read, deliver, feedback, reply };
 }

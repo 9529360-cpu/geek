@@ -9,7 +9,7 @@ use crate::{
         broadcast::GuestBinding,
         error::{AppError, Result},
         proxy::ProxyConfig,
-        send_intent::{OutgoingSend, SendOutcome, SendState, SendStatus},
+        send_intent::{OutgoingSend, SendContext, SendOutcome, SendState, SendStatus},
         translation::TranslationSettings,
     },
 };
@@ -285,6 +285,7 @@ pub fn fixture(translate: bool) -> (SendView, OutgoingSend) {
         id: Uuid::new_v4().to_string(),
         chat_id: "12025550123@c.us".into(),
         text: "Synthetic source draft".into(),
+        context: SendContext::Plain {},
         composer_revision: 1,
         policy_revision: 1,
         attempt: 1,

@@ -37,7 +37,7 @@ export function createTranslationView(document, actions) {
   for (const id of ['translation-message-to', 'translation-channel-message-to', 'translation-send-to', 'translation-target']) languages(id);
   for (const id of ['translation-message-from', 'translation-send-from']) languages(id, true);
   $('translation-send').closest('.translation-card').querySelector('.translation-card-sub').textContent
-    = '按 Enter 或点击发送后翻译并发送，原文保留至发送确认。仅支持普通文字。';
+    = '按 Enter 或点击发送即可翻译并发送，支持普通文字及可识别的同聊天文字引用；引用发送成功后请手动清除正文与引用。';
   for (const id of ['translation-receive-auto', 'translation-channel-receive-auto']) {
     $(id).closest('.translation-switch-row').querySelector('small').textContent = '仅自动翻译新收到的可见消息；过去消息可点击翻译';
   }

@@ -176,6 +176,7 @@ impl SendPlatform for SendGuest {
                 ticket.request.attempt,
                 text,
                 ticket.translate,
+                ticket.request.context,
             ]),
         )?)
         .map_err(|_| AppError::SendIntentState)?;

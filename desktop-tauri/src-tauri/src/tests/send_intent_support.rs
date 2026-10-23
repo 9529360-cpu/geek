@@ -4,7 +4,7 @@ use crate::{
         account::Account,
         broadcast::GuestBinding,
         proxy::ProxyConfig,
-        send_intent::{OutgoingSend, SendOutcome},
+        send_intent::{OutgoingSend, SendContext, SendOutcome},
         translation::TranslationSettings,
     },
 };
@@ -37,6 +37,7 @@ pub fn fixture(translate: bool) -> (Account, GuestBinding, Option<String>, Outgo
         id: Uuid::new_v4().to_string(),
         chat_id: "12025550123@c.us".into(),
         text: "A synthetic draft".into(),
+        context: SendContext::Plain {},
         composer_revision: 3,
         policy_revision: 1,
         attempt: 1,

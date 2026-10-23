@@ -49,6 +49,10 @@ function composerChanged(change) {
 }
 function releaseSettled(record) {
   const attempt = record.current;
+  if (attempt.submitted && !attempt.awaitingDelivery && attempt.stage === 'terminal') {
+    attempt.quoteModel = null; attempt.quoteRegion = null; attempt.quoteNodes = [];
+    attempt.quoteBody = ''; attempt.quoteAuthor = '';
+  }
   if (!record.released || !attempt.submitted || attempt.awaitingDelivery || attempt.stage !== 'terminal') return;
   // Retain the bounded ID/attempt/permit receipt tombstone, not old message DOM.
   record.text = ''; record.output = null; attempt.prepared = null;
@@ -86,13 +90,15 @@ function present(record) {
 }
 function requestOf(record) {
   return { id: record.id, chatId: record.chatId, text: record.text,
+    context: { ...record.context },
     composerRevision: record.current.composerRevision, policyRevision: record.current.policyRevision,
     attempt: record.current.number };
 }
 function retainedCandidate(value, semantics) {
   return [...sendRecords.values()].reverse().find((record) => record.chatId === value.chatId
     && record.text === value.text && record.sessionGeneration === sendConfiguration.sessionGeneration
-    && record.semantics === semantics && !record.released && !record.current.submitted);
+    && record.semantics === semantics && sameSendContext(record.context, value.context)
+    && !record.released && !record.current.submitted);
 }
 function startSubmission() {
   let value;
@@ -114,19 +120,23 @@ function startSubmission() {
   const semantics = sendSemantics(sendPolicy(value.chatId), value.text);
   let record = retainedCandidate(value, semantics);
   if (record && (!record.current.outcome?.retryable || record.qualityRejected)) { present(record); return; }
-  const bytes = [...sendRecords.values()].reduce((sum, item) => sum + 2 * (item.text.length + (item.output?.length || 0)), 0);
+  const bytes = [...sendRecords.values()].reduce((sum, item) => sum
+    + 2 * (item.text.length + (item.output?.length || 0) + (item.current.quoteBody?.length || 0)), 0);
   const reserve = 2 * (10000 - (record?.output?.length || 0));
-  if ((!record && sendRecords.size >= SEND_LIMIT) || bytes + (record ? 0 : value.text.length * 2) + reserve > SEND_BYTES) {
+  const quoteBytes = 2 * ((value.quoteBody?.length || 0) - (record?.current.quoteBody?.length || 0));
+  if ((!record && sendRecords.size >= SEND_LIMIT) || bytes + (record ? 0 : value.text.length * 2) + quoteBytes + reserve > SEND_BYTES) {
     sendView.outcome(failedOutcome('SEND_INTENT_LIMIT', false)); return;
   }
   if (!record) {
-    record = { id: crypto.randomUUID(), chatId: value.chatId, text: value.text, semantics,
+    record = { id: crypto.randomUUID(), chatId: value.chatId, text: value.text, semantics, context: value.context,
       sessionGeneration: sendConfiguration.sessionGeneration, current: { number: 0 }, released: false };
     sendRecords.set(record.id, record);
   }
   const number = record.current.number + 1;
   if (number > 10000) { sendView.outcome(failedOutcome('SEND_INTENT_LIMIT', false)); return; }
   record.current = { number, stage: 'pending', editor: value.editor, chat: value.chat,
+    quoteModel: value.quoteModel, quoteRegion: value.quoteRegion, quoteNodes: value.quoteNodes,
+    quoteBody: value.quoteBody, quoteAuthor: value.quoteAuthor,
     composerRevision: value.composerRevision, policyRevision: sendConfiguration.settings.revision,
     started: performance.now(), submitted: false, prepared: null, outcome: null, mailbox: null };
   foreground = record; present(record);
@@ -201,10 +211,13 @@ const sendApi = Object.freeze({
     if (issue) { failAttempt(foreground, issue); return { chatId, request: null }; }
     return { chatId, request: requestOf(foreground) };
   },
-  prepare(generation, sessionGeneration, id, attempt, text, translated) {
+  prepare(generation, sessionGeneration, id, attempt, text, translated, expectedContext) {
     const record = findAttempt(id, attempt);
     if (generation !== sendBinding || !record || record.sessionGeneration !== sessionGeneration
         || typeof text !== 'string' || typeof translated !== 'boolean') return { ok: false, code: 'SEND_INTENT_CHANGED' };
+    if (!sameSendContext(record.context, expectedContext)) {
+      failAttempt(record, 'SEND_INTENT_CHANGED'); return { ok: false, code: 'SEND_INTENT_CHANGED' };
+    }
     const issue = validAttempt(record);
     if (issue) { failAttempt(record, issue); return { ok: false, code: issue }; }
     const policy = sendPolicy(record.chatId);
@@ -231,8 +244,10 @@ const sendApi = Object.freeze({
     present(record);
     let result;
     try {
+      const options = { waitForAck: true, detectMentioned: false, linkPreview: false };
+      if (record.context.kind === 'reply') options.quotedMsg = flight.quoteModel;
       result = window.WPP.chat.sendTextMessage(record.chatId, flight.prepared,
-        { waitForAck: true, detectMentioned: false, linkPreview: false });
+        options);
     } catch { uncertain(record); return true; }
     Promise.resolve(result).then((value) => {
       if (record.current !== flight || flight.cancelled || sendRevoked) return;
@@ -242,7 +257,7 @@ const sendApi = Object.freeze({
         uncertain(record, 'SEND_INTENT_RECEIPT_MISSING'); return;
       }
       flight.stage = 'terminal';
-      const draftCleared = sendActive() && record.sessionGeneration === sendConfiguration.sessionGeneration
+      const draftCleared = record.context.kind === 'plain' && sendActive() && record.sessionGeneration === sendConfiguration.sessionGeneration
         && sendComposer.clear({ ...record, ...flight });
       if (draftCleared) record.released = true;
       flight.mailbox = { pending: false, value: { status: 'confirmed', receipt, draftCleared } };
@@ -270,7 +285,8 @@ const sendApi = Object.freeze({
     if (outcome.status === 'confirmed' && (!flight.submitted || typeof outcome.receipt !== 'string' || !outcome.receipt)) return false;
     flight.outcome = { status: outcome.status, code: typeof outcome.code === 'string' ? outcome.code : undefined,
       receipt: typeof outcome.receipt === 'string' ? outcome.receipt : undefined,
-      draftCleared: outcome.draftCleared === true, retryable: outcome.status === 'notSubmitted' && outcome.retryable && !record.qualityRejected };
+      draftCleared: record.context.kind === 'plain' && outcome.draftCleared === true,
+      retryable: outcome.status === 'notSubmitted' && outcome.retryable && !record.qualityRejected };
     flight.stage = outcome.status === 'notSubmitted' ? 'failed' : 'terminal';
     flight.awaitingDelivery = false;
     record.sticky ||= outcome.status !== 'notSubmitted';

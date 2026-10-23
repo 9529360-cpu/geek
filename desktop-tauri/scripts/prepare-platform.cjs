@@ -48,6 +48,7 @@ function composeSend(root = ROOT) {
     'if (window !== window.top || window.__geekTauriSend) return;',
     'const module = { exports: {} };', read('src/translation-output-safety.cjs'),
     'const assessOutput = module.exports.assessTranslationOutput;',
+    read('desktop-tauri/guest/send-context.js'),
     read('desktop-tauri/guest/send-composer.js'),
     read('desktop-tauri/guest/send-view.js'),
     read('desktop-tauri/guest/send.js'), '})();', ''].join('\n');
@@ -76,7 +77,8 @@ function prepare(output, root = ROOT) {
     'ui/platform-transport-definitions.js', 'ui/broadcast-safety.js',
     'desktop-tauri/guest/whatsapp.js', 'desktop-tauri/guest/bridge.js',
     'src/translation-output-safety.cjs', 'desktop-tauri/guest/translation.js',
-    'desktop-tauri/guest/send-composer.js', 'desktop-tauri/guest/send-view.js', 'desktop-tauri/guest/send.js'];
+    'desktop-tauri/guest/send-context.js', 'desktop-tauri/guest/send-composer.js',
+    'desktop-tauri/guest/send-view.js', 'desktop-tauri/guest/send.js'];
   const hash = (data) => crypto.createHash('sha256').update(data).digest('hex');
   const provenance = { waJsVersion: actual.version, waJsIntegrity: expected.integrity,
     bundleSha256: hash(bundle), inputs: Object.fromEntries(inputs.map((name) =>

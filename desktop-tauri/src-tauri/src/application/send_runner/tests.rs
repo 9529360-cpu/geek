@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::send_intent::{SendOutcome, SendState};
+use crate::domain::send_intent::{SendContext, SendOutcome, SendState};
 
 mod support;
 use support::*;
@@ -72,6 +72,61 @@ fn editing_the_composer_while_translation_is_blocked_prevents_prepare_and_commit
 }
 
 #[test]
+fn changing_reply_context_without_a_new_attempt_revokes_the_frozen_worker_before_commit() {
+    let mut h = Harness::new();
+    let (view, mut request) = fixture(true);
+    request.context = SendContext::Reply {
+        message_id: format!("false_{}_3EB001", request.chat_id),
+        chat_id: request.chat_id.clone(),
+    };
+    let blocked = Block::new();
+    h.transform.steps.lock().unwrap().push_back(Step::Block(
+        Arc::clone(&blocked.0),
+        Ok("Late paid output".into()),
+    ));
+    h.platform.select(view, request.clone());
+    h.poll();
+    h.start();
+    blocked.0.entered();
+    h.platform
+        .state
+        .lock()
+        .unwrap()
+        .request
+        .as_mut()
+        .unwrap()
+        .context = SendContext::Reply {
+        message_id: format!("false_{}_3EB002", request.chat_id),
+        chat_id: request.chat_id.clone(),
+    };
+    assert_eq!(
+        h.service.poll(&mut h.runner),
+        Err(AppError::SendIntentConflict)
+    );
+    // The production start loop suspends after poll errors. It must not replace
+    // the conflict with a retryable cancellation or free a still-running worker.
+    h.service.suspend(&mut h.runner);
+    assert!(h.runner.flight.is_some());
+    assert!(h.runner.queued.is_none());
+    assert!(!h.status(&request.id).retryable);
+    assert_eq!(
+        h.status(&request.id).issue,
+        Some(AppError::SendIntentConflict)
+    );
+    blocked.0.release();
+    h.finish();
+    let status = h.status(&request.id);
+    assert_eq!(status.state, SendState::Failed);
+    assert_eq!(status.issue, Some(AppError::SendIntentConflict));
+    assert!(!status.retryable);
+    assert!(h.runner.flight.is_none());
+    let state = h.platform.state.lock().unwrap();
+    assert!(state.prepared.is_empty());
+    assert!(state.commits.is_empty());
+    assert_eq!(h.transform.executions.load(Ordering::Acquire), 1);
+}
+
+#[test]
 fn cancellation_after_prepare_cannot_cross_the_commit_gate() {
     let mut h = Harness::new();
     let (view, request) = fixture(true);
@@ -90,9 +145,13 @@ fn cancellation_after_prepare_cannot_cross_the_commit_gate() {
 }
 
 #[test]
-fn explicit_prepare_failure_recovers_the_same_paid_output_without_another_transform() {
+fn explicit_reply_prepare_failure_recovers_the_same_paid_output_without_another_transform() {
     let mut h = Harness::new();
     let (view, mut request) = fixture(true);
+    request.context = SendContext::Reply {
+        message_id: format!("false_{}_3EB001", request.chat_id),
+        chat_id: request.chat_id.clone(),
+    };
     h.transform
         .steps
         .lock()
@@ -109,6 +168,7 @@ fn explicit_prepare_failure_recovers_the_same_paid_output_without_another_transf
     request.attempt += 1;
     request.composer_revision += 1;
     assert_eq!(h.run(view, request.clone()), SendState::Confirmed);
+    assert_eq!(h.status(&request.id).draft_cleared, Some(false));
     assert_eq!(h.transform.executions.load(Ordering::Acquire), 1);
     let state = h.platform.state.lock().unwrap();
     assert_eq!(state.prepared.len(), 2);

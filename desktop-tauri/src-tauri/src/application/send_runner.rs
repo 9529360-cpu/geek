@@ -168,12 +168,22 @@ impl SendRunner {
         if frame.chat_id.as_deref() != Some(request.chat_id.as_str()) {
             return Err(AppError::SendIntentChanged);
         }
-        if runner.queued.as_ref().is_some_and(|ticket| {
-            ticket.request.id == request.id && ticket.request.attempt == request.attempt
-        }) || runner.flight.as_ref().is_some_and(|flight| {
-            flight.ticket.request.id == request.id
-                && flight.ticket.request.attempt == request.attempt
-        }) {
+        let observed = runner
+            .queued
+            .as_deref()
+            .into_iter()
+            .chain(runner.flight.as_ref().map(|flight| flight.ticket.as_ref()))
+            .find(|ticket| {
+                ticket.request.id == request.id && ticket.request.attempt == request.attempt
+            });
+        if let Some(ticket) = observed {
+            if ticket.request != request {
+                ticket.control.cancel();
+                self.fail(ticket, AppError::SendIntentConflict);
+                self.platform
+                    .cancel(&ticket.binding, &ticket.request.id, ticket.request.attempt);
+                return Err(AppError::SendIntentConflict);
+            }
             return Ok(());
         }
         let admission = self

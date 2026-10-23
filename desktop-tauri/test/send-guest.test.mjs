@@ -48,7 +48,7 @@ test('held Enter is always blocked while pending or uncertain and button padding
   assert.equal(accessible.click({ target: accessible.button }).defaultPrevented, true); assert.ok(accessible.poll().request);
   const outside = guest(); outside.document.body.append(outside.button);
   assert.equal(outside.click().defaultPrevented, true); assert.equal(outside.poll().request, null);
-  assert.match(outside.feedback(), /仅支持普通文字/);
+  assert.match(outside.feedback(), /仅支持普通文字及可识别的同聊天文字引用/);
 });
 
 test('ACK and read preserve the old heartbeat until native delivery even when a new draft is submitted', async () => {
@@ -82,7 +82,7 @@ test('plain text requires both a safe model and matching positive DOM context be
     const ui = guest(); mutate(ui); await tick();
     assert.equal(ui.enter().defaultPrevented, true); assert.equal(ui.poll().request, null);
     assert.equal(ui.state.sent.length, 0); assert.equal(ui.state.cleared.length, 0);
-    assert.match(ui.feedback(), /仅支持普通文字/);
+    assert.match(ui.feedback(), /仅支持普通文字及可识别的同聊天文字引用/);
   }
   const mentionText = guest({ text: 'Hello @Alice' }); mentionText.enter(); assert.equal(mentionText.poll().request, null);
   const email = guest({ text: 'Contact help@example.com tomorrow.' }); assert.ok(start(email));

@@ -17,6 +17,7 @@ mod policy;
 mod presentation;
 mod proxy;
 mod recovery;
+mod send_context;
 mod send_intent_execution;
 mod send_intent_policy;
 mod send_intent_recovery;

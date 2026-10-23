@@ -15,7 +15,7 @@ function createSendView() {
     TRANSLATION_TIMEOUT: '翻译结果待确认，按 Enter 查询同一次结果',
     NETWORK_UNAVAILABLE: '翻译结果待确认，按 Enter 查询同一次结果',
     NETWORK_RESPONSE_INVALID: '翻译服务返回异常，原文未发送',
-    SEND_INTENT_UNSUPPORTED: '仅支持普通文字，请取消回复、提及或附件',
+    SEND_INTENT_UNSUPPORTED: '仅支持普通文字及可识别的同聊天文字引用，请取消不支持的内容',
     SEND_INTENT_CHANGED: '聊天或草稿已变化，未发送',
     SEND_INTENT_BUSY: '上一条消息正在处理，请稍候',
     SEND_INTENT_LIMIT: '当前页面发送记录已满，请重新打开此账号页面',

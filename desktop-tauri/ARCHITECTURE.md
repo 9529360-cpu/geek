@@ -188,7 +188,7 @@ the same immutable account route; global login and explicit quota refresh use Sy
 ## 6. Feature boundaries for subsequent implementation
 
 The table describes ownership constraints. Implemented WhatsApp broadcast, auth,
-incoming translation and plain-text SendIntent subsets are specified below; remaining entries guide subsequent work.
+incoming translation and text/reply SendIntent subsets are specified below; remaining entries guide subsequent work.
 Introduce each owner only with a working caller, tests and an integration path.
 
 | Feature owner | Inputs/state and commit rule |
@@ -365,8 +365,8 @@ No extra handwritten unsafe or general-purpose network/URL IPC is introduced.
 Session/context commands share the native authorization/blocking boundary but use their
 own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
 The original UI provides login, quota, account/chat translation settings, incoming
-display and the plain-text outgoing path specified below. Rich-context sending,
-Telegram translation, registration/purchase and bulk history remain explicitly unavailable
+display and the plain-text/same-chat text-reply outgoing paths specified below. Mentions,
+media replies, attachments, Telegram translation, registration/purchase and bulk history remain explicitly unavailable
 until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
 that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
@@ -374,7 +374,7 @@ that a malicious remote service reports truthful receipts, nor an exactly-once s
 ## Interactive SendIntent ownership
 
 `application/send_intent` owns each UUID, native account/document/session binding,
-chat, source, composer revision, frozen effective policy and attempt nonce. Its in-memory
+chat, source, typed plain/reply context, composer revision, frozen effective policy and attempt nonce. Its in-memory
 history retains at most 20000 records; output plus reserved output is bounded to 2 MiB.
 Confirmed and uncertain tombstones are never evicted to authorize replay. An explicit
 next attempt after definite precommit failure can rebind the current composer revision
@@ -383,12 +383,14 @@ Attempt numbers describe trusted page gestures, not native poll counts: the firs
 observed attempt may exceed one, and cancelled local attempts may be skipped before a
 later strictly increasing retry is observed. This never reopens an active or committed
 record; account/document/session, fingerprint and composer checks still apply.
-Appearance-only revisions do not change billing identity; source, effective translation
+Appearance-only revisions do not change billing identity; source, quote identity, effective translation
 parameters, route or login generation changes do. The history is not durable across restart.
 
 `application/send_runner` owns one actual worker and at most one waiting ticket, separate
 from incoming work. Cancellation keeps the actual slot occupied until the thread exits;
-an old flight cannot cancel a newer queued attempt. The complete ticket has a 50-second
+an old flight cannot cancel a newer queued attempt. Repeated IDs/attempts must still match
+the complete frozen request; a changed context cancels the corresponding old ticket.
+The complete ticket has a 50-second
 monotonic budget, with a shared-cancellation translation sub-budget capped at 35 seconds.
 Session and native presentation leases are attached before work. Hiding a guest revokes
 interactive work immediately without changing its identity or background broadcast lease.
@@ -414,19 +416,31 @@ enabling Tauri's tracing feature requires rechecking that property. A hidden-the
 guest receives a fresh lease, and deactivation cannot revive an earlier attempt.
 
 The guest requires the pinned WA-JS active chat model and plain composer DOM to agree.
-Reply/quote, mentions/entities, attachments/captions, edits/forwards, previews and unknown
-rich contexts fail before paid work and again before commit. Before one explicit-target
-`sendTextMessage` call, the chat, source, model/node identity, revision, session and policy
-must still match. Implicit mentions and link previews are disabled. A consumed permit
+A reply additionally requires a loaded, replyable same-chat text MsgModel and canonical
+MsgKey, plus visible footer quote text exactly matching that model. Any author label must
+match a known model name. No remote message fetch, quote-payload reconstruction or guessed
+quote selector establishes authority. Media/truncated/unknown quote shapes, mentions/entities,
+attachments/captions, edits/forwards and previews fail before paid work and again before commit.
+Every request has a mandatory strict `plain` or `reply` context. Native code receives only
+the quote message/chat IDs and includes them in the fingerprint; quoted body, author and raw
+model never enter the transform. Prepare must match this frozen context. Quote model and
+footer changes advance composer revision, including a quote A-to-B-to-A change.
+Before one explicit-target `sendTextMessage` call, the chat, source, model/node identity,
+quote, revision, session and policy must still match. Replies pass the frozen real MsgModel
+as `quotedMsg`. Implicit mentions and link previews are disabled. A consumed permit
 cannot be replayed, and the submitted attempt stays in the poll heartbeat until native
 settlement so receipt waits cannot be mistaken for abandoned work.
 
 Only a real message ID and ACK >= 1 confirm delivery. Callback loss after dispatch is
 uncertain, never an instruction to submit again. The source draft remains until ACK;
-cleanup checks the original chat/model/node/source/revision and uses the pinned no-chatId
+plain-text cleanup checks the original chat/model/node/source/revision and uses the pinned no-chatId
 `setInputText('')` path, whose mutation occurs before its first Promise suspension. A newer
 draft is retained, and cleanup failure cannot downgrade a confirmed send into retryable
-failure. Native cancellation targets the held original WebView even after generation
+failure. Reply ACK always preserves the complete body and quote with `draftCleared: false`
+and the existing explicit retained-draft feedback. There is no reviewed synchronous atomic
+quote-clear operation; clearing text alone would leave an old quote for the next message.
+The submitted-draft guard remains keyed to chat/body, so changing only the quote cannot
+authorize a duplicate. Native cancellation targets the held original WebView even after generation
 revocation. Browser/Rust synthetic tests and Windows builds do not prove authenticated
 WhatsApp or paid-service acceptance.
 
