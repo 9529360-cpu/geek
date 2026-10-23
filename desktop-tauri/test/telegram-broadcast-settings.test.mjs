@@ -140,3 +140,58 @@ test('adding K attachments never truncates a long draft and removing them restor
   assert.equal(request.message, message);
   assert.deepEqual(request.attachmentIds, []);
 });
+
+test('correcting a local K caption error restores draft feedback and permits the original submission flow', async (t) => {
+  const files = [attachment()];
+  const ui = await fixture({ state: kState, accountCatalogs: { k: {
+    ...kCatalog, capabilities: { ...kCatalog.capabilities, attachments: true },
+  } }, before: (name, accountId) => name === 'pick' ? { accountId, attachments: files } : undefined });
+  t.after(() => ui.controller.dispose());
+  await ui.open(); await ui.input('broadcast-message', 'a'.repeat(1025));
+  await ui.input('broadcast-add-file', true, 'change'); await ui.select('tg:123');
+  for (let index = 0; index < 3; index++) await ui.click('broadcast-workbench-next');
+  await ui.click('broadcast-send');
+  assert.match(ui.get('broadcast-workbench-status').textContent, /1024/);
+  assert.equal(ui.calls.some(([name]) => name === 'create'), false);
+
+  await ui.input('broadcast-message', 'Hello %nc');
+  assert.doesNotMatch(ui.get('broadcast-workbench-status').textContent, /1024/);
+  assert.equal(ui.get('broadcast-workbench-status').dataset.state, 'ready');
+  assert.equal(ui.get('broadcast-launch-check').dataset.state, 'ready');
+  for (let index = 0; index < 3; index++) await ui.click('broadcast-workbench-next');
+  assert.match(ui.get('broadcast-review-card').textContent, /Hello Alice/);
+  await ui.click('broadcast-send');
+  const requests = ui.calls.filter(([name]) => name === 'create');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0][1].message, 'Hello %nc');
+  assert.deepEqual(requests[0][1].attachmentIds, [files[0].id]);
+  assert.equal(ui.backend.jobs.length, 1);
+});
+
+test('native create errors survive draft edits and audience updates without changing the retry UUID', async (t) => {
+  for (const code of ['BROADCAST_TELEGRAM_CAPTION_LIMIT', 'BROADCAST_PERSISTENCE', 'BROADCAST_UNKNOWN']) {
+    const ui = await fixture({ state: kState, accountCatalogs: { k: { ...kCatalog, chats: [kCatalog.chats[0]] } },
+      before: (name) => { if (name === 'create') throw code; } });
+    try {
+      await ui.open(); await ui.input('broadcast-message', 'Hello %nc'); await ui.select('tg:123');
+      for (let index = 0; index < 3; index++) await ui.click('broadcast-workbench-next');
+      await ui.click('broadcast-send');
+      const feedback = ui.get('broadcast-workbench-status').textContent;
+      assert.equal(ui.get('broadcast-workbench-status').dataset.state, 'error', code);
+      await ui.input('broadcast-message', 'Changed %nc');
+      assert.equal(ui.get('broadcast-workbench-status').textContent, feedback, code);
+      await ui.input('broadcast-message', 'Hello %nc');
+      const exclude = [...ui.document.querySelectorAll('input')].find((node) => node.value === 'exclude-contacts');
+      exclude.checked = true; await ui.fire(exclude, 'change');
+      await ui.click('broadcast-update-exclude-contact');
+      assert.equal(ui.get('broadcast-workbench-status').textContent, feedback, code);
+      assert.equal(ui.get('broadcast-workbench-status').dataset.state, 'error', code);
+      for (let index = 0; index < 3; index++) await ui.click('broadcast-workbench-next');
+      await ui.click('broadcast-send');
+      const requests = ui.calls.filter(([name]) => name === 'create');
+      assert.equal(requests.length, 2, code);
+      assert.equal(requests[0][1].id, requests[1][1].id, code);
+      assert.equal(ui.backend.jobs.length, 0, code);
+    } finally { ui.controller.dispose(); }
+  }
+});

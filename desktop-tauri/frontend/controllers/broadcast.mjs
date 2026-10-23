@@ -52,10 +52,11 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     pendingOperation.finally(() => operations.delete(pendingOperation)).catch(() => {});
     return pendingOperation;
   }
-  const report = (error) => {
+  const report = (error, localDraft = false) => {
     if (disposed) return;
     const code = errorCode(error);
-    lastStatus = { text: errorMessage(error), state: 'error', retry: !/ATTACHMENT|FILE|IMPORT|EXPORT/.test(code) && /CATALOG|READY|UNAVAILABLE/.test(code) };
+    lastStatus = { text: errorMessage(error), state: 'error', localDraft,
+      retry: !/ATTACHMENT|FILE|IMPORT|EXPORT/.test(code) && /CATALOG|READY|UNAVAILABLE/.test(code) };
     editor?.status(lastStatus.text, lastStatus.state, lastStatus.retry);
   };
   const owner = () => shell?.accounts.find((account) => account.id === editorOwner);
@@ -275,11 +276,14 @@ export function createBroadcastController({ document, window, api, getShellSnaps
       || !apiAvailable || panel !== 'broadcast-overlay') return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
+    let checkingDraft = false;
     try {
       if (mismatch() || !owner() || owner().archived) throw 'BROADCAST_ACCOUNT_CHANGED';
       const draft = editor.read();
       if (continueEditing && !draft.scheduleEnabled) throw 'BROADCAST_SCHEDULE_INVALID';
+      checkingDraft = true;
       const payload = draftPayload(draft, catalog);
+      checkingDraft = false;
       submission = submissionFor(payload, submission, () => (window.crypto || globalThis.crypto)?.randomUUID());
       const current = activeJob(accountId);
       if (!payload.scheduledAt && current && current.id !== submission.id) throw 'BROADCAST_ACCOUNT_BUSY';
@@ -307,7 +311,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
       jobsView.feedback();
     } catch (error) {
       if (!disposed) {
-        report(error); stash();
+        report(error, checkingDraft); stash();
         if (panel === 'broadcast-overlay' && !creating) editor.focusError(errorCode(error));
       }
     } finally {
@@ -375,7 +379,17 @@ export function createBroadcastController({ document, window, api, getShellSnaps
 
   editor = createBroadcastEditor({ document,
     onChange: (reason) => {
-      if (reason === 'audience-updated') lastStatus = { text: '发送对象已更新，排除项已保留', state: 'ready', retry: false };
+      // Only a synchronous draft validation error follows edits. A native create
+      // failure may use the same code and must retain its operation feedback.
+      if (lastStatus.localDraft) {
+        try {
+          draftPayload(editor.read(), catalog);
+          lastStatus = { text: '草稿已更新', state: 'ready', retry: false };
+        } catch (error) { report(error, true); }
+      }
+      if (reason === 'audience-updated' && lastStatus.state !== 'error') {
+        lastStatus = { text: '发送对象已更新，排除项已保留', state: 'ready', retry: false };
+      }
       stash(); refreshEditor();
     },
     onSubmit: (continued) => track(submit(continued)), onClose: () => track(closePanel().catch(report)),
