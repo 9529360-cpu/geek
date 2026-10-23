@@ -1,8 +1,5 @@
 use crate::domain::{
-    account::Account,
-    document::Document,
-    error::Result,
-    navigation::NavigationPolicy,
+    account::Account, document::Document, error::Result, navigation::NavigationPolicy,
     presentation::Viewport,
 };
 

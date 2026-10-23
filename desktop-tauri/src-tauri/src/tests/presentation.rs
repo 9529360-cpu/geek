@@ -77,7 +77,10 @@ fn window_controls_keep_a_closed_typed_allowlist_without_account_arguments() {
         ("drag", WindowAction::Drag),
     ] {
         let json = serde_json::to_string(wire).unwrap();
-        assert_eq!(serde_json::from_str::<WindowAction>(&json).unwrap(), expected);
+        assert_eq!(
+            serde_json::from_str::<WindowAction>(&json).unwrap(),
+            expected
+        );
     }
     for wire in [
         r#""execute""#,
