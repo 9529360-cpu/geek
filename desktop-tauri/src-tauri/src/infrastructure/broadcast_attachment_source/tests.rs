@@ -21,6 +21,65 @@ fn source(file: AttachmentFile) -> BroadcastAttachmentSource {
 }
 
 #[test]
+fn telegram_classifies_supported_media_and_keeps_original_document_bytes_and_identity() {
+    let root = tempfile::tempdir().unwrap();
+    for (name, mime, kind) in [
+        ("photo.JPG", "image/jpeg", AttachmentKind::Image),
+        ("photo.png", "image/png", AttachmentKind::Image),
+        ("clip.mp4", "video/mp4", AttachmentKind::Video),
+        ("animation.gif", "image/gif", AttachmentKind::Document),
+        ("picture.webp", "image/webp", AttachmentKind::Document),
+        ("sound.mp3", "audio/mpeg", AttachmentKind::Document),
+        ("notes.txt", "text/plain", AttachmentKind::Document),
+        (
+            "opaque.bin",
+            "application/octet-stream",
+            AttachmentKind::Document,
+        ),
+    ] {
+        let path = root.path().join(name);
+        let bytes = format!("Synthetic original file: {name}").into_bytes();
+        fs::write(&path, &bytes).unwrap();
+        let selected = TelegramAttachmentIo
+            .inspect(&path, false, &|| Ok(()))
+            .unwrap();
+        assert_eq!(selected.kind, kind);
+        assert_eq!(selected.name, name);
+        assert_eq!(selected.mime, mime);
+        assert_eq!(selected.sha256, format!("{:x}", Sha256::digest(&bytes)));
+        let selected = source(selected);
+        let mut reader = TelegramAttachmentIo
+            .open_verified(&selected, &|| Ok(()))
+            .unwrap();
+        assert_eq!(&reader.next_chunk(&|| Ok(())).unwrap().unwrap()[..], &bytes);
+        assert!(reader.next_chunk(&|| Ok(())).unwrap().is_none());
+        drop(reader);
+        assert_eq!(
+            TelegramAttachmentIo
+                .inspect(&path, true, &|| Ok(()))
+                .unwrap()
+                .kind,
+            AttachmentKind::Document
+        );
+        assert!(matches!(
+            TelegramAttachmentIo.open_verified(&selected, &|| Err(AppError::BroadcastUnavailable)),
+            Err(AppError::BroadcastUnavailable)
+        ));
+        fs::write(&path, b"Substituted file").unwrap();
+        assert!(matches!(
+            TelegramAttachmentIo.open_verified(&selected, &|| Ok(())),
+            Err(AppError::BroadcastAttachmentChanged)
+        ));
+    }
+    let empty = root.path().join("empty.txt");
+    fs::write(&empty, b"").unwrap();
+    assert!(matches!(
+        TelegramAttachmentIo.inspect(&empty, false, &|| Ok(())),
+        Err(AppError::BroadcastAttachmentInvalid)
+    ));
+}
+
+#[test]
 fn inspection_freezes_the_real_file_and_verified_reads_are_bounded_chunks() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("synthetic.png");

@@ -72,6 +72,10 @@ function createTelegramSendRuntime() {
     return typeof text === 'string' && text.trim().length > 0 && text.length <= limit
       && new TextEncoder().encode(text).length <= 32768 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text);
   }
+  function captionValid(text, limit = 1024) {
+    return typeof text === 'string' && text.length <= limit
+      && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text);
+  }
   async function wait(operation, snapshot, valid, deadline) {
     check(snapshot, valid);
     const settled = Promise.resolve().then(operation).then((value) => ({ value }), () => ({ failed: true }));
@@ -91,22 +95,36 @@ function createTelegramSendRuntime() {
       }
     }
   }
-  async function verify(snapshot, id, text, valid, deadline = performance.now() + 12000) {
+  async function verify(snapshot, id, text, valid, deadline = performance.now() + 12000, kinds = null) {
     check(snapshot, valid);
     readPeer(snapshot, id);
     const managers = snapshot.managers;
     const call = (operation) => wait(operation, snapshot, valid, deadline);
-    const config = await call(() => managers.apiManager.getConfig());
+    const rights = { image: 'send_photos', video: 'send_videos', document: 'send_docs' };
+    if (kinds !== null) {
+      if (!Array.isArray(kinds) || !kinds.length || kinds.length > 3 || kinds.some((kind) => !Object.hasOwn(rights, kind))) {
+        throw issue('CAPABILITY_UNAVAILABLE');
+      }
+      const limit = await call(() => managers.apiManager.getLimit('caption'));
+      if (!Number.isSafeInteger(limit) || limit < 1 || !captionValid(text, Math.min(1024, limit))) {
+        throw issue('CAPABILITY_UNAVAILABLE');
+      }
+    } else {
+      const config = await call(() => managers.apiManager.getConfig());
+      if (!Number.isInteger(config?.message_length_max) || config.message_length_max < 1
+          || !textValid(text, Math.min(4096, config.message_length_max))) throw issue('CAPABILITY_UNAVAILABLE');
+    }
     check(snapshot, valid);
-    if (!Number.isInteger(config?.message_length_max) || config.message_length_max < 1
-        || !textValid(text, Math.min(4096, config.message_length_max))) throw issue('CAPABILITY_UNAVAILABLE');
     const migrated = await call(() => managers.appPeersManager.getPeerMigratedTo(id));
     check(snapshot, valid);
     if (migrated) throw issue('TARGET_CHANGED');
     if (await call(() => managers.appPeersManager.isBotforum(id)) !== false) throw issue('CAPABILITY_UNAVAILABLE');
     check(snapshot, valid);
-    if (await call(() => managers.appMessagesManager.canSendToPeer(id, undefined, 'send_plain')) !== true) {
-      throw issue('CAPABILITY_UNAVAILABLE');
+    for (const action of kinds === null ? ['send_plain'] : [...new Set(kinds.map((kind) => rights[kind]))]) {
+      if (await call(() => managers.appMessagesManager.canSendToPeer(id, undefined, action)) !== true) {
+        throw issue('CAPABILITY_UNAVAILABLE');
+      }
+      check(snapshot, valid);
     }
     check(snapshot, valid);
     if (id > 0) {
@@ -143,6 +161,19 @@ function createTelegramSendRuntime() {
       throw notSubmittedErrors.has(error) ? error : issue('RUNTIME_FAILED');
     }
   }
+  async function prepareAttachments(chatId, text, kinds, valid = () => true) {
+    try {
+      const id = peerNumber(chatId);
+      if (id === null || !captionValid(text)) throw issue('CAPABILITY_UNAVAILABLE');
+      const snapshot = capture();
+      await verify(snapshot, id, text, valid, performance.now() + 12000, kinds);
+      return { snapshot, id, text };
+    } catch (error) {
+      throw notSubmittedErrors.has(error) ? error : issue('RUNTIME_FAILED');
+    }
+  }
+  const verifyAttachment = (prepared, kind, text, valid, deadline) =>
+    verify(prepared.snapshot, prepared.id, text, valid, deadline, [kind]);
   async function send(prepared, valid) {
     if (!prepared || prepared.used) throw issue('NOT_SUBMITTED');
     prepared.used = true;
@@ -192,7 +223,8 @@ function createTelegramSendRuntime() {
       throw issue(error?.code || 'RUNTIME_FAILED', submitted);
     } finally { receipt?.dispose(); }
   }
-  return { capture, ordinary, peerNumber, textValid, readPeer, check, wait, prepare, send, issue,
+  return { capture, ordinary, peerNumber, textValid, captionValid, readPeer, check, wait, prepare, send, issue,
+    prepareAttachments, verifyAttachment,
     notSubmitted: (error) => notSubmittedErrors.has(error),
     dispose() {
       disposed = true;

@@ -130,6 +130,7 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
           return target;
         });
         backend.jobs.push(job(value.id, value.accountId, { state: value.scheduledAt ? 'scheduled' : 'running',
+          accountName: source.accountName, platformId: source.platformId,
           targets, total: value.recipientIds.length,
           message: value.message, scheduledAt: value.scheduledAt, createdAt: Date.now(),
           attachments: value.attachmentIds.map((id) => {

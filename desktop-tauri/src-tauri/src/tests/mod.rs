@@ -16,6 +16,7 @@ mod broadcast_recovery;
 mod broadcast_report;
 mod broadcast_retirement;
 mod broadcast_support;
+mod broadcast_telegram_attachments;
 mod broadcast_validation;
 mod broadcast_worker_exit;
 mod desktop;

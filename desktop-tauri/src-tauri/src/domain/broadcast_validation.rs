@@ -31,9 +31,7 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     ) {
         return Err(AppError::BroadcastUnsupported);
     }
-    if account.platform_id == "telegram-k"
-        && (draft.tag_all || !draft.vcards.is_empty() || !draft.attachments.is_empty())
-    {
+    if account.platform_id == "telegram-k" && (draft.tag_all || !draft.vcards.is_empty()) {
         return Err(AppError::BroadcastUnsupported);
     }
     if (!draft.message.trim().is_empty() && !account.capabilities.text)
@@ -60,6 +58,9 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     }
     validate_text(&draft.message)?;
     validate_attachments(&draft.attachments)?;
+    if account.platform_id == "telegram-k" && draft.attachments.iter().any(|file| file.size == 0) {
+        return Err(AppError::BroadcastAttachmentInvalid);
+    }
     let mut ids = HashSet::new();
     for target in &draft.targets {
         if !label(&target.id, 256, false)
@@ -73,7 +74,12 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
             return Err(AppError::BroadcastInvalid);
         }
         if account.platform_id == "telegram-k" {
-            validate_template_with_limit(&draft.message, target, 4096)?;
+            let limit = if draft.attachments.is_empty() {
+                4096
+            } else {
+                1024
+            };
+            validate_template_with_limit(&draft.message, target, limit)?;
         } else {
             validate_template(&draft.message, target)?;
         }

@@ -1,12 +1,13 @@
 //! Native selection only. The shell receives opaque references, never local paths.
 use super::BroadcastDesktop;
 use crate::{
+    application::ports::BroadcastAttachmentIo,
     domain::{
         broadcast_attachment::BroadcastAttachment,
         broadcast_validation::valid_uuid,
         error::{AppError, Result},
     },
-    infrastructure::broadcast_attachment_source::NativeAttachmentIo,
+    infrastructure::broadcast_attachment_source::{NativeAttachmentIo, TelegramAttachmentIo},
 };
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -36,7 +37,10 @@ impl BroadcastDesktop {
             .platform
             .account(account_id)
             .map_err(|_| AppError::AccountUnknown)?;
-        if !matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
+        if !matches!(
+            account.platform_id.as_str(),
+            "whatsapp" | "whatsapp-pure" | "telegram-k"
+        ) {
             return Err(AppError::BroadcastUnsupported);
         }
         let binding = self
@@ -71,13 +75,14 @@ impl BroadcastDesktop {
             .map_err(|_| AppError::BroadcastAttachmentUnavailable)?;
         let Some(paths) = paths else { return Ok(None) };
         check()?;
-        let attachments = self.service.register_attachments(
-            account_id,
-            &paths,
-            false,
-            &NativeAttachmentIo,
-            &check,
-        )?;
+        let io: &dyn BroadcastAttachmentIo = if account.platform_id == "telegram-k" {
+            &TelegramAttachmentIo
+        } else {
+            &NativeAttachmentIo
+        };
+        let attachments = self
+            .service
+            .register_attachments(account_id, &paths, false, io, &check)?;
         Ok(Some(PickedBroadcastAttachments {
             account_id: account_id.into(),
             attachments,

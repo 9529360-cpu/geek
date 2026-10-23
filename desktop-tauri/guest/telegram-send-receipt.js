@@ -14,7 +14,7 @@ function validTelegramPending(message, peerId, self) {
     && !message.rich_message && !message.paid_message_stars && !message.suggested_post;
 }
 
-function createTelegramSendReceipt(snapshot, message, peerId, text, check) {
+function createTelegramSendReceipt(snapshot, message, peerId, text, check, media = null) {
   const storageKey = `${peerId}_history`;
   const started = performance.now();
   let staged = false;
@@ -24,7 +24,8 @@ function createTelegramSendReceipt(snapshot, message, peerId, text, check) {
   const pendingMatches = (candidate) => candidate?._ === 'message'
     && candidate.id === message.id && candidate.mid === message.id && candidate.peerId === peerId
     && candidate.random_id === message.random_id && candidate.message === text
-    && candidate.pending === true && candidate.pFlags?.out === true;
+    && candidate.pending === true && candidate.pFlags?.out === true
+    && (media ? media.pending(candidate.media) : !candidate.media);
   const appended = (event) => {
     if (!disposed && event?.storageKey === storageKey && pendingMatches(event.message)) staged = true;
   };
@@ -35,13 +36,14 @@ function createTelegramSendReceipt(snapshot, message, peerId, text, check) {
     if (final?._ !== 'message' || final.peerId !== peerId || final.message !== text
         || !Number.isSafeInteger(final.id) || final.id <= 0 || !Number.isSafeInteger(event.mid)
         || event.mid <= 0 || final.mid !== event.mid || final.pFlags?.out !== true
-        || final.pFlags.is_outgoing || final.pending || final.error || final.media || final.rich_message
-        || final.reply_to || final.random_id) return;
+        || final.pFlags.is_outgoing || final.pending || final.error || final.rich_message
+        || final.reply_to || final.random_id || (media ? !media.final(final.media) || final.ttl_period : final.media)) return;
     // The mirror is written before message_sent in the official finalizer.
     const mirrored = snapshot.proxy.getMessageFromStorage(storageKey, event.mid);
     if (mirrored?.id !== final.id || mirrored?.mid !== event.mid || mirrored?.peerId !== peerId
         || mirrored?.message !== text || mirrored?.pFlags?.out !== true
-        || mirrored?.pFlags?.is_outgoing || mirrored?.pending || mirrored?.error) return;
+        || mirrored?.pFlags?.is_outgoing || mirrored?.pending || mirrored?.error
+        || (media ? !media.final(mirrored.media) || !media.same(final.media, mirrored.media) : mirrored.media)) return;
     result = { id: `tg:${peerId}:${final.id}`, ack: 1 };
   };
   const errored = (event) => {
@@ -70,17 +72,19 @@ function createTelegramSendReceipt(snapshot, message, peerId, text, check) {
     } };
 }
 
-async function applyTelegramSendUpdates(managers, pending, updates) {
+async function applyTelegramSendUpdates(managers, pending, updates, media = null) {
   if (updates?._ === 'updateShortSentMessage') {
     if (!Number.isSafeInteger(updates.id) || updates.id <= 0 || !Number.isSafeInteger(updates.date)
         || updates.date <= 0 || updates.pFlags?.out !== true || !Number.isSafeInteger(updates.pts)
-        || !Number.isSafeInteger(updates.pts_count) || updates.media) throw new Error('RECEIPT_MISSING');
+        || !Number.isSafeInteger(updates.pts_count)
+        || (media ? !media.final(updates.media) || updates.ttl_period : updates.media)) throw new Error('RECEIPT_MISSING');
     // Same local-update expansion as K sendText (3328..3363); both RPC calls
     // remain bound to the submitting Telegram account, including late responses.
     await managers.apiUpdatesManager.processLocalUpdate({ _: 'updateMessageID', random_id: pending.random_id, id: updates.id });
     await managers.apiUpdatesManager.processLocalUpdate({
       _: pending.peer_id._ === 'peerChannel' ? 'updateNewChannelMessage' : 'updateNewMessage',
-      message: { ...pending, id: updates.id, date: updates.date, entities: updates.entities, ttl_period: updates.ttl_period },
+      message: { ...pending, id: updates.id, date: updates.date, entities: updates.entities,
+        ttl_period: updates.ttl_period, ...(media ? { media: updates.media } : {}) },
       pts: updates.pts, pts_count: updates.pts_count,
     });
     return;

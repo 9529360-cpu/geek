@@ -129,6 +129,77 @@ test('the bar waits for native layout and asks for a new layout when dismissed',
   assert.equal(bar.classList.contains('hidden'), true); assert.equal(ui.layouts, 2);
 });
 
+test('ended jobs requiring review retain evidence and dismissal without an ineffective resume action', async (t) => {
+  for (const state of ['stopped', 'completed', 'failed']) {
+    const ended = job('ended', 'a', { state, reviewRequired: true, lastIssue: 'GUEST_CHANGED',
+      current: 1, uncertain: 1, finishedAt: 2000,
+      results: [{ index: 0, at: 1, outcome: { status: 'uncertain', code: 'RECEIPT_MISSING' } }] });
+    const ui = await fixture({ initialJobs: [ended] });
+    t.after(() => ui.controller.dispose());
+    const bar = ui.get('broadcast-job-bar');
+    assert.equal(barAction(ui, 'pause').classList.contains('hidden'), true, state);
+    assert.equal(barAction(ui, 'stop').classList.contains('hidden'), true, state);
+    assert.match(bar.querySelector('.bc-job-hard-failure').textContent, /任务已结束/);
+    assert.doesNotMatch(bar.querySelector('.bc-job-hard-failure').textContent, /再继续|存储后恢复/);
+    await ui.click('broadcast-task-center-button');
+    assert.equal(control(ui, 'ended', 'resume'), undefined, state);
+    assert.equal(control(ui, 'ended', 'stop'), undefined, state);
+    assert.ok(control(ui, 'ended', 'export'));
+    assert.ok(control(ui, 'ended', 'dismiss'));
+    assert.match(ui.get('broadcast-task-center-overlay').textContent, /结果不确定的对象不会重发/);
+    assert.equal(ui.calls.some(([name]) => name === 'control' || name === 'create'), false);
+    await ui.fire(control(ui, 'ended', 'dismiss'), 'click');
+    assert.deepEqual(ui.calls.filter(([name]) => name === 'control').map(([, value]) => value),
+      [{ jobId: 'ended', action: 'dismiss' }]);
+  }
+});
+
+test('a cancelled in-flight job waits for settlement and cannot resume while stopping', async (t) => {
+  const ui = await fixture({ initialJobs: [job('stopping', 'a', { state: 'stopping',
+    reviewRequired: true, lastIssue: 'GUEST_CHANGED' })] });
+  t.after(() => ui.controller.dispose());
+  assert.equal(barAction(ui, 'pause').classList.contains('hidden'), true);
+  assert.equal(barAction(ui, 'stop').disabled, true);
+  assert.match(ui.get('broadcast-job-bar').querySelector('.bc-job-hard-failure').textContent, /正在停止/);
+  await ui.click('broadcast-task-center-button');
+  assert.equal(control(ui, 'stopping', 'resume'), undefined);
+  assert.equal(control(ui, 'stopping', 'stop'), undefined);
+  assert.equal(ui.calls.some(([name]) => name === 'control'), false);
+});
+
+test('all-account task labels use the job platform rather than the selected account', async (t) => {
+  const ui = await fixture({ initialJobs: [job(), job('job-k', 'b', { platformId: 'telegram-k' })] });
+  t.after(() => ui.controller.dispose());
+  await ui.click('broadcast-task-center-button');
+  await ui.fire(scope(ui, 'all'), 'click');
+  const rows = ui.get('broadcast-task-center-overlay').querySelectorAll('.bc-task-row');
+  assert.match(rows.find((row) => row.dataset.jobId === 'job-a').querySelector('.bc-task-account-name').textContent,
+    /Alice account，WhatsApp/);
+  assert.match(rows.find((row) => row.dataset.jobId === 'job-k').querySelector('.bc-task-account-name').textContent,
+    /Bob account，Telegram K/);
+  assert.equal(ui.shell.activeId, 'a');
+});
+
+test('a stopping job whose final save failed can finish stopping or explicitly resume', async (t) => {
+  for (const action of ['stop', 'resume']) {
+    const ui = await fixture({ initialJobs: [job('blocked-stop', 'a', { state: 'stopping',
+      storageBlocked: true, reviewRequired: true, lastIssue: 'PERSISTENCE_FAILED' })] });
+    t.after(() => ui.controller.dispose());
+    assert.equal(barAction(ui, 'pause').classList.contains('hidden'), false);
+    assert.equal(barAction(ui, 'pause').textContent, '恢复任务');
+    assert.equal(barAction(ui, 'stop').disabled, false);
+    assert.equal(barAction(ui, 'stop').textContent, '完成停止');
+    assert.match(ui.get('broadcast-job-bar').textContent, /检查本地存储后完成停止/);
+    await ui.click('broadcast-task-center-button');
+    assert.ok(control(ui, 'blocked-stop', 'resume'));
+    assert.equal(control(ui, 'blocked-stop', 'stop').textContent, '完成停止');
+    assert.equal(ui.calls.some(([name]) => name === 'control'), false);
+    await ui.fire(control(ui, 'blocked-stop', action), 'click');
+    assert.deepEqual(ui.calls.filter(([name]) => name === 'control').map(([, value]) => value),
+      [{ jobId: 'blocked-stop', action }]);
+  }
+});
+
 test('disposal ignores a late snapshot and cancels polling without controlling jobs', async () => {
   const request = deferred(); let wait = false;
   const ui = await fixture({ initialJobs: [job()], before: (name) => name === 'snapshot' && wait ? request.promise : undefined });

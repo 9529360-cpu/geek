@@ -1,8 +1,8 @@
 # WhatsApp interactive send: verified special contexts
 
 This records the platform contract behind the existing `SendIntent` owner. It covers
-contact mentions, replies to loaded image/video messages, and captions for one prepared
-image, video or positively identified PDF preview. Each mode has its own bounded input
+contact mentions, replies to loaded image/video messages, and captions for a prepared
+image, video, positively identified PDF or bounded media batch. Each mode has its own bounded input
 proof and acceptance evidence. Local synthetic-platform tests do not establish delivery
 through an authenticated WhatsApp account.
 
@@ -198,25 +198,25 @@ an automatic duplicate attachment.
 
 ### Accepted finite shape
 
-[`guest/whatsapp-caption.js`](guest/whatsapp-caption.js) admits one real, selected READY
-`AttachMediaModel` in the active ordinary chat. Its current collection, selection,
-`MediaPrep`, `MediaDataModel`, original Blob, visible caption and preview must all agree.
+[`guest/whatsapp-caption.js`](guest/whatsapp-caption.js) admits a real, selected READY
+`AttachMediaModel`, or the finite batch below, in the active ordinary chat. Its current
+collection, selection, `MediaPrep`, `MediaDataModel`, original Blob, visible caption and preview must all agree.
 The original media file is already prepared by WhatsApp; the adapter neither reads a
 filesystem path nor uploads through a separate transport.
 
 | Boundary | Accepted value |
 | --- | --- |
-| Media | One unedited, standard-quality image or ordinary video; a PDF requires the specific loaded preview described below |
-| Payload size | 1 byte through 512 MiB, with matching model size, MIME and file hash |
+| Media | One unedited, standard-quality image or ordinary video; a PDF requires the specific loaded preview below. A batch allows 2–10 images, or a selected video with all other items images |
+| Payload size | 1 byte through 512 MiB per item and at most 1 GiB in total, with matching model size, MIME and file hash |
 | Caption | Nonempty plain text, at most 1,024 Unicode code points and 32,768 UTF-8 bytes, matching the complete parsable model caption |
-| Metadata | A deep copy of the 56 declared `MediaData` props, bounded by depth, node count and 1 MiB of string/binary metadata |
+| Metadata | A deep copy of the 56 declared `MediaData` props, bounded by depth, node count and 1 MiB of string/binary metadata per item |
 | Gesture | The original Send button, including its trusted keyboard activation; Enter in the caption editor is intercepted as unsupported because its send preference is not exposed by the pinned facade |
 | Native context | Only `kind: "attachment"` and a guest-generated attachment UUID; paths, bytes, media hash and model objects stay inside the guest |
 | Completion | Exact created and returned message identity, target, type, caption, file hash, size and ACK of at least 1 |
 
 Shift+Enter retains the platform's newline behavior. When send translation is disabled,
-the original platform handler remains in control. Multiple attachments, edited/HD media,
-GIFs, view-once media, stickers, generic documents, an unproved PDF viewer, and mixed
+the original platform handler remains in control. Multiple nonempty captions, unsupported
+batch compositions, edited/HD media, GIFs, view-once media, stickers, generic documents, an unproved PDF viewer, and mixed
 mention/reply/attachment contexts are rejected by this finite adapter.
 
 At commit, a private real `MediaPrep` receives the verified immutable Blob and the frozen
@@ -232,6 +232,51 @@ cannot submit the confirmed intent again. A new explicit retry before submission
 the logical ID and translated output when the attachment/source identity still matches.
 Closing the preview drops the helper's retained proof and model subscriptions; an active
 send keeps only the references needed until its own result settles.
+
+### Finite ordered batch
+
+A batch uses the same SendIntent and one translated source: only the currently selected
+item may have a nonempty plain caption; every other caption must be absent or exactly
+empty. The output belongs only to that selected item. No multi-text translation protocol,
+additional billing ID or independent sending queue is introduced.
+
+The real filmstrip has a `tablist` with ordered `tab` items, including `aria-posinset`,
+`aria-setsize` and `aria-selected`. Its image source equals `AttachMediaModel.preview`,
+which the normal READY image path sets to the file's `fullPreview` Blob URL. The adapter
+matches every thumbnail to the ordered collection and selection list. Non-selected
+videos are excluded because their static base64 thumbnail does not uniquely identify
+the full file. A selected video still requires the existing main VIDEO/fullPreview proof.
+
+All items, payload snapshots, order, selection, captions and DOM nodes are frozen for
+the attempt. Model and DOM observations invalidate changes. The actual collection can
+silently reorder unselected items while `SingleSelection.init` returns early for an
+unchanged active index. Therefore a trusted dragstart or relevant keyboard gesture
+inside the proven filmstrip invalidates the old attempt before React's reorder handler,
+including a reorder and reversal within one task. Platform methods are not patched.
+
+[`guest/whatsapp-caption-media.js`](guest/whatsapp-caption-media.js) creates a private
+MediaPrep for each item. The single permit authorizes sequential independent media
+messages in the frozen order. This deliberately does not call the original Flow's
+optional album-parent creation or reproduce its MEDIA_ALBUM grouping. Each item must
+return its own exact validated MsgKey and ACK; duplicates are rejected. The complete
+proof and native intent validity are rechecked after every asynchronous return and
+before the next item. Cancellation, a changed draft, failure or the existing 50-second
+total deadline, including translation, stops later items and leaves an uncertain intent.
+Already submitted items cannot be rolled back or automatically replayed.
+
+Only complete success produces `wa-batch:<count>:<sha256hex>`. The digest input is the
+UTF-8 encoding of `JSON.stringify({attachmentId,chatId,messageIds})`, where `messageIds`
+contains every validated real MsgKey in send order. This is a client aggregate proof,
+not a server-issued single-message ID. Its ACK is the minimum of all item ACKs. The
+ordered keys exist only in private guest memory and are not logged. The proof is checked
+again after the asynchronous digest. Single attachments retain their real MsgKey receipt.
+Both success and uncertainty retain the entire preview and source caption.
+
+The actual composed-owner regressions in
+[`send-caption-batch-guest.test.mjs`](test/send-caption-batch-guest.test.mjs) cover order,
+caption ownership, all-item confirmation, partial failure, duplicate IDs, cancellation,
+deadline expiry during final digest, full-list identity changes and unchanged-draft replay
+prevention. They also retain the original single-attachment behavior checks.
 
 ### Independent caption review findings
 
@@ -353,6 +398,12 @@ contract to be identified without storing vendor bodies in this repository.
 | `useWAWebVideoImplementations` | `3f4fec8841d6483c458c535d24537ca9be9f1fe04070b441ea4ff6ced37fb9fc` | [Video implementation][video] |
 | `VideoPlayerProgressiveImplementationEngine` | `cc6f8efe2c21d9221efab26f11de690f1a4965b71b87e1644398bb508398cfad` | [Video implementation][video] |
 
+| `WAWebMediaEditorFilmstripDragAndDrop.react` | `44b77b6a1f02d1826d7bb09959b0efc9aacff4d5fbd571c40039273d8f3a121c` | [Filmstrip and ordering][caption] |
+| `WAWebMediaEditorFilmstripAttachMediaThumb.react` | `dd4303f760cce3cc4179da8d56b881c84059dbbad0495c6f50a3526d67ef6930` | [Filmstrip and ordering][caption] |
+| `useCometDraggableItems` | `3e8a6478c92626d2fa4f2cd4169bde57d3362cc0ebac754a35575c7192149fa0` | [Filmstrip and ordering][caption] |
+| `WAWebSingleSelection` | `11d7e8ed968ce2aa992963ae8626ca1932c9ee9d0c43984324eb6e99cfc2386c` | [Filmstrip and ordering][selection] |
+| `WAWebCollection` | `afa6d609827453b2be3fb1f5dd74335ed52f4a78bfc77690a2860453df1d267a` | [Filmstrip and ordering][collection] |
+
 [entities]: https://static.whatsapp.net/rsrc.php/v4iDmr4/yP/l/en_US-j/D0u5tvXqu7W7T09bvlJ7oufaGUaYdVti8co9TrzRIsI3Eu6Xsfswb4t_oayrl-rWOU25tnfcbs0TXP17R_g10IG7ap9XjpiZnSLhP-GdkUr6D_Gq5X_Ho1FIjzPwNwtEu_k2BzRAbOK83URfXj59NZEN6_LP5CkbSgW8ssecj6EXVJp6hv2-3oWVJl99TzQwv2BKS3q8GBBAQkpIX3Cqy_6usulsk5jRvIk23r_Xc11OI-vcItLFRgrHjexONYOR8caWn7QALvovRXLF19FoY5dKuoQUPihjeC9EzWiky1C8xEcCI-1GMUG-51HH_zQsXSds_kkOIp.js
 [restore]: https://static.whatsapp.net/rsrc.php/v4iTb14/yY/l/en_US-j/y8s9TQLFc98.js
 [composer]: https://static.whatsapp.net/rsrc.php/v4iuOo4/yy/l/en_US-j/RsX7je4nhEUDoy_65rPHB-Z6svWH3WIKahnf9pmf3NRippdYC97NSWEodSTJvSsSXzJejYPoDQJ6cs3WMiU-2t36nGM0IFyoOMeXf8aY9cFBnXwn6gzLAxT2Y9mGVjWCBlVT1_-rTXRCMzX3s94nei1BWycI7LQcNEhxZWmuKyAq_whf66pj5cCEwjvIcSRyjvdZW3OL6DyAU-P9QRc12CWliTw5APcfAZb0NkIotJpgUVEhAovKwX3vTZ34QZovqWqcEL6NDukE4vUDwTjdVNcJDnmSWZSsVSSOHLOfq.js
@@ -362,3 +413,6 @@ contract to be identified without storing vendor bodies in this repository.
 [base]: https://static.whatsapp.net/rsrc.php/v4incC4/ye/l/en_GB-j/WUUKocWarAumTfixAq_AX8PLdtGOMpRrWq8GBBAQkpIX_23LEffI1_XvdPdCSIMPYUk5jRvIk23r_BG5Pz7vmDjrnhyXeOa3JV_GWGFXil8x1Q3BcYmPkwSiO7KJoSQKFgmFOYAuspDhlhzZk-PQqXYsbbYOR8caWn7QAzdZJywGwzJ6LvovRXLF19Fi9SaU-4ORb_dFMJ40LPHSxmYT-V10erhj1C8xEcCI-1Gj0YAvs-ocQZvVbfeyWd89SLKvPJbPyPAXiiRKHWyVVemkb0pXIL6h44yX5uCHgEKa9tNukyLhEHOUamyyESXW7jt19dvV4H__B-.js
 [opaque]: https://static.whatsapp.net/rsrc.php/v4iwLD4/yh/l/en_GB-j/EGLj4o3kfs9.js
 [video]: https://static.whatsapp.net/rsrc.php/v4iVv04/yQ/l/en_US-j/B6hstUK1GEW.js
+
+[selection]: https://static.whatsapp.net/rsrc.php/v4iMIC4/yo/l/en_US-j/f1OIZWZGQveBxgWBYdHv4dFTtq7zwpbbDNl9ZYyREraxVmIHUz_jTaWR2XauXVhI_t2Px67ruRd1hJSbQUtRw7z47pBGHqm4NnLzdWp_yf8iIXWUUKocWarAumTfixAq_AX8_23LEffI1_Xwo8zQ5TASp1vdPdCSIMPYUBG5Pz7vmDjr3BcYmPkwSiO7KJoSQKFgmFOYAuspDhlhzZk-PQqXYsbbk9E_PXJB2--zdZJywGwzJ6i9SaU-4ORb_dFMJ40LPHSxj0YAvs-ocQZvVbfeyWd89Skb0pXIL6h44yX5uCHgEKa9tNukyLhEHOU19dvV4H__B-.js
+[collection]: https://static.whatsapp.net/rsrc.php/v4iuQ-4/yq/l/en_US-j/arb2I9DYsKN_bAmhifpIiDthC7jKNM5FPEGLj4o3kfs9oBhQ0HVsbfBCRajZbv_JUgRX7jpK-UrjTB2XILqrHedBHjr_gvbA2UO9wOG39rwPJYktuucgPyduQPsHB1ibGrbJ_izLa2TZoeJ7yQKSv7A_M0Lc7oweNK41I1iKsn8dh0KRZt_LYVfTEUg4EIeUY9UHO17rZQrzh2svruxnQksOMZKjvSezoP28JeZ.js

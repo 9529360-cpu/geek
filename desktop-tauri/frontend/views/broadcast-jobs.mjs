@@ -45,7 +45,16 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
   const fill = element(document, 'i'); progress.append(fill);
   const failureBox = element(document, 'div', 'bc-job-failures hidden');
   const actions = element(document, 'div', 'bc-job-actions');
-  const resumable = (job) => Boolean(job && (job.state === 'paused' || job.storageBlocked || job.reviewRequired));
+  const resumable = (job) => Boolean(job && !terminal.has(job.state)
+    && (job.state === 'paused' || job.storageBlocked || (job.reviewRequired && job.state !== 'stopping')));
+  const stoppable = (job) => !terminal.has(job.state) && (job.state !== 'stopping' || job.storageBlocked);
+  const storageNotice = (job) => job.state === 'stopping'
+    ? '停止结果未能保存。请检查本地存储后完成停止，或选择恢复任务；结果不确定的对象不会重发。'
+    : '任务检查点未能保存，已停止自动执行。请检查本地存储后恢复；结果不确定的对象将跳过。';
+  const reviewNotice = (job) => terminal.has(job.state)
+    ? '任务已结束，请核对发送明细。结果不确定的对象不会重发。'
+    : job.state === 'stopping' ? '正在停止后续发送，请核对已提交消息的结果。'
+      : '上次执行已中断。结果不确定的对象不会重发；请先核对，再继续剩余未发送对象。';
   const pause = button(document, '暂停', () => controlCurrent(resumable(currentJob(jobs, activeId)) ? 'resume' : 'pause'), '');
   pause.dataset.act = 'pause';
   const stop = button(document, '停止后续发送', () => controlCurrent('stop'), ''); stop.dataset.act = 'stop';
@@ -147,9 +156,9 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
       + (seconds !== null ? `，下一条 ${seconds} 秒后` : job.state === 'scheduled' ? `，${formatTime(job.scheduledAt)}` : '');
     meta.title = files.map((file) => file.name).join('\n');
     issue.textContent = job.storageBlocked
-      ? '任务检查点未能保存，已停止自动执行。请检查本地存储后恢复；结果不确定的对象将跳过。'
+      ? storageNotice(job)
       : job.reviewRequired
-      ? '上次执行已中断。结果不确定的对象不会重发；请先核对，再继续剩余未发送对象。'
+      ? reviewNotice(job)
       : job.state === 'stopping' ? '当前步骤结束后不再继续发送。'
         : job.state === 'queued' ? '等待当前账号的上一任务结束。' : job.lastIssue ? errorMessage(job.lastIssue) : '';
     hidden(issue, !issue.textContent);
@@ -163,13 +172,14 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     hidden(pause, !['running', 'paused'].includes(job.state) && !resumable(job));
     pause.textContent = job.storageBlocked ? '恢复任务' : resumable(job) ? (job.reviewRequired ? '继续剩余未发送对象' : '继续') : '暂停';
     hidden(stop, finished);
-    stop.textContent = job.state === 'scheduled' ? '取消定时' : job.state === 'queued' ? '取消排队' : '停止后续发送';
+    stop.textContent = job.state === 'stopping' && job.storageBlocked ? '完成停止'
+      : job.state === 'scheduled' ? '取消定时' : job.state === 'queued' ? '取消排队' : '停止后续发送';
     hidden(close, !finished);
     hidden(failures, !job.results?.length && !job.lastIssue);
     hidden(exportFailures, !hasExportableIssues(job));
     wire(exportFailures, blocked || !exportAvailable || pendingExports.has(job.id));
     exportFailures.title = exportAvailable ? '导出此任务的异常记录' : '异常记录导出尚不可用';
-    wire(pause, blocked || pendingControl); wire(stop, blocked || pendingControl || job.state === 'stopping');
+    wire(pause, blocked || pendingControl); wire(stop, blocked || pendingControl || !stoppable(job));
     wire(close, blocked || pendingControl); wire(failures, blocked);
     hidden(failureBox, detailsId !== job.id);
     if (detailsId === job.id) failureBox.replaceChildren(resultList(job, true));
@@ -180,7 +190,10 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     const row = element(document, 'article', 'bc-task-row'); row.dataset.jobId = job.id; row.dataset.state = job.state;
     const rowHead = element(document, 'div', 'bc-task-row-head');
     rowHead.append(element(document, 'strong', '', jobLabel(job)));
-    if (scope === 'all') rowHead.append(element(document, 'span', 'bc-task-account-name', `${job.accountName || '未命名账号'} · WhatsApp`));
+    if (scope === 'all') {
+      const platform = job.platformId === 'telegram-k' ? 'Telegram K' : 'WhatsApp';
+      rowHead.append(element(document, 'span', 'bc-task-account-name', `${job.accountName || '未命名账号'}，${platform}`));
+    }
     const files = job.attachments || [];
     const rowMeta = element(document, 'div', 'bc-task-row-meta',
       `${job.current || 0}/${job.total || 0}，成功 ${job.ok || 0}，未提交 ${job.fail || 0}，未确认 ${job.uncertain || 0}`
@@ -191,8 +204,8 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     rowProgress.max = Math.max(1, job.total || 0); rowProgress.value = job.current || 0;
     rowProgress.setAttribute('aria-label', `${jobLabel(job)}进度`); row.append(rowProgress);
     if (job.storageBlocked || job.reviewRequired || job.lastIssue) row.append(element(document, 'div', 'bc-task-row-error', job.storageBlocked
-      ? '任务检查点未能保存，已停止自动执行。请检查本地存储后恢复，结果不确定的对象会跳过。'
-      : job.reviewRequired ? '执行已中断，未自动继续。结果不确定的对象会跳过；请先在平台核对。' : errorMessage(job.lastIssue)));
+      ? storageNotice(job)
+      : job.reviewRequired ? reviewNotice(job) : errorMessage(job.lastIssue)));
     if (job.results?.length) {
       const details = element(document, 'details');
       details.append(element(document, 'summary', '', '查看发送明细'), resultList(job, true)); row.append(details);
@@ -209,7 +222,7 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     }
     if (job.state === 'running' && !resumable(job)) add('pause', '暂停');
     if (resumable(job)) add('resume', job.storageBlocked ? '恢复任务' : job.reviewRequired ? '继续剩余未发送对象' : '继续');
-    if (!terminal.has(job.state) && job.state !== 'stopping') add('stop', pending.has(job.state) ? '取消任务' : '停止后续发送');
+    if (stoppable(job)) add('stop', job.state === 'stopping' ? '完成停止' : pending.has(job.state) ? '取消任务' : '停止后续发送');
     if (terminal.has(job.state)) add('dismiss', '关闭记录');
     if (hasExportableIssues(job)) {
       const save = button(document, '导出异常 CSV', () => onExport(job.accountId, job.id), '');

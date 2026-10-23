@@ -138,3 +138,38 @@ fn failed_late_stop_finalization_blocks_until_recovery_without_replaying_receipt
     assert_eq!(calls[0].request.job_id, first.id);
     assert_eq!(calls[1].request.job_id, next.id);
 }
+
+#[test]
+fn failed_stop_finalization_can_finish_stopping_without_resuming_remaining_targets() {
+    let (service, repository, platform) = setup();
+    let owner = account("Explicit stop recovery");
+    let first = service
+        .submit(owner.clone(), draft(&owner, 2), NOW)
+        .unwrap();
+    let next = service
+        .submit(owner.clone(), draft(&owner, 1), NOW + 1)
+        .unwrap();
+    let (waiting, release) = hold_worker_exit(&service);
+    service.tick(NOW + 2).unwrap();
+    waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+    service
+        .control(&first.id, BroadcastAction::Stop, NOW + 3)
+        .unwrap();
+    repository.0.lock().unwrap().fail_at = Some(FailAt::Any);
+    release.send(()).unwrap();
+    idle(&service);
+    assert!(job(&service, &first.id).storage_blocked);
+    let stopped = service
+        .control(&first.id, BroadcastAction::Stop, NOW + 4)
+        .unwrap();
+    assert_eq!(stopped.state, BroadcastState::Stopped);
+    assert!(!stopped.storage_blocked);
+    assert_eq!((stopped.current, stopped.ok, stopped.uncertain), (1, 1, 0));
+    assert_eq!(service.tick(NOW + 5).unwrap(), 1);
+    idle(&service);
+    let calls = platform.calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].request.job_id, first.id);
+    assert_eq!(calls[1].request.job_id, next.id);
+    assert_eq!(job(&service, &first.id).state, BroadcastState::Stopped);
+}

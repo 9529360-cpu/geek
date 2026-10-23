@@ -35,11 +35,17 @@ do not merge or release the mismatched prototype while parity work is unfinished
 
 The original translation panel now exposes automatic incoming translation for Telegram A/K,
 and outgoing plain-text translation for K. The original broadcast workbench/task center also
-serves K text, schedules and saved messages/audiences; unavailable import/attachment/entity
-controls remain disabled by capability. WhatsApp outgoing retains its original send gesture
-and adds verified group mentions, captioned image/video replies and single image/video or
-identified-PDF attachment captions through the actual preview send button. A retained complex draft
+serves K text, ordered attachments, schedules and saved messages/audiences. The same file list
+shows K photos/videos/documents and changes the caption limit without truncating a draft;
+unavailable import/entity controls remain disabled by capability. WhatsApp outgoing retains
+its original send gesture and adds verified group mentions, captioned image/video replies,
+single image/video or identified-PDF captions, and bounded image batches with one selected
+caption through the actual preview send button. Batches send separate ordered media messages,
+with at most the selected item being a video. A retained complex draft
 uses the existing success feedback instead of clearing only part of the composition.
+Visible account/translation panels refresh the existing native session snapshot; ended jobs
+keep evidence and dismissal without a resume control, while failed stop persistence exposes
+an explicit finish-stop action in the original task bar and center.
 These paths share the existing application owners and do not introduce a replacement layout.
 The Tauri workbench's open recipient dropdown participates in the scrollable body layout so
 its rows remain reachable above the footer at both 1280 × 820 and the 960 × 640 minimum size.

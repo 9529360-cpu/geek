@@ -1,14 +1,20 @@
 import { createSessionView } from '../views/session.mjs';
 import { sessionOf, translationError } from '../models/translation.mjs';
 
-export function createSessionController({ document, api, showPanel, hidePanel, onChange = () => {} }) {
+export function createSessionController({ document, api, showPanel, hidePanel, onChange = () => {}, timers = globalThis }) {
   let snapshot = null;
   let epoch = 0;
   let disposed = false;
   let shellBusy = false;
   let pending = '';
   let error = '';
+  let readError = '';
   let refreshTask = null;
+  let snapshotTask = null;
+  let readRequested = false;
+  let panel = null;
+  let visibilityEpoch = 0;
+  let timer = null;
   const tasks = new Set();
   const connected = Boolean(api?.sessionSnapshot && api?.sessionLogin && api?.sessionLogout && api?.sessionRefresh);
   const track = (task) => {
@@ -18,21 +24,63 @@ export function createSessionController({ document, api, showPanel, hidePanel, o
   };
   const view = createSessionView(document, { open: () => track(open()), close: () => track(close()),
     login: () => track(login()), logout: () => track(logout()), refresh: () => refresh() });
-  const render = () => { if (!disposed) view.render(snapshot, { pending, error, shellBusy, connected }); };
-  function publish(next, operationEpoch) {
+  const currentError = () => error || readError || (snapshot?.issue ? translationError(snapshot.issue) : '');
+  const notify = () => onChange(snapshot, currentError());
+  const render = () => { if (!disposed) view.render(snapshot, { pending, error: currentError(), shellBusy, connected }); };
+  const visible = () => !disposed && ['session-overlay', 'translation-popover'].includes(panel)
+    && document.hidden !== true && document.visibilityState !== 'hidden';
+  function stopTimer() {
+    if (timer !== null) timers.clearTimeout(timer);
+    timer = null;
+  }
+  function scheduleRead() {
+    stopTimer();
+    if (!connected || !visible() || pending || snapshotTask) return;
+    timer = timers.setTimeout(() => { timer = null; void read(); }, 1500);
+  }
+  function publish(next, operationEpoch, quiet = false) {
     if (disposed || operationEpoch !== epoch) return false;
     const value = sessionOf(next);
     if (snapshot && value.revision < snapshot.revision) return false;
     snapshot = value;
-    error = snapshot.issue ? translationError(snapshot.issue) : '';
-    onChange(snapshot, error);
+    readError = '';
+    // A background snapshot may update authority, but cannot erase feedback from
+    // a failed explicit operation such as durable logout or balance refresh.
+    if (!quiet) error = '';
+    notify();
     return true;
   }
-  async function read() {
-    const operationEpoch = ++epoch;
-    try { publish(await api.sessionSnapshot(), operationEpoch); }
-    catch (failure) { if (operationEpoch === epoch) error = translationError(failure); }
-    render();
+  function read(initial = false) {
+    stopTimer();
+    if (!connected || disposed || pending || (!initial && !visible())) return Promise.resolve(false);
+    if (snapshotTask) { readRequested = true; return snapshotTask; }
+    readRequested = false;
+    const operationEpoch = epoch;
+    const presentation = visibilityEpoch;
+    snapshotTask = track((async () => {
+      try {
+        // Assign the single-flight slot before even a synchronous IPC failure.
+        await Promise.resolve();
+        if (disposed || operationEpoch !== epoch || presentation !== visibilityEpoch) return false;
+        const next = await api.sessionSnapshot();
+        if (presentation !== visibilityEpoch) return false;
+        return publish(next, operationEpoch, true);
+      } catch (failure) {
+        if (!disposed && operationEpoch === epoch && presentation === visibilityEpoch) {
+          readError = translationError(failure); notify();
+        }
+        return false;
+      } finally {
+        snapshotTask = null;
+        const again = readRequested; readRequested = false;
+        if (!disposed) {
+          render();
+          if (again && visible() && !pending) void read();
+          else scheduleRead();
+        }
+      }
+    })());
+    return snapshotTask;
   }
   async function open() {
     if (!connected || shellBusy) return;
@@ -49,14 +97,14 @@ export function createSessionController({ document, api, showPanel, hidePanel, o
     if (!connected || disposed || ['login', 'logout'].includes(pending)) return Promise.resolve(false);
     if (refreshTask) return refreshTask;
     const operationEpoch = ++epoch;
-    pending = 'refresh'; error = ''; render();
+    stopTimer(); pending = 'refresh'; error = ''; readError = ''; render();
     refreshTask = track((async () => {
       try { return publish(await api.sessionRefresh(), operationEpoch); }
       catch (failure) {
-        if (operationEpoch === epoch && !disposed) { error = translationError(failure); onChange(snapshot, error); }
+        if (operationEpoch === epoch && !disposed) { error = translationError(failure); notify(); }
         return false;
       } finally {
-        if (operationEpoch === epoch) { pending = ''; render(); }
+        if (operationEpoch === epoch) { pending = ''; render(); scheduleRead(); }
         refreshTask = null;
       }
     })());
@@ -68,7 +116,7 @@ export function createSessionController({ document, api, showPanel, hidePanel, o
     view.clearPassword();
     if (!credentials.email || !credentials.password) { error = '请输入邮箱和密码。'; render(); return false; }
     const operationEpoch = ++epoch;
-    pending = 'login'; error = ''; render();
+    stopTimer(); pending = 'login'; error = ''; readError = ''; render();
     try {
       const request = api.sessionLogin(credentials.email, credentials.password);
       credentials.password = '';
@@ -78,27 +126,41 @@ export function createSessionController({ document, api, showPanel, hidePanel, o
       return false;
     } finally {
       credentials.password = ''; view.clearPassword();
-      if (operationEpoch === epoch) { pending = ''; render(); }
+      if (operationEpoch === epoch) { pending = ''; render(); scheduleRead(); }
     }
   }
   async function logout() {
     if (!connected || disposed || shellBusy || ['login', 'logout'].includes(pending)) return false;
     const operationEpoch = ++epoch;
-    pending = 'logout'; error = ''; view.clearPassword(); render();
+    stopTimer(); pending = 'logout'; error = ''; readError = ''; view.clearPassword(); render();
     try { return publish(await api.sessionLogout(), operationEpoch); }
     catch (failure) {
       if (operationEpoch === epoch && !disposed) error = `${translationError(failure)} 退出未完成，本机登录状态仍然保留。`;
       return false;
-    } finally { if (operationEpoch === epoch) { pending = ''; render(); } }
+    } finally { if (operationEpoch === epoch) { pending = ''; render(); scheduleRead(); } }
   }
+  function visibilityChanged() {
+    visibilityEpoch += 1; stopTimer();
+    if (visible()) void read();
+    else readRequested = false;
+  }
+  document.addEventListener('visibilitychange', visibilityChanged);
   render();
-  if (connected) track(read());
+  if (connected) void read(true);
   return {
     open: () => track(open()), refresh,
-    get snapshot() { return snapshot; }, get error() { return error; },
+    get snapshot() { return snapshot; }, get error() { return currentError(); },
     setShellBusy(value) { shellBusy = value; render(); },
-    panelChanged(id) { if (id !== 'session-overlay') view.clearPassword(); },
+    panelChanged(id) {
+      if (id !== 'session-overlay') view.clearPassword();
+      if (panel === id) return;
+      panel = id; visibilityChanged();
+    },
     idle: async () => { while (tasks.size) await Promise.allSettled([...tasks]); },
-    dispose() { disposed = true; epoch += 1; view.clearPassword(); view.dispose(); },
+    dispose() {
+      disposed = true; epoch += 1; visibilityEpoch += 1; stopTimer();
+      document.removeEventListener('visibilitychange', visibilityChanged);
+      view.clearPassword(); view.dispose();
+    },
   };
 }

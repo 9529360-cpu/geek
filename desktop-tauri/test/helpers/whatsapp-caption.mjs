@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, webcrypto } from 'node:crypto';
 import { guest, tick } from './send-guest.mjs';
 
 // Actual production MediaEditor/SendButton/WDSButton shapes. Production strips
@@ -45,7 +45,11 @@ export async function captionFixture({ type = 'image', caption = 'Please send 10
   };
   ui.window.WPP = W;
   const { ModelEvents, MsgKey, MsgModel } = W.whatsapp;
-  const state = { calls: [], prepared: [], transport: null, receipt: null, mutateAfterAwait: null };
+  const state = { calls: [], prepared: [], transport: null, receipt: null, mutateAfterAwait: null, digests: [], digest: null };
+  ui.window.crypto = { subtle: { digest(algorithm, bytes) {
+    const pending = state.digest ? state.digest(algorithm, bytes) : webcrypto.subtle.digest(algorithm, bytes);
+    state.digests.push(pending); return pending;
+  } } };
   class OpaqueData {
     constructor(blob) { this.blob = blob; this.released = false; }
     getBlob() { return this.blob; }
@@ -91,10 +95,12 @@ export async function captionFixture({ type = 'image', caption = 'Please send 10
   class Collection extends ModelEvents {
     constructor(media) {
       super(); this.models = [media]; this.active = media; this.isStickerMaker = false;
-      this.selection = { getVal: () => this.active };
+      this.selection = new ModelEvents(); this.selection.getVal = () => this.active;
+      Object.defineProperty(this.selection, 'list', { get: () => this.models, configurable: true });
     }
     get length() { return this.models.length; }
     getModelsArray() { return [...this.models]; }
+    getPreviewableMedias() { return [...this.models]; }
     get(id) { return this.models.find((item) => item.id === id); }
     getActive() { return this.active; }
     select(media) { this.active = media; this.emit('active-change', media); }
@@ -112,10 +118,12 @@ export async function captionFixture({ type = 'image', caption = 'Please send 10
   const media = new AttachMediaModel();
   for (const [key, value] of Object.entries({ id: 'attachment-1', state: 'ready', type, mediaPrep: prep, caption,
     file: holder, editedFile: holder, filename: data.filename, mimetype: mime, quality: 'Standard',
-    originalAttachment: { file: holder }, fullPreview: previewUrl, documentPageCount: type === 'document' ? 1 : null,
+    originalAttachment: Promise.resolve({ file: blob }), fullPreview: previewUrl,
+    preview: type === 'image' ? previewUrl : 'c3ludGhldGlj', documentPageCount: type === 'document' ? 1 : null,
     fullPreviewSize: { width: 640, height: 480 },
     mediaEditorData: { hasEdits: () => false, getSending: () => false, getBackground: () => ({ getImage: () => background }) },
     isGif: false, stickerMaker: false, isVcardOverMmsDocument: false })) media.field(key, value);
+  if (type === 'video') prep.mediaData.field('preview', media.preview);
   const collection = new Collection(media); const chat = ui.model(ui.state.chatId); chat.attachMediaContents = collection;
   const drawer = document.createElement('div'); drawer.className = 'copyable-area'; document.body.append(drawer);
   const panel = document.createElement('div'); drawer.append(panel);
@@ -145,6 +153,48 @@ export async function captionFixture({ type = 'image', caption = 'Please send 10
   await tick(); ui.configure();
   return { ui, W, state, chat, media, collection, prep, data: prep.mediaData, blob, holder,
     drawer, panel, preview, previewRegion, previewUrl, background, editor, content, paragraph, button, file, toggle, click, enter, input };
+}
+
+export async function captionBatchFixture({ types = ['image', 'image'], selected = 0, ...options } = {}) {
+  const c = await captionFixture({ ...options, type: types[selected] });
+  const { W, ui } = c, { document } = ui;
+  const members = [];
+  for (let index = 0; index < types.length; index += 1) {
+    if (index === selected) { members.push(c); continue; }
+    const type = types[index], mime = { image: 'image/png', video: 'video/mp4', document: 'application/pdf' }[type];
+    const bytes = `Distinct synthetic attachment ${index}`;
+    const blob = new Blob([bytes], { type: mime }), holder = new W.whatsapp.OpaqueData(blob);
+    const prep = new W.whatsapp.MediaPrep(type, Promise.resolve({ type, mediaBlob: holder, size: blob.size, mimetype: mime,
+      filehash: createHash('sha256').update(bytes).digest('base64'), filename: `batch-${index}.${type}`,
+      mediaStage: 'resolved', isViewOnce: false, isGif: false, ...(type === 'video' ? { preview: 'c3ludGhldGlj' } : {}) }));
+    await prep.waitForPrep();
+    const previewUrl = `blob:https://web.whatsapp.com/${randomUUID()}`;
+    const background = document.createElement('img'); background.src = previewUrl;
+    const media = new W.whatsapp.AttachMediaModel();
+    for (const [key, value] of Object.entries({ id: `batch-${index}`, state: 'ready', type, mediaPrep: prep, caption: '',
+      file: holder, editedFile: holder, filename: prep.mediaData.filename, mimetype: mime, quality: 'Standard',
+      originalAttachment: Promise.resolve({ file: blob }), fullPreview: previewUrl,
+      preview: type === 'image' ? previewUrl : 'c3ludGhldGlj', fullPreviewSize: { width: 640, height: 480 },
+      mediaEditorData: { hasEdits: () => false, getSending: () => false, getBackground: () => ({ getImage: () => background }) },
+      isGif: false, stickerMaker: false, isVcardOverMmsDocument: false })) media.field(key, value);
+    members.push({ media, prep, data: prep.mediaData, blob, holder, previewUrl, background });
+  }
+  c.collection.models = members.map((member) => member.media);
+  const tablist = document.createElement('div'); tablist.setAttribute('role', 'tablist');
+  const tabs = [], thumbs = [];
+  members.forEach((member, index) => {
+    const tab = document.createElement('div'); tab.setAttribute('role', 'tab'); tab.setAttribute('tabindex', '0');
+    tab.setAttribute('aria-posinset', index + 1); tab.setAttribute('aria-setsize', members.length);
+    tab.setAttribute('aria-selected', index === selected);
+    const image = document.createElement('img');
+    const src = member.media.type === 'image' ? member.media.preview : `data:image/jpeg;base64,${member.media.preview}`;
+    image.src = src; image.setAttribute('src', src); image.complete = true;
+    tab.append(image); tablist.append(tab); tabs.push(tab); thumbs.push(image);
+  });
+  c.drawer.append(tablist); c.drawer.append(c.button);
+  if (c.toggle) { c.toggle.setAttribute('aria-disabled', 'true'); c.toggle.style.visibility = 'hidden'; }
+  await tick();
+  return { ...c, members, tablist, tabs, thumbs, selected };
 }
 
 export async function settle() {

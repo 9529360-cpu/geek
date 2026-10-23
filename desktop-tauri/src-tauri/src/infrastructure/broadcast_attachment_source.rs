@@ -20,6 +20,40 @@ use zeroize::Zeroizing;
 
 pub struct NativeAttachmentIo;
 
+/// K's reviewed sender accepts original JPEG/PNG photos and MP4 videos. Other
+/// formats keep their original bytes and MIME as documents; no hidden transcoding.
+pub struct TelegramAttachmentIo;
+
+impl BroadcastAttachmentIo for TelegramAttachmentIo {
+    fn inspect(
+        &self,
+        path: &Path,
+        as_document: bool,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<AttachmentFile> {
+        let mut file = NativeAttachmentIo.inspect(path, as_document, check)?;
+        if file.size == 0 {
+            return Err(AppError::BroadcastAttachmentInvalid);
+        }
+        if !as_document {
+            file.kind = match file.mime.as_str() {
+                "image/jpeg" | "image/png" => AttachmentKind::Image,
+                "video/mp4" => AttachmentKind::Video,
+                _ => AttachmentKind::Document,
+            };
+        }
+        Ok(file)
+    }
+
+    fn open_verified(
+        &self,
+        source: &BroadcastAttachmentSource,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Box<dyn BroadcastAttachmentRead>> {
+        NativeAttachmentIo.open_verified(source, check)
+    }
+}
+
 fn open_read(path: &Path) -> Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);

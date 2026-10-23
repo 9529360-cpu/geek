@@ -13,7 +13,22 @@ export const signedOut = () => ({ revision: 1, state: 'signedOut', user: null, r
 export const signedIn = (changes = {}) => ({ revision: 2, state: 'signedIn',
   user: { id: 7, email: 'synthetic@example.invalid', accountNo: 'TEST-7' }, remainingChars: 20000, quotaFresh: true, issue: null, ...changes });
 
-export async function fixture({ before = async () => {}, sessionState = signedIn(), wait = true } = {}) {
+export function sessionClock() {
+  let now = 0, sequence = 0;
+  const pending = new Map();
+  return {
+    setTimeout(callback, delay) { const id = ++sequence; pending.set(id, { callback, at: now + delay }); return id; },
+    clearTimeout(id) { pending.delete(id); },
+    advance(milliseconds) {
+      now += milliseconds;
+      for (const [id, entry] of [...pending]) if (entry.at <= now) { pending.delete(id); entry.callback(); }
+    },
+    get pending() { return pending.size; },
+  };
+}
+
+export async function fixture({ before = async () => {}, sessionState = signedIn(), wait = true,
+  sessionTimers = sessionClock() } = {}) {
   const ui = dom();
   const calls = [];
   const failures = new Map();
@@ -79,7 +94,8 @@ export async function fixture({ before = async () => {}, sessionState = signedIn
     if (panel) ui.get(panel).classList.add('hidden');
     panel = null; session?.panelChanged(null); translation?.panelChanged(null);
   }
-  session = createSessionController({ ...ui, api, showPanel, hidePanel, onChange: () => translation?.renderSession() });
+  session = createSessionController({ ...ui, api, showPanel, hidePanel, timers: sessionTimers,
+    onChange: () => translation?.renderSession() });
   translation = createTranslationController({ ...ui, api, showPanel, hidePanel, getShellSnapshot: () => shell,
     acceptSnapshot: (snapshot, id) => {
       const update = snapshot.accounts.find((item) => item.id === id).translation;
@@ -90,7 +106,7 @@ export async function fixture({ before = async () => {}, sessionState = signedIn
   translation.renderShell(shell);
   const idle = async () => { await session.idle(); await translation.idle(); };
   if (wait) await idle();
-  return { ...ui, calls, failures, session, translation, api, idle, commit, chats, showPanel, hidePanel,
+  return { ...ui, calls, failures, session, translation, api, idle, commit, chats, showPanel, hidePanel, sessionTimers,
     get shell() { return shell; }, get backend() { return backend; }, get panel() { return panel; },
     get hides() { return hides; }, get shows() { return shows; },
     publishSession(value) { sessionBackend = structuredClone(value); },

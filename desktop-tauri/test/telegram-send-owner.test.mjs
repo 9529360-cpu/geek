@@ -155,7 +155,7 @@ test('actual compose bridge exposes K text catalog and consumes exactly one prep
   const f = telegramOwnerFixture();
   const catalog = await f.settleBridge(f.startBridge('catalog'));
   assert.deepEqual(catalog.value.chats.map(({ id }) => id), ['tg:101', 'tg:-202']);
-  assert.equal(catalog.value.capabilities.text, true); assert.equal(catalog.value.capabilities.attachments, false);
+  assert.equal(catalog.value.capabilities.text, true); assert.equal(catalog.value.capabilities.attachments, true);
   assert.equal(catalog.value.labels, null);
   const draft = f.broadcastDraft({ targetId: 'tg:-202' });
   assert.deepEqual((await f.settleBridge(f.startBridge('prepare', draft))).value, { prepared: true });

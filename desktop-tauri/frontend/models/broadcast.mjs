@@ -48,6 +48,10 @@ export function normalizeAttachments(value = []) {
   });
 }
 
+export function messageLimit(platformId, attachmentCount = 0) {
+  return platformId === 'telegram-k' ? attachmentCount > 0 ? 1024 : 4096 : 10000;
+}
+
 export function localSchedule(now = Date.now()) {
   const date = new Date(now + 30 * 60_000);
   const pad = (n) => String(n).padStart(2, '0');
@@ -151,6 +155,9 @@ export function draftPayload(draft, catalog, now = Date.now()) {
   const message = String(draft.message || '');
   const vcardIds = [...new Set(draft.vcardIds)];
   const attachments = normalizeAttachments(draft.attachments);
+  if (catalog.platformId === 'telegram-k' && message.length > messageLimit(catalog.platformId, attachments.length)) {
+    throw attachments.length ? 'BROADCAST_TELEGRAM_CAPTION_LIMIT' : 'BROADCAST_TELEGRAM_TEXT_LIMIT';
+  }
   if (!message.trim() && !vcardIds.length && !attachments.length) throw 'BROADCAST_CONTENT_EMPTY';
   if (attachments.length && !catalog.capabilities.attachments) throw 'BROADCAST_ATTACHMENTS_UNAVAILABLE';
   if (attachments.length && draft.tagAll) throw 'BROADCAST_ATTACHMENTS_TAG_ALL';
@@ -230,10 +237,12 @@ export function hasExportableIssues(job) {
 }
 
 export function jobLabel(job) {
+  const labels = { scheduled: '已定时', queued: '排队中', starting: '准备中', running: '发送中', paused: '已暂停',
+    stopping: '停止中', completed: '已完成', stopped: '已停止', failed: '有异常' };
+  if (terminal.has(job.state)) return `${labels[job.state]}${job.reviewRequired ? '，待核对' : ''}`;
   if (job.storageBlocked) return '存储故障待处理';
   if (job.reviewRequired) return '中断待核对';
-  return { scheduled: '已定时', queued: '排队中', starting: '准备中', running: '发送中', paused: '已暂停',
-    stopping: '停止中', completed: '已完成', stopped: '已停止', failed: '有异常' }[job.state] || '状态未知';
+  return labels[job.state] || '状态未知';
 }
 
 export function formatTime(value) {

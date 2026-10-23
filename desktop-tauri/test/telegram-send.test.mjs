@@ -138,7 +138,7 @@ test('switch after submission cannot deliver a late ACK or retarget its updates'
   assert.equal(f.root.count('message_sent'), 0);
 });
 
-test('catalog exposes namespaced real users and ordinary groups with text-only capabilities', async () => {
+test('catalog exposes namespaced real users and ordinary groups with finite media capabilities', async () => {
   const f = telegramFixture();
   for (const [id, peer] of [[90, { _: 'user', id: 90, pFlags: { self: true } }],
     [-303, { _: 'channel', id: 303, pFlags: { broadcast: true }, title: 'Channel' }],
@@ -150,7 +150,7 @@ test('catalog exposes namespaced real users and ordinary groups with text-only c
     { id: 'tg:-202', name: 'Team', realName: 'Team', kind: 'group' },
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(f.adapter.capabilities())),
-    { text: true, scheduled: true, attachments: false, tagAll: false, groupMembers: false, vcards: false });
+    { text: true, scheduled: true, attachments: true, tagAll: false, groupMembers: false, vcards: false });
   assert.equal(await f.adapter.audienceOptions(), null);
 });
 

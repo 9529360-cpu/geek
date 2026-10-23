@@ -7,7 +7,8 @@ import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 
 const safety = createRequire(import.meta.url)('../../../ui/broadcast-safety.js');
-const files = ['telegram-send-runtime.js', 'telegram-send-receipt.js', 'telegram-send.js', 'send-composer-telegram.js'];
+const files = ['telegram-send-runtime.js', 'telegram-send-receipt.js', 'telegram-attachments.js',
+  'telegram-send.js', 'send-composer-telegram.js'];
 const source = files.map((file) => readFileSync(new URL(`../../guest/${file}`, import.meta.url), 'utf8')).join('\n');
 export const deferred = () => {
   let resolve, reject;

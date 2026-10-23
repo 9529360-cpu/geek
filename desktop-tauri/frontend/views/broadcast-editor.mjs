@@ -1,4 +1,4 @@
-import { pending, formatTime } from '../models/broadcast.mjs';
+import { pending, formatTime, messageLimit } from '../models/broadcast.mjs';
 import { element, button, wire, hidden, unavailable } from './broadcast-elements.mjs';
 import { createAudienceView } from './broadcast-audience.mjs';
 import { createWorkbenchView } from './broadcast-workbench.mjs';
@@ -101,7 +101,9 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
       item.dataset.attachmentId = file.id;
       const remove = button(document, '×', () => onRemoveAttachment(file.id), 'bf-remove');
       remove.setAttribute('aria-label', `移除附件 ${file.name}`);
-      item.append(element(document, 'span', 'bf-name', file.name), remove); list.append(item);
+      const kind = { image: '图片', video: '视频', audio: '音频', document: '文件' }[file.kind];
+      const name = catalog?.platformId === 'telegram-k' ? `${file.name}（${kind}）` : file.name;
+      item.append(element(document, 'span', 'bf-name', name), remove); list.append(item);
     }
     setAvailability(availability);
   }
@@ -113,9 +115,10 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     const filesBlocked = blocked || next.attachmentBusy || next.importBusy || next.mismatch || !next.attachmentsAvailable;
     const canPick = ready && catalog?.capabilities.attachments;
     const whatsapp = ['whatsapp', 'whatsapp-pure'].includes(catalog?.platformId);
-    $('broadcast-message').maxLength = catalog?.platformId === 'telegram-k' ? 4096 : 10000;
+    $('broadcast-message').maxLength = messageLimit(catalog?.platformId, attachments.length);
     $('broadcast-message').title = catalog?.platformId === 'telegram-k'
-      ? '每条消息最多 4096 字符，插入姓名和问候语后的完整内容也受此限制。' : '';
+      ? attachments.length ? '附件说明最多 1024 字符，插入姓名和问候语后的完整内容也受此限制。'
+        : '每条消息最多 4096 字符，插入姓名和问候语后的完整内容也受此限制。' : '';
     audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable && whatsapp,
       { canPaste: next.resolveAvailable && whatsapp, canAudience: next.audienceAvailable && whatsapp,
         editable: !blocked && ready && !next.attachmentBusy });
