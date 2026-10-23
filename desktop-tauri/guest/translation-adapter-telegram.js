@@ -114,9 +114,9 @@ function telegramTranslationAdapter(platform, invalidate, eligibility) {
   }
   // Capture the currently loaded list before the first native poll or user gesture.
   scope();
-  if (!isA) incoming = telegramKIncoming(scope, eligibility, invalidated);
+  incoming = isA ? telegramAIncoming(scope, eligibility, invalidated) : telegramKIncoming(scope, eligibility, invalidated);
   return {
-    platform: 'telegram', automatic: !isA, rowSelector, matches,
+    platform: 'telegram', automatic: true, rowSelector, matches,
     resetAutomatic() { incoming?.reset(); },
     claimAutomatic(entry) { return incoming?.claim(entry) === true; },
     close() { incoming?.close(); },

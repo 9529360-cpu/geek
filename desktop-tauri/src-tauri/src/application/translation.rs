@@ -14,7 +14,10 @@ use crate::domain::{
     error::{AppError, Result},
     proxy::ProxyConfig,
     session::SessionToken,
-    translation::{receive_requires_group_auto, supports_receive, IncomingTranslation},
+    translation::{
+        receive_requires_group_auto, supports_receive, valid_send_chat_id, validate_send_text,
+        IncomingTranslation,
+    },
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -208,10 +211,10 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
         let control = control.limited(Duration::from_secs(35));
         control.check()?;
         outgoing.validate()?;
-        if account.archived || !matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure")
-        {
+        if account.archived || !valid_send_chat_id(&account.platform_id, &outgoing.chat_id) {
             return Err(AppError::TranslationUnavailable);
         }
+        validate_send_text(&account.platform_id, &outgoing.text)?;
         let policy = account.translation.policy(&outgoing.chat_id);
         policy.validate()?;
         if outgoing.policy_revision != account.translation.revision

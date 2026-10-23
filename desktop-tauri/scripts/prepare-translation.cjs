@@ -6,6 +6,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const translationInputs = Object.freeze([
   'src/translation-output-safety.cjs',
   'desktop-tauri/guest/translation-adapter-whatsapp.js',
+  'desktop-tauri/guest/translation-telegram-a-incoming.js',
   'desktop-tauri/guest/translation-telegram-k-incoming.js',
   'desktop-tauri/guest/translation-adapter-telegram.js',
   'desktop-tauri/guest/translation.js',
@@ -20,4 +21,10 @@ function composeTranslation(root = ROOT) {
     ...translationInputs.slice(1).map(read), '})();', ''].join('\n');
 }
 
-module.exports = { composeTranslation, translationInputs };
+function composeTelegramAObserver(root = ROOT) {
+  return ['(function () {', "'use strict';",
+    fs.readFileSync(path.join(root, 'desktop-tauri/guest/translation-telegram-a-incoming.js'), 'utf8'),
+    'installTelegramAIncomingObserver();', '})();', ''].join('\n');
+}
+
+module.exports = { composeTranslation, composeTelegramAObserver, translationInputs };

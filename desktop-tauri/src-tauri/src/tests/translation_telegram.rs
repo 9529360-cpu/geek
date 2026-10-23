@@ -118,9 +118,9 @@ fn telegram_automatic_and_outgoing_cannot_bypass_policy_or_request_admission() {
             Err(AppError::TranslationUnavailable)
         ));
         let unsupported = if platform == "telegram-z" {
-            vec!["enabled", "autoSend", "groupAuto", "translationMode"]
-        } else {
             vec!["enabled", "autoSend"]
+        } else {
+            vec![]
         };
         for field in unsupported {
             let mut candidate = account.clone();
@@ -177,7 +177,7 @@ fn telegram_settings_save_atomically_reject_unsupported_switches_and_keep_other_
     let wa = accounts.accounts()[2].id.clone();
     let before = accounts.accounts().to_vec();
     let saves = repository.0.lock().unwrap().saves;
-    for field in ["enabled", "autoSend", "groupAuto", "translationMode"] {
+    for field in ["enabled", "autoSend"] {
         let mut policy = TranslationPolicy::default();
         match field {
             "enabled" => policy.enabled = true,
@@ -293,16 +293,15 @@ fn schemas_one_through_six_load_telegram_defaults_and_strict_chat_rows_without_e
 }
 
 #[test]
-fn stored_telegram_automatic_policies_and_cross_platform_chat_ids_fail_validation() {
+fn stored_telegram_policies_keep_cross_platform_chat_ids_separate() {
     let platforms = catalog::load().unwrap();
-    for (platform, chat, automatic) in [
-        ("telegram-z", "tg:123", true),
-        ("telegram-k", "123@c.us", false),
-        ("whatsapp", "tg:123", false),
+    for (platform, chat) in [
+        ("telegram-z", "123@c.us"),
+        ("telegram-k", "123@c.us"),
+        ("whatsapp", "tg:123"),
     ] {
         let mut account = account(ProxyConfig::System);
         account.platform_id = platform.into();
-        account.translation.global.group_auto = automatic;
         account.translation.chats.insert(
             chat.into(),
             ChatTranslationPolicy::from_policy(&TranslationPolicy::default()),
@@ -316,104 +315,107 @@ fn stored_telegram_automatic_policies_and_cross_platform_chat_ids_fail_validatio
 }
 
 #[test]
-fn telegram_k_auto_uses_shared_billing_cache_and_requires_cutoff_group_and_current_policy() {
-    let h = setup();
-    let mut account = account(ProxyConfig::System);
-    account.platform_id = "telegram-k".into();
-    account.translation.global.translation_mode = "auto".into();
-    let mut automatic = event();
-    automatic.manual = false;
-    automatic.chat_id = "tg:123".into();
-    automatic.sent_at = h.engine.auto_after();
-    let work = h
-        .engine
-        .prepare(account.clone(), automatic.clone())
-        .unwrap();
-    h.gateway.token_reply(Ok(token("telegram-auto")), None);
-    h.gateway
-        .translation_reply(Ok(translated("Traduzione", Some(80))), None);
-    assert_eq!(h.engine.execute(&work).unwrap(), "Traduzione");
-    assert_eq!(h.engine.execute(&work).unwrap(), "Traduzione");
-    assert_eq!(h.gateway.calls(Operation::Translate).len(), 1);
-    assert_eq!(
-        h.gateway.calls(Operation::Translate)[0]
-            .request
-            .as_ref()
-            .unwrap()
-            .id,
-        automatic.id
-    );
-    for date in [0, h.engine.auto_after() - 1, now() + 600] {
-        let mut old = automatic.clone();
-        old.sent_at = date;
+fn telegram_auto_uses_shared_billing_cache_and_requires_cutoff_group_and_current_policy() {
+    for platform in ["telegram-k", "telegram-z"] {
+        let h = setup();
+        let mut account = account(ProxyConfig::System);
+        account.platform_id = platform.into();
+        account.translation.global.translation_mode = "auto".into();
+        let mut automatic = event();
+        automatic.manual = false;
+        automatic.chat_id = "tg:123".into();
+        automatic.sent_at = h.engine.auto_after();
+        let work = h
+            .engine
+            .prepare(account.clone(), automatic.clone())
+            .unwrap();
+        h.gateway.token_reply(Ok(token("telegram-auto")), None);
+        h.gateway
+            .translation_reply(Ok(translated("Traduzione", Some(80))), None);
+        assert_eq!(h.engine.execute(&work).unwrap(), "Traduzione");
+        assert_eq!(h.engine.execute(&work).unwrap(), "Traduzione");
+        assert_eq!(h.gateway.calls(Operation::Translate).len(), 1);
+        assert_eq!(
+            h.gateway.calls(Operation::Translate)[0]
+                .request
+                .as_ref()
+                .unwrap()
+                .id,
+            automatic.id
+        );
+        for date in [0, h.engine.auto_after() - 1, now() + 600] {
+            let mut old = automatic.clone();
+            old.sent_at = date;
+            assert!(matches!(
+                h.engine.prepare(account.clone(), old),
+                Err(AppError::TranslationUnavailable)
+            ));
+        }
+        automatic.chat_id = "tg:-123".into();
         assert!(matches!(
-            h.engine.prepare(account.clone(), old),
+            h.engine.prepare(account.clone(), automatic.clone()),
             Err(AppError::TranslationUnavailable)
         ));
+        account.translation.global.group_auto = true;
+        assert!(h.engine.prepare(account.clone(), automatic.clone()).is_ok());
+        let mut chat = ChatTranslationPolicy::from_policy(&account.translation.global);
+        chat.translation_mode = "click".into();
+        account
+            .translation
+            .chats
+            .insert(automatic.chat_id.clone(), chat);
+        assert!(matches!(
+            h.engine.prepare(account.clone(), automatic.clone()),
+            Err(AppError::TranslationUnavailable)
+        ));
+        automatic.manual = true;
+        assert!(h.engine.prepare(account.clone(), automatic.clone()).is_ok());
+        automatic.manual = false;
+        assert!(matches!(
+            h.engine.prepare(account, automatic),
+            Err(AppError::TranslationUnavailable)
+        ));
+        assert_eq!(h.gateway.calls(Operation::Translate).len(), 1);
     }
-    automatic.chat_id = "tg:-123".into();
-    assert!(matches!(
-        h.engine.prepare(account.clone(), automatic.clone()),
-        Err(AppError::TranslationUnavailable)
-    ));
-    account.translation.global.group_auto = true;
-    assert!(h.engine.prepare(account.clone(), automatic.clone()).is_ok());
-    let mut chat = ChatTranslationPolicy::from_policy(&account.translation.global);
-    chat.translation_mode = "click".into();
-    account
-        .translation
-        .chats
-        .insert(automatic.chat_id.clone(), chat);
-    assert!(matches!(
-        h.engine.prepare(account.clone(), automatic.clone()),
-        Err(AppError::TranslationUnavailable)
-    ));
-    automatic.manual = true;
-    assert!(h.engine.prepare(account.clone(), automatic.clone()).is_ok());
-    automatic.manual = false;
-    account.platform_id = "telegram-z".into();
-    assert!(matches!(
-        h.engine.prepare(account, automatic),
-        Err(AppError::TranslationUnavailable)
-    ));
-    assert_eq!(h.gateway.calls(Operation::Translate).len(), 1);
 }
 
 #[test]
-fn telegram_k_auto_settings_rollback_conflict_and_restart_keep_a_manual_only() {
-    let repository = MemoryRepository::default();
-    let mut accounts = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
-    accounts
-        .create("K", "telegram-k", None, ProxyConfig::System)
-        .unwrap();
-    accounts
-        .create("A", "telegram-z", None, ProxyConfig::System)
-        .unwrap();
-    let id = accounts.accounts()[0].id.clone();
-    let before = accounts.accounts().to_vec();
-    let policy = TranslationPolicy {
-        translation_mode: "auto".into(),
-        group_auto: true,
-        ..TranslationPolicy::default()
-    };
-    repository.0.lock().unwrap().fail_save = true;
-    assert_eq!(
-        accounts.update_translation(&id, None, Some(policy.clone().into()), 0),
-        Err(AppError::StoreIo)
-    );
-    assert_eq!(accounts.accounts(), before);
-    repository.0.lock().unwrap().fail_save = false;
-    accounts
-        .update_translation(&id, None, Some(policy.clone().into()), 0)
-        .unwrap();
-    assert_eq!(
-        accounts.update_translation(&id, None, Some(TranslationPolicy::default().into()), 0),
-        Err(AppError::TranslationSettingsConflict)
-    );
-    let reopened = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
-    assert_eq!(reopened.account(&id).unwrap().translation.global, policy);
-    assert_eq!(reopened.accounts()[1], before[1]);
-    let saves = repository.0.lock().unwrap().saves;
-    let _ = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
-    assert_eq!(repository.0.lock().unwrap().saves, saves);
+fn telegram_auto_settings_rollback_conflict_and_restart_keep_other_accounts_unchanged() {
+    for platform in ["telegram-k", "telegram-z"] {
+        let repository = MemoryRepository::default();
+        let mut accounts = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
+        accounts
+            .create("Active Telegram", platform, None, ProxyConfig::System)
+            .unwrap();
+        accounts
+            .create("Other account", "whatsapp", None, ProxyConfig::System)
+            .unwrap();
+        let id = accounts.accounts()[0].id.clone();
+        let before = accounts.accounts().to_vec();
+        let policy = TranslationPolicy {
+            translation_mode: "auto".into(),
+            group_auto: true,
+            ..TranslationPolicy::default()
+        };
+        repository.0.lock().unwrap().fail_save = true;
+        assert_eq!(
+            accounts.update_translation(&id, None, Some(policy.clone().into()), 0),
+            Err(AppError::StoreIo)
+        );
+        assert_eq!(accounts.accounts(), before);
+        repository.0.lock().unwrap().fail_save = false;
+        accounts
+            .update_translation(&id, None, Some(policy.clone().into()), 0)
+            .unwrap();
+        assert_eq!(
+            accounts.update_translation(&id, None, Some(TranslationPolicy::default().into()), 0),
+            Err(AppError::TranslationSettingsConflict)
+        );
+        let reopened = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
+        assert_eq!(reopened.account(&id).unwrap().translation.global, policy);
+        assert_eq!(reopened.accounts()[1], before[1]);
+        let saves = repository.0.lock().unwrap().saves;
+        let _ = Accounts::open(repository.clone(), catalog::load().unwrap()).unwrap();
+        assert_eq!(repository.0.lock().unwrap().saves, saves);
+    }
 }

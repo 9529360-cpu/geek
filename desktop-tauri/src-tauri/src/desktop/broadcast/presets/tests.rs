@@ -137,6 +137,38 @@ fn current_native_groups_are_restored_without_any_contact_query() {
 }
 
 #[test]
+fn telegram_presets_restore_only_current_native_peers_without_phone_resolution_or_import_cache() {
+    let mut directory = lease();
+    directory.catalog.platform_id = "telegram-k".into();
+    directory.binding.platform_id = "telegram-k".into();
+    directory.catalog.chats = vec![
+        chat("tg:123", ChatKind::Contact),
+        chat("tg:-456", ChatKind::Group),
+    ];
+    directory.native_ids = ["tg:123".into(), "tg:-456".into()].into();
+    directory.imported.clear();
+    let selected = ids(&["tg:-456", "tg:123"]);
+    assert_eq!(
+        freeze_audience_ids(&directory, &selected).unwrap(),
+        selected
+    );
+    let (restored, contacts, summary) = restore_targets(
+        &directory,
+        &ids(&["tg:123", "tg:-999", "tg:-456", "tg:999"]),
+        |_| panic!("Telegram saved peers must never resolve through WhatsApp contacts"),
+        || Ok(()),
+        || Duration::ZERO,
+    )
+    .unwrap();
+    assert_eq!(restored, ids(&["tg:123", "tg:-456"]));
+    assert!(contacts.is_empty());
+    assert_eq!((summary.accepted, summary.skipped), (2, 2));
+    directory.native_ids.remove("tg:123");
+    assert!(freeze_audience_ids(&directory, &ids(&["tg:123"])).is_err());
+    assert!(freeze_audience_ids(&directory, &ids(&["100@c.us"])).is_err());
+}
+
+#[test]
 fn invalid_or_wrong_owner_directory_is_rejected_before_querying() {
     for kind in 0..4 {
         let mut directory = lease();

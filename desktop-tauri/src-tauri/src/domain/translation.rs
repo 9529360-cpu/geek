@@ -81,9 +81,7 @@ impl TranslationPolicy {
 
     pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
         self.validate()?;
-        if (is_telegram(platform) && (self.enabled || self.auto_send))
-            || (platform == "telegram-z" && (self.group_auto || self.translation_mode != "click"))
-        {
+        if platform == "telegram-z" && (self.enabled || self.auto_send) {
             return Err(AppError::TranslationUnavailable);
         }
         Ok(())
@@ -288,13 +286,29 @@ pub fn supports_receive(platform: &str) -> bool {
     matches!(platform, "whatsapp" | "whatsapp-pure") || is_telegram(platform)
 }
 
+pub fn supports_outgoing(platform: &str) -> bool {
+    matches!(platform, "whatsapp" | "whatsapp-pure" | "telegram-k")
+}
+
+pub fn valid_send_chat_id(platform: &str, id: &str) -> bool {
+    supports_outgoing(platform) && valid_receive_chat_id(platform, id)
+}
+
+pub fn validate_send_text(platform: &str, text: &str) -> Result<()> {
+    validate_text(text)?;
+    if platform == "telegram-k" && text.encode_utf16().count() > 4096 {
+        return Err(AppError::TranslationInvalid);
+    }
+    Ok(())
+}
+
 /// Negative Telegram peers include groups and channels. Requiring groupAuto
 /// for both is conservative; the guest additionally rejects nonordinary chats.
 pub fn receive_requires_group_auto(id: &str) -> bool {
     id.ends_with("@g.us") || (valid_telegram_chat_id(id) && id.starts_with("tg:-"))
 }
 
-/// A separate receive namespace. Never accepted by WhatsApp send/broadcast IDs.
+/// A separate Telegram namespace. Never accepted by WhatsApp send/broadcast IDs.
 pub fn valid_telegram_chat_id(id: &str) -> bool {
     id.strip_prefix("tg:").is_some_and(|peer| {
         peer.parse::<i64>()
@@ -361,9 +375,6 @@ impl IncomingTranslation {
                 }))
         {
             return Err(AppError::TranslationInvalid);
-        }
-        if platform == "telegram-z" && !self.manual {
-            return Err(AppError::TranslationUnavailable);
         }
         Ok(())
     }

@@ -7,7 +7,11 @@ use super::{
     session_ports::{SessionRepository, SessionTransport},
     translation::TranslationService,
 };
-use crate::domain::error::{AppError, Result};
+use crate::domain::{
+    error::{AppError, Result},
+    send_intent::SendContext,
+    send_mentions::MentionTranslation,
+};
 use std::sync::Arc;
 
 pub struct SendTranslation<R: SessionRepository, T: SessionTransport, G: TranslationGateway> {
@@ -54,12 +58,22 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> SendTrans
         if !ticket.translate {
             return Ok(ticket.request.text.clone());
         }
+        let mentions = match &ticket.request.context {
+            SendContext::Mentions { mentions } => Some(MentionTranslation::encode(
+                &ticket.request.id,
+                &ticket.request.text,
+                mentions,
+            )?),
+            _ => None,
+        };
         let work = self.translation.prepare_outgoing(
             ticket.account.clone(),
             OutgoingTranslation {
                 id: ticket.request.id.clone(),
                 chat_id: ticket.request.chat_id.clone(),
-                text: ticket.request.text.clone(),
+                text: mentions
+                    .as_ref()
+                    .map_or_else(|| ticket.request.text.clone(), |value| value.text().into()),
                 policy_revision: ticket.request.policy_revision,
             },
             ticket.control.clone(),
@@ -67,7 +81,11 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> SendTrans
         if ticket.session_generation.as_deref() != Some(work.lease.generation.as_str()) {
             return Err(AppError::SessionChanged);
         }
-        self.translation.execute_outgoing(&work)
+        let output = self.translation.execute_outgoing(&work)?;
+        match mentions {
+            Some(value) => value.decode(&output),
+            None => Ok(output),
+        }
     }
 
     fn validate(&self, ticket: &SendTicket) -> Result<()> {

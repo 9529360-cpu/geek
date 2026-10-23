@@ -9,7 +9,8 @@ use crate::{
         broadcast::GuestBinding,
         error::{AppError, Result},
         send_intent::{OutgoingSend, SendOutcome, SendState, SendStatus},
-        translation::valid_chat_id,
+        send_receipt::SendReceipt,
+        translation::{supports_outgoing, valid_send_chat_id},
     },
 };
 use serde::Deserialize;
@@ -41,13 +42,6 @@ struct Frame {
 struct Preparation {
     ok: bool,
     code: Option<AppError>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Receipt {
-    pending: bool,
-    value: Option<SendOutcome>,
 }
 
 impl SendGuest {
@@ -95,7 +89,7 @@ impl SendPlatform for SendGuest {
             .lock()
             .map_err(|_| AppError::StateUnavailable)?
             .visible_account()
-            .filter(|account| matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure"))
+            .filter(|account| supports_outgoing(&account.platform_id))
         else {
             return Ok(None);
         };
@@ -151,12 +145,12 @@ impl SendPlatform for SendGuest {
         if frame
             .chat_id
             .as_deref()
-            .is_some_and(|id| !valid_chat_id(id))
+            .is_some_and(|id| !valid_send_chat_id(&binding.platform_id, id))
         {
             return Err(AppError::SendIntentInvalid);
         }
         if let Some(request) = &frame.request {
-            request.validate()?;
+            request.validate_for_platform(&binding.platform_id)?;
         }
         Ok(SendFrame {
             chat_id: frame.chat_id,
@@ -236,26 +230,25 @@ impl SendPlatform for SendGuest {
                 let reply = self
                     .evaluate(&ticket.binding, "read", arguments.clone())
                     .and_then(|value| {
-                        serde_json::from_value::<Receipt>(value)
+                        serde_json::from_value::<SendReceipt>(value)
                             .map_err(|_| AppError::SendIntentState)
+                    })
+                    .and_then(|receipt| {
+                        receipt.resolve(
+                            &ticket.account.platform_id,
+                            &ticket.binding.generation,
+                            &ticket.request.id,
+                            ticket.request.attempt,
+                            permit,
+                        )
                     });
                 if let Err(issue) = ticket.control.check() {
                     break uncertain(issue);
                 }
                 match reply {
-                    Ok(Receipt {
-                        pending: false,
-                        value: Some(SendOutcome::NotSubmitted { .. }),
-                    }) => break uncertain(AppError::SendIntentUncertain),
-                    Ok(Receipt {
-                        pending: false,
-                        value: Some(outcome),
-                    }) => break outcome,
-                    Ok(Receipt {
-                        pending: true,
-                        value: None,
-                    }) => {}
-                    Ok(_) | Err(_) => break uncertain(AppError::SendIntentUncertain),
+                    Ok(Some(outcome)) => break outcome,
+                    Ok(None) => {}
+                    Err(_) => break uncertain(AppError::SendIntentUncertain),
                 }
                 if let Err(issue) = ticket.control.wait(Duration::from_millis(75)) {
                     break uncertain(issue);

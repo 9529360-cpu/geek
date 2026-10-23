@@ -21,7 +21,10 @@ impl BroadcastDesktop {
             .platform
             .account(account_id)
             .map_err(|_| AppError::AccountUnknown)?;
-        if !matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
+        if !matches!(
+            account.platform_id.as_str(),
+            "whatsapp" | "whatsapp-pure" | "telegram-k"
+        ) {
             return Err(AppError::BroadcastUnsupported);
         }
         Ok(())
@@ -110,7 +113,7 @@ fn usable_directory(lease: &CatalogLease) -> bool {
     lease.catalog.ready
         && matches!(
             lease.catalog.platform_id.as_str(),
-            "whatsapp" | "whatsapp-pure"
+            "whatsapp" | "whatsapp-pure" | "telegram-k"
         )
         && lease.binding.account_id == lease.catalog.account_id
         && lease.binding.platform_id == lease.catalog.platform_id
@@ -122,8 +125,9 @@ fn current_chats(lease: &CatalogLease) -> HashMap<&str, &CatalogChat> {
         .chats
         .iter()
         .filter(|chat| {
-            supported_id(&chat.id, chat.kind)
-                && (chat.kind == ChatKind::Contact || lease.native_ids.contains(&chat.id))
+            supported_catalog_id(&lease.catalog.platform_id, &chat.id, chat.kind)
+                && ((lease.catalog.platform_id != "telegram-k" && chat.kind == ChatKind::Contact)
+                    || lease.native_ids.contains(&chat.id))
         })
         .map(|chat| (chat.id.as_str(), chat))
         .collect()
@@ -158,6 +162,12 @@ fn restore_targets(
     if !usable_directory(lease) {
         return Err(AppError::BroadcastPresetInvalid);
     }
+    if ids.iter().any(|id| {
+        !supported_catalog_id(&lease.catalog.platform_id, id, ChatKind::Contact)
+            && !supported_catalog_id(&lease.catalog.platform_id, id, ChatKind::Group)
+    }) {
+        return Err(AppError::BroadcastPresetInvalid);
+    }
     check()?;
     remaining(elapsed())?;
     let mut summary = ImportSummary::selected(ids.len());
@@ -167,7 +177,7 @@ fn restore_targets(
     for (index, id) in ids.iter().enumerate() {
         if let Some(chat) = chats.get(id.as_str()) {
             slots[index] = Some((*chat).clone());
-        } else if supported_id(id, ChatKind::Contact) {
+        } else if lease.catalog.platform_id != "telegram-k" && supported_id(id, ChatKind::Contact) {
             missing.push((index, id.clone()));
         } else {
             summary.skipped += 1;
@@ -195,7 +205,7 @@ fn restore_targets(
             recipients.push(chat.id.clone());
             // Protect every selected contact from bounded-cache eviction; group
             // authority remains in the native directory and never enters this cache.
-            if chat.kind == ChatKind::Contact {
+            if lease.catalog.platform_id != "telegram-k" && chat.kind == ChatKind::Contact {
                 additions.push(chat);
             }
         } else {

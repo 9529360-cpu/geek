@@ -16,6 +16,8 @@ pub mod platform;
 pub mod presentation;
 pub mod proxy;
 pub mod send_intent;
+pub mod send_mentions;
+pub mod send_receipt;
 pub mod session;
 pub mod translation;
 pub mod translation_cache;

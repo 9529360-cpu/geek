@@ -119,6 +119,11 @@
 #broadcast-overlay .bc-card[data-workbench-hidden="true"] {
   display:none!important;
 }
+#broadcast-overlay .bc-selectize-dropdown {
+  position:relative;
+  inset:auto;
+  margin-top:5px;
+}
 .bc-review-card {
   display:flex;
   flex-direction:column;

@@ -15,6 +15,8 @@ use tauri::{
     AppHandle, LogicalPosition, Manager, Webview, WebviewUrl,
 };
 
+const TELEGRAM_A_OBSERVER: &str = include_str!(concat!(env!("OUT_DIR"), "/telegram-a-observer.js"));
+
 pub struct TauriHost {
     app: AppHandle,
     root: PathBuf,
@@ -103,6 +105,13 @@ impl DesktopHost for TauriHost {
         .on_new_window(|_, _| NewWindowResponse::Deny)
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_download(|_, _| false);
+        // Observe only the owned Web A document before its production API worker
+        // starts. This packaged read-only observer grants no native capabilities.
+        let builder = if account.platform_id == "telegram-z" {
+            builder.initialization_script(TELEGRAM_A_OBSERVER)
+        } else {
+            builder
+        };
         // Apply only to this owner-bound profile, before its first navigation.
         // Creation errors propagate; never retry with the proxy removed.
         let builder = match proxy {

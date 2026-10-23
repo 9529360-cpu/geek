@@ -119,7 +119,7 @@ test('unloaded, unverifiable or rich quote contexts fail before admission withou
     ui.enter(); assert.equal(ui.poll().request, null, label);
     assert.equal(ui.state.sent.length, 0, label); assert.equal(ui.state.cleared.length, 0, label);
     assert.equal(ui.editor.innerText, ui.state.text, label);
-    assert.match(ui.feedback(), /可识别的同聊天文字引用/, label);
+    assert.match(ui.feedback(), /当前草稿暂不支持发送翻译/, label);
   }
   const cross = await withReply({ chatId: '200@c.us' }); cross.ui.enter(); assert.equal(cross.ui.poll().request, null);
 });

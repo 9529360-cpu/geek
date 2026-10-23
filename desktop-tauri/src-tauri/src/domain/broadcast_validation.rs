@@ -1,7 +1,7 @@
 use super::{
     broadcast::*,
     broadcast_attachment::{validate_attachments, validate_sources},
-    broadcast_render::{validate_template, validate_text},
+    broadcast_render::{validate_template, validate_template_with_limit, validate_text},
     error::{AppError, Result},
 };
 use std::collections::HashSet;
@@ -25,7 +25,15 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     {
         return Err(AppError::BroadcastInvalid);
     }
-    if !matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
+    if !matches!(
+        account.platform_id.as_str(),
+        "whatsapp" | "whatsapp-pure" | "telegram-k"
+    ) {
+        return Err(AppError::BroadcastUnsupported);
+    }
+    if account.platform_id == "telegram-k"
+        && (draft.tag_all || !draft.vcards.is_empty() || !draft.attachments.is_empty())
+    {
         return Err(AppError::BroadcastUnsupported);
     }
     if (!draft.message.trim().is_empty() && !account.capabilities.text)
@@ -55,6 +63,8 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     let mut ids = HashSet::new();
     for target in &draft.targets {
         if !label(&target.id, 256, false)
+            || (account.platform_id == "telegram-k"
+                && !super::translation::valid_telegram_chat_id(&target.id))
             || target.id != target.id.trim()
             || !ids.insert(&target.id)
             || !label(&target.name, 512, true)
@@ -62,7 +72,11 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
         {
             return Err(AppError::BroadcastInvalid);
         }
-        validate_template(&draft.message, target)?;
+        if account.platform_id == "telegram-k" {
+            validate_template_with_limit(&draft.message, target, 4096)?;
+        } else {
+            validate_template(&draft.message, target)?;
+        }
     }
     let mut contacts = HashSet::new();
     for card in &draft.vcards {

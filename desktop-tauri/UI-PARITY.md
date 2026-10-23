@@ -32,3 +32,14 @@ Compare the original and migrated shells at matching viewport sizes and states.
 Record which paths are wired, which are unavailable, and what was actually tested.
 Visual similarity alone does not prove backend/runtime parity. Keep PR #802 draft;
 do not merge or release the mismatched prototype while parity work is unfinished.
+
+The original translation panel now exposes automatic incoming translation for Telegram A/K,
+and outgoing plain-text translation for K. The original broadcast workbench/task center also
+serves K text, schedules and saved messages/audiences; unavailable import/attachment/entity
+controls remain disabled by capability. WhatsApp outgoing retains its original send gesture
+and adds verified group mentions, captioned image/video replies and single image/video or
+identified-PDF attachment captions through the actual preview send button. A retained complex draft
+uses the existing success feedback instead of clearing only part of the composition.
+These paths share the existing application owners and do not introduce a replacement layout.
+The Tauri workbench's open recipient dropdown participates in the scrollable body layout so
+its rows remain reachable above the footer at both 1280 × 820 and the 960 × 640 minimum size.

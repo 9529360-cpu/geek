@@ -1,9 +1,10 @@
 const adapter = createWhatsAppAdapter();
+const telegramAdapter = createTelegramKAdapter();
 const GeekPlatformTransports = createPlatformCapabilities({
-  familyOf: (type) => ({ key: ['whatsapp', 'whatsapp-pure'].includes(type) ? 'whatsapp' : '' }),
-  definitions: { definitionFor: ({ family }) => family === 'whatsapp' ? Object.freeze({}) : null },
+  familyOf: (type) => ({ key: ['whatsapp', 'whatsapp-pure'].includes(type) ? 'whatsapp' : type === 'telegram-k' ? 'telegram-k' : '' }),
+  definitions: { definitionFor: ({ family }) => ['whatsapp', 'telegram-k'].includes(family) ? Object.freeze({}) : null },
   contract: { validate: validateAdapter, hostRequired: ['listChats', 'prepare', 'dispatch'] },
-  buildAdapter: () => adapter,
+  buildAdapter: ({ family }) => family === 'telegram-k' ? telegramAdapter : adapter,
 });
 const mailbox = new Map();
 const prepared = new Map();

@@ -5,7 +5,6 @@ use crate::domain::{
     broadcast::GuestBinding,
     error::{AppError, Result},
     send_intent::{OutgoingSend, SendContext, SendOutcome, SendState, SendStatus},
-    translation::validate_text,
 };
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, time::Duration};
@@ -83,10 +82,9 @@ impl SendIntents {
         session_generation: Option<String>,
         request: OutgoingSend,
     ) -> Result<Admission> {
-        request.validate()?;
+        request.validate_for_platform(&account.platform_id)?;
         if account.archived
             || !valid_id(&account.id)
-            || !matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure")
             || binding.account_id != account.id
             || binding.platform_id != account.platform_id
             || !valid_id(&binding.generation)
@@ -218,7 +216,11 @@ impl SendIntents {
         ) {
             return Err(AppError::SendIntentState);
         }
-        if validate_text(&output).is_err() {
+        if ticket
+            .request
+            .validate_output(&ticket.account.platform_id, &output)
+            .is_err()
+        {
             fail_record(record, AppError::TranslationOutputInvalid);
             return Err(AppError::TranslationOutputInvalid);
         }

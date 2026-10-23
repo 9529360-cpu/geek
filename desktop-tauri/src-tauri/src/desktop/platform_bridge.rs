@@ -5,6 +5,7 @@ use crate::{
     domain::{
         account::Account,
         broadcast::{BroadcastIssue, DispatchOutcome, DispatchRequest, GuestBinding},
+        translation::supports_outgoing,
         url_policy::safe_https,
     },
 };
@@ -55,7 +56,7 @@ impl NativePlatform {
     }
 
     pub(super) fn guest(&self, binding: &GuestBinding) -> PlatformResult<Webview> {
-        if !matches!(binding.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
+        if !supports_outgoing(&binding.platform_id) {
             return Err(BroadcastIssue::CapabilityUnavailable);
         }
         if !self.sessions.valid(binding) {
@@ -68,10 +69,16 @@ impl NativePlatform {
         let url = guest
             .url()
             .map_err(|_| BroadcastIssue::AccountUnavailable)?;
-        if !safe_https(&url)
-            || url.host_str() != Some("web.whatsapp.com")
-            || !self.sessions.valid(binding)
-        {
+        let owned_url = match binding.platform_id.as_str() {
+            "whatsapp" | "whatsapp-pure" => url.host_str() == Some("web.whatsapp.com"),
+            "telegram-k" => {
+                url.host_str() == Some("web.telegram.org")
+                    && matches!(url.path(), "/k" | "/k/")
+                    && url.query().is_none()
+            }
+            _ => false,
+        };
+        if !safe_https(&url) || !owned_url || !self.sessions.valid(binding) {
             return Err(BroadcastIssue::GuestChanged);
         }
         Ok(guest)
@@ -116,11 +123,18 @@ impl NativePlatform {
         }
         // The marker is set before evaluating the vendor bundle. A failed load
         // requires a fresh document, rather than wrapping WhatsApp twice.
+        let vendor = if matches!(binding.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
+            format!(
+                "if (!window.__geekWppBundleStarted) {{\n\
+                 Object.defineProperty(window, '__geekWppBundleStarted', {{value: true}});\n\
+                 void {notices};\n {WPP}\n }}"
+            )
+        } else {
+            String::new()
+        };
         let source = format!(
             "(() => {{ if (window !== window.top) return false;\n\
-             if (!window.__geekWppBundleStarted) {{\n\
-             Object.defineProperty(window, '__geekWppBundleStarted', {{value: true}});\n\
-             void {notices};\n {WPP}\n }}\n {BRIDGE}\n\
+             {vendor}\n {BRIDGE}\n\
              return window.__geekTauriPlatform?.bind({generation}) === true; }})()"
         );
         if self.evaluate(binding, source)? != Value::Bool(true) {
@@ -218,13 +232,13 @@ impl BroadcastPlatform for NativePlatform {
         if account.platform_id != platform_id {
             return Err(BroadcastIssue::GuestChanged);
         }
-        if !matches!(platform_id, "whatsapp" | "whatsapp-pure") {
+        if !supports_outgoing(platform_id) {
             return Err(BroadcastIssue::CapabilityUnavailable);
         }
         let binding = self.sessions.binding(account_id, platform_id)?;
         self.guest(&binding)?;
         // Scheduled readiness retries happen before a target checkpoint exists.
-        // Page Finished alone is not proof that the WhatsApp session is ready.
+        // Page Finished alone is not proof that the owned platform session is ready.
         self.call(
             &binding,
             "ready",

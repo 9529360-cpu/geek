@@ -84,7 +84,7 @@ function canUse(entry, automatic = entry.pending && entry.manual === false) {
   const current = adapter.read(entry.root, chat);
   return current?.node === entry.node && current.messageId === entry.messageId && current.text === entry.text
     && current.observation === entry.observation
-    && (!automatic || platformId !== 'telegram-k' || (current.incoming && current.sentAt === entry.sentAt
+    && (!automatic || adapter.platform !== 'telegram' || (current.incoming && current.sentAt === entry.sentAt
       && current.automaticProof === entry.automaticProof));
 }
 
@@ -173,7 +173,7 @@ function scan() {
       entries.set(key, entry);
     }
     entry.root = root; entry.node = node; entry.observation = info.observation;
-    if (!entry.pending && platformId === 'telegram-k') {
+    if (!entry.pending && adapter.platform === 'telegram') {
       entry.incoming = info.incoming; entry.sentAt = info.sentAt; entry.automaticProof = info.automaticProof;
     }
     // Entering a chat or enabling auto never bills rows already on screen.

@@ -187,8 +187,8 @@ the same immutable account route; global login and explicit quota refresh use Sy
 
 ## 6. Feature boundaries for subsequent implementation
 
-The table describes ownership constraints. Implemented WhatsApp broadcast, auth,
-incoming translation and text/reply SendIntent subsets are specified below; remaining entries guide subsequent work.
+The table describes ownership constraints. Implemented WhatsApp/Telegram K broadcast, auth,
+incoming translation and typed SendIntent subsets are specified below; remaining entries guide subsequent work.
 Introduce each owner only with a working caller, tests and an integration path.
 
 | Feature owner | Inputs/state and commit rule |
@@ -317,6 +317,15 @@ runtime readiness precedes scheduled target checkpoint admission. Normal users/g
 admitted; unsupported channel/status/community-parent destinations are excluded and checked
 again immediately before a platform side effect.
 
+Telegram K plugs into this same BroadcastPlatform port and durable job owner. Its exact
+`/k/` document exposes only a finite account-bound adapter; no WPP runtime is loaded there.
+Its first successful readiness/catalog capture pins the internal account and self identity
+for that bridge lifetime. An internal account switch, including switching back, retires it;
+a new native document is required. Targets use canonical `tg:` peers and ordinary user/group
+metadata. Text and scheduling are supported, with the longest template expansion bounded
+to 4096 UTF-16 units. Native ingress also rejects forged attachment/vcard/tagAll/member/label
+capabilities. There is no parallel queue or Telegram-specific persistent job format.
+
 Windows eval callbacks do not await Promise results, so the guest uses a bounded mailbox.
 Rust begins an operation once and polls that same ID. Native monotonic deadlines and
 cancellation cover even a lost begin callback. Cleanup uses the originally held WebView and
@@ -389,12 +398,18 @@ Malformed/unknown-version state is never reset. Archiving does not delete preset
 
 `desktop/broadcast/presets` checks the actual account and requires current catalog authority to
 save a recipient list. Restoration holds the existing RecipientImport gate. Current native groups
-stay native; absent groups are reported unavailable. Missing contacts use the same bounded
+stay native; absent groups are reported unavailable. Missing WhatsApp contacts use the same bounded
 canonical-contact resolver in pairs under the shared ten-minute budget. Selected contacts are
 protected in the final imported cache; current platform models supply names. The final short
 publication checks both preset revision and catalog lease, with no preset lock across platform
 waits and no Workspace/job/catalog lock across persistence. A zero-recipient restoration is an
 explicit successful result, so the editor clears old selections and disables creation.
+
+Telegram K messages and recipient presets use the same owner and schema. Every restored
+`tg:` peer must still exist in that account's fresh native catalog. Missing peers are skipped;
+they never enter the WhatsApp resolver/import cache. Native save and restore reject mixed
+platform namespaces before publication. Stored message templates retain their original
+format; the Telegram length limit is enforced on all expanded variants before job creation.
 
 The frontend restores a list into the existing custom-selection draft and retains exclusions;
 applying a message changes only its raw body. Current editor/account/catalog/revision tokens guard
@@ -463,8 +478,7 @@ Telegram Web A/K adapters share that same request/display owner for visible ordi
 exact native platform/URL/session bindings. Web A validates the route and
 header peer against a chat-keyed MessageList identity; Web K validates each row's peer and message
 ID. Unknown text structures, media, threads and special lists fail closed. Body extraction excludes
-metadata and reply previews. Web A remains manual-only because its production state API is not
-exposed and localized date titles are not reliable timestamp authority. Web K also admits new
+metadata and reply previews. Web K also admits new
 incoming text only when a history_multiappend observation matches the current ordinary chat
 instance, own/sender identity, time, history-only synchronous mirror and visible message body.
 Its guest-local observations carry no UUID or requests: the shared owner still assigns every
@@ -473,10 +487,21 @@ for five seconds, but contradictory metadata, edits, view changes and policy cha
 Observed identities are never evicted to authorize replay; bounded capacity falls back to manual.
 Pending automatic delivery requires the same short-lived proof; a completed translation does not
 depend on that proof's lifetime. Both guest and native policy require groupAuto for negative
-Telegram peers, with channels/forums/special chats additionally excluded by the guest. Both native
-policy and request ingress still reject Web A automatic and all Telegram outgoing requests.
-`TranslationGuest` uses fixed private Telegram evaluation and
-does not broaden `NativePlatform`, load WPP on Telegram, or install another cache, scheduler or IPC.
+Telegram peers, with channels/forums/special chats additionally excluded by the guest.
+
+Web A automatic reception uses a packaged document-start observer installed only on the
+native Telegram Z account. It preserves the production Worker constructor and observes only
+trusted events from the exact same-origin API module worker in a top-level `/a/` document.
+It sends no Worker requests and retains no raw worker handle, authorization material or
+unbounded payload. A finite whitelist derives current user/connection, ordinary chat metadata
+and new full incoming text. Worker replacements, disconnects, identity changes and reconnect
+history fences invalidate observations. Positive private peers require a definite incoming
+direction; negative peers additionally require full ordinary group metadata and sender identity.
+The shared request owner still checks activation time, current visible body, group policy,
+five-second DOM matching and 45-second delivery proof. Bounded identity tombstones prevent replay;
+missing/unknown evidence falls back to manual. Localization is never timestamp authority.
+Neither incoming adapter sends messages or modifies a composer. `TranslationGuest` uses fixed
+private evaluation, without WPP on Telegram or another cache, scheduler or IPC.
 
 `application/translation` holds account-specific short-token slots and a bounded 15-minute
 memory cache (256 entries / 1 MiB), with session/account/chat/message/parameter keys. Even
@@ -523,9 +548,8 @@ No extra handwritten unsafe or general-purpose network/URL IPC is introduced.
 Session/context commands share the native authorization/blocking boundary but use their
 own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
 The original UI provides login, quota, account/chat translation settings, incoming
-display and the plain-text/same-chat text-reply outgoing paths specified below. Interactive
-mentions, media replies, interactive attachments, Telegram Web A automatic and Telegram outgoing translation, registration/purchase
-and bulk history remain explicitly unavailable
+display and the WhatsApp/Telegram K outgoing paths specified below. Unsupported attachment,
+reply/entity shapes, Telegram Web A outgoing, registration/purchase and bulk history remain explicitly unavailable
 until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
 that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
@@ -533,7 +557,7 @@ that a malicious remote service reports truthful receipts, nor an exactly-once s
 ## Interactive SendIntent ownership
 
 `application/send_intent` owns each UUID, native account/document/session binding,
-chat, source, typed plain/reply context, composer revision, frozen effective policy and attempt nonce. Its in-memory
+chat, source, typed plain/reply/mentions/attachment context, composer revision, frozen effective policy and attempt nonce. Its in-memory
 history retains at most 20000 records; output plus reserved output is bounded to 2 MiB.
 Confirmed and uncertain tombstones are never evicted to authorize replay. An explicit
 next attempt after definite precommit failure can rebind the current composer revision
@@ -564,8 +588,9 @@ before reusing paid output and immediately before the native commit gate.
 
 `desktop/send_guest` exposes only packaged configure/poll/prepare/commit/read/deliver/
 cancel/deactivate/revoke semantics. The remote document gains no native IPC or credentials. Only a
-trusted ordinary Enter or original send-button click admits an intent. Translation off
-passes through native WhatsApp behavior, except for an unchanged draft already submitted
+trusted platform send shortcut or original send-button gesture admits an intent. Telegram K
+uses its own Enter/Ctrl+Enter setting and touch-aware mousedown/click contract. Translation off
+passes through native platform behavior, except for an unchanged draft already submitted
 with a confirmed or uncertain result. Only deliberate editing/clearing releases that guard.
 
 Presentation revocation plus guest deactivation enqueue and the final commit check plus
@@ -575,12 +600,13 @@ enabling Tauri's tracing feature requires rechecking that property. A hidden-the
 guest receives a fresh lease, and deactivation cannot revive an earlier attempt.
 
 The guest requires the pinned WA-JS active chat model and plain composer DOM to agree.
-A reply additionally requires a loaded, replyable same-chat text MsgModel and canonical
+A reply additionally requires a loaded, replyable same-chat text or captioned image/video MsgModel and canonical
 MsgKey, plus visible footer quote text exactly matching that model. Any author label must
 match a known model name. No remote message fetch, quote-payload reconstruction or guessed
-quote selector establishes authority. Media/truncated/unknown quote shapes, mentions/entities,
-attachments/captions, edits/forwards and previews fail before paid work and again before commit.
-Every request has a mandatory strict `plain` or `reply` context. Native code receives only
+quote selector establishes authority. Media replies also require matching type, MIME, hash,
+loaded preview and exact caption. Uncaptioned/audio/document/view-once/truncated/unknown quote
+shapes, mixed reply/entities, edits/forwards and link previews fail before paid
+work and again before commit. Every request has a mandatory strict typed context. Native code receives only
 the quote message/chat IDs and includes them in the fingerprint; quoted body, author and raw
 model never enter the transform. Prepare must match this frozen context. Quote model and
 footer changes advance composer revision, including a quote A-to-B-to-A change.
@@ -590,18 +616,70 @@ as `quotedMsg`. Implicit mentions and link previews are disabled. A consumed per
 cannot be replayed, and the submitted attempt stays in the poll heartbeat until native
 settlement so receipt waits cannot be mistaken for abandoned work.
 
+WhatsApp mentions form a separate `mentions` context, limited to 32 current ordinary group
+contact entities. The official Lexical ZWS-wrapped `data-app-text-template` identity, complete
+DOM-to-parsable projection, ChatModel draft, loaded contact and group participant must agree.
+PN and LID identities are never inferred from a display name or each other. Unknown rich
+structure, own/bot/group identities and ambiguous namespaces are rejected. The native context
+contains canonical IDs and exact UTF-16 ranges, not raw page models. A pure per-request envelope
+replaces those ranges with protected UUID-bound URLs before the existing translation transform;
+decoding requires every token exactly once and rejects mutations, extras and reserved-host input.
+The original request UUID remains the only billing identity; no new cache or scheduler exists.
+Protected URLs increase both actual input and output character counts under the existing Worker
+billing contract; the settings panel states that overhead instead of implying nickname-length billing.
+Explicit mentionedList is derived only from the frozen proof. Model/collection/DOM changes
+advance revision and final synchronous CAS revalidates every node/member before submission.
+
+WhatsApp attachment captions use a separate finite composer adapter with the same SendIntent
+owner. It admits one READY standard image/video or PDF with a positively identified preview;
+actual caption DOM, attachment collection/model, preview source, prepared Blob/hash and chat
+must agree. Multiple files, unsupported document/viewer shapes, edits/HD/GIF/view-once,
+empty captions and mixed mentions/replies fail closed. Native receives only an opaque attachment
+UUID plus the caption, bounded to 1024 Unicode scalar values on input and transformed output.
+Payload changes rotate that UUID; UI/model changes also advance revision even when changed back.
+The trusted original send-button click or focused-button Enter/Space is captured before platform
+handlers close the preview. Ordinary Enter in the caption editor does not establish that contract.
+Submission uses a private MediaPrep created from the verified immutable Blob and a detached
+metadata snapshot. It never freezes or mutates the platform's original preparation object;
+the platform's asynchronous send steps cannot substitute a subsequently edited source payload.
+The exact generated message key, target, caption, type, hash and size must match the confirmed
+MsgModel. The complete preview remains after success, cancellation or uncertain dispatch.
+Production-module provenance and reviewed shape limits live in `WHATSAPP-SEND-CONTRACT.md`.
+
 Only a real message ID and ACK >= 1 confirm delivery. Callback loss after dispatch is
 uncertain, never an instruction to submit again. The source draft remains until ACK;
 plain-text cleanup checks the original chat/model/node/source/revision and uses the pinned no-chatId
 `setInputText('')` path, whose mutation occurs before its first Promise suspension. A newer
 draft is retained, and cleanup failure cannot downgrade a confirmed send into retryable
-failure. Reply ACK always preserves the complete body and quote with `draftCleared: false`
+failure. Reply, mention and attachment ACK always preserve the complete draft with `draftCleared: false`
 and the existing explicit retained-draft feedback. There is no reviewed synchronous atomic
 quote-clear operation; clearing text alone would leave an old quote for the next message.
 The submitted-draft guard remains keyed to chat/body, so changing only the quote cannot
 authorize a duplicate. Native cancellation targets the held original WebView even after generation
 revocation. Browser/Rust synthetic tests and Windows builds do not prove authenticated
 WhatsApp or paid-service acceptance.
+Failed unsubmitted attempts release composer/model/Blob references while retaining the bounded
+request identity and paid output. Retries reacquire the current proof. Settled terminal attempts
+release those references after native delivery, never while a transport call still owns them.
+
+Telegram K uses the same SendIntent, transform and delivery owner, with `plain` context and
+4096 UTF-16 limits on both source and output. Its finite production-manager adapter freezes
+internal account/self, peer, temp message ID and random_id. It stages the platform's own local
+message without clearing drafts, then admits one `messages.sendMessage` with `clear_draft: false`.
+Confirmation requires the exact platform send event and history mirror to match target, text,
+temporary/random/final identities and normal message flags. SDK protocol recovery may retransmit
+the same random_id; the application never creates a second logical submission. Unknown external
+errors remain uncertain. Only errors owned by a private precommit proof can return notSubmitted.
+Native receipt parsing also requires that proof's exact platform, generation, intent, attempt
+and single-use permit tuple; a foreign status/code cannot reopen a consumed intent.
+Current-chat draft cleanup uses the reviewed synchronous skip-draft-save path after full CAS;
+newer, switched, hidden or changed drafts remain intact. Broadcast and interactive adapters share
+that same finite runtime/receipt code but retain their existing independent job/intent owners.
+
+Web A outgoing remains disabled in both UI and native ingress: its production send method
+unconditionally clears the target cloud draft and offers no preservation option. The original
+Electron automation provides neither a stronger draft contract nor exact delivery correlation.
+The source-pinned analysis and required future contract are in `TELEGRAM-A-SEND-CONTRACT.md`.
 
 The original four-step workbench and task center expose this contract. A measured task bar
 strip is reserved above native guest bounds before displaying controls; z-index alone cannot
@@ -609,8 +687,9 @@ cover a native child. The shell keeps the guest's account identity independent o
 The named broadcast IPC remains authorized only to the local shell, with manifest/permission/
 gateway drift and independent-owner checks enforced by the architecture gate.
 
-Telegram native text input and delivery into a guest page's file chooser do not currently
-have an approved safe native adapter. They remain unavailable; WhatsApp broadcast attachments
+Native text-input simulation and delivery into a guest page's file chooser do not currently
+have an approved safe native adapter. They remain unavailable; Telegram K text uses the finite
+platform contract above, and WhatsApp broadcast attachments
 use the explicit WA-JS File API described above. Adding hand-written WebView2 COM outside the
 reviewed DPAPI boundary requires a deliberate architecture decision; JS Enter, synthetic
 file drops, arbitrary CDP and a remote-debugging port do not satisfy that boundary.

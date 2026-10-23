@@ -90,6 +90,9 @@ pub fn validate_preset_message(message: &str) -> Result<()> {
 
 /// The same contact/group ID shapes admitted by the native broadcast catalog.
 pub fn valid_preset_recipient(id: &str) -> bool {
+    if super::translation::valid_telegram_chat_id(id) {
+        return true;
+    }
     let Some((number, server)) = id.split_once('@') else {
         return false;
     };

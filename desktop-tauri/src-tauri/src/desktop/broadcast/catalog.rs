@@ -41,7 +41,7 @@ impl BroadcastDesktop {
         if !self.sessions.valid(&binding) {
             return Err(AppError::BroadcastUnavailable);
         }
-        let native = native_catalog(value)?;
+        let native = native_catalog(value, &binding.platform_id)?;
         result.catalog_id = Uuid::new_v4().to_string();
         result.capabilities = native.capabilities;
         result.chats = native.chats;
@@ -210,19 +210,19 @@ mod tests {
 
     #[test]
     fn old_catalogs_default_audience_capabilities_without_changing_base_readiness() {
-        let old = native_catalog(catalog_value()).unwrap();
+        let old = native_catalog(catalog_value(), "whatsapp").unwrap();
         assert!(old.capabilities.text);
         assert!(!old.capabilities.group_members);
         assert!(old.labels.is_none());
         let mut value = catalog_value();
         value["labels"] = json!([]);
         value["capabilities"]["groupMembers"] = json!(true);
-        let empty = native_catalog(value).unwrap();
+        let empty = native_catalog(value, "whatsapp").unwrap();
         assert!(empty.capabilities.group_members);
         assert!(empty.labels.unwrap().is_empty());
         let mut value = catalog_value();
         value["labels"] = serde_json::Value::Null;
-        assert!(native_catalog(value).unwrap().labels.is_none());
+        assert!(native_catalog(value, "whatsapp").unwrap().labels.is_none());
     }
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
             { "id": "2", "name": "" },
             { "id": "3", "name": "😀".repeat(257) }
         ]);
-        let labels = native_catalog(value).unwrap().labels.unwrap();
+        let labels = native_catalog(value, "whatsapp").unwrap().labels.unwrap();
         assert_eq!(labels[0].name, "AB");
         assert_eq!(labels[1].name, "2");
         assert_eq!(labels[2].name, "😀".repeat(256));
@@ -249,24 +249,28 @@ mod tests {
         ] {
             let mut value = catalog_value();
             value["labels"] = bad;
-            assert!(native_catalog(value).is_err());
+            assert!(native_catalog(value, "whatsapp").is_err());
         }
         let mut value = catalog_value();
         value["labels"] = json!((0..256)
             .map(|i| json!({ "id": i.to_string(), "name": "" }))
             .collect::<Vec<_>>());
         assert_eq!(
-            native_catalog(value.clone()).unwrap().labels.unwrap().len(),
+            native_catalog(value.clone(), "whatsapp")
+                .unwrap()
+                .labels
+                .unwrap()
+                .len(),
             256
         );
         value["labels"]
             .as_array_mut()
             .unwrap()
             .push(json!({ "id": "256", "name": "" }));
-        assert!(native_catalog(value).is_err());
+        assert!(native_catalog(value, "whatsapp").is_err());
         let mut value = catalog_value();
         value["capabilities"]["groupMembers"] = json!("true");
-        assert!(native_catalog(value).is_err());
+        assert!(native_catalog(value, "whatsapp").is_err());
     }
 
     #[test]

@@ -73,7 +73,8 @@ export function createWorkbenchView(document, retry, changed) {
     const count = draft.recipientIds.length;
     const scheduledAt = draft.scheduleEnabled ? new Date(draft.scheduleTime).getTime() : null;
     const account = owner?.name || catalog?.accountName || '当前账号';
-    values.get('account').textContent = `${account}，WhatsApp`;
+    const platform = (owner?.platformId || catalog?.platformId) === 'telegram-k' ? 'Telegram K' : 'WhatsApp';
+    values.get('account').textContent = `${account}，${platform}`;
     values.get('audience').textContent = draft.excludedRecipientCount
       ? `${count} 个对象，已排除 ${draft.excludedRecipientCount} 个` : count ? `${count} 个对象` : '尚未选择对象';
     values.get('time').textContent = draft.scheduleEnabled ? (scheduledAt > Date.now() ? formatTime(scheduledAt) : '请选择未来的时间') : '立即发送';

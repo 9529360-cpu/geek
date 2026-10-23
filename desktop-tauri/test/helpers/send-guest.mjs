@@ -20,6 +20,10 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
   const observers = new Set();
   const mutation = (record) => {
     for (const observer of observers) {
+      const options = observer.options;
+      if (record.target !== observer.target && !(options.subtree && observer.target.contains(record.target))) continue;
+      if (!options[record.type] || record.type === 'attributes'
+          && options.attributeFilter && !options.attributeFilter.includes(record.attributeName)) continue;
       observer.records.push(record);
       if (!observer.scheduled) {
         observer.scheduled = true;
@@ -81,11 +85,13 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
     contains(node) { return node === this || this.childNodes.some((child) => child.contains(node)); }
     setAttribute(name, value) {
       this.attributeMap.set(name, String(value));
-      if (['contenteditable', 'data-testid', 'data-tab'].includes(name)) mutation({ target: this, type: 'attributes' });
+      mutation({ target: this, type: 'attributes', attributeName: name });
     }
     getAttribute(name) { return this.attributeMap.get(name) ?? null; }
     hasAttribute(name) { return this.attributeMap.has(name); }
-    removeAttribute(name) { this.attributeMap.delete(name); mutation({ target: this, type: 'attributes' }); }
+    removeAttribute(name) {
+      if (this.attributeMap.delete(name)) mutation({ target: this, type: 'attributes', attributeName: name });
+    }
     matches(selector) {
       const simple = (node, part) => {
         const tag = part.match(/^[a-z]+/i)?.[0];
@@ -128,7 +134,7 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
   }
   class Observer {
     constructor(callback) { this.callback = callback; this.records = []; this.scheduled = false; }
-    observe() { observers.add(this); }
+    observe(target, options) { this.target = target; this.options = options; observers.add(this); }
     disconnect() { observers.delete(this); this.records = []; }
     takeRecords() { const records = this.records; this.records = []; return records; }
   }
@@ -150,6 +156,7 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
       const handlers = this.handlers.get(name) || new Set(); handlers.add(callback); this.handlers.set(name, handlers);
     }
     off(name, callback) { this.handlers.get(name)?.delete(callback); }
+    emit(name, ...args) { for (const callback of [...this.handlers.get(name) || []]) callback(...args); }
     field(name, initial) {
       let value = initial;
       Object.defineProperty(this, name, { enumerable: true, configurable: true,
@@ -158,7 +165,15 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
       });
     }
   }
-  const wid = (id) => ({ _serialized: id, toString: () => id });
+  class Wid {
+    constructor(id) { this._serialized = id; [this.user, this.server] = id.split('@'); }
+    toString() { return this._serialized; }
+    equals(value) { return value instanceof Wid && value._serialized === this._serialized; }
+    isUser() { return ['c.us', 'lid', 'bot'].includes(this.server); }
+    isBot() { return this.server === 'bot'; }
+    isGroup() { return this.server === 'g.us'; }
+  }
+  const wid = (id) => new Wid(id);
   class MsgKey {
     constructor(serialized) {
       const [fromMe, remote, id, participant] = serialized.split('_');
@@ -172,7 +187,12 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
       return new MsgKey(value);
     }
   }
-  class ContactModel { constructor(name) { this.name = name; this.displayName = name; } }
+  class ContactModel extends ModelEvents {
+    constructor(name, id = null) {
+      super(); this.field('name', name); this.field('displayName', name); this.field('id', id); this.field('isMe', false);
+    }
+  }
+  class ChatModel extends ModelEvents {}
   class MsgModel extends ModelEvents {
     constructor(key, body, author) {
       super(); this.field('id', key); this.field('body', body); this.field('type', 'chat');
@@ -184,8 +204,9 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
   const chats = new Map();
   const model = (id) => {
     if (!chats.has(id)) {
-      const chat = new ModelEvents();
-      Object.assign(chat, { id, canSend: true, isGroup: id.endsWith('@g.us'),
+      const chat = new ChatModel();
+      chat.field('id', wid(id));
+      Object.assign(chat, { canSend: true, isGroup: id.endsWith('@g.us'),
         msgs: new Map(), getComposeContents: () => ({ text: state.text, timestamp: 1 }) });
       for (const name of ['composeQuotedMsg', 'composeQuotedMsgRemoteJid', 'quotedMsgAdminGroupJid', 'attachMediaContents']) chat.field(name, null);
       chats.set(id, chat);
@@ -193,7 +214,7 @@ export function guest({ policy = {}, text = 'Please send 100 units tomorrow.', i
     return chats.get(id);
   };
   const WPP = { isInjected: true, isReady: true,
-    whatsapp: { MsgKey, MsgModel, ContactModel, MsgStore: { get: (key) => messages.get(String(key)) },
+    whatsapp: { Wid, ChatModel, ModelEvents, MsgKey, MsgModel, ContactModel, MsgStore: { get: (key) => messages.get(String(key)) },
       canReplyMsg: (message) => message.replyable === true },
     on: (name, callback) => state.handlers.set(name, callback), off: (name) => state.handlers.delete(name),
     chat: { getActiveChat: () => model(state.chatId),

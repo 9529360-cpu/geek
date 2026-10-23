@@ -1,154 +1,4 @@
-mod sessions {
-    use crate::{desktop::platform_sessions::PlatformSessions, domain::broadcast::BroadcastIssue};
-
-    #[test]
-    fn a_new_guest_requires_its_own_load_and_the_exact_account_platform() {
-        let sessions = PlatformSessions::default();
-        let incarnation = sessions.created("account-a", "whatsapp");
-        assert!(sessions
-            .current_for_incarnation("account-a", &incarnation)
-            .is_some());
-        assert!(sessions
-            .current_for_incarnation("account-a", "old-incarnation")
-            .is_none());
-        assert_eq!(
-            sessions.binding("account-a", "whatsapp"),
-            Err(BroadcastIssue::AccountUnavailable)
-        );
-        sessions.page("account-a", "unrelated-incarnation", false);
-        assert!(sessions.binding("account-a", "whatsapp").is_err());
-        sessions.page("account-a", &incarnation, false);
-        let binding = sessions.binding("account-a", "whatsapp").unwrap();
-        assert!(sessions.valid(&binding));
-        assert_eq!(binding.account_id, "account-a");
-        assert_eq!(binding.platform_id, "whatsapp");
-        assert!(sessions.binding("account-a", "whatsapp-pure").is_err());
-        assert!(sessions.binding("account-b", "whatsapp").is_err());
-        let mut forged = binding.clone();
-        forged.account_id = "account-b".into();
-        assert!(!sessions.valid(&forged));
-    }
-
-    #[test]
-    fn old_incarnation_callbacks_cannot_ready_or_invalidate_a_reopened_guest() {
-        let sessions = PlatformSessions::default();
-        let first = sessions.created("account-a", "whatsapp");
-        sessions.page("account-a", &first, false);
-        let old = sessions.binding("account-a", "whatsapp").unwrap();
-        sessions.invalidate("account-a");
-        let (id, token) = sessions.pending_invalidations().pop().unwrap();
-        sessions.removed("account-a");
-        assert!(!sessions.valid(&old));
-        let second = sessions.created("account-a", "whatsapp");
-        assert_ne!(first, second);
-        assert!(sessions
-            .current_for_incarnation("account-a", &first)
-            .is_none());
-        sessions.page("account-a", &first, false);
-        assert!(sessions.binding("account-a", "whatsapp").is_err());
-        sessions.acknowledge_invalidated(&id, &token);
-        assert!(sessions.binding("account-a", "whatsapp").is_err());
-        sessions.page("account-a", &second, false);
-        let new = sessions.binding("account-a", "whatsapp").unwrap();
-        assert_ne!(old.generation, new.generation);
-        sessions.page("account-a", &first, true);
-        sessions.page("account-a", &first, false);
-        assert!(sessions.valid(&new));
-        assert!(!sessions.valid(&old));
-        assert_eq!(
-            sessions.current_for_incarnation("account-a", &second),
-            Some(new)
-        );
-        assert!(sessions
-            .current_for_incarnation("account-a", &first)
-            .is_none());
-        assert!(sessions.pending_invalidations().is_empty());
-    }
-
-    #[test]
-    fn navigation_and_reload_revoke_only_that_accounts_frozen_generation() {
-        let sessions = PlatformSessions::default();
-        let a = sessions.created("account-a", "whatsapp");
-        let b = sessions.created("account-b", "whatsapp-pure");
-        sessions.page("account-a", &a, false);
-        sessions.page("account-b", &b, false);
-        let original = sessions.binding("account-a", "whatsapp").unwrap();
-        let other = sessions.binding("account-b", "whatsapp-pure").unwrap();
-        sessions.page("account-a", &a, true);
-        assert!(!sessions.valid(&original));
-        assert!(sessions.binding("account-a", "whatsapp").is_err());
-        assert!(sessions.valid(&other));
-        sessions.page("account-a", &a, false);
-        let navigated = sessions.binding("account-a", "whatsapp").unwrap();
-        assert_ne!(navigated.generation, original.generation);
-        sessions.invalidate("account-a");
-        assert!(!sessions.valid(&navigated));
-        assert!(sessions.valid(&other));
-        sessions.page("account-a", &a, false);
-        assert_eq!(
-            sessions.binding("account-a", "whatsapp"),
-            Err(BroadcastIssue::AccountUnavailable)
-        );
-        let (id, token) = sessions.pending_invalidations().pop().unwrap();
-        sessions.acknowledge_invalidated(&id, &token);
-        let reloaded = sessions.binding("account-a", "whatsapp").unwrap();
-        assert_ne!(reloaded.generation, navigated.generation);
-        assert!(!sessions.valid(&original));
-    }
-
-    #[test]
-    fn invalidation_queue_retains_events_until_ack_even_when_no_guest_is_open() {
-        let sessions = PlatformSessions::default();
-        sessions.invalidate("closed-account");
-        sessions.invalidate("closed-account");
-        sessions.invalidate("another-account");
-        let mut pending = sessions.pending_invalidations();
-        pending.sort();
-        assert_eq!(
-            pending
-                .iter()
-                .map(|(id, _)| id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["another-account", "closed-account"]
-        );
-        let mut again = sessions.pending_invalidations();
-        again.sort();
-        assert_eq!(pending, again);
-        sessions.acknowledge_invalidated(&pending[0].0, &pending[0].1);
-        assert_eq!(sessions.pending_invalidations(), vec![pending[1].clone()]);
-        sessions.acknowledge_invalidated(&pending[1].0, &pending[1].1);
-        assert!(sessions.pending_invalidations().is_empty());
-    }
-
-    #[test]
-    fn an_old_ack_cannot_clear_a_new_close_or_allow_a_new_binding() {
-        let sessions = PlatformSessions::default();
-        let incarnation = sessions.created("account-a", "whatsapp");
-        sessions.page("account-a", &incarnation, false);
-        let original = sessions.binding("account-a", "whatsapp").unwrap();
-        sessions.invalidate("account-a");
-        let (_, old_token) = sessions.pending_invalidations().pop().unwrap();
-        sessions.invalidate("account-a");
-        let (_, new_token) = sessions.pending_invalidations().pop().unwrap();
-        assert_ne!(old_token, new_token);
-        sessions.page("account-a", &incarnation, false);
-        sessions.acknowledge_invalidated("account-a", &old_token);
-        assert_eq!(
-            sessions.pending_invalidations(),
-            vec![("account-a".into(), new_token.clone())]
-        );
-        assert_eq!(
-            sessions.binding("account-a", "whatsapp"),
-            Err(BroadcastIssue::AccountUnavailable)
-        );
-        assert!(!sessions.valid(&original));
-        sessions.acknowledge_invalidated("account-a", &new_token);
-        let replacement = sessions.binding("account-a", "whatsapp").unwrap();
-        assert_ne!(original.generation, replacement.generation);
-        assert!(sessions.valid(&replacement));
-        assert!(sessions.pending_invalidations().is_empty());
-    }
-}
+mod sessions;
 
 // This parent module includes native Tauri composition. The portable harness runs
 // the same sessions tests above; Windows CI runs these ingress tests as well.
@@ -192,7 +42,7 @@ mod ingress {
         let chats = value["chats"].as_array_mut().unwrap();
         chats.push(contact("12025550103@c.us"));
         chats.push(contact("12025550104@c.us"));
-        let native = native_catalog(value).unwrap();
+        let native = native_catalog(value, "whatsapp").unwrap();
         BroadcastCatalog {
             account_id: "22222222-2222-4222-8222-222222222222".into(),
             account_name: "Catalog account".into(),
@@ -268,7 +118,7 @@ mod ingress {
         ] {
             chats.push(contact(id));
         }
-        let parsed = native_catalog(value).unwrap();
+        let parsed = native_catalog(value, "whatsapp").unwrap();
         assert_eq!(parsed.chats.len(), 3);
         assert_eq!(parsed.chats[0].name, "显示名 😀");
         assert_eq!(parsed.chats[0].real_name, "真实姓名");
@@ -283,13 +133,56 @@ mod ingress {
     }
 
     #[test]
+    fn telegram_catalog_has_platform_bound_peers_and_only_implemented_capabilities() {
+        let value = json!({
+            "capabilities": { "text": true, "scheduled": true, "vcards": false,
+                "tagAll": false, "attachments": false, "groupMembers": false },
+            "chats": [contact("tg:123"), contact("123@c.us"), contact("tg:-789"),
+                { "id": "tg:-456", "name": "Group", "realName": "", "kind": "group" },
+                { "id": "tg:456", "name": "Wrong kind", "realName": "", "kind": "group" }]
+        });
+        let result = native_catalog(value.clone(), "telegram-k").unwrap();
+        assert_eq!(
+            result
+                .chats
+                .iter()
+                .map(|chat| chat.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tg:123", "tg:-456"]
+        );
+        let whatsapp = native_catalog(value.clone(), "whatsapp").unwrap();
+        assert_eq!(
+            whatsapp
+                .chats
+                .iter()
+                .map(|chat| chat.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["123@c.us"]
+        );
+        for field in ["vcards", "tagAll", "attachments", "groupMembers"] {
+            let mut forged = value.clone();
+            forged["capabilities"][field] = json!(true);
+            assert!(matches!(
+                native_catalog(forged, "telegram-k"),
+                Err(AppError::BroadcastUnavailable)
+            ));
+        }
+        let mut forged = value;
+        forged["labels"] = json!([]);
+        assert!(matches!(
+            native_catalog(forged, "telegram-k"),
+            Err(AppError::BroadcastUnavailable)
+        ));
+    }
+
+    #[test]
     fn native_catalog_rejects_coercive_capabilities_and_untrusted_extra_fields() {
         for field in ["text", "scheduled", "vcards", "tagAll", "attachments"] {
             for wrong in [json!("false"), json!(0), Value::Null, json!([])] {
                 let mut value = catalog_value();
                 value["capabilities"][field] = wrong;
                 assert!(matches!(
-                    native_catalog(value),
+                    native_catalog(value, "whatsapp"),
                     Err(AppError::BroadcastUnavailable)
                 ));
             }
@@ -310,7 +203,7 @@ mod ingress {
                 _ => value["chats"][0][field] = wrong,
             }
             assert!(matches!(
-                native_catalog(value),
+                native_catalog(value, "whatsapp"),
                 Err(AppError::BroadcastUnavailable)
             ));
         }
@@ -323,7 +216,7 @@ mod ingress {
             .as_array_mut()
             .unwrap()
             .push(contact("12025550101@c.us"));
-        assert!(native_catalog(duplicate).is_err());
+        assert!(native_catalog(duplicate, "whatsapp").is_err());
         for field in ["name", "realName"] {
             for (original, expected) in [
                 ("😀".repeat(257), "😀".repeat(256)),
@@ -332,7 +225,7 @@ mod ingress {
             ] {
                 let mut value = catalog_value();
                 value["chats"][0][field] = json!(original);
-                let parsed = native_catalog(value).unwrap();
+                let parsed = native_catalog(value, "whatsapp").unwrap();
                 let sanitized = if field == "name" {
                     &parsed.chats[0].name
                 } else {
@@ -345,14 +238,14 @@ mod ingress {
         let mut attachments = catalog_value();
         attachments["capabilities"]["attachments"] = json!(true);
         assert!(
-            native_catalog(attachments)
+            native_catalog(attachments, "whatsapp")
                 .unwrap()
                 .capabilities
                 .attachments
         );
         let mut oversized = catalog_value();
         oversized["chats"] = json!(vec![contact("status@broadcast"); 20_001]);
-        assert!(native_catalog(oversized).is_err());
+        assert!(native_catalog(oversized, "whatsapp").is_err());
     }
 
     #[test]

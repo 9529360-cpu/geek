@@ -12,10 +12,10 @@ function createSendView() {
     TRANSLATION_OUTPUT_INVALID: '译文未通过校验，请修改原文后重试',
     TRANSLATION_RESULT_UNAVAILABLE: '同一次译文暂不可取回，请稍后查询',
     TRANSLATION_CONFLICT: '翻译请求有冲突，原文未发送',
-    TRANSLATION_TIMEOUT: '翻译结果待确认，按 Enter 查询同一次结果',
-    NETWORK_UNAVAILABLE: '翻译结果待确认，按 Enter 查询同一次结果',
+    TRANSLATION_TIMEOUT: '翻译结果待确认，再次发送可查询同一次结果',
+    NETWORK_UNAVAILABLE: '翻译结果待确认，再次发送可查询同一次结果',
     NETWORK_RESPONSE_INVALID: '翻译服务返回异常，原文未发送',
-    SEND_INTENT_UNSUPPORTED: '仅支持普通文字及可识别的同聊天文字引用，请取消不支持的内容',
+    SEND_INTENT_UNSUPPORTED: '当前草稿暂不支持发送翻译，请检查引用、提及或附件；附件说明请点击预览中的发送按钮',
     SEND_INTENT_CHANGED: '聊天或草稿已变化，未发送',
     SEND_INTENT_BUSY: '上一条消息正在处理，请稍候',
     SEND_INTENT_LIMIT: '当前页面发送记录已满，请重新打开此账号页面',
@@ -45,7 +45,7 @@ function createSendView() {
       show(value.draftCleared ? '已发送' : '已发送；输入框未清空，请自行清除', 'done', value.draftCleared);
     } else if (value.status === 'uncertain') show('发送结果未确认，请检查聊天记录；不会自动重发', 'error');
     else {
-      const message = messages[value.code] || (value.retryable ? '未发送，原文已保留；按 Enter 重试' : '未发送，原文已保留');
+      const message = messages[value.code] || (value.retryable ? '未发送，原文已保留；可再次发送重试' : '未发送，原文已保留');
       show(message, 'error');
     }
   }

@@ -193,7 +193,7 @@ fn corrupt_semantics_never_become_an_open_owner_or_trigger_an_eager_rewrite() {
     bad_id.accounts[0].messages[0].id = "not-a-native-id".into();
     invalid.push(bad_id);
     let mut bad_recipient = document();
-    bad_recipient.accounts[0].audiences[0].recipient_ids = vec!["tg:123".into()];
+    bad_recipient.accounts[0].audiences[0].recipient_ids = vec!["tg:0123".into()];
     invalid.push(bad_recipient);
     for candidate in invalid {
         let repository = Repository::default();
@@ -205,6 +205,21 @@ fn corrupt_semantics_never_become_an_open_owner_or_trigger_an_eager_rewrite() {
         assert_eq!(repository.0.lock().unwrap().saves, 0);
         assert!(repository.0.lock().unwrap().document.as_ref().unwrap() == &candidate);
     }
+}
+
+#[test]
+fn canonical_telegram_saved_peers_round_trip_as_hints_without_eager_writes() {
+    let repository = Repository::default();
+    let mut saved = document();
+    saved.accounts[0].audiences[0].recipient_ids = vec!["tg:123".into(), "tg:-456".into()];
+    repository.0.lock().unwrap().document = Some(saved.clone());
+    let owner = BroadcastPresets::open(repository.clone()).unwrap();
+    let snapshot = owner.snapshot(&saved.accounts[0].account_id).unwrap();
+    assert_eq!(
+        snapshot.audiences[0].recipient_ids,
+        saved.accounts[0].audiences[0].recipient_ids
+    );
+    assert_eq!(repository.0.lock().unwrap().saves, 0);
 }
 
 #[test]

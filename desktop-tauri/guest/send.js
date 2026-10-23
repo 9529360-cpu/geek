@@ -10,7 +10,8 @@ let sendConfiguration = null;
 let sendRevoked = false;
 let foreground = null;
 const sendView = createSendView();
-const sendComposer = createSendComposer(composerChanged);
+const sendComposer = window.location?.hostname === 'web.telegram.org'
+  ? createTelegramSendComposer(composerChanged) : createSendComposer(composerChanged);
 const sendPolicy = (chatId) => sendConfiguration?.settings?.chats?.[chatId] || sendConfiguration?.settings?.global;
 const ownsSubmit = (policy) => policy?.enabled === true && policy?.autoSend === true;
 const requiresTranslation = (policy, text) => ownsSubmit(policy)
@@ -26,17 +27,37 @@ const findAttempt = (id, attempt) => {
 const failedOutcome = (code, retryable = true) => ({ status: 'notSubmitted', code, retryable });
 const uncertainOutcome = (code = 'SEND_INTENT_UNCERTAIN') => ({ status: 'uncertain', code, retryable: false });
 
+function releaseComposer(attempt) {
+  attempt.editor = null; attempt.chat = null;
+  attempt.quoteModel = null; attempt.quoteRegion = null; attempt.quoteNodes = [];
+  attempt.quoteBody = ''; attempt.quoteAuthor = ''; attempt.quoteMedia = null;
+  attempt.composerState = null;
+}
 function failAttempt(record, code, retryable = true) {
   const attempt = record.current;
   if (attempt.submitted) return;
   attempt.stage = 'failed'; attempt.prepared = null;
   attempt.outcome = failedOutcome(code, retryable && !record.qualityRejected);
+  // Retries reacquire the current composer; retain the intent/output, not old blobs.
+  releaseComposer(attempt);
 }
 function uncertain(record, code) {
   const attempt = record.current;
   attempt.stage = 'terminal'; attempt.outcome = uncertainOutcome(code);
   attempt.mailbox = { pending: false, value: { status: 'uncertain', code: attempt.outcome.code } };
   attempt.cancelled = true; record.sticky = true;
+}
+function submissionRejected(record, flight, error) {
+  if (record.current !== flight || flight.cancelled || sendRevoked || flight.stage !== 'committing') return;
+  if (sendComposer.notSubmitted?.(error) !== true) { uncertain(record); return; }
+  // Only the platform adapter's private zero-invocation proof can release an
+  // already consumed permit. Untrusted error codes/booleans never establish it.
+  flight.submitted = false; flight.notSubmittedProof = true; record.sticky = false;
+  const code = ['SEND_INTENT_CHANGED', 'TRANSLATION_CANCELLED', 'TRANSLATION_TIMEOUT'].includes(error?.code)
+    ? error.code : 'SEND_INTENT_UNSUPPORTED';
+  failAttempt(record, code);
+  flight.mailbox = { pending: false, value: { status: 'notSubmitted', code },
+    precommit: { kind: 'telegramK', generation: sendBinding, id: record.id, attempt: flight.number, permit: flight.permit } };
 }
 function composerChanged(change) {
   for (const record of sendRecords.values()) {
@@ -49,14 +70,11 @@ function composerChanged(change) {
 }
 function releaseSettled(record) {
   const attempt = record.current;
-  if (attempt.submitted && !attempt.awaitingDelivery && attempt.stage === 'terminal') {
-    attempt.quoteModel = null; attempt.quoteRegion = null; attempt.quoteNodes = [];
-    attempt.quoteBody = ''; attempt.quoteAuthor = '';
-  }
+  if ((!attempt.submitted && attempt.stage === 'failed')
+      || (attempt.submitted && !attempt.awaitingDelivery && attempt.stage === 'terminal')) releaseComposer(attempt);
   if (!record.released || !attempt.submitted || attempt.awaitingDelivery || attempt.stage !== 'terminal') return;
   // Retain the bounded ID/attempt/permit receipt tombstone, not old message DOM.
   record.text = ''; record.output = null; attempt.prepared = null;
-  attempt.editor = null; attempt.chat = null;
 }
 function expire(record) {
   const attempt = record?.current;
@@ -64,10 +82,9 @@ function expire(record) {
   if (attempt.stage === 'committing') uncertain(record);
   else if (['pending', 'prepared'].includes(attempt.stage)) failAttempt(record, 'TRANSLATION_TIMEOUT');
 }
-function validAttempt(record) {
+function contextIssue(record) {
   const attempt = record.current;
-  expire(record);
-  if (!sendActive() || !['pending', 'prepared'].includes(attempt.stage)
+  if (!sendActive()
       || attempt.policyRevision !== sendConfiguration.settings.revision
       || record.sessionGeneration !== sendConfiguration.sessionGeneration
       || record.semantics !== sendSemantics(sendPolicy(record.chatId), record.text)
@@ -76,6 +93,10 @@ function validAttempt(record) {
     const value = sendComposer.read();
     return sendComposer.matches({ ...record, ...attempt }, value) ? null : 'SEND_INTENT_CHANGED';
   } catch (error) { return error?.code || 'SEND_INTENT_UNSUPPORTED'; }
+}
+function validAttempt(record) {
+  expire(record);
+  return ['pending', 'prepared'].includes(record.current.stage) ? contextIssue(record) : 'SEND_INTENT_CHANGED';
 }
 function visibleRecord(record) {
   return sendActive() && sendComposer.currentChat() === record.chatId
@@ -90,7 +111,7 @@ function present(record) {
 }
 function requestOf(record) {
   return { id: record.id, chatId: record.chatId, text: record.text,
-    context: { ...record.context },
+    context: JSON.parse(JSON.stringify(record.context)),
     composerRevision: record.current.composerRevision, policyRevision: record.current.policyRevision,
     attempt: record.current.number };
 }
@@ -135,28 +156,18 @@ function startSubmission() {
   const number = record.current.number + 1;
   if (number > 10000) { sendView.outcome(failedOutcome('SEND_INTENT_LIMIT', false)); return; }
   record.current = { number, stage: 'pending', editor: value.editor, chat: value.chat,
+    composerState: value,
     quoteModel: value.quoteModel, quoteRegion: value.quoteRegion, quoteNodes: value.quoteNodes,
     quoteBody: value.quoteBody, quoteAuthor: value.quoteAuthor,
+    quoteMedia: value.quoteMedia,
     composerRevision: value.composerRevision, policyRevision: sendConfiguration.settings.revision,
     started: performance.now(), submitted: false, prepared: null, outcome: null, mailbox: null };
   foreground = record; present(record);
 }
 function intercept(event) {
   if (event.isTrusted !== true || sendRevoked || !sendConfiguration) return;
-  let submission = false;
-  let unsupportedSubmit = false;
-  if (event.type === 'keydown') {
-    submission = event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
-      && !event.isComposing && Boolean(event.target?.closest?.(sendComposer.selector));
-  } else {
-    const direct = event.target?.closest?.('[data-icon="send"], [data-testid="compose-btn-send"], [data-testid="send"], '
-      + 'button[aria-label="Send"], button[aria-label="发送"]');
-    const button = event.target?.closest?.('button, [role="button"]');
-    const send = direct || (button?.querySelector('[data-icon="send"]') ? button : null);
-    submission = Boolean(send);
-    unsupportedSubmit = submission && !send.closest('#main footer');
-  }
-  if (!submission) return;
+  const submission = sendComposer.submission(event);
+  if (!submission.matches) return;
   const chatId = sendComposer.currentChat();
   const text = sendComposer.rawText();
   const sticky = [...sendRecords.values()].find((record) => record.sticky && !record.released
@@ -164,11 +175,12 @@ function intercept(event) {
   if (!ownsSubmit(sendPolicy(chatId)) && !sticky) return;
   event.preventDefault(); event.stopImmediatePropagation();
   if (event.type === 'keydown' && event.repeat) return;
-  if (unsupportedSubmit) { sendView.outcome(failedOutcome('SEND_INTENT_UNSUPPORTED', false)); return; }
+  if (!submission.supported) { sendView.outcome(failedOutcome('SEND_INTENT_UNSUPPORTED', false)); return; }
   if (sticky) { present(sticky); return; }
   startSubmission();
 }
 document.addEventListener('keydown', intercept, true);
+document.addEventListener('mousedown', intercept, true);
 document.addEventListener('click', intercept, true);
 
 function reconcileConfiguration(value) {
@@ -226,7 +238,8 @@ const sendApi = Object.freeze({
     }
     const quality = translated ? assessOutput({ source: record.text, output: text, target: policy.target, sourceLanguage: policy.source })
       : { ok: true, text };
-    if (!quality.ok || quality.text.length > 10000 || new TextEncoder().encode(quality.text).length > 32768) {
+    if (!quality.ok || quality.text.length > 10000 || new TextEncoder().encode(quality.text).length > 32768
+        || sendComposer.outputValid?.(quality.text, record) === false) {
       record.qualityRejected = true; failAttempt(record, 'TRANSLATION_OUTPUT_INVALID', false);
       return { ok: false, code: 'TRANSLATION_OUTPUT_INVALID' };
     }
@@ -244,11 +257,12 @@ const sendApi = Object.freeze({
     present(record);
     let result;
     try {
-      const options = { waitForAck: true, detectMentioned: false, linkPreview: false };
-      if (record.context.kind === 'reply') options.quotedMsg = flight.quoteModel;
-      result = window.WPP.chat.sendTextMessage(record.chatId, flight.prepared,
-        options);
-    } catch { uncertain(record); return true; }
+      const valid = () => {
+        expire(record);
+        return record.current === flight && flight.stage === 'committing' && !flight.cancelled && contextIssue(record) === null;
+      };
+      result = sendComposer.submit({ ...record, ...flight }, flight.prepared, valid);
+    } catch (error) { submissionRejected(record, flight, error); return true; }
     Promise.resolve(result).then((value) => {
       if (record.current !== flight || flight.cancelled || sendRevoked) return;
       const receipt = typeof value?.id === 'string' ? value.id : value?.id?._serialized;
@@ -262,7 +276,7 @@ const sendApi = Object.freeze({
       if (draftCleared) record.released = true;
       flight.mailbox = { pending: false, value: { status: 'confirmed', receipt, draftCleared } };
       flight.outcome = { ...flight.mailbox.value, retryable: false };
-    }, () => { if (record.current === flight && !flight.cancelled) uncertain(record); });
+    }, (error) => submissionRejected(record, flight, error));
     return true;
   },
   read(generation, id, attempt, permit) {
@@ -279,8 +293,10 @@ const sendApi = Object.freeze({
         || !['confirmed', 'notSubmitted', 'uncertain'].includes(outcome.status) || typeof outcome.retryable !== 'boolean') return false;
     const flight = record.current;
     if (!flight.submitted && (record.sessionGeneration !== sendConfiguration.sessionGeneration
-        || flight.policyRevision !== sendConfiguration.settings.revision)) return false;
-    if (flight.stage === 'failed' && flight.outcome?.code === 'SEND_INTENT_CHANGED') return false;
+        || flight.policyRevision !== sendConfiguration.settings.revision)
+        && !(flight.notSubmittedProof && outcome.status === 'notSubmitted')) return false;
+    if (flight.stage === 'failed' && flight.outcome?.code === 'SEND_INTENT_CHANGED'
+        && !(flight.notSubmittedProof && outcome.status === 'notSubmitted')) return false;
     if (flight.submitted && outcome.status === 'notSubmitted') outcome = uncertainOutcome();
     if (outcome.status === 'confirmed' && (!flight.submitted || typeof outcome.receipt !== 'string' || !outcome.receipt)) return false;
     flight.outcome = { status: outcome.status, code: typeof outcome.code === 'string' ? outcome.code : undefined,
@@ -319,7 +335,9 @@ const sendApi = Object.freeze({
       else if (['pending', 'prepared'].includes(record.current.stage)) failAttempt(record, 'TRANSLATION_CANCELLED', false);
     }
     sendRevoked = true; sendView.dispose(); sendComposer.dispose();
-    document.removeEventListener('keydown', intercept, true); document.removeEventListener('click', intercept, true);
+    document.removeEventListener('keydown', intercept, true);
+    document.removeEventListener('mousedown', intercept, true);
+    document.removeEventListener('click', intercept, true);
     return true;
   },
 });

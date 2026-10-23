@@ -170,7 +170,18 @@ fn supported_id(id: &str, kind: ChatKind) -> bool {
     }
 }
 
-fn native_catalog(value: serde_json::Value) -> Result<NativeCatalog> {
+fn supported_catalog_id(platform: &str, id: &str, kind: ChatKind) -> bool {
+    match platform {
+        "whatsapp" | "whatsapp-pure" => supported_id(id, kind),
+        "telegram-k" => {
+            crate::domain::translation::valid_telegram_chat_id(id)
+                && id.starts_with("tg:-") == (kind == ChatKind::Group)
+        }
+        _ => false,
+    }
+}
+
+fn native_catalog(value: serde_json::Value, platform: &str) -> Result<NativeCatalog> {
     let mut result: NativeCatalog =
         serde_json::from_value(value).map_err(|_| AppError::BroadcastUnavailable)?;
     if result.chats.len() > 20_000 {
@@ -180,7 +191,16 @@ fn native_catalog(value: serde_json::Value) -> Result<NativeCatalog> {
     let mut seen = HashSet::new();
     result
         .chats
-        .retain(|chat| supported_id(&chat.id, chat.kind));
+        .retain(|chat| supported_catalog_id(platform, &chat.id, chat.kind));
+    if platform == "telegram-k"
+        && (result.capabilities.attachments
+            || result.capabilities.tag_all
+            || result.capabilities.vcards
+            || result.capabilities.group_members
+            || result.labels.is_some())
+    {
+        return Err(AppError::BroadcastUnavailable);
+    }
     for chat in &mut result.chats {
         chat.name = chat
             .name

@@ -112,8 +112,13 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     const ready = Boolean(catalog?.ready && !next.loading && !next.mismatch);
     const filesBlocked = blocked || next.attachmentBusy || next.importBusy || next.mismatch || !next.attachmentsAvailable;
     const canPick = ready && catalog?.capabilities.attachments;
-    audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable,
-      { canPaste: next.resolveAvailable, canAudience: next.audienceAvailable, editable: !blocked && ready && !next.attachmentBusy });
+    const whatsapp = ['whatsapp', 'whatsapp-pure'].includes(catalog?.platformId);
+    $('broadcast-message').maxLength = catalog?.platformId === 'telegram-k' ? 4096 : 10000;
+    $('broadcast-message').title = catalog?.platformId === 'telegram-k'
+      ? '每条消息最多 4096 字符，插入姓名和问候语后的完整内容也受此限制。' : '';
+    audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable && whatsapp,
+      { canPaste: next.resolveAvailable && whatsapp, canAudience: next.audienceAvailable && whatsapp,
+        editable: !blocked && ready && !next.attachmentBusy });
     workbench.availability(blocked);
     for (const id of ['broadcast-message', 'broadcast-insert-sa', 'broadcast-insert-var', 'broadcast-insert-nr',
       'bc-multiversion', 'bc-range-min', 'bc-range-max', 'broadcast-close', 'broadcast-cancel']) wire($(id), blocked);

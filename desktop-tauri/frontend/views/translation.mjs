@@ -36,8 +36,7 @@ export function createTranslationView(document, actions) {
   }
   for (const id of ['translation-message-to', 'translation-channel-message-to', 'translation-send-to', 'translation-target']) languages(id);
   for (const id of ['translation-message-from', 'translation-send-from']) languages(id, true);
-  $('translation-send').closest('.translation-card').querySelector('.translation-card-sub').textContent
-    = '按 Enter 或点击发送即可翻译并发送，支持普通文字及可识别的同聊天文字引用；引用发送成功后请手动清除正文与引用。';
+  const sendDescription = $('translation-send').closest('.translation-card').querySelector('.translation-card-sub');
   for (const id of ['translation-receive-auto', 'translation-channel-receive-auto']) {
     $(id).closest('.translation-switch-row').querySelector('small').textContent = '仅自动翻译新收到的可见消息；过去消息可点击翻译';
   }
@@ -118,6 +117,12 @@ export function createTranslationView(document, actions) {
     const hasChat = Boolean(context?.available && context.chat);
     const override = hasChat && Boolean(chat);
     const canEdit = connected && supported && !shellBusy;
+    sendDescription.textContent = account?.platformId === 'telegram-k'
+      ? '按 Enter 或点击发送即可翻译并发送普通文字，遵循 Telegram 的文字长度限制；引用、提及和附件暂不支持。'
+      : account?.platformId === 'telegram-z' ? '此版本的 Telegram 发送翻译仍在迁移中；接收翻译可正常设置。'
+        : '按 Enter 或点击发送可翻译普通文字、群内联系人提及，以及可识别的同聊天文字、带说明的图片和视频引用。'
+          + '单个图片、视频和可识别预览的 PDF 可翻译附件说明，请点击预览中的发送按钮，说明最多 1024 字。'
+          + '提及、引用或附件发送成功后请手动清除完整草稿。保护提及身份会增加计费字符，以实际用量为准。';
     for (const node of popover.querySelectorAll('button, input, select')) {
       node.disabled = !connected || shellBusy || node.dataset.wired !== 'true' || node.dataset.unavailable === 'true';
     }

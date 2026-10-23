@@ -2,7 +2,11 @@
 use super::{
     account::valid_id,
     error::{AppError, Result},
-    translation::{valid_chat_id, validate_text},
+    send_mentions::{validate_mentions, SendMention},
+    translation::{
+        valid_chat_id, valid_send_chat_id, valid_telegram_chat_id, validate_send_text,
+        validate_text,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,10 +21,17 @@ pub enum SendContext {
         #[serde(rename = "chatId")]
         chat_id: String,
     },
+    Mentions {
+        mentions: Vec<SendMention>,
+    },
+    Attachment {
+        #[serde(rename = "attachmentId")]
+        attachment_id: String,
+    },
 }
 
 impl SendContext {
-    fn valid_for(&self, expected_chat: &str) -> bool {
+    fn valid_for(&self, expected_chat: &str, text: &str) -> bool {
         match self {
             Self::Plain {} => true,
             Self::Reply {
@@ -30,6 +41,16 @@ impl SendContext {
                 chat_id == expected_chat
                     && valid_chat_id(chat_id)
                     && valid_reply_key(message_id, chat_id)
+            }
+            Self::Mentions { mentions } => {
+                valid_chat_id(expected_chat)
+                    && expected_chat.ends_with("@g.us")
+                    && validate_mentions(text, mentions).is_ok()
+            }
+            Self::Attachment { attachment_id } => {
+                valid_chat_id(expected_chat)
+                    && valid_id(attachment_id)
+                    && text.chars().count() <= 1024
             }
         }
     }
@@ -86,8 +107,8 @@ pub struct OutgoingSend {
 impl OutgoingSend {
     pub fn validate(&self) -> Result<()> {
         if !valid_id(&self.id)
-            || !valid_chat_id(&self.chat_id)
-            || !self.context.valid_for(&self.chat_id)
+            || (!valid_chat_id(&self.chat_id) && !valid_telegram_chat_id(&self.chat_id))
+            || !self.context.valid_for(&self.chat_id, &self.text)
             || self.composer_revision == 0
             || self.policy_revision == 0
             || !(1..=10_000).contains(&self.attempt)
@@ -95,6 +116,24 @@ impl OutgoingSend {
             return Err(AppError::SendIntentInvalid);
         }
         validate_text(&self.text).map_err(|_| AppError::SendIntentInvalid)
+    }
+
+    pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
+        self.validate()?;
+        if !valid_send_chat_id(platform, &self.chat_id)
+            || (platform == "telegram-k" && !matches!(self.context, SendContext::Plain {}))
+        {
+            return Err(AppError::SendIntentInvalid);
+        }
+        validate_send_text(platform, &self.text).map_err(|_| AppError::SendIntentInvalid)
+    }
+
+    pub fn validate_output(&self, platform: &str, text: &str) -> Result<()> {
+        validate_send_text(platform, text).map_err(|_| AppError::TranslationOutputInvalid)?;
+        if matches!(self.context, SendContext::Attachment { .. }) && text.chars().count() > 1024 {
+            return Err(AppError::TranslationOutputInvalid);
+        }
+        Ok(())
     }
 }
 

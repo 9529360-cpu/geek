@@ -74,7 +74,7 @@ schema 6 将聊天翻译覆盖收敛为原界面可独立设置的七个字段�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram Web A 自动接收、Telegram 发送翻译/群发、提及/附件的发送翻译、媒体引用、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 文字与附件群发、文件/粘贴/群成员/平台标签受众与异常导出、极客登录、WhatsApp 接收翻译、Telegram 手动接收及 Web K 新消息自动翻译、普通文字及同聊天文字引用回复的发送翻译范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。群发与翻译已接通 WhatsApp 文字/附件群发、Telegram K 文字群发及发送翻译、Telegram A/K 新消息自动接收翻译，以及 WhatsApp 已核验的提及、媒体引用和单附件说明。各自的具体边界见下节。仍未迁移：Telegram A 发送翻译/群发、未列出的复杂发送上下文、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -118,12 +118,14 @@ tracks the actual chat container and is suspended while a modal/menu is open.
 
 Wired paths: create 1-10 accounts with proxy, switch accounts/families, save account
 name/font/color, drag reorder within a family, reload, close, archive, search/restore,
-tray preference, native window controls, WhatsApp broadcast, Geek login/quota,
-WhatsApp incoming-message translation, Telegram Web A/K manual incoming translation and Web K new-message auto translation,
-WhatsApp plain-text outgoing translation and same-chat
-text replies with account/chat settings and an independent SendIntent owner.
+tray preference, native window controls, WhatsApp broadcast, Telegram K text broadcast,
+Geek login/quota, WhatsApp incoming-message translation, Telegram Web A/K manual and
+new-message automatic incoming translation, Telegram K plain-text outgoing translation,
+and WhatsApp text, verified same-chat replies, group contact mentions and single-attachment
+captions with account/chat settings and the existing independent SendIntent owner.
 Not yet wired: restart/lock, registration/purchase, theme/startup options, notes,
-Telegram Web A automatic translation, Telegram outgoing translation and broadcast, interactive mentions, media replies and interactive attachments.
+Telegram Web A outgoing translation/broadcast and complex contexts outside the explicit
+supported contracts below.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 
@@ -200,11 +202,13 @@ CSV/TXT 收件人导入沿用原文件入口，支持 UTF-8/BOM、逗号/分号/
 
 一个账号只能执行一个任务，其他任务排队；不同账号最多四个 worker 并发，每个 worker 每次只处理一个目标。当前账号任务条和全部账号任务中心可暂停、继续、停止并查看结果。任务条显示前先依据实际高度缩小原生聊天区域，避免 native WebView 覆盖操作按钮。关闭、刷新、修改代理或归档账号会撤销该 guest 的代次，并停止其未结束任务，包括定时任务。
 
-发送前把目标与展开后的文本写入 `broadcast.dpapi` 检查点，再通过单次提交闸门调用该账号的固定平台适配器。仅真实平台消息 ID 和 ACK≥1 计入确认；超时、回执缺失、部分发送或提交后异常均进入“结果不确定”并暂停，不能因重启或继续自动重发。暂停发生在提交前则保留当前目标与文本。平台未就绪时整任务暂停，避免把剩余对象依次算作失败。停止只阻止后续操作，不能撤回已提交消息。
+发送前把目标与展开后的文本写入 `broadcast.dpapi` 检查点，再通过单次提交闸门调用该账号的固定平台适配器。WhatsApp 要求真实平台消息 ID 和 ACK≥1；Telegram K 要求与本次临时消息、随机 ID、目标和正文一致的正式发送事件及历史镜像。超时、回执缺失、部分发送或提交后异常均进入“结果不确定”并暂停，不能因重启或继续自动重发。暂停发生在提交前则保留当前目标与文本。平台未就绪时整任务暂停，避免把剩余对象依次算作失败。停止只阻止后续操作，不能撤回已提交消息。
 
 任务存储由独立 Rust owner 管理，沿用现有 DPAPI、原子替换和应用进程锁；不在账号 Workspace 锁内等待网页、回执或间隔。创建请求 UUID 去重，迟到创建响应或重试不会生成第二个任务。未确认的发送检查点在恢复后记录为 uncertain 并跳过；曾执行任务需要人工核对后继续，未开始的即时队列也不自动发送。未开始的定时任务恢复后可到点准备，但应用必须运行且对应账号页面需要就绪；不会后台自动打开所有账号。到点账号未就绪最多准备 20 次，之后显示明确失败。
 
-每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB；附件正文不写进该文档。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。Telegram 群发仍未迁移；原版可见的常用消息和自定义收件人标签已接入上述独立资料存储。
+每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB；附件正文不写进该文档。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。原版可见的常用消息和自定义收件人标签已接入上述独立资料存储。
+
+Telegram Web K 已接入同一四步群发工作台、任务中心、定时、常用消息和自定义收件人标签，支持当前账号目录中的普通联系人及普通群组。目标采用独立 `tg:` 命名空间，模板最长展开结果限 4096 个 UTF-16 单位；不允许电话号码导入、平台标签、群成员展开、提及全体、名片或附件。恢复自定义标签时只使用当前目录仍存在的对象，不跨账号或借用 WhatsApp 号码解析。群发不会切换当前聊天或清空目标草稿；平台内部切换登录账号会使旧目录和待发送凭据失效，需要重新打开该账号页面。Web A 群发仍未开放，原因见 [发送合同核查](TELEGRAM-A-SEND-CONTRACT.md)。
 
 平台桥只执行打包的命名语义调用，未向页面开放脚本、路径、密钥或 native IPC。构建复用原版 capability/adapter/safety 纯合同及锁定的 WA-JS，附带依赖许可和输入哈希。异步结果经有界 mailbox 返回；原生使用单调时钟期限，取消或导航会使旧 mailbox 和准备结果失效。每个 document 的 attempt ID 单次使用，达到有界容量则拒绝继续，不丢弃旧凭据来允许重放。
 
@@ -226,7 +230,9 @@ WhatsApp / 纯净版支持“点击翻译”和右键翻译当前可见消息，
 
 Telegram Web A（Z 入口）和 Web K 已接通普通可见文字的点击/右键翻译，沿用账号及当前聊天设置、同一 TranslationService、缓存和请求 UUID。只接收精确 `web.telegram.org/a` 或 `/k` 的当前普通聊天；Web A 同时核对 hash、标题 peer 和以聊天为 key 的列表节点，Web K 核对每条消息的 peer/message ID。只提取正文，排除时间、引用预览、媒体、特殊列表及不明确身份；切聊天、复用节点或正文变化会拒绝旧结果。
 
-Web K 另支持新入站普通文字自动翻译：只读监听平台 history_multiappend 事件，同时核对当前普通聊天实例、自己与发送者身份、消息时间、同步 history mirror 和当前可见正文。群聊须显式开启群聊自动翻译；频道、论坛、Saved Messages、系统消息、自己发出的消息、媒体、编辑与旧历史不进入自动流程。事件证据尚未对应到镜像/DOM 时最多等待五秒，证据矛盾直接撤销；重放不能重新创建付费编号。切聊天、隐藏、开关或策略变化都会清除未提交证据，重新启用不补翻历史；平台证据接口缺失时保留手动入口。短期证据最多 1000 个消息身份和 2 MiB，已提交证据最多保留 45 秒，已完成译文仍由原显示 owner 保存。Web A 生产页面缺少可靠的消息时间接口，继续只开放手动翻译；Telegram 发送翻译和历史批量翻译仍由界面与 Rust 入口共同禁用。
+Web K 另支持新入站普通文字自动翻译：只读监听平台 history_multiappend 事件，同时核对当前普通聊天实例、自己与发送者身份、消息时间、同步 history mirror 和当前可见正文。群聊须显式开启群聊自动翻译；频道、论坛、Saved Messages、系统消息、自己发出的消息、媒体、编辑与旧历史不进入自动流程。事件证据尚未对应到镜像/DOM 时最多等待五秒，证据矛盾直接撤销；重放不能重新创建付费编号。切聊天、隐藏、开关或策略变化都会清除未提交证据，重新启用不补翻历史；平台证据接口缺失时保留手动入口。短期证据最多 1000 个消息身份和 2 MiB，已提交证据最多保留 45 秒，已完成译文仍由原显示 owner 保存。
+
+Web A（Z 入口）现也接入自动收译。原生在精确 `/a/` 文档启动时安装只读观察器，监听该页面真正 API Worker 的有限身份、连接、聊天元数据和新消息事件，不发送 Worker 请求，也不读取登录凭据。只有当前账号、普通聊天、时间和可见正文全部匹配的新入站文字可提交；断线、账号/Worker 更换、消息变化、隐藏或策略变化使旧证据失效。历史、编辑和不明确结构只保留手动入口；群聊仍须显式开启。自动收译沿用同一请求 owner、计费 UUID 和上述有界证据规则。Web A 发送翻译与两种 Telegram 的历史批量翻译仍未开放。
 
 执行层最多两个并发 worker、八条等待任务，手动请求优先，排队/取 token/HTTP/409 查询共用 35 秒期限。账号关闭、重载、导航、切聊天、隐藏、修改策略或退出会话均撤销对应工作；取消不能撤回服务端已收到的请求。每个逻辑请求冻结 UUID、文本、语言、线路和账号代理。只有 `request_in_progress` 可在原期限内查询同一请求；短 token 失效最多更新一次并保持原 ID。不确定网络错误不自动新建请求，点击重试查询同一次结果。显式“重新翻译”才创建新请求并跳过本地缓存，可能重新计费。
 
@@ -236,26 +242,32 @@ Web K 另支持新入站普通文字自动翻译：只读监听平台 history_mu
 
 已完成的接收译文另由同一个 `TranslationService` 保存到独立 `translation-cache.dpapi` schema 1，使用现有 Windows DPAPI、实例锁及原子替换。最多 256 项、总译文 1 MiB、单条 128 KiB，实际序列化明文小于 2 MiB；有效期从保存时起算 30 天，命中不续期；当前时间早于保存时间或条目过期时不可用，进程内检测到时钟回退会暂停持久缓存读写，已经剔除的过期条目不会复活。存储只包含主体/内容摘要、原生账号 ID、保存时间与译文，不保存登录 token、原文或待执行请求。
 
-重启后，同一极客身份与原生账号中的同一平台、聊天、消息、正文及翻译参数可以复用已保存译文；新的登录 generation 和请求 UUID 不改变这一已完成结果的内容身份。复用仍先检查当前会话和新鲜正余额，磁盘上的余额不能授权翻译，缓存也不跨账号/极客身份共享。显式“重新翻译”跳过内存和磁盘缓存，成功后替换该消息结果。不会自动补翻或展示历史消息，不扩大 Telegram Web A 的自动翻译范围。
+重启后，同一极客身份与原生账号中的同一平台、聊天、消息、正文及翻译参数可以复用已保存译文；新的登录 generation 和请求 UUID 不改变这一已完成结果的内容身份。复用仍先检查当前会话和新鲜正余额，磁盘上的余额不能授权翻译，缓存也不跨账号/极客身份共享。显式“重新翻译”跳过内存和磁盘缓存，成功后替换该消息结果。不会自动补翻或展示历史消息。
 
 缓存是可选的完成结果存储。损坏、未知版本或读取失败会停用本进程的持久缓存并保留原文件，不阻止其他功能启动，也不清空重建；写入失败保留原文件和当前内存译文，不把服务端已计费的成功变成重试错误。发送翻译仍沿用原有 SendIntent 和内存结果，不进入这份跨重启缓存。这里不迁移旧 Electron 缓存，也不承诺服务端已计费但本地尚未落盘时的崩溃去重；待完成请求记录仍不跨重启保存。
 
 翻译 HTTP 请求使用账号保存的 HTTP/SOCKS5/系统路由。系统模式通过 Windows `GetProxyConfigurationAsync` 对固定服务 URL 解析 PAC/WPAD/系统设置，使用返回的首个代理；仅无代理且系统明确允许时直连。解析或连接失败不会偷偷换代理或直连。独立 HTTP 客户端禁用环境代理覆盖、重定向和底层自动重试，SOCKS5 的目标 DNS 在代理侧解析。这里没有客户代理实连或 Windows PAC 真机验证的声明。
 
-接收翻译 owner 没有发送或修改输入框的能力。Telegram 接收适配器不加载 WhatsApp runtime，也不扩大群发或 SendIntent 的平台范围。测试使用合成账户和响应，不访问真实订阅或计费服务；实际 Windows/WebView2、WhatsApp 登录与服务联调由维护者另行验收。
+接收翻译 owner 没有发送或修改输入框的能力。Telegram 接收适配器不加载 WhatsApp runtime；Web K 发送由下面的独立有限平台适配器接回原有 SendIntent 与群发 owner。测试使用合成账户和响应，不访问真实订阅或计费服务；实际 Windows/WebView2、平台登录与服务联调由维护者另行验收。
 
 接口来源：仓库的 `scripts/geek-subscription-worker*.js`、`scripts/geek-translate-worker.js`；系统代理参考 [Windows ProxyConfiguration](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.proxyconfiguration) 与 [GetProxyConfigurationAsync](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.networkinformation.getproxyconfigurationasync)；HTTP 行为参考 [reqwest 0.13.5 ClientBuilder](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html)。
 
-## WhatsApp 文字发送翻译、引用回复与 SendIntent
+## WhatsApp / Telegram K 发送翻译与 SendIntent
 
-原翻译面板的发送开关、源/目标语言、包含中文和当前聊天覆盖已接通。开启后，由真实 Enter 或原发送按钮发起一次翻译并发送，不增加二次确认模式；关闭后使用 WhatsApp 原生发送行为。包含中文关闭且正文含汉字时，沿用原规则发送原文，这条 identity 路径不要求极客登录或翻译余额。
+原翻译面板的发送开关、源/目标语言、包含中文和当前聊天覆盖已接通。开启后，由真实发送快捷键或原发送按钮发起一次翻译并发送，不增加二次确认模式；关闭后使用平台原生发送行为。WhatsApp 使用普通 Enter，Telegram K 遵循平台的 Enter/Ctrl+Enter 设置及触屏按钮事件。包含中文关闭且正文含汉字时，沿用原规则发送原文，这条 identity 路径不要求极客登录或翻译余额。
 
-`application/send_intent` 独立拥有请求 UUID、账号/文档/会话、聊天、输入内容、类型明确的普通文字或引用上下文和 composer revision；`send_runner` 最多一个实际 worker 和一条等待任务，与接收翻译的队列分离。总期限为 50 秒，翻译子步骤最多 35 秒且不能延长总期限。隐藏账号、打开覆盖弹窗或切换账号会撤销原生 presentation lease；重新显示不会恢复旧任务，也不改变账号/文档 identity 或后台群发归属。关闭、重载、导航、退出会话和策略变更也会阻止旧任务继续提交。
+`application/send_intent` 独立拥有请求 UUID、账号/文档/会话、聊天、输入内容、类型明确的普通文字、引用、提及或附件上下文和 composer revision；`send_runner` 最多一个实际 worker 和一条等待任务，与接收翻译的队列分离。总期限为 50 秒，翻译子步骤最多 35 秒且不能延长总期限。隐藏账号、打开覆盖弹窗或切换账号会撤销原生 presentation lease；重新显示不会恢复旧任务，也不改变账号/文档 identity 或后台群发归属。关闭、重载、导航、退出会话和策略变更也会阻止旧任务继续提交。
 
-支持普通文字，以及同一聊天中已加载、可回复的文字消息引用。引用必须由真实 MsgModel/MsgKey 确认，输入框旁可见的引用正文须完整匹配模型；作者标签如存在，也必须匹配已知模型名称。未知或截断的引用卡片、跨聊天/未加载引用、媒体引用、提及、附件/说明、编辑/转发和预览会明确拦住，保留草稿。翻译前及提交前都核对 WhatsApp 模型、输入框与引用节点、文本、聊天、策略和 revision；换过引用后再换回来，也不能恢复旧 attempt。
+WhatsApp 支持普通文字，以及同一聊天中已加载、可回复的文字和带说明的图片/视频引用。引用必须由真实 MsgModel/MsgKey 确认，输入框旁可见正文须完整匹配模型；媒体另核对类型、MIME、摘要及已加载预览，作者标签须匹配已知模型名称。未知或截断卡片、无说明/未加载媒体、音频/文件/阅后即焚引用、跨聊天引用仍拦住并保留草稿。翻译前及提交前都核对模型、节点、文本、聊天、策略和 revision；换过引用后再换回来，也不能恢复旧 attempt。
 
-每次请求必须声明 `plain` 或 `reply` 上下文，缺失、未知字段或不一致均拒绝。原生只接收引用消息 ID 与聊天 ID；引用正文、作者及原消息对象留在页面内，不送入翻译服务。翻译是独立 transform，使用固定 `outgoing-send` 服务意图和原请求 UUID；翻译错误或质量不合格不会降级发送原文。显式重试可恢复同一请求和已成功取得的译文，旧 attempt 不能提交或覆盖新 attempt。请求身份绑定正文、引用对象、登录会话和实际翻译参数；仅改外观或其他聊天设置不会创建新计费编号。
+群内“@某人”支持当前已加载成员的普通联系人提及，最多 32 个实体。实际 Lexical 节点中的身份编码、聊天草稿模型、联系人和群成员必须一致；昵称仅用于显示，不用昵称猜身份。发送正文中的规范身份及 UTF-16 范围进入严格上下文，翻译前转换为按当前请求 UUID 生成的受保护占位 URL，返回时逐个校验并恢复。遗漏、重复、篡改的占位内容不发送；正式提交显式传入已核验的 mentionedList。占位 URL 会增加实际服务输入和输出字符，现有 Worker 按这两者计费，不能按原昵称长度估算费用；显式重试仍沿用同一个请求 UUID。群组提及、机器人、自己、未知富文本、提及与引用混用、编辑/转发和链接预览仍未开放。
 
-提交使用锁定 WA-JS 的显式聊天目标、冻结的真实引用模型和单次许可，不写入译文再模拟 Enter。禁用隐式提及和链接预览，只接受真实消息 ID 与 ACK≥1。普通文字清空前再次比较聊天、模型、输入框、正文和 revision，用户已输入新内容则保留。引用回复确认成功后保留完整正文与引用，并提示“已发送；输入框未清空，请自行清除”：当前没有经过验证的同步原子清理接口，不能只清正文而遗留旧引用。清空失败仍显示已发送，不把消息变成可重试失败。回执丢失、提交后取消或结果不明进入 uncertain，不自动重发；正文未修改时，即使更换引用或关掉翻译开关，也继续阻止重复发送，需先核对聊天记录。
+单附件说明沿用平台现有预览和发送按钮，先支持一个已完成准备的标准图片、视频或具有可核验预览的 PDF，原文和译文最多 1024 个 Unicode 字符。实际预览、输入框、附件模型、已处理文件及当前聊天必须一致；普通文档、多个附件、编辑/高清/动图/阅后即焚、空说明、提及或引用混合均暂不支持。点击预览的发送按钮，或在该按钮获得焦点后按 Enter/空格，才能提交；说明输入框内 Enter 不作为已支持的发送手势。提交前用平台公开的 MediaPrep 构造私有准备副本，固定不可变 Blob 与已核验元数据，避免平台异步处理期间改发其他附件。只接受精确消息标识、目标、正文和文件身份一致的真实 ACK；成功后保留完整预览和说明，请手动清除。平台源码证据和范围见 [WhatsApp 发送合同](WHATSAPP-SEND-CONTRACT.md)。
 
-请求历史和已完成译文只在内存中保留，不宣称重启后恰好一次发送。原生最多 20000 条请求记录，待用译文与预留合计最多 2 MiB；每个页面最多 128 条意图，正文/译文及预留限制为 2 MiB。已确认清空或经用户编辑释放的终态会释放正文和 DOM 引用，保留提交凭据；达到页面记录上限会提示手动重新打开该账号页面，不驱逐旧凭据后允许重放。测试覆盖合成浏览器输入、同源 Rust 状态机和取消竞态；真实 WhatsApp 服务回执、Windows 输入法与付费服务联调仍需维护者真机验收。
+每次请求必须声明 `plain`、`reply`、`mentions` 或 `attachment` 上下文，缺失、未知字段或不一致均拒绝。原生只接收引用消息 ID/聊天 ID，或与物理附件绑定的 opaque UUID；引用正文、作者、原消息对象和附件内容留在页面内，不送入翻译服务。翻译是独立 transform，使用固定 `outgoing-send` 服务意图和原请求 UUID；翻译错误或质量不合格不会降级发送原文。显式重试可恢复同一请求和已成功取得的译文，旧 attempt 不能提交或覆盖新 attempt。请求身份绑定正文、上下文、登录会话和实际翻译参数；仅改外观或其他聊天设置不会创建新计费编号。
+
+提交使用锁定 WA-JS 的显式聊天目标、冻结的真实上下文和单次许可，不写入译文再模拟 Enter。禁用隐式提及和链接预览，只接受真实消息 ID 与 ACK≥1。普通文字清空前再次比较聊天、模型、输入框、正文和 revision，用户已输入新内容则保留。引用或提及确认成功后保留完整草稿，并提示“已发送；输入框未清空，请自行清除”：当前没有经过验证的同步原子清理接口。清空失败仍显示已发送，不把消息变成可重试失败。回执丢失、提交后取消或结果不明进入 uncertain，不自动重发；正文未修改时，即使更换引用或关掉翻译开关，也继续阻止重复发送，需先核对聊天记录。
+
+Telegram K 发送翻译仅支持普通联系人/普通群组的纯文字，原文和译文均最多 4096 个 UTF-16 单位。有限适配器冻结平台内部账号、目标、临时 ID 与 random_id，通过平台自己的消息生命周期和一次明确发送调用提交，clear_draft 保持关闭；消息回调必须与历史镜像逐项匹配才确认。平台协议可能重传同一 random_id，但应用不会创建第二次发送。确认后只有当前聊天与原草稿仍完全一致才同步清空输入；异步失败、账号切换和晚到回执都不能清除新草稿。引用、提及、附件、频道和论坛保持禁用。Web A 的生产发送接口强制清除目标云草稿，尚无保留草稿的受支持参数，因此没有启用对应发送功能；详情见上述合同核查。
+
+请求历史和已完成译文只在内存中保留，不宣称重启后恰好一次发送。原生最多 20000 条请求记录，待用译文与预留合计最多 2 MiB；每个页面最多 128 条意图，正文/译文及预留限制为 2 MiB。未提交的失败尝试释放旧 DOM/模型/附件引用，保留请求身份和已取得译文；显式重试重新读取并核对当前草稿。已完成回执结算也释放这些对象，已确认清空或经用户编辑释放的终态进一步释放正文，保留提交凭据；达到页面记录上限会提示手动重新打开该账号页面，不驱逐旧凭据后允许重放。测试覆盖合成浏览器输入、同源 Rust 状态机和取消竞态；真实 WhatsApp 服务回执、Windows 输入法与付费服务联调仍需维护者真机验收。

@@ -106,6 +106,14 @@ pub fn validate_text(text: &str) -> Result<()> {
 }
 
 pub fn validate_template(message: &str, target: &BroadcastTarget) -> Result<()> {
+    validate_template_with_limit(message, target, 10_000)
+}
+
+pub fn validate_template_with_limit(
+    message: &str,
+    target: &BroadcastTarget,
+    utf16_limit: usize,
+) -> Result<()> {
     let lower = message.to_ascii_lowercase();
     let name = !target.name.trim().is_empty() && target.name.trim() != target.id;
     let real_name = !target.real_name.trim().is_empty() && target.real_name.trim() != target.id;
@@ -129,7 +137,11 @@ pub fn validate_template(message: &str, target: &BroadcastTarget) -> Result<()> 
                 .map(|(index, _)| index)
                 .unwrap_or(0)
         });
-        validate_text(&expand(&longest, target, 0))?;
+        let expanded = expand(&longest, target, 0);
+        validate_text(&expanded)?;
+        if expanded.encode_utf16().count() > utf16_limit {
+            return Err(AppError::BroadcastInvalid);
+        }
     }
     Ok(())
 }

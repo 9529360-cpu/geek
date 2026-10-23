@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ROOT = path.resolve(__dirname, '../..');
-const { composeTranslation, translationInputs } = require('./prepare-translation.cjs');
+const { composeTranslation, composeTelegramAObserver, translationInputs } = require('./prepare-translation.cjs');
 
 function compose(root = ROOT) {
   const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
@@ -31,6 +31,9 @@ function compose(root = ROOT) {
     read('desktop-tauri/guest/broadcast-audience.js'),
     read('desktop-tauri/guest/broadcast-import.js'),
     read('desktop-tauri/guest/whatsapp.js'),
+    read('desktop-tauri/guest/telegram-send-runtime.js'),
+    read('desktop-tauri/guest/telegram-send-receipt.js'),
+    read('desktop-tauri/guest/telegram-send.js'),
     read('desktop-tauri/guest/bridge.js'),
     '})();', '',
   ].join('\n');
@@ -43,8 +46,14 @@ function composeSend(root = ROOT) {
     'if (window !== window.top || window.__geekTauriSend) return;',
     'const module = { exports: {} };', read('src/translation-output-safety.cjs'),
     'const assessOutput = module.exports.assessTranslationOutput;',
+    read('desktop-tauri/guest/whatsapp-reply-context.js'),
+    read('desktop-tauri/guest/whatsapp-mentions.js'),
+    read('desktop-tauri/guest/whatsapp-caption.js'),
     read('desktop-tauri/guest/send-context.js'),
     read('desktop-tauri/guest/send-composer.js'),
+    read('desktop-tauri/guest/telegram-send-runtime.js'),
+    read('desktop-tauri/guest/telegram-send-receipt.js'),
+    read('desktop-tauri/guest/send-composer-telegram.js'),
     read('desktop-tauri/guest/send-view.js'),
     read('desktop-tauri/guest/send.js'), '})();', ''].join('\n');
 }
@@ -64,6 +73,7 @@ function prepare(output, root = ROOT) {
   fs.writeFileSync(path.join(output, 'wppconnect-wa.js'), bundle);
   fs.writeFileSync(path.join(output, 'platform-bridge.js'), guest);
   fs.writeFileSync(path.join(output, 'translation-guest.js'), composeTranslation(root));
+  fs.writeFileSync(path.join(output, 'telegram-a-observer.js'), composeTelegramAObserver(root));
   fs.writeFileSync(path.join(output, 'send-guest.js'), composeSend(root));
   const licenses = ['LICENSE', 'dist/wppconnect-wa.js.LICENSE.txt'].map((name) =>
     `${name}\n\n${fs.readFileSync(path.join(installed, name), 'utf8')}`).join('\n\n');
@@ -74,7 +84,12 @@ function prepare(output, root = ROOT) {
     'desktop-tauri/guest/broadcast-audience.js',
     'desktop-tauri/guest/broadcast-import.js',
     'desktop-tauri/guest/whatsapp.js', 'desktop-tauri/guest/bridge.js',
+    'desktop-tauri/guest/telegram-send-runtime.js', 'desktop-tauri/guest/telegram-send-receipt.js',
+    'desktop-tauri/guest/telegram-send.js', 'desktop-tauri/guest/send-composer-telegram.js',
     ...translationInputs,
+    'desktop-tauri/guest/whatsapp-reply-context.js',
+    'desktop-tauri/guest/whatsapp-mentions.js',
+    'desktop-tauri/guest/whatsapp-caption.js',
     'desktop-tauri/guest/send-context.js', 'desktop-tauri/guest/send-composer.js',
     'desktop-tauri/guest/send-view.js', 'desktop-tauri/guest/send.js'];
   const hash = (data) => crypto.createHash('sha256').update(data).digest('hex');
