@@ -1,6 +1,6 @@
 //! Original normalized translation policy, owned and persisted by Accounts.
 use super::error::{AppError, Result};
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
 pub const LANGUAGES: &[&str] = &[
@@ -86,9 +86,91 @@ impl TranslationPolicy {
     }
 }
 
+/// The original chat panel owns these seven choices. All other policy fields
+/// continue to follow this account's latest global policy.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatTranslationPolicy {
+    pub enabled: bool,
+    pub auto_send: bool,
+    pub target: String,
+    pub message_action: bool,
+    pub display_translation: bool,
+    pub translation_mode: String,
+    pub message_target: String,
+}
+
+impl ChatTranslationPolicy {
+    pub fn from_policy(policy: &TranslationPolicy) -> Self {
+        Self {
+            enabled: policy.enabled,
+            auto_send: policy.auto_send,
+            target: policy.target.clone(),
+            message_action: policy.message_action,
+            display_translation: policy.display_translation,
+            translation_mode: policy.translation_mode.clone(),
+            message_target: policy.message_target.clone(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if !LANGUAGES.contains(&self.target.as_str())
+            || !LANGUAGES.contains(&self.message_target.as_str())
+            || !["click", "auto"].contains(&self.translation_mode.as_str())
+        {
+            return Err(AppError::TranslationInvalid);
+        }
+        Ok(())
+    }
+
+    fn resolve(&self, global: &TranslationPolicy) -> TranslationPolicy {
+        TranslationPolicy {
+            enabled: self.enabled,
+            auto_send: self.auto_send,
+            target: self.target.clone(),
+            message_action: self.message_action,
+            display_translation: self.display_translation,
+            translation_mode: self.translation_mode.clone(),
+            message_target: self.message_target.clone(),
+            ..global.clone()
+        }
+    }
+}
+
+/// Input shapes stay strict; the account owner also matches them to chat_id.
+/// The legacy storage decoder below is deliberately not used by this IPC DTO.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum TranslationPolicyUpdate {
+    Global(TranslationPolicy),
+    Chat(ChatTranslationPolicy),
+}
+
+impl From<TranslationPolicy> for TranslationPolicyUpdate {
+    fn from(policy: TranslationPolicy) -> Self {
+        Self::Global(policy)
+    }
+}
+
+impl From<ChatTranslationPolicy> for TranslationPolicyUpdate {
+    fn from(policy: ChatTranslationPolicy) -> Self {
+        Self::Chat(policy)
+    }
+}
+
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranslationSettings {
+    pub revision: u64,
+    pub global: TranslationPolicy,
+    #[serde(deserialize_with = "deserialize_chat_policies")]
+    pub chats: BTreeMap<String, ChatTranslationPolicy>,
+}
+
+/// Existing guest protocols consume effective full policies, never storage rows.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedTranslationSettings {
     pub revision: u64,
     pub global: TranslationPolicy,
     pub chats: BTreeMap<String, TranslationPolicy>,
@@ -109,9 +191,60 @@ impl TranslationSettings {
         Ok(())
     }
 
-    pub fn policy(&self, chat_id: &str) -> &TranslationPolicy {
-        self.chats.get(chat_id).unwrap_or(&self.global)
+    pub fn policy(&self, chat_id: &str) -> TranslationPolicy {
+        self.chats.get(chat_id).map_or_else(
+            || self.global.clone(),
+            |policy| policy.resolve(&self.global),
+        )
     }
+
+    pub fn resolved(&self) -> ResolvedTranslationSettings {
+        ResolvedTranslationSettings {
+            revision: self.revision,
+            global: self.global.clone(),
+            chats: self
+                .chats
+                .iter()
+                .map(|(id, policy)| (id.clone(), policy.resolve(&self.global)))
+                .collect(),
+        }
+    }
+}
+
+fn deserialize_chat_policies<'de, D>(
+    deserializer: D,
+) -> std::result::Result<BTreeMap<String, ChatTranslationPolicy>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StoredPolicy {
+        Current(ChatTranslationPolicy),
+        Legacy(TranslationPolicy),
+    }
+
+    let stored = BTreeMap::<String, StoredPolicy>::deserialize(deserializer)?;
+    stored
+        .into_iter()
+        .map(|(id, value)| {
+            let policy = match value {
+                StoredPolicy::Current(policy) => policy,
+                StoredPolicy::Legacy(policy) => {
+                    // Reject damaged/unsupported hidden fields before discarding
+                    // the old full-clone implementation's implicit snapshots.
+                    policy
+                        .validate()
+                        .map_err(|_| D::Error::custom("invalid stored translation policy"))?;
+                    ChatTranslationPolicy::from_policy(&policy)
+                }
+            };
+            policy
+                .validate()
+                .map_err(|_| D::Error::custom("invalid stored chat translation policy"))?;
+            Ok((id, policy))
+        })
+        .collect()
 }
 
 pub fn valid_chat_id(id: &str) -> bool {

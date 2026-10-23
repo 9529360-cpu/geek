@@ -97,7 +97,7 @@ No remove-then-rename sequence or plaintext fallback is permitted.
 
 The repository owns an exclusive process lock for its lifetime. Bad ciphertext, unknown
 schema, malformed IDs, duplicate IDs or invalid platform policy fail closed. Loading
-schema 1, 2, 3 or 4 preserves IDs without eager writes; a successful mutation writes schema 5.
+schema 1 through 5 preserves IDs without eager writes; a successful mutation writes schema 6.
 A failed write keeps the old durable document and memory. The older prototype must not
 silently reset a newer document to downgrade it.
 
@@ -319,10 +319,21 @@ without turning a charged success into failure. Failed mirror persistence also p
 successful translation. Only the existing server decides billing; no client usage debit.
 
 `Account.translation` contains one revision, global policy and at most 100 chat overrides.
-The existing Accounts owner persists mutations before publishing snapshots. Unknown,
-archived or unsupported accounts, stale revisions and unsupported history flags
-fail before writes. Default/legacy policy is manual-only. Reading older schemas never
-eagerly rewrites them; an actual successful mutation upgrades to schema 5.
+Each override stores only the original UI's seven local fields: enabled, autoSend, target,
+messageAction, displayTranslation, translationMode and messageTarget. The remaining fields
+always inherit the account's current global policy. Domain resolution is the runtime
+authority; both native translation paths and full guest configuration projections use it.
+The shell holds sparse local drafts and never publishes an unsaved global draft to a guest.
+Typed command inputs distinguish a complete global policy, a seven-field chat override and
+an explicit chat-override removal; hidden global fields cannot enter a new local override.
+The persistence decoder recognizes both complete legacy overrides and strict seven-field
+overrides; it rejects unknown or partial shapes. Legacy values are fully validated before
+preserving the seven local choices and restoring global inheritance. This compatibility
+read is independent of the supported document version; canonical writes use schema 6 and
+only seven-field overrides. Reading never eagerly rewrites a document. The existing Accounts owner persists
+mutations before publishing snapshots. Unknown, archived or unsupported accounts, stale
+revisions and unsupported history flags fail before writes. Missing policy defaults to
+manual-only translation.
 
 `desktop/translation` polls only the visible owned WA document. It releases Workspace
 before readiness, DOM callbacks or network work. At most two workers and eight queued

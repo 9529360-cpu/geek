@@ -106,7 +106,7 @@ fn old_schema_loads_without_rebinding_or_eager_rewrite() {
     store.rename(&id, "Updated").unwrap();
     let doc: serde_json::Value =
         serde_json::from_slice(&dpapi::decrypt(&fs::read(file).unwrap()).unwrap()).unwrap();
-    assert_eq!(doc["schemaVersion"], 5);
+    assert_eq!(doc["schemaVersion"], 6);
 }
 
 #[test]

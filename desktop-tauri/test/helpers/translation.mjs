@@ -32,6 +32,11 @@ export async function fixture({ before = async () => {}, sessionState = signedIn
   const commit = (id, chatId, policy, expectedRevision) => {
     const account = backend.accounts.find((item) => item.id === id);
     if (account.translation.revision !== expectedRevision) throw 'TRANSLATION_SETTINGS_CONFLICT';
+    const keys = chatId === null ? Object.keys(DEFAULT_POLICY)
+      : ['enabled', 'autoSend', 'target', 'messageAction', 'displayTranslation', 'translationMode', 'messageTarget'];
+    if (policy !== null && (Object.keys(policy).length !== keys.length || keys.some((key) => !Object.hasOwn(policy, key)))) {
+      throw 'TRANSLATION_INVALID';
+    }
     if (chatId === null) account.translation.global = structuredClone(policy);
     else if (policy === null) delete account.translation.chats[chatId];
     else account.translation.chats[chatId] = structuredClone(policy);

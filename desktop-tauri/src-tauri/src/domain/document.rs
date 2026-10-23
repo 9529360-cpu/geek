@@ -7,7 +7,7 @@ use super::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -30,7 +30,7 @@ impl Default for Document {
 
 impl Document {
     pub fn validate(&self, platforms: &[Platform]) -> Result<()> {
-        if !matches!(self.schema_version, 1 | 2 | 3 | 4 | SCHEMA_VERSION) {
+        if !matches!(self.schema_version, 1 | 2 | 3 | 4 | 5 | SCHEMA_VERSION) {
             return Err(AppError::StoreVersion);
         }
         validate_accounts(&self.accounts, platforms)

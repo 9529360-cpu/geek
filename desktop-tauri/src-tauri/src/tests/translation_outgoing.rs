@@ -7,7 +7,9 @@ use crate::{
         request_control::RequestControl,
         translation_ports::{OutgoingTranslation, TranslationIntent},
     },
-    domain::{account::Account, error::AppError, proxy::ProxyConfig},
+    domain::{
+        account::Account, error::AppError, proxy::ProxyConfig, translation::ChatTranslationPolicy,
+    },
 };
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
@@ -114,25 +116,27 @@ fn outgoing_uses_frozen_effective_send_languages_and_proxy_independently_of_rece
     };
     let original_proxy = account.proxy.clone();
     let event = outgoing();
+    account.translation.global.source = "fr".into();
+    account.translation.global.provider = "local".into();
+    account.translation.global.route = "backup".into();
     let mut policy = account.translation.global.clone();
-    policy.source = "fr".into();
     policy.target = "it".into();
-    policy.provider = "local".into();
-    policy.route = "backup".into();
     policy.message_from = "auto".into();
     policy.message_target = "zh".into();
     policy.message_action = false;
     policy.display_translation = false;
-    account
-        .translation
-        .chats
-        .insert(event.chat_id.clone(), policy);
+    account.translation.chats.insert(
+        event.chat_id.clone(),
+        ChatTranslationPolicy::from_policy(&policy),
+    );
     let work = h
         .engine
         .prepare_outgoing(account.clone(), event.clone(), budget())
         .unwrap();
     account.proxy = ProxyConfig::System;
     account.translation.chats.clear();
+    account.translation.global.source = "en".into();
+    account.translation.global.route = "primary".into();
     h.gateway.token_reply(Ok(token("outgoing")), None);
     h.gateway
         .translation_reply(Ok(translated("Testo tradotto", Some(80))), None);

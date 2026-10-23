@@ -80,7 +80,7 @@ impl TranslationGuest {
                 .map_err(|_| AppError::TranslationUnavailable)?;
         }
         let configuration = json!({ "generation": binding.generation,
-            "sessionGeneration": session_generation, "settings": account.translation,
+            "sessionGeneration": session_generation, "settings": account.translation.resolved(),
             "active": active, "autoAfter": auto_after });
         let source = if installed { "" } else { GUEST };
         let script = format!("(() => {{ {source}\n return window.__geekTauriTranslation?.configure({configuration}) === true; }})()");

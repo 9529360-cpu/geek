@@ -1,4 +1,4 @@
-import { DEFAULT_POLICY, LANGUAGES, sessionStatus } from '../models/translation.mjs';
+import { DEFAULT_POLICY, LANGUAGES, chatPolicyFrom, effectivePolicy, sessionStatus } from '../models/translation.mjs';
 
 const globalFields = {
   'translation-message-to': 'messageTarget', 'translation-message-from': 'messageFrom', 'translation-server': 'route',
@@ -114,7 +114,7 @@ export function createTranslationView(document, actions) {
   function render({ account, supported, global, chat, context, contextPending, contextError, globalDraft, chatDraft,
     shellBusy, connected, open, tab, session, sessionError, checking, confirmation }) {
     const globalPolicy = global || DEFAULT_POLICY;
-    const chatPolicy = chat || globalPolicy;
+    const chatPolicy = effectivePolicy(globalPolicy, chat);
     const hasChat = Boolean(context?.available && context.chat);
     const override = hasChat && Boolean(chat);
     const canEdit = connected && supported && !shellBusy;
@@ -148,7 +148,7 @@ export function createTranslationView(document, actions) {
     $('translation-chat-mode').textContent = contextPending ? '正在读取聊天…' : hasChat ? (override ? '单独设置' : '跟随全局') : '未检测到聊天';
     $('translation-chat-mode').dataset.state = hasChat ? (override ? 'custom' : 'global') : 'idle';
     $('translation-chat-hint').textContent = !supported ? '当前仅支持 WhatsApp 翻译。'
-      : contextError || (hasChat ? `当前聊天：${context.chat.name || '未命名聊天'}。本次设置固定到此聊天。` : '请先在当前账号打开一个聊天，再重新打开翻译设置。');
+      : contextError || (hasChat ? `当前聊天：${context.chat.name || '未命名聊天'}。本次设置固定到此聊天，其他选项跟随全局。` : '请先在当前账号打开一个聊天，再重新打开翻译设置。');
     const status = sessionStatus(session, sessionError);
     $('translation-service-state').textContent = status.label; $('translation-service-state').dataset.state = status.kind;
     $('translation-service-detail').textContent = !supported ? '此平台的翻译尚未迁移。' : status.detail;
@@ -183,7 +183,7 @@ export function createTranslationView(document, actions) {
   }
   return { render,
     readGlobal: (base) => read(globalFields, base, 'translation-receive-auto'),
-    readChat: (base) => read(chatFields, base, 'translation-channel-receive-auto'),
+    readChat: (base) => chatPolicyFrom(read(chatFields, base, 'translation-channel-receive-auto')),
     dispose: () => listeners.forEach((remove) => remove()),
   };
 }

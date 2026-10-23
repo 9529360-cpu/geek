@@ -15,7 +15,7 @@ use crate::{
         presentation::{Viewport, WindowAction},
         proxy::ProxyConfig,
         session::SessionSnapshot,
-        translation::TranslationPolicy,
+        translation::TranslationPolicyUpdate,
     },
 };
 use std::sync::Arc;
@@ -312,7 +312,7 @@ pub async fn account_update_translation(
     state: State<'_, SharedDesktop>,
     id: String,
     chat_id: Option<String>,
-    policy: Option<TranslationPolicy>,
+    policy: Option<TranslationPolicyUpdate>,
     expected_revision: u64,
 ) -> Result<Snapshot> {
     execute_workspace(webview, state, move |desktop| {

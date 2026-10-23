@@ -8,7 +8,7 @@ use crate::domain::{
     error::{AppError, Result},
     presentation::Viewport,
     proxy::ProxyConfig,
-    translation::TranslationPolicy,
+    translation::TranslationPolicyUpdate,
 };
 
 /// Serial use-case owner. Native callbacks must never lock this coordinator.
@@ -62,7 +62,7 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         &mut self,
         id: &str,
         chat_id: Option<&str>,
-        policy: Option<TranslationPolicy>,
+        policy: Option<TranslationPolicyUpdate>,
         expected_revision: u64,
     ) -> Result<Snapshot> {
         self.accounts

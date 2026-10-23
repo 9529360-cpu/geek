@@ -1,5 +1,8 @@
 use super::*;
-use crate::domain::send_intent::{SendContext, SendOutcome, SendState};
+use crate::domain::{
+    send_intent::{SendContext, SendOutcome, SendState},
+    translation::ChatTranslationPolicy,
+};
 
 mod support;
 use support::*;
@@ -69,6 +72,56 @@ fn editing_the_composer_while_translation_is_blocked_prevents_prepare_and_commit
     let state = h.platform.state.lock().unwrap();
     assert!(state.prepared.is_empty());
     assert!(state.commits.is_empty());
+}
+
+#[test]
+fn changed_inherited_send_semantics_cancel_a_blocked_chat_worker_before_prepare() {
+    for change_route in [false, true] {
+        let mut h = Harness::new();
+        let (mut view, mut request) = fixture(true);
+        request.text = "请确认 synthetic order".into();
+        view.account.translation.chats.insert(
+            request.chat_id.clone(),
+            ChatTranslationPolicy::from_policy(&view.account.translation.global),
+        );
+        let blocked = Block::new();
+        h.transform.steps.lock().unwrap().push_back(Step::Block(
+            Arc::clone(&blocked.0),
+            Ok("Late paid output".into()),
+        ));
+        h.platform.select(view.clone(), request.clone());
+        h.poll();
+        h.start();
+        blocked.0.entered();
+
+        view.account.translation.revision += 1;
+        if change_route {
+            view.account.translation.global.route = "backup".into();
+            assert_eq!(
+                view.account.translation.policy(&request.chat_id).route,
+                "backup"
+            );
+        } else {
+            view.account.translation.global.include_zh = false;
+            assert!(!view
+                .account
+                .translation
+                .policy(&request.chat_id)
+                .should_translate_outgoing(&request.text));
+        }
+        h.platform.select(view, request.clone());
+        h.poll();
+        assert_eq!(h.status(&request.id).state, SendState::Cancelled);
+        assert!(h.runner.flight.as_ref().unwrap().cancelled);
+        assert!(h.runner.queued.is_none());
+        blocked.0.release();
+        h.finish();
+        assert_eq!(h.status(&request.id).state, SendState::Cancelled);
+        assert_eq!(h.transform.executions.load(Ordering::Acquire), 1);
+        let state = h.platform.state.lock().unwrap();
+        assert!(state.prepared.is_empty());
+        assert!(state.commits.is_empty());
+    }
 }
 
 #[test]

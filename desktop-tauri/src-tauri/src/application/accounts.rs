@@ -7,7 +7,7 @@ use crate::domain::{
     navigation::NavigationPolicy,
     platform::{self, Platform},
     proxy::ProxyConfig,
-    translation::{valid_chat_id, TranslationPolicy, TranslationSettings},
+    translation::{valid_chat_id, TranslationPolicyUpdate, TranslationSettings},
 };
 use uuid::Uuid;
 
@@ -225,7 +225,7 @@ impl<R: AccountRepository> Accounts<R> {
         &mut self,
         id: &str,
         chat_id: Option<&str>,
-        policy: Option<TranslationPolicy>,
+        policy: Option<TranslationPolicyUpdate>,
         expected_revision: u64,
     ) -> Result<()> {
         let current = self.openable_account(id)?;
@@ -235,18 +235,20 @@ impl<R: AccountRepository> Accounts<R> {
         if current.translation.revision != expected_revision {
             return Err(AppError::TranslationSettingsConflict);
         }
-        if let Some(policy) = &policy {
-            policy.validate()?;
-        }
         let mut settings = current.translation.clone();
-        match chat_id {
-            None => settings.global = policy.ok_or(AppError::TranslationInvalid)?,
-            Some(chat_id) if valid_chat_id(chat_id) => {
-                if let Some(policy) = policy {
-                    settings.chats.insert(chat_id.to_owned(), policy);
-                } else {
-                    settings.chats.remove(chat_id);
-                }
+        match (chat_id, policy) {
+            (None, Some(TranslationPolicyUpdate::Global(policy))) => {
+                policy.validate()?;
+                settings.global = policy;
+            }
+            (Some(chat_id), Some(TranslationPolicyUpdate::Chat(policy)))
+                if valid_chat_id(chat_id) =>
+            {
+                policy.validate()?;
+                settings.chats.insert(chat_id.to_owned(), policy);
+            }
+            (Some(chat_id), None) if valid_chat_id(chat_id) => {
+                settings.chats.remove(chat_id);
             }
             _ => return Err(AppError::TranslationInvalid),
         }

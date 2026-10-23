@@ -28,6 +28,7 @@ mod session_persistence;
 mod session_quota;
 mod session_support;
 mod translation_execution;
+mod translation_inheritance;
 mod translation_outgoing;
 mod translation_policy;
 mod translation_schema;

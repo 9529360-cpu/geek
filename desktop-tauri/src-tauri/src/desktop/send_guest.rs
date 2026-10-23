@@ -129,7 +129,7 @@ impl SendPlatform for SendGuest {
                 .map_err(|_| AppError::SendIntentUnsupported)?;
         }
         let configuration = json!({ "generation": binding.generation, "sessionGeneration": session,
-            "settings": view.account.translation, "active": active });
+            "settings": view.account.translation.resolved(), "active": active });
         let source = if installed { "" } else { GUEST };
         let result = self.platform.evaluate(binding, format!(
             "(() => {{ {source}\n return window.__geekTauriSend?.configure({configuration}) === true; }})()"

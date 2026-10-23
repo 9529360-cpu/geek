@@ -12,6 +12,8 @@ export const DEFAULT_POLICY = Object.freeze({
 });
 const languages = new Set(LANGUAGES.map(([value]) => value));
 const booleanKeys = ['enabled', 'autoSend', 'messageAction', 'displayTranslation', 'groupAuto', 'translateHistory', 'includeZh'];
+const chatKeys = Object.freeze(['enabled', 'autoSend', 'target', 'messageAction', 'displayTranslation',
+  'translationMode', 'messageTarget']);
 
 export function policyOf(value = DEFAULT_POLICY) {
   const policy = { ...DEFAULT_POLICY, ...value };
@@ -26,13 +28,29 @@ export function policyOf(value = DEFAULT_POLICY) {
   return policy;
 }
 
+export function chatPolicyOf(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== chatKeys.length
+    || chatKeys.some((key) => !Object.hasOwn(value, key))) throw 'TRANSLATION_INVALID';
+  const policy = policyOf(value);
+  return Object.fromEntries(chatKeys.map((key) => [key, policy[key]]));
+}
+
+export function chatPolicyFrom(policy) {
+  return chatPolicyOf(Object.fromEntries(chatKeys.map((key) => [key, policy[key]])));
+}
+
+export function effectivePolicy(global, chat = null) {
+  return policyOf({ ...policyOf(global), ...(chat === null ? {} : chatPolicyOf(chat)) });
+}
+
 export function translationOf(account) {
   if (!account?.translation) return { revision: 0, global: { ...DEFAULT_POLICY }, chats: {} };
   const { revision, global, chats } = account.translation;
   if (!Number.isSafeInteger(revision) || revision < 0 || !chats || typeof chats !== 'object' || Array.isArray(chats)) {
     throw 'TRANSLATION_INVALID';
   }
-  return { revision, global: policyOf(global), chats: Object.fromEntries(Object.entries(chats).map(([id, policy]) => [id, policyOf(policy)])) };
+  return { revision, global: policyOf(global), chats: Object.fromEntries(Object.entries(chats).map(([id, policy]) => [id, chatPolicyOf(policy)])) };
 }
 
 export function isWhatsApp(account) {

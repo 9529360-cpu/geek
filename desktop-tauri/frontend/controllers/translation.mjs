@@ -1,5 +1,6 @@
 import { createTranslationView } from '../views/translation.mjs';
-import { DEFAULT_POLICY, isWhatsApp, policyOf, translationError, translationOf } from '../models/translation.mjs';
+import { DEFAULT_POLICY, chatPolicyFrom, chatPolicyOf, effectivePolicy, isWhatsApp,
+  policyOf, translationError, translationOf } from '../models/translation.mjs';
 
 export function createTranslationController({ document, api, getShellSnapshot, showPanel, hidePanel,
   acceptSnapshot, getSession, refreshSession, openSession, reportError = () => {} }) {
@@ -41,7 +42,7 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     return state;
   }
   function currentState() { return states.get(activeId) || stateFor(account()); }
-  function effective(state, chatId = null) {
+  function configured(state, chatId = null) {
     const draft = state?.drafts.get(chatId);
     if (draft?.dirty) return draft.policy;
     return chatId === null ? state?.authority.global || DEFAULT_POLICY : state?.authority.chats[chatId] || null;
@@ -53,7 +54,7 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     const chatId = context?.chat?.id;
     const session = getSession();
     view.render({ account: item, supported: isWhatsApp(item), connected, shellBusy, open, tab,
-      global: effective(state), chat: chatId ? effective(state, chatId) : null,
+      global: configured(state), chat: chatId ? configured(state, chatId) : null,
       globalDraft: state?.drafts.get(null), chatDraft: chatId ? state?.drafts.get(chatId) : null,
       context, contextPending, contextError, checking, confirmation, session: session.snapshot, sessionError: session.error });
   }
@@ -104,7 +105,7 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     const state = currentState();
     if (!state || !connected || shellBusy || !isWhatsApp(account())) return;
     try {
-      const normalized = policy === null ? null : policyOf(policy);
+      const normalized = policy === null ? null : chatId === null ? policyOf(policy) : chatPolicyOf(policy);
       const previous = state.drafts.get(chatId);
       const draft = previous || {};
       Object.assign(draft, { policy: normalized, version: (previous?.version || 0) + 1,
@@ -114,17 +115,17 @@ export function createTranslationController({ document, api, getShellSnapshot, s
       queue(state, chatId);
     } catch (failure) { contextError = translationError(failure); render(); }
   }
-  function globalChanged() { const state = currentState(); if (state) change(null, view.readGlobal(effective(state))); }
+  function globalChanged() { const state = currentState(); if (state) change(null, view.readGlobal(configured(state))); }
   function chatChanged() {
     const state = currentState(); const chatId = context?.chat?.id;
-    if (state && context?.available && chatId && effective(state, chatId)) {
-      change(chatId, view.readChat(effective(state, chatId)));
+    if (state && context?.available && chatId && configured(state, chatId)) {
+      change(chatId, view.readChat(effectivePolicy(configured(state), configured(state, chatId))));
     }
   }
   function override(enabled) {
     const state = currentState(); const chatId = context?.chat?.id;
     if (!state || !context?.available || !chatId || contextPending) return;
-    change(chatId, enabled ? { ...effective(state) } : null);
+    change(chatId, enabled ? chatPolicyFrom(configured(state)) : null);
   }
   function reset() {
     if (!isWhatsApp(account()) || shellBusy) return;

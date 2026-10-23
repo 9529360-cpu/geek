@@ -2,7 +2,10 @@ use super::translation_support::*;
 use crate::domain::{
     error::AppError,
     proxy::ProxyConfig,
-    translation::{IncomingTranslation, TranslationPolicy, TranslationSettings, MAX_CHAT_POLICIES},
+    translation::{
+        ChatTranslationPolicy, IncomingTranslation, TranslationPolicy, TranslationSettings,
+        MAX_CHAT_POLICIES,
+    },
 };
 
 #[test]
@@ -97,10 +100,10 @@ fn chat_policy_overrides_global_and_disabled_display_never_calls_the_gateway() {
         message_target: "it".into(),
         ..TranslationPolicy::default()
     };
-    account
-        .translation
-        .chats
-        .insert(event.chat_id.clone(), policy);
+    account.translation.chats.insert(
+        event.chat_id.clone(),
+        ChatTranslationPolicy::from_policy(&policy),
+    );
     let work = h.engine.prepare(account, event).unwrap();
     h.gateway.token_reply(Ok(token("override")), None);
     h.gateway
@@ -197,14 +200,16 @@ fn text_and_request_metadata_are_bounded_before_network_admission() {
 fn persisted_chat_settings_are_bounded_and_cannot_inject_unknown_input_fields() {
     let mut settings = TranslationSettings::default();
     for id in 0..MAX_CHAT_POLICIES {
-        settings
-            .chats
-            .insert(format!("{id}@c.us"), TranslationPolicy::default());
+        settings.chats.insert(
+            format!("{id}@c.us"),
+            ChatTranslationPolicy::from_policy(&TranslationPolicy::default()),
+        );
     }
     settings.validate().unwrap();
-    settings
-        .chats
-        .insert("100000@c.us".into(), TranslationPolicy::default());
+    settings.chats.insert(
+        "100000@c.us".into(),
+        ChatTranslationPolicy::from_policy(&TranslationPolicy::default()),
+    );
     assert!(matches!(
         settings.validate(),
         Err(AppError::TranslationLimit)
