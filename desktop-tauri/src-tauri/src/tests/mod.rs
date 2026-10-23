@@ -35,6 +35,7 @@ mod send_intent_support;
 mod send_mentions;
 mod send_receipt;
 mod send_telegram;
+mod send_telegram_reply;
 mod send_translation;
 mod session_auth;
 mod session_persistence;

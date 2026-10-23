@@ -148,13 +148,36 @@ function createTelegramSendRuntime() {
     }
     return inputPeer;
   }
-  async function prepare(chatId, text, valid = () => true) {
+  async function verifyReply(snapshot, id, reply, valid, deadline) {
+    if (reply === null) return null;
+    check(snapshot, valid);
+    if (reply.snapshot !== snapshot || reply.peerId !== id || !Number.isSafeInteger(reply.mid) || reply.mid <= 0
+        || !Number.isInteger(reply.id) || reply.id <= 0 || reply.id > 2147483647
+        || snapshot.proxy.getMessageFromStorage(`${id}_history`, reply.mid) !== reply.model
+        || reply.model?.id !== reply.id || reply.model?.mid !== reply.mid || reply.model?.peerId !== id) {
+      throw issue('CAPABILITY_UNAVAILABLE');
+    }
+    // K's ChatInput draft contains its local mid. The read-only official helper
+    // converts it to a server int and rejects ephemeral/unsupported identities.
+    const value = await wait(() => snapshot.managers.appMessagesManager.getInputReplyTo({
+      peerId: id, replyToMsgId: reply.mid,
+    }), snapshot, valid, deadline);
+    if (value?._ !== 'inputReplyToMessage' || value.reply_to_msg_id !== reply.id
+        || Object.keys(value).some((key) => !['_', 'reply_to_msg_id', 'monoforum_peer_id',
+          'reply_to_peer_id', 'top_msg_id', 'poll_option'].includes(key)
+          || !['_', 'reply_to_msg_id'].includes(key) && value[key] !== undefined)) throw issue('CAPABILITY_UNAVAILABLE');
+    check(snapshot, valid);
+    return { _: 'inputReplyToMessage', reply_to_msg_id: reply.id };
+  }
+  async function prepare(chatId, text, valid = () => true, reply = null) {
     try {
       const id = peerNumber(chatId);
       if (id === null || !textValid(text)) throw issue('CAPABILITY_UNAVAILABLE');
       const snapshot = capture();
-      await verify(snapshot, id, text, valid);
-      return { snapshot, id, text, used: false };
+      const deadline = performance.now() + 12000;
+      await verify(snapshot, id, text, valid, deadline);
+      await verifyReply(snapshot, id, reply, valid, deadline);
+      return { snapshot, id, text, reply, used: false };
     } catch (error) {
       // This entire phase is read-only. Do not accept a platform error's
       // claimed submission flag or expose its arbitrary error text/code.
@@ -177,7 +200,7 @@ function createTelegramSendRuntime() {
   async function send(prepared, valid) {
     if (!prepared || prepared.used) throw issue('NOT_SUBMITTED');
     prepared.used = true;
-    const { snapshot, id, text } = prepared;
+    const { snapshot, id, text, reply = null } = prepared;
     let staged = false;
     let submitted = false;
     let message = null;
@@ -185,18 +208,22 @@ function createTelegramSendRuntime() {
     try {
       const deadline = performance.now() + 12000;
       const inputPeer = await verify(snapshot, id, text, valid, deadline);
-      message = await wait(() => snapshot.managers.appMessagesManager.generateOutgoingMessage(id, {}), snapshot, valid, deadline);
+      const inputReply = await verifyReply(snapshot, id, reply, valid, deadline);
+      message = await wait(() => snapshot.managers.appMessagesManager.generateOutgoingMessage(id,
+        inputReply ? { replyTo: inputReply } : {}), snapshot, valid, deadline);
       check(snapshot, valid);
-      if (!validTelegramPending(message, id, snapshot.self)) throw issue('CAPABILITY_UNAVAILABLE');
+      const replyMid = reply?.mid ?? null;
+      if (!validTelegramPending(message, id, snapshot.self, replyMid)) throw issue('CAPABILITY_UNAVAILABLE');
       // generateOutgoingMessage's send/promise properties are non-enumerable.
       // Only this explicit plain template crosses back to the worker: no send
       // closure exists for Telegram's pending/retry UI to invoke automatically.
       message = { _: 'message', id: message.id, random_id: message.random_id, date: message.date,
         from_id: { _: 'peerUser', user_id: snapshot.self }, peer_id: { ...message.peer_id },
-        pFlags: { out: true }, pending: true, message: text, entities: [] };
+        pFlags: { out: true }, pending: true, message: text, entities: [],
+        ...(replyMid === null ? {} : { reply_to: { _: 'messageReplyHeader', pFlags: {}, reply_to_msg_id: replyMid } }) };
       receipt = createTelegramSendReceipt(snapshot, message, id, text, () => {
         check(snapshot, valid);
-      });
+      }, null, replyMid);
       check(snapshot, valid);
       staged = true;
       // beforeMessageSending returns the whole storage Map; invokeVoid avoids
@@ -210,7 +237,7 @@ function createTelegramSendRuntime() {
       submitted = true;
       const work = snapshot.managers.apiManager.invokeApiAfter('messages.sendMessage', {
         peer: inputPeer, message: text, random_id: message.random_id, entities: [],
-        no_webpage: true, clear_draft: false,
+        no_webpage: true, clear_draft: false, ...(inputReply ? { reply_to: inputReply } : {}),
       }, { noErrorBox: true, rawError: true, ignoreErrors: true });
       Promise.resolve(work).then((updates) => applyTelegramSendUpdates(snapshot.managers, message, updates))
         .catch(() => receipt.failed());

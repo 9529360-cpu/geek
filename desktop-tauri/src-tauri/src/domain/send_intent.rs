@@ -39,8 +39,11 @@ impl SendContext {
                 chat_id,
             } => {
                 chat_id == expected_chat
-                    && valid_chat_id(chat_id)
-                    && valid_reply_key(message_id, chat_id)
+                    && if valid_telegram_chat_id(chat_id) {
+                        valid_telegram_reply_key(message_id, chat_id)
+                    } else {
+                        valid_chat_id(chat_id) && valid_reply_key(message_id, chat_id)
+                    }
             }
             Self::Mentions { mentions } => {
                 valid_chat_id(expected_chat)
@@ -54,6 +57,19 @@ impl SendContext {
             }
         }
     }
+}
+
+fn valid_telegram_reply_key(value: &str, chat_id: &str) -> bool {
+    let Some(id) = value
+        .strip_prefix(chat_id)
+        .and_then(|value| value.strip_prefix(':'))
+    else {
+        return false;
+    };
+    // The peer namespace is already validated. TL reply_to_msg_id is a signed
+    // 32-bit server ID, never K's fractional pending ID or encoded local mid.
+    id.parse::<i32>()
+        .is_ok_and(|parsed| parsed > 0 && parsed.to_string() == id)
 }
 
 fn valid_reply_key(value: &str, chat_id: &str) -> bool {
@@ -121,7 +137,11 @@ impl OutgoingSend {
     pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
         self.validate()?;
         if !valid_send_chat_id(platform, &self.chat_id)
-            || (platform == "telegram-k" && !matches!(self.context, SendContext::Plain {}))
+            || (platform == "telegram-k"
+                && !matches!(
+                    self.context,
+                    SendContext::Plain {} | SendContext::Reply { .. }
+                ))
         {
             return Err(AppError::SendIntentInvalid);
         }

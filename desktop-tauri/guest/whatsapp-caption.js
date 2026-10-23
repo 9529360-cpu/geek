@@ -18,7 +18,8 @@ function createWhatsAppCaption(changed) {
   const modelFields = ['id', 'file', 'state', 'mediaPrep', 'caption', 'type', 'mimetype', 'filename', 'quality',
     'mediaEditorData', 'editedFile', 'isGif', 'isVcardOverMmsDocument', 'stickerMaker', 'fullPreview',
     'documentPageCount', 'fullPreviewSize', 'isPasswordProtected', 'preview', 'exception'];
-  const dataFields = ['mediaBlob', 'filehash', 'type', 'mimetype', 'size', 'isViewOnce', 'isGif', 'filename'];
+  const dataFields = ['mediaBlob', 'filehash', 'type', 'mimetype', 'size', 'isViewOnce', 'isGif', 'filename',
+    'documentPreview', 'fullPreviewData', 'fullPreviewSize', 'pageCount', 'preview', 'isPasswordProtected'];
   const mediaReader = createWhatsAppCaptionMedia();
   const ids = new WeakMap();
   const proofs = new WeakSet();
@@ -180,6 +181,11 @@ function createWhatsAppCaption(changed) {
       let src = item.preview;
       if (item.media.type === 'image') {
         if (src !== item.fullPreview || typeof src !== 'string' || !/^blob:https:\/\/web\.whatsapp\.com\/[\da-f-]+$/i.test(src)) throw issue();
+      } else if (item.media.type === 'document') {
+        // The PDF filmstrip uses the full page's Blob URL, unlike the static
+        // base64 thumbnail used for videos. pdfOf proved its source metadata.
+        if (!item.pdf) throw issue();
+        src = item.fullPreview;
       } else {
         if (!selected || item.media.type !== 'video' || typeof src !== 'string' || !src
             || !/^[A-Za-z\d+/]+={0,2}$/.test(src) || src !== item.data.preview) throw issue();
@@ -215,8 +221,9 @@ function createWhatsAppCaption(changed) {
     if (items.length > 1 && (typeof window.crypto?.subtle?.digest !== 'function'
         || typeof collection.getPreviewableMedias !== 'function' || !same(collection.getPreviewableMedias(), models)
         || !Array.isArray(collection.selection.list) || !same(collection.selection.list, models)
-        || items.some((item) => item.media !== media && (item.media.type !== 'image' || item.caption != null && item.caption !== ''))
-        || !['image', 'video'].includes(media.type))) throw issue();
+        || items.some((item) => item.media !== media && (!['image', 'document'].includes(item.media.type)
+          || item.caption != null && item.caption !== ''))
+        || items.some((item) => item.pdf) && items.some((item) => item.media.type === 'video'))) throw issue();
     const buttons = [...footer.querySelectorAll('button, [role="button"]')].filter(sendButton);
     const editors = [...footer.querySelectorAll('[contenteditable="true"]')].filter(visible);
     const toggles = [...footer.querySelectorAll('button, [role="button"]')].filter((node) => visible(node)
@@ -263,7 +270,8 @@ function createWhatsAppCaption(changed) {
     const value = read();
     if (!matches(record, value)) throw issue('SEND_INTENT_CHANGED');
     const proof = value.captionProof;
-    if (proof.items.length === 1) return mediaReader.send(proof.W, proof.items[0], proof.chat, proof.chatId, text);
+    const check = () => { if (!valid() || !matches(record, read())) throw issue('SEND_INTENT_CHANGED'); };
+    if (proof.items.length === 1) return mediaReader.send(proof.W, proof.items[0], proof.chat, proof.chatId, text, check);
     return submitBatch(record, proof, text, valid);
   }
   async function submitBatch(record, proof, text, valid) {
@@ -274,7 +282,7 @@ function createWhatsAppCaption(changed) {
     let ack = Infinity;
     for (const item of proof.items) {
       check();
-      const result = await mediaReader.send(proof.W, item, proof.chat, proof.chatId, item.media === proof.media ? text : '');
+      const result = await mediaReader.send(proof.W, item, proof.chat, proof.chatId, item.media === proof.media ? text : '', check);
       check();
       if (messageIds.includes(result.id)) throw issue('SEND_INTENT_RECEIPT_MISSING');
       messageIds.push(result.id); ack = Math.min(ack, result.ack);

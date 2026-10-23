@@ -29,6 +29,19 @@ export function iconButton(document, title, paths, tag = 'div') {
   span.append(svg); button.append(span); return button;
 }
 
+// processRawDocument preserves all PDF enrichment fields, including three
+// OpaqueData references (the full thumbnail is shared at two schema paths).
+function pdfMetadata(W, previewUrl) {
+  const thumbUrl = 'data:image/jpeg;base64,cGRmLXRodW1ibmFpbA==';
+  const fullPreviewData = new W.whatsapp.OpaqueData(new Blob(['pdf-thumbnail'], { type: 'image/jpeg' }));
+  const microThumbnail = { opaqueData: new W.whatsapp.OpaqueData(new Blob(['pdf-micro'], { type: 'image/jpeg' })),
+    width: 64, height: 48, dataUrl: 'data:image/jpeg;base64,cGRmLW1pY3Jv' };
+  return { documentPreview: { url: previewUrl, thumbUrl, width: 640, height: 480, fullPreviewData,
+    fullPreviewSize: { width: 640, height: 480 }, pdfPages: 1, microThumbnail },
+    fullPreviewData, fullPreviewSize: { width: 640, height: 480 }, pageCount: 1,
+    preview: microThumbnail.dataUrl.slice('data:image/jpeg;base64,'.length), isPasswordProtected: false };
+}
+
 export async function captionFixture({ type = 'image', caption = 'Please send 100 units tomorrow.', policy = {}, session } = {}) {
   const ui = guest({ policy, ...(session === undefined ? {} : { session }) });
   const { document } = ui;
@@ -45,14 +58,26 @@ export async function captionFixture({ type = 'image', caption = 'Please send 10
   };
   ui.window.WPP = W;
   const { ModelEvents, MsgKey, MsgModel } = W.whatsapp;
-  const state = { calls: [], prepared: [], transport: null, receipt: null, mutateAfterAwait: null, digests: [], digest: null };
+  const state = { calls: [], prepared: [], transport: null, receipt: null, mutateAfterAwait: null, digests: [], digest: null,
+    opaqueCreated: [], createOpaque: null, releasePool: new Set() };
   ui.window.crypto = { subtle: { digest(algorithm, bytes) {
     const pending = state.digest ? state.digest(algorithm, bytes) : webcrypto.subtle.digest(algorithm, bytes);
     state.digests.push(pending); return pending;
   } } };
   class OpaqueData {
-    constructor(blob) { this.blob = blob; this.released = false; }
+    constructor(blob) { this.blob = blob; this.released = false; this.references = 1; this.releaseCalls = 0; }
     getBlob() { return this.blob; }
+    size() { return this.blob.size; }
+    retain() { this.references += 1; }
+    autorelease() { this.releaseCalls += 1; this.references -= 1; if (!this.references) state.releasePool.add(this); }
+    static async createFromData(blob, type) {
+      const holder = new OpaqueData(blob instanceof Blob && blob.type === type ? blob : new Blob([blob], { type }));
+      state.opaqueCreated.push(holder); await state.createOpaque?.(holder); return holder;
+    }
+    static releaseAutoreleasePool() {
+      for (const holder of state.releasePool) if (!holder.references) { holder.released = true; holder.blob = undefined; }
+      state.releasePool.clear();
+    }
   }
   class MediaDataModel extends ModelEvents {
     constructor(value = {}) { super(); for (const [key, item] of Object.entries(value)) this.field(key, item); }
@@ -109,17 +134,19 @@ export async function captionFixture({ type = 'image', caption = 'Please send 10
   const mime = { image: 'image/png', video: 'video/mp4', document: 'application/pdf' }[type];
   const bytes = 'Synthetic immutable attachment payload';
   const blob = new Blob([bytes], { type: mime }); const holder = new OpaqueData(blob);
+  const previewUrl = `blob:https://web.whatsapp.com/${randomUUID()}`;
   const data = { type, mediaBlob: holder, size: blob.size, mimetype: mime,
     filehash: createHash('sha256').update(bytes).digest('base64'), filename: `fixture.${type}`,
-    mediaStage: 'resolved', isViewOnce: false, isGif: false };
+    mediaStage: 'resolved', isViewOnce: false, isGif: false,
+    ...(type === 'document' ? pdfMetadata(W, previewUrl) : {}) };
   const prep = new MediaPrep(type, Promise.resolve(data)); await prep.waitForPrep();
-  const previewUrl = `blob:https://web.whatsapp.com/${randomUUID()}`;
   const background = document.createElement('img'); background.src = previewUrl;
   const media = new AttachMediaModel();
   for (const [key, value] of Object.entries({ id: 'attachment-1', state: 'ready', type, mediaPrep: prep, caption,
     file: holder, editedFile: holder, filename: data.filename, mimetype: mime, quality: 'Standard',
     originalAttachment: Promise.resolve({ file: blob }), fullPreview: previewUrl,
-    preview: type === 'image' ? previewUrl : 'c3ludGhldGlj', documentPageCount: type === 'document' ? 1 : null,
+    preview: type === 'image' ? previewUrl : type === 'document' ? data.documentPreview.thumbUrl : 'c3ludGhldGlj',
+    documentPageCount: type === 'document' ? 1 : null,
     fullPreviewSize: { width: 640, height: 480 },
     mediaEditorData: { hasEdits: () => false, getSending: () => false, getBackground: () => ({ getImage: () => background }) },
     isGif: false, stickerMaker: false, isVcardOverMmsDocument: false })) media.field(key, value);
@@ -164,17 +191,19 @@ export async function captionBatchFixture({ types = ['image', 'image'], selected
     const type = types[index], mime = { image: 'image/png', video: 'video/mp4', document: 'application/pdf' }[type];
     const bytes = `Distinct synthetic attachment ${index}`;
     const blob = new Blob([bytes], { type: mime }), holder = new W.whatsapp.OpaqueData(blob);
+    const previewUrl = `blob:https://web.whatsapp.com/${randomUUID()}`;
     const prep = new W.whatsapp.MediaPrep(type, Promise.resolve({ type, mediaBlob: holder, size: blob.size, mimetype: mime,
       filehash: createHash('sha256').update(bytes).digest('base64'), filename: `batch-${index}.${type}`,
-      mediaStage: 'resolved', isViewOnce: false, isGif: false, ...(type === 'video' ? { preview: 'c3ludGhldGlj' } : {}) }));
+      mediaStage: 'resolved', isViewOnce: false, isGif: false, ...(type === 'video' ? { preview: 'c3ludGhldGlj' } : {}),
+      ...(type === 'document' ? pdfMetadata(W, previewUrl) : {}) }));
     await prep.waitForPrep();
-    const previewUrl = `blob:https://web.whatsapp.com/${randomUUID()}`;
     const background = document.createElement('img'); background.src = previewUrl;
     const media = new W.whatsapp.AttachMediaModel();
     for (const [key, value] of Object.entries({ id: `batch-${index}`, state: 'ready', type, mediaPrep: prep, caption: '',
       file: holder, editedFile: holder, filename: prep.mediaData.filename, mimetype: mime, quality: 'Standard',
       originalAttachment: Promise.resolve({ file: blob }), fullPreview: previewUrl,
-      preview: type === 'image' ? previewUrl : 'c3ludGhldGlj', fullPreviewSize: { width: 640, height: 480 },
+      preview: type === 'image' ? previewUrl : type === 'document' ? prep.mediaData.documentPreview.thumbUrl : 'c3ludGhldGlj',
+      documentPageCount: type === 'document' ? 1 : null, fullPreviewSize: { width: 640, height: 480 },
       mediaEditorData: { hasEdits: () => false, getSending: () => false, getBackground: () => ({ getImage: () => background }) },
       isGif: false, stickerMaker: false, isVcardOverMmsDocument: false })) media.field(key, value);
     members.push({ media, prep, data: prep.mediaData, blob, holder, previewUrl, background });
@@ -187,7 +216,8 @@ export async function captionBatchFixture({ types = ['image', 'image'], selected
     tab.setAttribute('aria-posinset', index + 1); tab.setAttribute('aria-setsize', members.length);
     tab.setAttribute('aria-selected', index === selected);
     const image = document.createElement('img');
-    const src = member.media.type === 'image' ? member.media.preview : `data:image/jpeg;base64,${member.media.preview}`;
+    const src = member.media.type === 'image' ? member.media.preview
+      : member.media.type === 'document' ? member.media.fullPreview : `data:image/jpeg;base64,${member.media.preview}`;
     image.src = src; image.setAttribute('src', src); image.complete = true;
     tab.append(image); tablist.append(tab); tabs.push(tab); thumbs.push(image);
   });

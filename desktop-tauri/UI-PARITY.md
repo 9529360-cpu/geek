@@ -34,14 +34,15 @@ Visual similarity alone does not prove backend/runtime parity. Keep PR #802 draf
 do not merge or release the mismatched prototype while parity work is unfinished.
 
 The original translation panel now exposes automatic incoming translation for Telegram A/K,
-and outgoing plain-text translation for K. The original broadcast workbench/task center also
+and outgoing plain-text and verified same-chat text-reply translation for K. The original broadcast workbench/task center also
 serves K text, ordered attachments, schedules and saved messages/audiences. The same file list
 shows K photos/videos/documents and changes the caption limit without truncating a draft;
 unavailable import/entity controls remain disabled by capability. WhatsApp outgoing retains
 its original send gesture and adds verified group mentions, captioned image/video replies,
-single image/video or identified-PDF captions, and bounded image batches with one selected
-caption through the actual preview send button. Batches send separate ordered media messages,
-with at most the selected item being a video. A retained complex draft
+single image/video or identified-PDF captions, and bounded image/PDF batches with one selected
+caption through the actual preview send button. A selected video may accompany images;
+video/PDF mixtures and multiple videos remain unavailable. Batches send separate ordered
+media messages. A retained complex draft
 uses the existing success feedback instead of clearing only part of the composition.
 Visible account/translation panels refresh the existing native session snapshot; ended jobs
 keep evidence and dismissal without a resume control, while failed stop persistence exposes

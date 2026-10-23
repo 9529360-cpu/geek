@@ -64,6 +64,124 @@ test('a selected ordinary video may carry the only caption among image attachmen
   assert.equal(c.preview.src, c.media.fullPreview);
 });
 
+test('prepared PDF and image combinations preserve real thumbnail holders and caption ownership', async () => {
+  for (const [types, selected] of [[['image', 'document', 'image'], 1], [['image', 'document'], 0],
+    [['document', 'document'], 1], [Array.from({ length: 10 }, (_value, index) => index % 2 ? 'image' : 'document'), 2]]) {
+    const c = await captionBatchFixture({ types, selected }); const request = start(c);
+    const flight = commit(c, request); await finish(c);
+    assert.equal(c.ui.read(request, flight.permit).value.status, 'confirmed');
+    assert.match(c.ui.read(request, flight.permit).value.receipt, new RegExp(`^wa-batch:${types.length}:[a-f\\d]{64}$`));
+    assert.deepEqual(c.state.calls.map((call) => call.options.caption), types.map((_type, index) => index === selected ? output : ''));
+    for (const [index, member] of c.members.entries()) {
+      if (types[index] !== 'document') continue;
+      const sent = c.state.calls[index].prep.mediaData, original = member.data.documentPreview;
+      assert.notStrictEqual(sent.documentPreview, original);
+      assert.notStrictEqual(sent.fullPreviewData, member.data.fullPreviewData);
+      assert.strictEqual(sent.fullPreviewData.getBlob(), member.data.fullPreviewData.getBlob());
+      assert.strictEqual(sent.documentPreview.fullPreviewData, sent.fullPreviewData);
+      assert.notStrictEqual(sent.documentPreview.microThumbnail.opaqueData, original.microThumbnail.opaqueData);
+      assert.strictEqual(sent.documentPreview.microThumbnail.opaqueData.getBlob(), original.microThumbnail.opaqueData.getBlob());
+      assert.equal(sent.fullPreviewData.releaseCalls, 0, 'the platform may still own the uploaded thumbnail');
+      assert.equal(sent.documentPreview.microThumbnail.opaqueData.releaseCalls, 1, 'the unused private UI thumbnail is released');
+      assert.equal(member.holder.releaseCalls, 0); assert.equal(member.data.fullPreviewData.releaseCalls, 0);
+      assert.equal(original.microThumbnail.opaqueData.releaseCalls, 0);
+      assert.equal(sent.pageCount, member.media.documentPageCount); assert.equal(sent.documentPreview.url, member.media.fullPreview);
+    }
+    assert.equal(c.drawer.isConnected, true); assert.equal(c.editor.innerText, request.text);
+    assert.equal(c.ui.state.sent.length, 0); assert.equal(c.ui.state.cleared.length, 0);
+  }
+});
+
+test('a failed second PDF send retains its platform-owned thumbnail and stops the third item', async () => {
+  const c = await captionBatchFixture({ types: ['image', 'document', 'document'] });
+  c.state.transport = (call) => c.state.calls.length === 2
+    ? Promise.reject(new Error('Failure after possible media invocation')) : confirm(c, call);
+  const request = start(c); const flight = commit(c, request); await finish(c);
+  assert.equal(c.ui.read(request, flight.permit).value.status, 'uncertain'); assert.equal(c.state.calls.length, 2);
+  assert.equal(c.state.opaqueCreated.length, 2); assert.equal(c.state.opaqueCreated[0].releaseCalls, 0);
+  assert.equal(c.state.opaqueCreated[1].releaseCalls, 1); assert.equal(c.state.digests.length, 0);
+  for (const member of c.members.filter((item) => item.media.type === 'document')) {
+    assert.equal(member.holder.releaseCalls, 0); assert.equal(member.data.fullPreviewData.releaseCalls, 0);
+    assert.equal(member.data.documentPreview.microThumbnail.opaqueData.releaseCalls, 0);
+  }
+});
+
+test('cancellation, deadline and private thumbnail preparation failure clean up only unsubmitted holders', async () => {
+  for (const change of ['cancel', 'deadline', 'factory-failure']) {
+    const c = await captionBatchFixture({ types: ['document', 'image'] }); const gate = deferred();
+    const create = c.W.whatsapp.OpaqueData.createFromData;
+    c.W.whatsapp.OpaqueData.createFromData = function (...args) {
+      if (change === 'factory-failure' && c.state.opaqueCreated.length === 1) return Promise.reject(new Error('Thumbnail creation failed'));
+      return create.apply(this, args);
+    };
+    if (change !== 'factory-failure') c.state.createOpaque = () => gate.promise;
+    const request = start(c); const flight = commit(c, request); await settle();
+    if (change === 'cancel') c.ui.api.cancel(generation, request.id, request.attempt);
+    if (change === 'deadline') c.ui.state.now = 50000;
+    gate.resolve(); await finish(c);
+    assert.equal(c.ui.read(request, flight.permit).value.status, 'uncertain', change);
+    assert.equal(c.state.calls.length, 0, change); assert.equal(c.state.opaqueCreated.length, 1, change);
+    assert.equal(c.state.opaqueCreated[0].releaseCalls, 1, change);
+    c.W.whatsapp.OpaqueData.releaseAutoreleasePool(); assert.equal(c.state.opaqueCreated[0].released, true);
+    assert.equal(c.holder.releaseCalls, 0); assert.equal(c.data.fullPreviewData.releaseCalls, 0);
+    assert.equal(c.data.documentPreview.microThumbnail.opaqueData.releaseCalls, 0);
+  }
+});
+
+test('PDF identity, page count, sizes and every preview holder must agree before admission', async () => {
+  const changes = [
+    (m) => { m.data.fullPreviewData = null; },
+    (m, c) => { m.data.fullPreviewData = new c.W.whatsapp.OpaqueData(m.data.fullPreviewData.getBlob()); },
+    (m) => { m.data.documentPreview.fullPreviewData.released = true; },
+    (m) => { m.data.documentPreview.microThumbnail.opaqueData.released = true; },
+    (m) => { m.data.documentPreview.microThumbnail.opaqueData.blob = new Blob(['replacement'], { type: 'image/png' }); },
+    (m) => { m.data.documentPreview.url = `blob:https://web.whatsapp.com/${randomUUID()}`; },
+    (m) => { m.data.documentPreview.thumbUrl = 'data:image/jpeg;base64,YmFk'; },
+    (m) => { m.data.documentPreview.pdfPages += 1; },
+    (m) => { m.data.pageCount += 1; },
+    (m) => { m.media.documentPageCount = 0; },
+    (m) => { m.data.fullPreviewSize.width += 1; },
+    (m) => { m.data.documentPreview.fullPreviewSize.height += 1; },
+    (m) => { m.media.fullPreviewSize.width += 1; },
+    (m) => { m.data.documentPreview.microThumbnail.width = 0; },
+    (m) => { m.data.documentPreview.microThumbnail.dataUrl = 'data:image/jpeg;base64,YmFk'; },
+    (m) => { m.media.filename = 'wrong.pdf'; },
+    (m) => { m.media.isPasswordProtected = true; },
+    (m) => { m.data.documentPreview.extra = 'unproved schema'; },
+  ];
+  for (const change of changes) {
+    const c = await captionBatchFixture({ types: ['image', 'document'] }); change(c.members[1], c); await tick();
+    assert.equal(c.click().defaultPrevented, true); assert.equal(c.ui.poll().request, null, change.toString());
+    assert.equal(c.state.calls.length, 0); assert.equal(c.state.opaqueCreated.length, 0);
+  }
+});
+
+test('PDF preview and nested metadata changes fence admission and the next file', async () => {
+  for (const change of [
+    (c) => { c.members[1].data.documentPreview.fullPreviewData.blob = new Blob(['different JPEG'], { type: 'image/jpeg' }); },
+    (c) => { c.members[1].data.documentPreview.microThumbnail.opaqueData.blob = new Blob(['different micro'], { type: 'image/jpeg' }); },
+    (c) => { const m = c.members[1], holder = m.data.fullPreviewData;
+      m.data.fullPreviewData = new c.W.whatsapp.OpaqueData(holder.getBlob()); m.data.fullPreviewData = holder; },
+    (c) => { const m = c.members[1]; m.data.documentPreview = { ...m.data.documentPreview }; m.data.documentPreview = c.originalPreview; },
+    (c) => { const m = c.members[1]; m.data.fullPreviewSize = { ...m.data.fullPreviewSize }; m.data.fullPreviewSize = c.originalSize; },
+    (c) => { c.thumbs[1].setAttribute('src', `blob:https://web.whatsapp.com/${randomUUID()}`);
+      c.thumbs[1].setAttribute('src', c.members[1].previewUrl); },
+  ]) {
+    for (const afterCommit of [false, true]) {
+      const c = await captionBatchFixture({ types: ['image', 'document', 'image'] });
+      c.originalPreview = c.members[1].data.documentPreview; c.originalSize = c.members[1].data.fullPreviewSize;
+      const request = start(c); c.ui.prepare(request, output); const gate = deferred(); let call;
+      c.state.transport = (value) => { call = value; return gate.promise; };
+      const flight = afterCommit ? c.ui.commit(request) : null; change(c); await tick();
+      if (afterCommit) {
+        gate.resolve(await confirm(c, call)); await finish(c);
+        assert.equal(c.ui.read(request, flight.permit).value.status, 'uncertain'); assert.equal(c.state.calls.length, 1);
+      } else { assert.equal(c.ui.commit(request).accepted, false, change.toString()); assert.equal(c.state.calls.length, 0); }
+      assert.equal(c.state.opaqueCreated.length, 0); assert.equal(c.state.digests.length, 0);
+    }
+  }
+});
+
 test('no batch success is visible until every real message ACK has been verified', async () => {
   const c = await captionBatchFixture(); const second = deferred(); let last;
   c.state.transport = (call) => {
@@ -185,6 +303,8 @@ test('unsupported batch content and ambiguous list-to-preview mappings fail befo
     ['changed selection list', (c) => Object.defineProperty(c.collection.selection, 'list', { value: [c.media] })],
     ['unprepared later item', (c) => { c.members[1].media.state = 'processing'; }],
     ['shared metadata', (c) => c.members[1].data.field('sidecar', new Uint8Array(new SharedArrayBuffer(8)))],
+    ['opaque metadata outside the PDF paths', (c) => { const opaque = new c.W.whatsapp.OpaqueData(undefined);
+      opaque.$3 = 'c3ludGhldGlj'; c.members[1].data.field('sidecar', { nested: opaque }); }],
     ['oversized metadata', (c) => c.members[1].data.field('preview', 'a'.repeat(524289))],
   ];
   for (const [label, change] of cases) {
@@ -192,8 +312,9 @@ test('unsupported batch content and ambiguous list-to-preview mappings fail befo
     assert.equal(c.click().defaultPrevented, true, label); assert.equal(c.ui.poll().request, null, label);
     assert.equal(c.state.calls.length, 0, label);
   }
-  for (const types of [['image', 'video'], ['video', 'video'], ['image', 'document']]) {
-    const c = await captionBatchFixture({ types }); c.click();
+  for (const [types, selected] of [[['image', 'video'], 0], [['video', 'video'], 0],
+    [['video', 'document'], 0], [['document', 'video'], 0]]) {
+    const c = await captionBatchFixture({ types, selected }); c.click();
     assert.equal(c.ui.poll().request, null); assert.equal(c.state.calls.length, 0);
   }
 });

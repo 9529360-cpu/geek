@@ -55,6 +55,7 @@ function composeSend(root = ROOT) {
     read('desktop-tauri/guest/send-composer.js'),
     read('desktop-tauri/guest/telegram-send-runtime.js'),
     read('desktop-tauri/guest/telegram-send-receipt.js'),
+    read('desktop-tauri/guest/telegram-reply-context.js'),
     read('desktop-tauri/guest/send-composer-telegram.js'),
     read('desktop-tauri/guest/send-view.js'),
     read('desktop-tauri/guest/send.js'), '})();', ''].join('\n');
@@ -87,6 +88,7 @@ function prepare(output, root = ROOT) {
     'desktop-tauri/guest/broadcast-import.js',
     'desktop-tauri/guest/whatsapp.js', 'desktop-tauri/guest/bridge.js',
     'desktop-tauri/guest/telegram-send-runtime.js', 'desktop-tauri/guest/telegram-send-receipt.js',
+    'desktop-tauri/guest/telegram-reply-context.js',
     'desktop-tauri/guest/telegram-attachments.js',
     'desktop-tauri/guest/telegram-send.js', 'desktop-tauri/guest/send-composer-telegram.js',
     ...translationInputs,

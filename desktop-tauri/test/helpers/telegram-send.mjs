@@ -8,7 +8,7 @@ import { runInNewContext } from 'node:vm';
 
 const safety = createRequire(import.meta.url)('../../../ui/broadcast-safety.js');
 const files = ['telegram-send-runtime.js', 'telegram-send-receipt.js', 'telegram-attachments.js',
-  'telegram-send.js', 'send-composer-telegram.js'];
+  'telegram-send.js', 'telegram-reply-context.js', 'send-composer-telegram.js'];
 const source = files.map((file) => readFileSync(new URL(`../../guest/${file}`, import.meta.url), 'utf8')).join('\n');
 export const deferred = () => {
   let resolve, reject;
@@ -71,12 +71,17 @@ export function installTelegramPorts({ window, container, chatInput, editor, but
       [-202, { _: 'channel', id: 202, pFlags: { megagroup: true }, title: 'Team' }]]),
     mirrors: new Map(), pending: new Map(), byServerId: new Map(), maxLength: 4096, allowed: true,
     stars: undefined, requirement: { _: 'requirementToContactEmpty' }, migrated: undefined, botforum: false,
+    replyLookups: [], generateOptions: [],
     shortcut: 'enter', final: 700, mode: 'short', popup: false, changes: [], clears: [] };
   const root = new Emitter(); root.myId = state.self;
   const im = new Emitter();
   const input = { messageInput: editor, messageInputField: { input: editor }, chatInput, inputValueGeneration: 0,
     btnSend: button, sendBtnIcon: 'send', getCurrentInputAsDraft: () => state.draftOverride
-      || (editor.innerText ? { _: 'draftMessage', date: 1, message: editor.innerText.trim(), pFlags: {} } : undefined),
+      || (editor.innerText ? { _: 'draftMessage', date: 1, message: editor.innerText.trim(), pFlags: {},
+        reply_to: input.replyToMsgId ? { _: 'inputReplyToMessage', reply_to_msg_id: input.replyToMsgId,
+          top_msg_id: chat.threadId, reply_to_peer_id: input.replyToPeerId,
+          monoforum_peer_id: input.replyToMonoforumPeerId, poll_option: input.replyToPollOption,
+          ...(input.replyToQuote ? { quote_text: input.replyToQuote.text } : {}) } : undefined } : undefined),
     clearInput(canSetDraft, fireEvent) {
       state.clears.push({ canSetDraft, fireEvent }); input.inputValueGeneration += 1; editor.innerText = '';
       return Promise.resolve();
@@ -129,12 +134,24 @@ export function installTelegramPorts({ window, container, chatInput, editor, but
       appUsersManager: { getRequirementToContact: async () => state.requirement },
       appMessagesManager: {
         canSendToPeer: async () => state.allowed,
-        async generateOutgoingMessage(id) {
+        async getInputReplyTo(options) {
+          state.replyLookups.push({ account, options: structuredClone(options) });
+          if (state.replyGate) await state.replyGate.promise;
+          if (state.inputReplyOverride) return state.inputReplyOverride;
+          return { _: 'inputReplyToMessage', reply_to_msg_id: options.replyToMsgId % 0x100000000,
+            monoforum_peer_id: undefined, reply_to_peer_id: undefined, top_msg_id: undefined, poll_option: undefined };
+        },
+        async generateOutgoingMessage(id, options) {
           if (state.generateGate) await state.generateGate.promise;
+          state.generateOptions.push(structuredClone(options));
           const next = state.generated.length + 1;
           const base = state.peers.get(id)?._ === 'channel' ? 0x100000000 + 100 : 100;
           const message = { _: 'message', id: +(base + next / 10000).toFixed(4), random_id: String(10000000 + next), date: 4,
             peer_id: outputPeer(id), from_id: { _: 'peerUser', user_id: state.self }, pending: true, pFlags: { out: true } };
+          if (options.replyTo) message.reply_to = { _: 'messageReplyHeader', pFlags: {},
+            reply_to_msg_id: (state.peers.get(id)?._ === 'channel' ? 0x100000000 : 0) + options.replyTo.reply_to_msg_id,
+            poll_option: undefined, reply_media: undefined };
+          if (state.generateHook) state.generateHook(message);
           state.generated.push(message); return structuredClone(message);
         },
         async cancelPendingMessage(randomId) { state.cancelled.push({ account, randomId }); state.pending.delete(randomId); },
@@ -182,6 +199,40 @@ export function installTelegramPorts({ window, container, chatInput, editor, but
       state.account = account; state.self = self; root.myId = self;
       root.emit('account_switched', { from: 1, to: account });
     } };
+}
+
+// Current K constructReplyElements/setTopInfo -> ReplyContainer/PeerTitle DOM.
+// It is an offline platform port: no sender, owner or reply matcher lives here.
+export function installTelegramReply({ document, container, chat, state },
+  { id = 51, mid = state.peers.get(chat.peerId)?._ === 'channel' ? 0x100000000 + id : id,
+    body = 'Can we send the report tomorrow?', from = chat.peerId > 0 ? chat.peerId : 102,
+    author = 'Alice', model: overrides = {} } = {}) {
+  const input = chat.input;
+  const make = (tag, className, text) => {
+    const node = document.createElement(tag); node.setAttribute('class', className);
+    if (text !== undefined) node.innerText = text;
+    return node;
+  };
+  input.replyElements?.container.remove();
+  const wrapper = make('div', 'reply-wrapper rows-wrapper-row');
+  const content = make('div', 'reply-wrapper-content'); wrapper.append(content);
+  const icon = make('button', 'reply-icon'); content.append(icon);
+  const region = make('div', 'reply quote-like quote-like-hoverable quote-like-border'); content.append(region);
+  const quoteContent = make('div', 'reply-content'); region.append(quoteContent);
+  const title = make('div', 'reply-title'); quoteContent.append(title);
+  const peer = make('span', 'peer-title', author); peer.setAttribute('data-peer-id', from); title.append(peer);
+  const value = body.trim();
+  const subtitle = make('div', 'reply-subtitle', value.length > 110 ? value.slice(0, 100) + '...' : value);
+  quoteContent.append(subtitle);
+  content.append(make('button', 'reply-cancel'));
+  input.chatInput.append(wrapper);
+  container.setAttribute('class', 'chat is-helper-active');
+  input.replyElements = { container: wrapper, content };
+  input.replyToMsgId = mid; input.helperType = 'reply'; input.helperVisible = true;
+  const model = { _: 'message', peerId: chat.peerId, id, mid, fromId: from, date: 3,
+    pFlags: {}, message: body, entities: [], totalEntities: [], ...overrides };
+  state.mirrors.set(`${chat.peerId}_history:${mid}`, model);
+  return { wrapper, content, region, title, peer, subtitle, model };
 }
 
 export function telegramFixture({ install = true, touch = false } = {}) {

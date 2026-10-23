@@ -118,10 +118,11 @@ export function createTranslationView(document, actions) {
     const override = hasChat && Boolean(chat);
     const canEdit = connected && supported && !shellBusy;
     sendDescription.textContent = account?.platformId === 'telegram-k'
-      ? '按 Enter 或点击发送即可翻译并发送普通文字，遵循 Telegram 的文字长度限制；引用、提及和附件暂不支持。'
+      ? '按 Enter 或点击发送可翻译普通文字，也可引用同聊天的纯文字消息后翻译回复。引用回复发送成功后请手动清除完整草稿；提及和聊天附件说明暂不支持。'
       : account?.platformId === 'telegram-z' ? '此版本的 Telegram 发送翻译仍在迁移中；接收翻译可正常设置。'
         : '按 Enter 或点击发送可翻译普通文字、群内联系人提及，以及可识别的同聊天文字、带说明的图片和视频引用。'
-          + '单个图片、视频和可识别预览的 PDF 可翻译附件说明，请点击预览中的发送按钮，说明最多 1024 字。'
+          + '图片、视频及可识别预览的 PDF 支持说明翻译；多附件支持最多 10 个图片/PDF，或一个选中视频搭配图片。'
+          + '请点击预览发送按钮，译文仅放在选中项，最多 1024 字。'
           + '提及、引用或附件发送成功后请手动清除完整草稿。保护提及身份会增加计费字符，以实际用量为准。';
     for (const node of popover.querySelectorAll('button, input, select')) {
       node.disabled = !connected || shellBusy || node.dataset.wired !== 'true' || node.dataset.unavailable === 'true';

@@ -631,10 +631,14 @@ Explicit mentionedList is derived only from the frozen proof. Model/collection/D
 advance revision and final synchronous CAS revalidates every node/member before submission.
 
 WhatsApp attachment captions use a separate finite composer adapter with the same SendIntent
-owner. It admits one READY standard image/video or PDF with a positively identified preview;
-actual caption DOM, attachment collection/model, preview source, prepared Blob/hash and chat
-must agree. Multiple files, unsupported document/viewer shapes, edits/HD/GIF/view-once,
-empty captions and mixed mentions/replies fail closed. Native receives only an opaque attachment
+owner. It admits one READY standard image/video or PDF with a positively identified preview,
+or an ordered batch of 2–10 images/identified PDFs. A selected video may instead accompany
+images, but PDF/video mixtures and multiple videos remain unavailable. Only the selected item
+may have a nonempty plain caption. Actual caption DOM, every attachment collection/model,
+filmstrip order/selection, preview source, prepared Blob/hash and chat must agree. The complete
+batch is bounded to 1 GiB, with 512 MiB per item, under the same 50-second intent deadline.
+Unsupported document/viewer shapes, edits/HD/GIF/view-once, multiple or empty captions and
+mixed mentions/replies fail closed. Native receives only an opaque attachment/batch
 UUID plus the caption, bounded to 1024 Unicode scalar values on input and transformed output.
 Payload changes rotate that UUID; UI/model changes also advance revision even when changed back.
 The trusted original send-button click or focused-button Enter/Space is captured before platform
@@ -642,8 +646,18 @@ handlers close the preview. Ordinary Enter in the caption editor does not establ
 Submission uses a private MediaPrep created from the verified immutable Blob and a detached
 metadata snapshot. It never freezes or mutates the platform's original preparation object;
 the platform's asynchronous send steps cannot substitute a subsequently edited source payload.
-The exact generated message key, target, caption, type, hash and size must match the confirmed
-MsgModel. The complete preview remains after success, cancellation or uncertain dispatch.
+PDFs additionally bind full-preview URLs, pages, sizes and the reviewed document/micro-thumbnail
+schema. Only the known OpaqueData preview paths become bounded immutable Blob snapshots;
+fresh private holders are created through the platform factory and checked again after each
+await. Original holders are never released or reused. Before submission the adapter releases
+its own holders on failure; after the send call the full-preview holder follows the platform's
+ownership rule, while its private UI-only micro-thumbnail is released after completion.
+The exact generated message key, target, caption, type, hash and size must match each confirmed
+MsgModel. Batches send sequential individual messages, with the translated caption only on the
+selected item, and advance only after that item's real ACK. A local aggregate receipt binds
+the full ordered message-ID list; neither one item's ACK nor a partial batch confirms the whole
+operation. Reordering or selection/model/DOM changes invalidate the intent, even when restored.
+The complete preview remains after success, cancellation or uncertain dispatch.
 Production-module provenance and reviewed shape limits live in `WHATSAPP-SEND-CONTRACT.md`.
 
 Only a real message ID and ACK >= 1 confirm delivery. Callback loss after dispatch is
@@ -662,18 +676,31 @@ Failed unsubmitted attempts release composer/model/Blob references while retaini
 request identity and paid output. Retries reacquire the current proof. Settled terminal attempts
 release those references after native delivery, never while a transport call still owns them.
 
-Telegram K uses the same SendIntent, transform and delivery owner, with `plain` context and
-4096 UTF-16 limits on both source and output. Its finite production-manager adapter freezes
-internal account/self, peer, temp message ID and random_id. It stages the platform's own local
-message without clearing drafts, then admits one `messages.sendMessage` with `clear_draft: false`.
-Confirmation requires the exact platform send event and history mirror to match target, text,
-temporary/random/final identities and normal message flags. SDK protocol recovery may retransmit
+Telegram K uses the same SendIntent, transform and delivery owner, with `plain` or verified
+same-chat text `reply` context and 4096 UTF-16 limits on both source and output. Replies require
+the current account's loaded history message, input reply ID and actual visible preview
+to agree with the source-pinned truncation rule; the complete source text remains frozen
+and edits beyond the displayed prefix invalidate it. Native fingerprints bind the canonical
+`tg:<peer>:<positive server int32 ID>`;
+the guest separately verifies the local message ID mapping. Quoted text and raw models stay
+inside the page. Changed/deleted messages, quote swaps including A-to-B-to-A and replacement
+nodes invalidate the frozen proof. Partial/cross-chat/media quotes, mentions and interactive
+attachment captions remain unavailable; the current K media popup hides its real file/edit
+payload in a closure, so DOM thumbnails cannot authorize an attachment send.
+The finite production-manager adapter freezes internal account/self, peer, temp message ID,
+random_id and the exact reply header. It stages the platform's own local message without clearing
+drafts, then admits one `messages.sendMessage` with `clear_draft: false`.
+Confirmation requires every staged, pending, temporary, final and mirrored message to match
+the expected reply or explicit absence of reply, target, text, temporary/random/final identities
+and normal message flags. SDK protocol recovery may retransmit
 the same random_id; the application never creates a second logical submission. Unknown external
 errors remain uncertain. Only errors owned by a private precommit proof can return notSubmitted.
 Native receipt parsing also requires that proof's exact platform, generation, intent, attempt
 and single-use permit tuple; a foreign status/code cannot reopen a consumed intent.
-Current-chat draft cleanup uses the reviewed synchronous skip-draft-save path after full CAS;
-newer, switched, hidden or changed drafts remain intact. Broadcast and interactive adapters share
+Plain current-chat draft cleanup uses the reviewed synchronous skip-draft-save path after full CAS;
+reply sends retain the complete draft with native-clamped `draftCleared: false` and the same
+submitted-draft duplicate guard. Newer, switched, hidden or changed drafts remain intact.
+Broadcast and interactive adapters share
 that same finite runtime/receipt code but retain their existing independent job/intent owners.
 
 Web A outgoing remains disabled in both UI and native ingress: its production send method
@@ -688,8 +715,8 @@ The named broadcast IPC remains authorized only to the local shell, with manifes
 gateway drift and independent-owner checks enforced by the architecture gate.
 
 Native text-input simulation and delivery into a guest page's file chooser do not currently
-have an approved safe native adapter. They remain unavailable; Telegram K text uses the finite
-platform contract above, and WhatsApp broadcast attachments
+have an approved safe native adapter. They remain unavailable; Telegram K text and ordered
+broadcast attachments use the finite manager/upload contracts, and WhatsApp broadcast attachments
 use the explicit WA-JS File API described above. Adding hand-written WebView2 COM outside the
 reviewed DPAPI boundary requires a deliberate architecture decision; JS Enter, synthetic
 file drops, arbitrary CDP and a remote-debugging port do not satisfy that boundary.

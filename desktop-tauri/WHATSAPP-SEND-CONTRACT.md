@@ -206,10 +206,10 @@ filesystem path nor uploads through a separate transport.
 
 | Boundary | Accepted value |
 | --- | --- |
-| Media | One unedited, standard-quality image or ordinary video; a PDF requires the specific loaded preview below. A batch allows 2–10 images, or a selected video with all other items images |
+| Media | One unedited, standard-quality image or ordinary video; a PDF requires the specific loaded preview below. A batch allows 2–10 images and verified PDFs in any combination, including all PDFs, or a selected video with all other items images. PDF/video combinations remain unsupported |
 | Payload size | 1 byte through 512 MiB per item and at most 1 GiB in total, with matching model size, MIME and file hash |
 | Caption | Nonempty plain text, at most 1,024 Unicode code points and 32,768 UTF-8 bytes, matching the complete parsable model caption |
-| Metadata | A deep copy of the 56 declared `MediaData` props, bounded by depth, node count and 1 MiB of string/binary metadata per item |
+| Metadata | A deep copy of the 56 declared `MediaData` props, bounded by depth, node count and 1 MiB of string/binary/unique preview-Blob metadata per item. Only the three proven PDF thumbnail paths may contain an `OpaqueData` holder |
 | Gesture | The original Send button, including its trusted keyboard activation; Enter in the caption editor is intercepted as unsupported because its send preference is not exposed by the pinned facade |
 | Native context | Only `kind: "attachment"` and a guest-generated attachment UUID; paths, bytes, media hash and model objects stay inside the guest |
 | Completion | Exact created and returned message identity, target, type, caption, file hash, size and ACK of at least 1 |
@@ -246,6 +246,11 @@ which the normal READY image path sets to the file's `fullPreview` Blob URL. The
 matches every thumbnail to the ordered collection and selection list. Non-selected
 videos are excluded because their static base64 thumbnail does not uniquely identify
 the full file. A selected video still requires the existing main VIDEO/fullPreview proof.
+For a PDF, the real filmstrip uses the page's `fullPreview` Blob URL, after checking
+its loaded size and page count. Every PDF thumbnail must match that item's fully
+verified document enrichment and have a unique source within the batch. The selected
+PDF additionally requires the existing main `data-js-attach-preview` IMG. The caption
+may belong to either a selected image or a selected PDF; all other captions stay empty.
 
 All items, payload snapshots, order, selection, captions and DOM nodes are frozen for
 the attempt. Model and DOM observations invalidate changes. The actual collection can
@@ -277,6 +282,66 @@ The actual composed-owner regressions in
 caption ownership, all-item confirmation, partial failure, duplicate IDs, cancellation,
 deadline expiry during final digest, full-list identity changes and unchanged-draft replay
 prevention. They also retain the original single-attachment behavior checks.
+
+### Prepared PDF metadata and thumbnail ownership
+
+The inspected `processRawDocument` returns the PDF's original `mediaBlob` separately
+from its `documentPreview`. Both official enrichment paths, `WAWebPDFUtils` and
+`WAWebTPDocumentEnrichment`, supply the page URL, thumbnail data URL, dimensions,
+positive page count and thumbnail holders. `WAWebCanvasUtils.generateMicroThumb`
+adds a second holder in the nested micro-thumbnail. These are real runtime objects,
+not ordinary JSON metadata. The earlier single-PDF fixture omitted them and therefore
+did not establish a usable PDF send payload. The current fixture retains the complete
+inspected schema; the corresponding existing single-PDF success test failed before
+the snapshot correction and passes with it.
+
+The PDF reader requires agreement between the original immutable file Blob, file hash,
+MIME, filename, `AttachMediaModel`, `MediaDataModel` and every preview field:
+
+| Prepared evidence | Required agreement |
+| --- | --- |
+| Page preview | `documentPreview.url === media.fullPreview`, with an existing WhatsApp-origin Blob URL; visible main/filmstrip IMG sources use that exact URL |
+| Thumbnail URL | `documentPreview.thumbUrl === media.preview`, as a nonempty JPEG data URL |
+| Page count | `documentPreview.pdfPages === data.pageCount === media.documentPageCount`, a positive safe integer |
+| Thumbnail dimensions | `documentPreview.width/height`, its `fullPreviewSize`, the data model's `fullPreviewSize` and the attachment's `fullPreviewSize` all agree; each dimension is a positive integer at most 32,768 |
+| Full thumbnail | `data.fullPreviewData === documentPreview.fullPreviewData`, one unreleased real `OpaqueData` with an already available immutable JPEG Blob |
+| Micro-thumbnail | A distinct unreleased `documentPreview.microThumbnail.opaqueData`, an already available JPEG Blob, positive bounded dimensions and a JPEG `dataUrl` whose base64 body exactly matches `data.preview` |
+
+Each thumbnail Blob is at most 512 KiB. Unique thumbnail Blob bytes count toward the
+existing 1 MiB metadata bound. The full-page IMG can have a different natural pixel
+size from the reduced upload thumbnail; URL identity and the explicit prepared fields
+provide the association. The adapter does not fetch the URL, read hidden file inputs,
+parse another PDF, call `forceToBlob`, or claim support for unproved viewer branches.
+Unknown enrichment keys, password-protected PDFs and incomplete fields fail before
+native admission.
+
+Only `fullPreviewData`, `documentPreview.fullPreviewData` and
+`documentPreview.microThumbnail.opaqueData` are converted to Blob references in the
+bounded snapshot. Every other `OpaqueData` instance is rejected, including base64-only
+holders that otherwise resemble a plain object with scalar fields. Different Blobs
+are never considered equal merely because both have no enumerable keys. Original
+holder and Blob identities join the existing fingerprint; named model changes and
+the existing DOM observer preserve replacement/restore revision evidence. Every
+asynchronous preparation and ACK boundary also compares the complete metadata again.
+
+At commit, the official `OpaqueData.createFromData` creates two **private** thumbnail
+holders from those exact immutable Blobs. The full holder is shared only between the
+private payload's two full-thumbnail paths; the micro holder belongs only to its private
+UI metadata. The original holders are neither reused nor frozen, retained or released.
+The existing intent validity, whole-composer proof and 50-second total deadline are
+checked after each factory promise and immediately before `sendToChat`. Cancellation,
+factory failure or private-prep failure before invocation releases every created holder.
+
+Ownership after invocation follows the actual sender, not a generic cleanup rule.
+`MediaPrepMediaProps` normalizes the main file Blob itself and balances its references
+through `MediaObject.consolidate`. That same consolidate method adopts
+`fullPreviewData` into `contentInfo` **without retaining it**; `uploadMediaWithPrep`
+then reads it for the upload. Once `sendToChat` is invoked the adapter must not release
+that full holder, including on an uncertain or failed result. The private prep and
+platform retain the references they need. In contrast, `MediaTypes.DOCUMENT` does not
+copy `documentPreview` or its micro-thumbnail into upload content fields. That unused
+private micro holder is released when the send settles. The adapter never releases
+the platform's original preview holders or installs another lifetime manager.
 
 ### Independent caption review findings
 
@@ -313,7 +378,7 @@ Preview evidence is specific to each supported rendering branch:
 | --- | --- |
 | Unedited image | `media-editor-canvas` IMG source equals the editor background image source and `media.fullPreview` |
 | Ordinary video | `data-animate-attach-media` VIDEO source equals `media.fullPreview`; a nonempty `currentSrc` must also agree, with no `srcObject` or alternate source |
-| PDF with an existing old-style preview | `data-js-attach-preview` IMG source equals `media.fullPreview`, with a valid positive page count |
+| PDF with an existing old-style preview | `data-js-attach-preview` IMG source equals `media.fullPreview`; original Blob, complete enrichment, thumbnail holders, dimensions and positive page count satisfy the PDF contract above |
 
 The video source was traced through `WAWebVideo`, `WAWebVideoPlayerX` and
 `useWAWebVideoImplementations`: the ordinary attachment source becomes both native HD
@@ -331,6 +396,25 @@ preview/model A-to-B-to-A changes, exact returned message/ACK, retained-preview 
 mode changes, unsupported shapes and source/output limits.
 
 ## Evidence and acceptance limits
+
+### PDF batch candidate
+
+The current focused composed-owner suites pass **34 tests**: 17 single-attachment
+tests and 17 batch tests. The batch cases exercise mixed image/PDF selections, all-PDF
+selections, the ten-item bound, second-item failure, cancellation and deadline expiry
+during private thumbnail preparation, original-holder preservation, metadata/preview
+changes and unsupported combinations. The existing single-PDF test uses the corrected
+complete enrichment schema. The independent source review also added a failing
+base64-only-`OpaqueData` counterexample outside the permitted paths and verified its
+rejection after the explicit instance guard.
+
+The local Chromium evidence must remain tied to the exact composed-bundle hash. Its
+offline ports distinguish actual DOM/MutationObserver behavior and the executed
+official `OpaqueData`/`MediaPrepMediaProps` modules from simulated message/ACK transport
+and media storage. These checks establish the guarded contract and lifetime behavior;
+they do not establish delivery through an authenticated WhatsApp session.
+
+### Earlier mention and single-attachment candidate
 
 The actual composed guest tests cover the strict contexts, trusted-gesture attempts,
 node/model A-to-B-to-A changes, quote identity, receipt loss, retry reuse and retained
@@ -391,13 +475,19 @@ contract to be identified without storing vendor bodies in this repository.
 | `WAWebBaseModel` | `e0d3d2e75c1b173855e1e8f8102baf31d2a76306823040cce18da402052d32f4` | [Base model][base] |
 | `WAWebMediaData` | `947bf87cebb261c2341f86573204399d61f7bcb774a09b07c65d05b36547c37b` | [Models and media prep][models] |
 | `WAWebMediaOpaqueData` | `2fe5da40bead7159b2b58e5df4086cfab56acda74cdf33031dd549e5eb8ee0d9` | [Opaque media][opaque] |
+| `WAWebMediaDataUtils` | `6e64aba6e77d6c8057e8044d63720ac8b4394aefdfc0ee7552aede75fa7d4079` | [Prepared PDF and upload][pdf-media] |
+| `WAWebPDFUtils` | `35ae6899eb5eb9691266b4f78a39a219e006827fca140d7dd99f75f347ebff11` | [Prepared PDF and upload][pdf-media] |
+| `WAWebTPDocumentEnrichment` | `e6bd353b5552be2ec2110db91a3036204c0c2e61a0f75e0d114c3d5e6a75f4d6` | [Prepared PDF and upload][pdf-media] |
+| `WAWebCanvasUtils` | `2cae3ae1c26b14bec1c6f65c5747b25eb27298e94812483af30ca17522ffc9b5` | [Canvas and micro-thumbnail][collection] |
+| `WAWebMediaObject` | `eb151373d0c2ec1eecd0242af4de7b4c79556fafd9db325f4b63b3f185735368` | [Prepared PDF and upload][pdf-media] |
+| `WAWebMediaTypes` | `a9c9e6cb870cc7c4d7bb91237d6387dab0c512fd13cc4127f82a1e5319364b8f` | [Prepared PDF and upload][pdf-media] |
+| `WAWebMediaUploadMediaWithPrep` | `71e3dca2dbfc51475541cb9bc1b6c8d73d5c39eb2fccb46c70e7ae82ec190f21` | [Prepared PDF and upload][pdf-media] |
 | `WAWebMediaEditorForChat.react` | `804ad4d07193fe82494bb9a2cee58bfee74e6f7e2bf464e126c310f511d8c7ee` | [Caption UI][caption] |
 | `WAWebMediaEditor.react` | `5e347a0a2ade6d09650d89acb543c9d95fbcf2eecea9f3d569bb0fa2dfc5d6c9` | [Caption UI][caption] |
 | `WAWebMediaEditorCaptionInput.react` | `5774bb39a0ea4a7f245101ce4ca012c8c9fec85623f4625ad89514e374c8d7e4` | [Caption UI][caption] |
 | `WAWebMediaEditorImage.react` | `8352dd32efe56e1f79aae39660c127cf8974653a431801c23078e76b055f86ce` | [Caption UI][caption] |
 | `useWAWebVideoImplementations` | `3f4fec8841d6483c458c535d24537ca9be9f1fe04070b441ea4ff6ced37fb9fc` | [Video implementation][video] |
 | `VideoPlayerProgressiveImplementationEngine` | `cc6f8efe2c21d9221efab26f11de690f1a4965b71b87e1644398bb508398cfad` | [Video implementation][video] |
-
 | `WAWebMediaEditorFilmstripDragAndDrop.react` | `44b77b6a1f02d1826d7bb09959b0efc9aacff4d5fbd571c40039273d8f3a121c` | [Filmstrip and ordering][caption] |
 | `WAWebMediaEditorFilmstripAttachMediaThumb.react` | `dd4303f760cce3cc4179da8d56b881c84059dbbad0495c6f50a3526d67ef6930` | [Filmstrip and ordering][caption] |
 | `useCometDraggableItems` | `3e8a6478c92626d2fa4f2cd4169bde57d3362cc0ebac754a35575c7192149fa0` | [Filmstrip and ordering][caption] |
@@ -413,6 +503,7 @@ contract to be identified without storing vendor bodies in this repository.
 [base]: https://static.whatsapp.net/rsrc.php/v4incC4/ye/l/en_GB-j/WUUKocWarAumTfixAq_AX8PLdtGOMpRrWq8GBBAQkpIX_23LEffI1_XvdPdCSIMPYUk5jRvIk23r_BG5Pz7vmDjrnhyXeOa3JV_GWGFXil8x1Q3BcYmPkwSiO7KJoSQKFgmFOYAuspDhlhzZk-PQqXYsbbYOR8caWn7QAzdZJywGwzJ6LvovRXLF19Fi9SaU-4ORb_dFMJ40LPHSxmYT-V10erhj1C8xEcCI-1Gj0YAvs-ocQZvVbfeyWd89SLKvPJbPyPAXiiRKHWyVVemkb0pXIL6h44yX5uCHgEKa9tNukyLhEHOUamyyESXW7jt19dvV4H__B-.js
 [opaque]: https://static.whatsapp.net/rsrc.php/v4iwLD4/yh/l/en_GB-j/EGLj4o3kfs9.js
 [video]: https://static.whatsapp.net/rsrc.php/v4iVv04/yQ/l/en_US-j/B6hstUK1GEW.js
+[pdf-media]: https://static.whatsapp.net/rsrc.php/v4iFkR4/yr/l/en_US-j/rSSl-KoQn-T.js
 
 [selection]: https://static.whatsapp.net/rsrc.php/v4iMIC4/yo/l/en_US-j/f1OIZWZGQveBxgWBYdHv4dFTtq7zwpbbDNl9ZYyREraxVmIHUz_jTaWR2XauXVhI_t2Px67ruRd1hJSbQUtRw7z47pBGHqm4NnLzdWp_yf8iIXWUUKocWarAumTfixAq_AX8_23LEffI1_Xwo8zQ5TASp1vdPdCSIMPYUBG5Pz7vmDjr3BcYmPkwSiO7KJoSQKFgmFOYAuspDhlhzZk-PQqXYsbbk9E_PXJB2--zdZJywGwzJ6i9SaU-4ORb_dFMJ40LPHSxj0YAvs-ocQZvVbfeyWd89Skb0pXIL6h44yX5uCHgEKa9tNukyLhEHOU19dvV4H__B-.js
 [collection]: https://static.whatsapp.net/rsrc.php/v4iuQ-4/yq/l/en_US-j/arb2I9DYsKN_bAmhifpIiDthC7jKNM5FPEGLj4o3kfs9oBhQ0HVsbfBCRajZbv_JUgRX7jpK-UrjTB2XILqrHedBHjr_gvbA2UO9wOG39rwPJYktuucgPyduQPsHB1ibGrbJ_izLa2TZoeJ7yQKSv7A_M0Lc7oweNK41I1iKsn8dh0KRZt_LYVfTEUg4EIeUY9UHO17rZQrzh2svruxnQksOMZKjvSezoP28JeZ.js

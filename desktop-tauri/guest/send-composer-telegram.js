@@ -21,6 +21,7 @@ function createTelegramSendComposer(changed) {
     if (revision < Number.MAX_SAFE_INTEGER) revision += 1;
     changed({ reason, trusted, revision });
   }
+  const reply = createTelegramReplyContext(runtime, advance);
   const peerChanged = () => advance('chat');
   function watch(im) {
     if (emitter === im) return;
@@ -65,6 +66,7 @@ function createTelegramSendComposer(changed) {
     const chats = [...document.querySelectorAll('.chat[data-type="chat"]')].filter(visible);
     if (disposed || revision >= Number.MAX_SAFE_INTEGER || id === null || String(location.hash).slice(1) !== chatId.slice(3)
         || chats.length !== 1 || chats[0] !== chat.container || chat.type !== 'chat'
+        || [...document.querySelectorAll('.popup.active, [role="dialog"]')].some(visible)
         || chat.threadId || chat.monoforumThreadId || chat.isPreview || chat.isForum || chat.isBotforum
         || chat.isMonoforum || chat.isTemporaryThread || input?.chat !== chat
         || !visible(editor) || input.messageInputField?.input !== editor || !chat.container.contains(editor)
@@ -77,23 +79,25 @@ function createTelegramSendComposer(changed) {
         || (draft.entities !== undefined && (!Array.isArray(draft.entities) || draft.entities.length))
         || !draft.pFlags || Object.keys(draft.pFlags).some((key) => !['no_webpage', 'invert_media'].includes(key))
         || draft.pFlags.invert_media || /(^|\s)@[\p{L}\p{N}_]/u.test(text)
-        || draft.reply_to || draft.media || draft.rich_message || draft.effect || !plainTree(editor)
-        || input.editMsgId || input.replyToMsgId || input.replyToStoryId || input.replyToQuote || input.replyToPeerId
+        || draft.media || draft.rich_message || draft.effect || !plainTree(editor)
+        || input.editMsgId || input.replyToStoryId || input.replyToQuote || input.replyToPeerId
         || input.replyToMonoforumPeerId || input.replyToPollOption || input.willSendWebPage || input.suggestedPost
         || input.recording || input.ephemeralComposer || input.ephemeralCommandReceiverId || input.sendingMessage
         || input.scheduleDate || input.scheduleRepeatPeriod || input.sendSilent || input.messageInputExpanded
         || (input.sendAsPeerId && input.sendAsPeerId !== snapshot.self) || chat.savedReaction
         || (input.forwarding && Object.keys(input.forwarding).length)) throw issue();
-    return { ...value, context: { kind: 'plain' }, quoteModel: null, quoteRegion: null, quoteNodes: [], quoteBody: '', quoteAuthor: '' };
+    return { ...value, ...reply.read(value) };
   }
   function matches(record, value) {
     const frozen = record.composerState || record;
-    return record.context?.kind === 'plain' && value.context?.kind === 'plain'
-      && record.chatId === value.chatId && record.chat === value.chat && record.editor === value.editor
+    return reply.matches(record, value) && record.chatId === value.chatId && record.chat === value.chat && record.editor === value.editor
       && record.text === value.text && record.composerRevision === value.composerRevision
       && frozen.input === value.input && frozen.snapshot === value.snapshot && frozen.inputGeneration === value.inputGeneration;
   }
   function clear(record) {
+    // Preserve the entire quoted draft; K's helper cleanup also schedules cloud
+    // draft writes and has no synchronous text-and-reply CAS contract.
+    if (record.context?.kind !== 'plain') return false;
     let value;
     try { value = read(); } catch { return false; }
     if (!matches(record, value)) return false;
@@ -116,7 +120,8 @@ function createTelegramSendComposer(changed) {
     };
     try {
       if (!current()) throw issue('SEND_INTENT_CHANGED');
-      const prepared = await runtime.prepare(record.chatId.slice(3), text, current);
+      const prepared = await runtime.prepare(record.chatId.slice(3), text, current,
+        record.composerState?.telegramReply || record.telegramReply || null);
       return await runtime.send(prepared, current);
     } catch (error) {
       // Only this runtime's private proof of zero API invocations can release
@@ -180,7 +185,7 @@ function createTelegramSendComposer(changed) {
     rawText: () => { try { return raw().text; } catch { return ''; } },
     get revision() { return revision; },
     dispose() {
-      disposed = true; observer.disconnect(); runtime.dispose(); emitter?.removeEventListener('peer_changing', peerChanged);
+      disposed = true; observer.disconnect(); reply.dispose(); runtime.dispose(); emitter?.removeEventListener('peer_changing', peerChanged);
       document.removeEventListener('beforeinput', inputEvent, true); document.removeEventListener('input', inputEvent, true);
       window.removeEventListener('hashchange', peerChanged);
     } };
