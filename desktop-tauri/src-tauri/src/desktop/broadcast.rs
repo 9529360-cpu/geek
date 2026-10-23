@@ -3,6 +3,7 @@ use super::{platform_bridge::NativePlatform, platform_sessions::PlatformSessions
 use crate::{
     application::{
         broadcast::{now_ms, BroadcastService},
+        broadcast_presets::BroadcastPresets,
         ports::BroadcastPlatform,
     },
     domain::{
@@ -14,7 +15,10 @@ use crate::{
         broadcast_validation::valid_uuid,
         error::{AppError, Result},
     },
-    infrastructure::broadcast_repository::EncryptedBroadcastRepository,
+    infrastructure::{
+        broadcast_preset_repository::EncryptedBroadcastPresetRepository,
+        broadcast_repository::EncryptedBroadcastRepository,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -28,11 +32,13 @@ use std::{
 use uuid::Uuid;
 
 type NativeBroadcast = BroadcastService<EncryptedBroadcastRepository, NativePlatform>;
+type NativeBroadcastPresets = BroadcastPresets<EncryptedBroadcastPresetRepository>;
 
 mod attachments;
 mod audiences;
 mod catalog;
 mod imports;
+mod presets;
 mod reports;
 pub use attachments::PickedBroadcastAttachments;
 pub use audiences::BroadcastAudienceSource;
@@ -137,6 +143,7 @@ pub struct CreatedBroadcast {
 
 pub struct BroadcastDesktop {
     service: NativeBroadcast,
+    presets: Mutex<NativeBroadcastPresets>,
     platform: Arc<NativePlatform>,
     sessions: Arc<PlatformSessions>,
     catalogs: Mutex<Vec<CatalogLease>>,
@@ -296,11 +303,13 @@ fn frozen_draft(catalog: &BroadcastCatalog, input: &CreateBroadcast) -> Result<B
 impl BroadcastDesktop {
     pub fn new(
         repository: EncryptedBroadcastRepository,
+        preset_repository: EncryptedBroadcastPresetRepository,
         platform: Arc<NativePlatform>,
         sessions: Arc<PlatformSessions>,
     ) -> Result<Self> {
         Ok(Self {
             service: BroadcastService::open(repository, Arc::clone(&platform))?,
+            presets: Mutex::new(BroadcastPresets::open(preset_repository)?),
             platform,
             sessions,
             catalogs: Mutex::new(Vec::new()),

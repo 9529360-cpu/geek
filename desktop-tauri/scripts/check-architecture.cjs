@@ -85,6 +85,8 @@ function checkCommands(files) {
     } else if (['broadcast_catalog', 'broadcast_create', 'broadcast_snapshot', 'broadcast_control',
       'broadcast_pick_attachments', 'broadcast_release_attachments',
       'broadcast_import_contacts', 'broadcast_resolve_recipients', 'broadcast_resolve_audience',
+      'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience',
+      'broadcast_delete_preset', 'broadcast_restore_audience',
       'broadcast_export_failures'].includes(name)) {
       if (!/\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<BroadcastDesktop>>\(\)\s*\./.test(section)
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {

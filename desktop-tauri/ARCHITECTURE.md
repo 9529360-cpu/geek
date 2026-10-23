@@ -358,8 +358,8 @@ Typed exclusion sets are account-local editor state, following the original prod
 minus-explicit-exclusions semantics. The two sets filter every source before the existing create
 command receives final IDs. Exclusion modes freeze the catalog population on entry; refresh may
 invalidate an ID but cannot silently add targets. An explicit update action rebuilds this frozen
-population from the current directory while retaining exclusions. This introduces no new persisted audience owner,
-dynamic scheduled query, queue or sending capability.
+population from the current directory while retaining exclusions. Exclusions remain editor state;
+saving a reusable audience records the resulting fixed IDs, never a dynamic scheduled query.
 
 `application/broadcast_report` snapshots the existing owner, including projected storage failure,
 then releases the lock before domain CSV encoding. Explicit account/job ownership is required;
@@ -369,6 +369,37 @@ and atomic report replacement. Native pick/save dialogs are the only path author
 commands accept IDs, never paths, file bytes or CSV bodies. Pasted text has its own narrow bounded
 command and cannot select a path. None of these operations changes job state,
 checkpoints, persistence schema, retry policy or the sending owner.
+
+### Reusable broadcast messages and audiences
+
+`application/broadcast_presets` is the sole durable owner for two account-scoped collections:
+raw message templates and fixed recipient ID lists. It never creates jobs, queries a platform,
+or bills translations. `infrastructure/broadcast_preset_repository` stores schema 1 in an independent
+`broadcast-presets.dpapi`, using DPAPI and synchronized temporary-file replacement under the
+existing process instance lock. Accounts schema 6 and live-job schema 2 remain unchanged;
+preset volume and failed preset writes cannot consume or replace the job checkpoint document.
+
+Every mutation checks an account-local expected revision, validates a complete candidate,
+persists it, then publishes memory. Stable native UUIDs replace array-index identity. Same-name
+messages overwrite in place; audience names may repeat and deletion addresses one UUID. Empty
+account rows retain their revision so deleting the final entry cannot revive an old revision-zero
+request. Limits are 100 entries per collection/account, 80 UTF-16 units per name, the existing text
+bounds per message, 2000 unique IDs per audience and less than 2 MiB of plaintext globally.
+Malformed/unknown-version state is never reset. Archiving does not delete presets.
+
+`desktop/broadcast/presets` checks the actual account and requires current catalog authority to
+save a recipient list. Restoration holds the existing RecipientImport gate. Current native groups
+stay native; absent groups are reported unavailable. Missing contacts use the same bounded
+canonical-contact resolver in pairs under the shared ten-minute budget. Selected contacts are
+protected in the final imported cache; current platform models supply names. The final short
+publication checks both preset revision and catalog lease, with no preset lock across platform
+waits and no Workspace/job/catalog lock across persistence. A zero-recipient restoration is an
+explicit successful result, so the editor clears old selections and disables creation.
+
+The frontend restores a list into the existing custom-selection draft and retains exclusions;
+applying a message changes only its raw body. Current editor/account/catalog/revision tokens guard
+asynchronous reads and writes. Five finite shell-only commands expose these operations; no generic
+key/value store, path API, alternate job owner or legacy profile access is added.
 
 ## Session and incoming translation ownership
 

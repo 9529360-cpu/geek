@@ -61,8 +61,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     if (bound === 'max' && value < Number($('bc-range-min').value)) $('bc-range-min').value = String(value);
     syncRanges(); onChange();
   });
-  for (const id of ['bc-save-message', 'bc-delete-message',
-    'bc-saved-accordion-toggle', 'bc-saved-messages', 'broadcast-save-group', 'broadcast-show-all-groups',
+  for (const id of ['bc-delete-message', 'bc-saved-messages', 'broadcast-show-all-groups',
     'broadcast-saved-groups', 'broadcast-delete-group',
     'bc-saved-lists', 'bc-save-list', 'bc-delete-list', 'broadcast-export']) unavailable($(id));
   const fileLabel = $('broadcast-add-file').closest('label')?.querySelector('.bc-switch-label');
@@ -71,9 +70,6 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   $('broadcast-add-file').setAttribute('aria-label', '添加附件');
   $('broadcast-dropzone').querySelector('strong').textContent = '点击选择图片、视频或文件';
   $('broadcast-dropzone').querySelector('small').textContent = '单个 512 MiB，总计 1 GiB';
-  $('bc-group-tag-list').textContent = '自定义标签尚未迁移';
-  $('broadcast-save-group').textContent = '保存为标签（尚未迁移）';
-  $('bc-saved-message-list').textContent = '常用消息存储尚未迁移';
 
   function syncRanges() {
     const min = Number($('bc-range-min').value);
@@ -188,6 +184,8 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     catalog(next) { catalog = next; audience.set(next); },
     imported(result) { catalog = result.catalog; audience.imported(result); },
     resolved(kind, result, revision) { catalog = result.catalog; audience.resolved(kind, result, revision); },
+    restored(result) { catalog = result.catalog; audience.restored(result); },
+    message(value) { $('broadcast-message').value = value; $('broadcast-message').focus(); onChange(); },
     importStatus: audience.importStatus,
     sourceStatus: audience.sourceStatus,
     attachments(next) { attachments = next.map((file) => ({ ...file })); renderAttachments(); },

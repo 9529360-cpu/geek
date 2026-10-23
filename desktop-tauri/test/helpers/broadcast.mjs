@@ -1,5 +1,6 @@
 import { dom } from './dom.mjs';
 import { createBroadcastController } from '../../frontend/controllers/broadcast.mjs';
+import { presetPort } from './broadcast-presets.mjs';
 
 export function deferred() {
   let resolve; let reject;
@@ -57,7 +58,7 @@ function broadcastDom() {
   return { ...ui, timers };
 }
 
-export async function fixture({ initialJobs = [], accountCatalogs = {}, before = async () => {}, layoutBefore = async () => {}, state = {} } = {}) {
+export async function fixture({ initialJobs = [], accountCatalogs = {}, before = async () => {}, layoutBefore = async () => {}, state = {}, presets = null } = {}) {
   const ui = broadcastDom();
   const shell = { activeId: 'a', openedIds: ['a', 'b'], accounts: [
     { id: 'a', name: 'Alice account', platformId: 'whatsapp', archived: false },
@@ -73,6 +74,7 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
   const attachmentRefs = new Map();
   const importedCatalogs = new Map();
   const catalogLeases = new Map();
+  const saved = presets === null ? null : presetPort(presets);
   const publish = (next) => { backend = { ...backend, ...structuredClone(next) }; };
   async function invoke(name, value) {
     calls.push([name, structuredClone(value)]);
@@ -81,7 +83,8 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
       if (name === 'pick' && Array.isArray(override?.attachments)) for (const file of override.attachments) {
         attachmentRefs.set(`${value}:${file?.id}`, structuredClone(file));
       }
-      if (['import', 'resolve', 'audience'].includes(name) && override?.accountId === value.accountId && override.catalog?.accountId === value.accountId) {
+      if (['import', 'resolve', 'audience', 'restorePreset'].includes(name)
+        && override?.accountId === value.accountId && override.catalog?.accountId === value.accountId) {
         importedCatalogs.set(value.accountId, structuredClone(override.catalog));
         catalogLeases.set(`${value.accountId}:${override.catalog.catalogId}`, structuredClone(override.catalog));
       }
@@ -89,6 +92,20 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
       return structuredClone(override);
     }
     if (failures.has(name)) throw 'STORE_IO';
+    if (saved) {
+      const presetResult = await saved.invoke(name, value);
+      if (presetResult !== undefined) return structuredClone(presetResult);
+      if (name === 'restorePreset') {
+        const collection = saved.read(value.accountId);
+        if (collection.revision !== value.expectedRevision) throw 'BROADCAST_PRESET_CONFLICT';
+        const item = collection.audiences.find((item) => item.id === value.presetId);
+        if (!item) throw 'BROADCAST_PRESET_UNKNOWN';
+        const source = catalogLeases.get(`${value.accountId}:${value.catalogId}`) || catalog(value.accountId, accountCatalogs[value.accountId]);
+        const recipientIds = item.recipientIds.filter((id) => source.chats.some((chat) => chat.id === id));
+        return { accountId: value.accountId, catalog: source, recipientIds, summary: { total: item.recipientIds.length,
+          accepted: recipientIds.length, duplicates: 0, invalid: 0, unresolved: item.recipientIds.length - recipientIds.length, skipped: 0 } };
+      }
+    }
     if (name === 'catalog') return structuredClone(importedCatalogs.get(value) || catalog(value, accountCatalogs[value]));
     if (name === 'snapshot') return structuredClone(backend);
     if (name === 'import') return null;
@@ -142,6 +159,15 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     broadcastResolveRecipients: (accountId, catalogId, text) => invoke('resolve', { accountId, catalogId, text }),
     broadcastResolveAudience: (accountId, catalogId, source) => invoke('audience', { accountId, catalogId, source }),
     broadcastExportFailures: (accountId, jobId) => invoke('export', { accountId, jobId }) };
+  if (saved) Object.assign(api, {
+    broadcastPresets: (accountId) => invoke('presets', accountId),
+    broadcastSaveMessage: (accountId, expectedRevision, name, message) => invoke('saveMessage', { accountId, expectedRevision, name, message }),
+    broadcastSaveAudience: (accountId, catalogId, expectedRevision, name, recipientIds) =>
+      invoke('saveAudience', { accountId, catalogId, expectedRevision, name, recipientIds }),
+    broadcastDeletePreset: (accountId, expectedRevision, kind, id) => invoke('deletePreset', { accountId, expectedRevision, kind, id }),
+    broadcastRestoreAudience: (accountId, catalogId, expectedRevision, presetId) =>
+      invoke('restorePreset', { accountId, catalogId, expectedRevision, presetId }),
+  });
   async function showPanel(id, fill, focusId) {
     if (panel) ui.get(panel).classList.add('hidden');
     panel = id; fill?.(); ui.get(id).classList.remove('hidden'); controller?.panelChanged(id);
@@ -171,7 +197,7 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     if (typeof value === 'boolean') node.checked = value; else node.value = value;
     await fire(node, event);
   };
-  return { ...ui, controller, shell, calls, failures, click, fire, input, select, tick, publish, showPanel, hidePanel,
+  return { ...ui, controller, shell, calls, failures, click, fire, input, select, tick, publish, showPanel, hidePanel, presets: saved,
     open: async () => { await click('btn-broadcast'); await click('bc-menu-send'); },
     switchAccount(id) { shell.activeId = id; controller.renderShell(shell); },
     get panel() { return panel; }, get backend() { return backend; }, get layouts() { return layouts; } };

@@ -5,6 +5,7 @@ pub mod account_batch;
 pub mod broadcast;
 pub mod broadcast_attachment;
 pub mod broadcast_import;
+pub mod broadcast_presets;
 pub mod broadcast_render;
 pub mod broadcast_report;
 pub mod broadcast_validation;

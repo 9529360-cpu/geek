@@ -272,6 +272,10 @@ export function createAudienceView(document, changed, resolveSource) {
       catalog = result.catalog; sources.resolved(kind, result, revision);
       render(); renderCards(); availability(blocked);
     },
+    restored(result) {
+      catalog = result.catalog; selected = new Set(result.recipientIds); mode = 'custom';
+      sources.set(catalog); render(); renderCards(); availability(blocked); changed();
+    },
     importStatus(text = '', state = 'ready') { importFeedback = text ? { text, state } : null; renderImport(); },
     sourceStatus: sources.status,
     clearCards() { cards.clear(); $('broadcast-add-vcard').checked = false; renderCards(); },

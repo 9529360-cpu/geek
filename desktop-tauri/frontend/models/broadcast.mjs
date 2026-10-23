@@ -86,7 +86,7 @@ export function normalizeCatalog(value, accountId) {
   return { ...value, chats, labels, capabilities: { ...value.capabilities } };
 }
 
-export function normalizeResolvedRecipients(value, accountId, allowGroups = false) {
+export function normalizeResolvedRecipients(value, accountId, allowGroups = false, allowEmpty = false) {
   if (!value || value.accountId !== accountId || !Array.isArray(value.recipientIds) || value.recipientIds.length > 2000
     || new Set(value.recipientIds).size !== value.recipientIds.length) throw 'BROADCAST_IMPORT_INVALID';
   const summary = {};
@@ -103,7 +103,7 @@ export function normalizeResolvedRecipients(value, accountId, allowGroups = fals
   try { catalog = normalizeCatalog(value.catalog, accountId); } catch { throw 'BROADCAST_IMPORT_INVALID'; }
   const contacts = new Set(catalog.chats.filter((chat) => allowGroups || chat.kind === 'contact').map((chat) => chat.id));
   if (!catalog.ready || value.recipientIds.some((id) => typeof id !== 'string' || !contacts.has(id))) throw 'BROADCAST_IMPORT_INVALID';
-  if (!value.recipientIds.length) throw 'BROADCAST_IMPORT_EMPTY';
+  if (!allowEmpty && !value.recipientIds.length) throw 'BROADCAST_IMPORT_EMPTY';
   return { accountId, catalog, recipientIds: value.recipientIds.slice(), summary };
 }
 
@@ -126,9 +126,8 @@ export function matchingChats(chats, query = '', kind = null) {
     && (!search || `${chat.name} ${chat.realName} ${chat.id}`.toLocaleLowerCase().includes(search)));
 }
 
-export function draftPayload(draft, catalog, now = Date.now()) {
+export function draftRecipients(draft, catalog) {
   if (!catalog?.ready || catalog.accountId !== draft.accountId) throw 'BROADCAST_ACCOUNT_NOT_READY';
-  if (!catalog.capabilities.text) throw 'BROADCAST_UNSUPPORTED';
   const sourceKind = audienceSourceKinds[draft.audienceMode];
   if (sourceKind) {
     const source = draft.sources?.[sourceKind];
@@ -142,6 +141,13 @@ export function draftPayload(draft, catalog, now = Date.now()) {
   const targets = recipientIds.map((id) => catalog.chats.find((chat) => chat.id === id));
   if (!targets.length) throw 'BROADCAST_AUDIENCE_EMPTY';
   if (targets.some((target) => !target)) throw 'BROADCAST_CATALOG_STALE';
+  return recipientIds;
+}
+
+export function draftPayload(draft, catalog, now = Date.now()) {
+  const recipientIds = draftRecipients(draft, catalog);
+  if (!catalog.capabilities.text) throw 'BROADCAST_UNSUPPORTED';
+  const targets = recipientIds.map((id) => catalog.chats.find((chat) => chat.id === id));
   const message = String(draft.message || '');
   const vcardIds = [...new Set(draft.vcardIds)];
   const attachments = normalizeAttachments(draft.attachments);

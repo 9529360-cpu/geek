@@ -15,6 +15,7 @@ use crate::{
     domain::{
         account::Settings,
         broadcast::{BroadcastAction, BroadcastSnapshot},
+        broadcast_presets::{BroadcastPresetKind, BroadcastPresetSnapshot},
         error::{AppError, Result},
         presentation::{Viewport, WindowAction},
         proxy::ProxyConfig,
@@ -266,6 +267,95 @@ pub async fn broadcast_resolve_audience(
     execute(webview, move |app| {
         app.state::<Arc<BroadcastDesktop>>()
             .resolve_audience(&account_id, &catalog_id, source)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_presets(
+    webview: Webview,
+    account_id: String,
+) -> Result<BroadcastPresetSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().presets(&account_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_save_message(
+    webview: Webview,
+    account_id: String,
+    expected_revision: u64,
+    name: String,
+    message: String,
+) -> Result<BroadcastPresetSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().save_message(
+            &account_id,
+            expected_revision,
+            &name,
+            &message,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_save_audience(
+    webview: Webview,
+    account_id: String,
+    catalog_id: String,
+    expected_revision: u64,
+    name: String,
+    recipient_ids: Vec<String>,
+) -> Result<BroadcastPresetSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().save_audience(
+            &account_id,
+            &catalog_id,
+            expected_revision,
+            &name,
+            &recipient_ids,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_delete_preset(
+    webview: Webview,
+    account_id: String,
+    expected_revision: u64,
+    kind: BroadcastPresetKind,
+    id: String,
+) -> Result<BroadcastPresetSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().delete_preset(
+            &account_id,
+            expected_revision,
+            kind,
+            &id,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_restore_audience(
+    webview: Webview,
+    account_id: String,
+    catalog_id: String,
+    expected_revision: u64,
+    preset_id: String,
+) -> Result<ResolvedBroadcastRecipients> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().restore_audience(
+            &account_id,
+            &catalog_id,
+            expected_revision,
+            &preset_id,
+        )
     })
     .await
 }

@@ -1,0 +1,85 @@
+/* Canonical recipient tag row from ui/broadcast-recipient-tags.js. */
+#broadcast-overlay .bc-saved-row,
+#broadcast-overlay #broadcast-show-all-groups,
+#broadcast-overlay #broadcast-saved-groups,
+#broadcast-overlay #bc-group-tag-list,
+#broadcast-overlay #broadcast-delete-group {
+  display:none !important;
+}
+#broadcast-overlay .bc-recipient-tag-canonical-row {
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:6px;
+  margin:4px 0 2px;
+  padding:6px 7px;
+  border-top:1px dashed var(--border-subtle);
+  border-radius:5px;
+  background:color-mix(in srgb,var(--accent) 3%,transparent);
+}
+#broadcast-overlay #broadcast-recipient-tag-label {
+  font-size:11px;
+  color:var(--text-secondary);
+  white-space:nowrap;
+}
+#broadcast-overlay #broadcast-save-group {
+  display:inline-flex;
+  align-items:center;
+  height:27px;
+  padding:2px 9px;
+  font-size:11px;
+  white-space:nowrap;
+}
+#broadcast-overlay .bc-recipient-tag-list {
+  display:flex;
+  flex-wrap:nowrap;
+  min-width:0;
+  align-items:center;
+  gap:5px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  padding:1px 0;
+}
+#broadcast-overlay .bc-recipient-tag-list .bc-original-tag {
+  flex:none;
+}
+#broadcast-overlay .bc-preset-form,
+#broadcast-overlay .bc-preset-confirm,
+#broadcast-overlay .bc-preset-status {
+  grid-column:1/-1;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+  margin-top:4px;
+}
+#broadcast-overlay .bc-preset-form .bc-input {
+  flex:1;
+  min-width:0;
+  max-width:260px;
+  height:28px;
+  font-size:11px;
+}
+#broadcast-overlay .bc-preset-form .bc-btn,
+#broadcast-overlay .bc-preset-confirm .bc-btn,
+#broadcast-overlay .bc-preset-status .bc-btn {
+  flex:none;
+  font-size:11px;
+}
+#broadcast-overlay .bc-preset-confirm {
+  font-size:11px;
+  color:var(--text-secondary);
+}
+#broadcast-overlay .bc-preset-confirm > span {
+  overflow-wrap:anywhere;
+}
+#broadcast-overlay .bc-preset-status {
+  font-size:10.5px;
+  color:var(--text-tertiary);
+}
+#broadcast-overlay .bc-preset-status[data-state="error"] {
+  color:var(--danger);
+}
+#broadcast-overlay .bc-preset-status[data-state="loading"] {
+  color:var(--accent);
+}

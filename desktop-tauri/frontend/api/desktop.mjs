@@ -29,6 +29,15 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
       invoke('broadcast_resolve_recipients', { accountId, catalogId, text }),
     broadcastResolveAudience: (accountId, catalogId, source) =>
       invoke('broadcast_resolve_audience', { accountId, catalogId, source }),
+    broadcastPresets: (accountId) => invoke('broadcast_presets', { accountId }),
+    broadcastSaveMessage: (accountId, expectedRevision, name, message) =>
+      invoke('broadcast_save_message', { accountId, expectedRevision, name, message }),
+    broadcastSaveAudience: (accountId, catalogId, expectedRevision, name, recipientIds) =>
+      invoke('broadcast_save_audience', { accountId, catalogId, expectedRevision, name, recipientIds }),
+    broadcastDeletePreset: (accountId, expectedRevision, kind, id) =>
+      invoke('broadcast_delete_preset', { accountId, expectedRevision, kind, id }),
+    broadcastRestoreAudience: (accountId, catalogId, expectedRevision, presetId) =>
+      invoke('broadcast_restore_audience', { accountId, catalogId, expectedRevision, presetId }),
     broadcastExportFailures: (accountId, jobId) =>
       invoke('broadcast_export_failures', { accountId, jobId }),
     broadcastCreate: (draft) => invoke('broadcast_create', { draft }),

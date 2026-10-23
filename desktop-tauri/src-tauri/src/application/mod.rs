@@ -4,6 +4,7 @@ pub mod accounts;
 pub mod broadcast;
 mod broadcast_actions;
 mod broadcast_attachments;
+pub mod broadcast_presets;
 mod broadcast_report;
 mod broadcast_runner;
 pub mod ports;

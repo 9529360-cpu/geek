@@ -4,6 +4,7 @@ import { errorCode, errorMessage, audienceSourceError } from '../models/broadcas
 import { wire, unavailable } from '../views/broadcast-elements.mjs';
 import { createBroadcastEditor } from '../views/broadcast-editor.mjs';
 import { createBroadcastJobs } from '../views/broadcast-jobs.mjs';
+import { createBroadcastPresets } from './broadcast-presets.mjs';
 
 export function createBroadcastController({ document, window, api, getShellSnapshot, showPanel, hidePanel, requestLayout }) {
   const $ = (id) => document.getElementById(id);
@@ -41,6 +42,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   let lastStatus = { text: '', state: 'ready', retry: false };
   let editor;
   let jobsView;
+  let presets;
   const bind = (node, type, fn) => {
     node.addEventListener(type, fn); listeners.push(() => node.removeEventListener(type, fn));
   };
@@ -71,7 +73,9 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     if (mismatch()) editor.status(errorMessage('BROADCAST_ACCOUNT_CHANGED'), 'error');
     else editor.status(lastStatus.text, lastStatus.state, lastStatus.retry);
     editor.availability({ shellBusy, creating, loading, mismatch: mismatch(), apiAvailable, pendingControls,
-      attachmentsAvailable, attachmentBusy: picking || removingAttachment, importAvailable, resolveAvailable, audienceAvailable, importBusy: importing });
+      attachmentsAvailable, attachmentBusy: picking || removingAttachment, importAvailable, resolveAvailable, audienceAvailable,
+      importBusy: importing || presets?.audienceBusy });
+    presets?.render();
   }
 
   function render() {
@@ -160,6 +164,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     await showPanel('broadcast-overlay', () => editor.fill(saved?.draft || emptyDraft(editorOwner), null, account), 'broadcast-message');
     panelChanged('broadcast-overlay');
     render();
+    if (presets) void track(presets.load());
     await loadCatalog();
   }
 
@@ -170,7 +175,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
 
   async function importContacts(kind = 'file') {
     const available = kind === 'file' ? importAvailable : kind === 'paste' ? resolveAvailable : audienceAvailable;
-    if (disposed || creating || shellBusy || loading || importing || picking || removingAttachment || !available
+    if (disposed || creating || shellBusy || loading || importing || presets?.audienceBusy || picking || removingAttachment || !available
       || panel !== 'broadcast-overlay' || mismatch() || !catalog?.ready || !owner() || owner().archived) return;
     const draft = editor.read();
     if (kind !== 'file' && audienceSourceKinds[draft.audienceMode] !== kind) return;
@@ -210,7 +215,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
 
   async function pickAttachments() {
-    if (disposed || creating || shellBusy || picking || removingAttachment || importing || !attachmentsAvailable
+    if (disposed || creating || shellBusy || picking || removingAttachment || importing || presets?.audienceBusy || !attachmentsAvailable
       || panel !== 'broadcast-overlay' || mismatch()) return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
@@ -244,7 +249,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
 
   async function removeAttachment(id) {
-    if (disposed || creating || shellBusy || picking || removingAttachment || importing || !attachmentsAvailable
+    if (disposed || creating || shellBusy || picking || removingAttachment || importing || presets?.audienceBusy || !attachmentsAvailable
       || panel !== 'broadcast-overlay' || mismatch() || !editor.read().attachments.some((file) => file.id === id)) return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
@@ -266,7 +271,8 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
 
   async function submit(continueEditing) {
-    if (disposed || creating || shellBusy || loading || picking || removingAttachment || importing || !apiAvailable || panel !== 'broadcast-overlay') return;
+    if (disposed || creating || shellBusy || loading || picking || removingAttachment || importing || presets?.audienceBusy
+      || !apiAvailable || panel !== 'broadcast-overlay') return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
     try {
@@ -378,6 +384,14 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     onImportContacts: () => track(importContacts()),
     onResolveSource: (kind) => track(importContacts(kind)),
   });
+  presets = createBroadcastPresets({ document, api, track,
+    context: () => ({ accountId: editorOwner, epoch: editorEpoch, catalog, draft: editor.read(),
+      open: panel === 'broadcast-overlay' && !disposed && !mismatch() && Boolean(owner() && !owner().archived),
+      blocked: shellBusy || creating, audienceBusy: loading || picking || removingAttachment || importing }),
+    changed: refreshEditor,
+    applyMessage: (message) => editor.message(message),
+    applyAudience: (result) => { catalog = result.catalog; editor.restored(result); stash(); refreshEditor(); },
+  });
   jobsView = createBroadcastJobs({ document, window, requestLayout,
     onOpen: () => track(openTasks().catch(report)), onClose: () => track(closePanel().catch(report)),
     onControl: (id, action) => track(control(id, action)),
@@ -433,7 +447,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
       }
       drafts.clear();
       if (pollTimer !== null) window.clearTimeout(pollTimer);
-      for (const remove of listeners) remove(); editor.dispose(); jobsView.dispose();
+      for (const remove of listeners) remove(); editor.dispose(); jobsView.dispose(); presets.dispose();
     },
   };
 }

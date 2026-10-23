@@ -95,7 +95,8 @@ test('all commands share the same native sender gate and blocking executor', () 
   assert.match(commands, /authorize\(&webview\)\?;/);
   assert.match(commands, /spawn_blocking/);
   const broadcastCommands = ['catalog', 'create', 'snapshot', 'control', 'pick_attachments', 'release_attachments',
-    'import_contacts', 'resolve_recipients', 'resolve_audience', 'export_failures'];
+    'import_contacts', 'resolve_recipients', 'resolve_audience', 'export_failures', 'presets', 'save_message', 'save_audience',
+    'delete_preset', 'restore_audience'];
   for (const section of commands.split('#[tauri::command]').slice(1)) {
     if (section.includes('pub async fn desktop_window(')) {
       assert.match(section, /execute\(webview, move \|app\| super::window::apply\(&app, action\)\)/);

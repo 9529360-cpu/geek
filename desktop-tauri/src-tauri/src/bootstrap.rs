@@ -17,6 +17,7 @@ use crate::{
         tray,
     },
     infrastructure::{
+        broadcast_preset_repository::EncryptedBroadcastPresetRepository,
         broadcast_repository::EncryptedBroadcastRepository, catalog, http::HttpTransport, profiles,
         repository::EncryptedRepository, service_api::NativeApi,
         session_repository::EncryptedSessionRepository,
@@ -52,6 +53,11 @@ pub fn run() {
             commands::broadcast_import_contacts,
             commands::broadcast_resolve_recipients,
             commands::broadcast_resolve_audience,
+            commands::broadcast_presets,
+            commands::broadcast_save_message,
+            commands::broadcast_save_audience,
+            commands::broadcast_delete_preset,
+            commands::broadcast_restore_audience,
             commands::broadcast_export_failures,
             commands::broadcast_create,
             commands::broadcast_snapshot,
@@ -82,6 +88,7 @@ pub fn run() {
             ));
             let broadcast = Arc::new(BroadcastDesktop::new(
                 EncryptedBroadcastRepository::open(root.clone())?,
+                EncryptedBroadcastPresetRepository::open(root.clone())?,
                 Arc::clone(&platform),
                 Arc::clone(&sessions),
             )?);

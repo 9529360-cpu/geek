@@ -30,12 +30,12 @@ pub struct ResolvedBroadcastRecipients {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ImportSummary {
-    total: usize,
-    accepted: usize,
-    duplicates: usize,
-    invalid: usize,
-    unresolved: usize,
-    skipped: usize,
+    pub(super) total: usize,
+    pub(super) accepted: usize,
+    pub(super) duplicates: usize,
+    pub(super) invalid: usize,
+    pub(super) unresolved: usize,
+    pub(super) skipped: usize,
 }
 
 impl ImportSummary {
@@ -272,7 +272,7 @@ impl RecipientImport<'_> {
     }
 }
 
-fn remaining(elapsed: Duration) -> Result<Duration> {
+pub(super) fn remaining(elapsed: Duration) -> Result<Duration> {
     Duration::from_secs(600)
         .checked_sub(elapsed)
         .filter(|time| !time.is_zero())
@@ -318,7 +318,7 @@ fn verify_candidates(
     Ok((resolved, summary))
 }
 
-fn resolved_batch(
+pub(super) fn resolved_batch(
     value: serde_json::Value,
     candidates: &[String],
 ) -> Result<Vec<Option<CatalogChat>>> {

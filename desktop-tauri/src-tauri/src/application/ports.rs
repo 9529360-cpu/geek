@@ -45,6 +45,15 @@ pub trait BroadcastRepository: Send + 'static {
     fn save(&mut self, document: &crate::domain::broadcast::BroadcastDocument) -> Result<()>;
 }
 
+/// Preset storage shares the existing process lock. Failed saves preserve the old file.
+pub trait BroadcastPresetRepository: Send + 'static {
+    fn load(&self) -> Result<Option<crate::domain::broadcast_presets::BroadcastPresetDocument>>;
+    fn save(
+        &mut self,
+        document: &crate::domain::broadcast_presets::BroadcastPresetDocument,
+    ) -> Result<()>;
+}
+
 /// Addressed semantic operations only. Implementations must bound every native wait.
 pub trait BroadcastPlatform: Send + Sync + 'static {
     fn acquire_binding(

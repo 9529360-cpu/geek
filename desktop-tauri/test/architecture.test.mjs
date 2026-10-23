@@ -109,7 +109,9 @@ test('broadcast file commands keep optional result shape and cannot bypass their
   assert.notEqual(response.get(key), files.get(key));
   assert.match(checkCommands(response).join('\n'), /broadcast_pick_attachments: response type/);
   for (const name of ['broadcast_pick_attachments', 'broadcast_release_attachments',
-    'broadcast_import_contacts', 'broadcast_export_failures']) {
+    'broadcast_import_contacts', 'broadcast_export_failures',
+    'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience',
+    'broadcast_delete_preset', 'broadcast_restore_audience']) {
     const offset = files.get(key).indexOf(`pub async fn ${name}`);
     const before = files.get(key).slice(0, offset);
     const after = files.get(key).slice(offset);

@@ -160,6 +160,54 @@
       "response": "ResolvedBroadcastRecipients"
     },
     {
+      "name": "broadcast_presets",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_save_message",
+      "arguments": [
+        "accountId",
+        "expectedRevision",
+        "name",
+        "message"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_save_audience",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "expectedRevision",
+        "name",
+        "recipientIds"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_delete_preset",
+      "arguments": [
+        "accountId",
+        "expectedRevision",
+        "kind",
+        "id"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_restore_audience",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "expectedRevision",
+        "presetId"
+      ],
+      "response": "ResolvedBroadcastRecipients"
+    },
+    {
       "name": "broadcast_export_failures",
       "arguments": [
         "accountId",
