@@ -1,13 +1,19 @@
-use super::{security::authorize, NativeDesktop, SharedDesktop};
+use super::{
+    broadcast::{BroadcastCatalog, BroadcastDesktop, CreateBroadcast, CreatedBroadcast},
+    security::authorize,
+    NativeDesktop, SharedDesktop,
+};
 use crate::{
     application::snapshot::{CreatedAccounts, Snapshot},
     domain::{
         account::Settings,
+        broadcast::{BroadcastAction, BroadcastSnapshot},
         error::{AppError, Result},
         presentation::{Viewport, WindowAction},
         proxy::ProxyConfig,
     },
 };
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, State, Webview};
 
 /// Every command authorizes its native sender before using the blocking executor.
@@ -204,4 +210,44 @@ pub async fn desktop_layout(
 #[tauri::command]
 pub async fn desktop_window(webview: Webview, action: WindowAction) -> Result<()> {
     execute(webview, move |app| super::window::apply(&app, action)).await
+}
+
+#[tauri::command]
+pub async fn broadcast_catalog(webview: Webview, account_id: String) -> Result<BroadcastCatalog> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().catalog(&account_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_create(
+    webview: Webview,
+    draft: CreateBroadcast,
+) -> Result<CreatedBroadcast> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().create(draft)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_snapshot(webview: Webview) -> Result<BroadcastSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().snapshot()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_control(
+    webview: Webview,
+    job_id: String,
+    action: BroadcastAction,
+) -> Result<BroadcastSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>()
+            .control(&job_id, action)
+    })
+    .await
 }

@@ -70,7 +70,7 @@ export function createShellView(document) {
   }
   function statusPanel(id) {
     // Keep recovery inside the current modal's keyboard focus boundary.
-    const target = id ? (id === 'ctx-menu' ? $(id) : $(id).firstElementChild) : $('side-nav');
+    const target = id ? (['ctx-menu', 'broadcast-menu'].includes(id) ? $(id) : $(id).firstElementChild) : $('side-nav');
     target.append(runtimeStatus);
     runtimeStatus.classList.toggle('in-dialog', Boolean(id));
   }

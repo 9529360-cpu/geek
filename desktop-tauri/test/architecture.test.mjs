@@ -120,3 +120,19 @@ test('window recovery cannot bypass authorization or reacquire account state', (
     assert.match(checkCommands(mutant).join('\n'), /authorization|account state|serialization/, before);
   }
 });
+
+test('broadcast ingress cannot bypass sender authorization or acquire the account coordinator', () => {
+  const source = collect(root);
+  const key = 'src-tauri/src/desktop/commands.rs';
+  for (const replacement of [
+    'bypass(webview, move |app| { app.state::<Arc<BroadcastDesktop>>().catalog(&account_id) })',
+    'execute(webview, move |app| { app.state::<SharedDesktop>().lock().unwrap().catalog(&account_id) })',
+  ]) {
+    const mutant = new Map(source);
+    const replaced = source.get(key).replace(/execute\(webview, move \|app\| \{\s*app\.state::<Arc<BroadcastDesktop>>\(\)\.catalog\(&account_id\)\s*\}\)/,
+      replacement);
+    assert.notEqual(replaced, source.get(key));
+    mutant.set(key, replaced);
+    assert.match(checkCommands(mutant).join('\n'), /Broadcast command.*authorization/);
+  }
+});

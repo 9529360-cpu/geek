@@ -18,6 +18,15 @@ fn main() {
     assert!(output.status.success(), "Platform catalog export failed");
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     fs::write(out.join("platforms.json"), output.stdout).expect("write catalog");
+    println!("cargo:rerun-if-changed=../guest");
+    println!("cargo:rerun-if-changed=../scripts/prepare-platform.cjs");
+    println!("cargo:rerun-if-changed=../../package-lock.json");
+    let platform = Command::new("node")
+        .arg("../scripts/prepare-platform.cjs")
+        .arg(&out)
+        .status()
+        .expect("Node.js is required to bundle the pinned platform runtime");
+    assert!(platform.success(), "Platform runtime preparation failed");
     println!("cargo:rerun-if-changed=../contracts/commands.json");
     println!("cargo:rerun-if-changed=../scripts/command-manifest.cjs");
     let output = Command::new("node")

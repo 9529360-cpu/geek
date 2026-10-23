@@ -1,0 +1,125 @@
+export const steps = Object.freeze(['content', 'audience', 'settings', 'review']);
+export const terminal = new Set(['completed', 'stopped', 'failed']);
+export const executing = new Set(['starting', 'running', 'paused', 'stopping']);
+export const pending = new Set(['scheduled', 'queued']);
+
+export function localSchedule(now = Date.now()) {
+  const date = new Date(now + 30 * 60_000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function emptyDraft(accountId, now = Date.now()) {
+  return { accountId, recipientIds: [], message: '', vcardIds: [], tagAll: false,
+    intervalMin: 5, intervalMax: 10, scheduleEnabled: false, scheduleTime: localSchedule(now) };
+}
+
+export function normalizeCatalog(value, accountId) {
+  if (!value || value.accountId !== accountId || !Array.isArray(value.chats)) throw 'BROADCAST_CATALOG_INVALID';
+  const seen = new Set();
+  const chats = value.chats.map((chat) => {
+    if (!chat || typeof chat.id !== 'string' || !chat.id || seen.has(chat.id)
+      || !['contact', 'group'].includes(chat.kind)) throw 'BROADCAST_CATALOG_INVALID';
+    seen.add(chat.id);
+    return { id: chat.id, name: typeof chat.name === 'string' ? chat.name : '',
+      realName: typeof chat.realName === 'string' ? chat.realName : '', kind: chat.kind };
+  });
+  if (value.ready && (typeof value.catalogId !== 'string' || !value.catalogId)) throw 'BROADCAST_CATALOG_INVALID';
+  return { ...value, chats, capabilities: { ...value.capabilities } };
+}
+
+export function matchingChats(chats, query = '', kind = null) {
+  const search = query.trim().toLocaleLowerCase();
+  return chats.filter((chat) => (!kind || chat.kind === kind)
+    && (!search || `${chat.name} ${chat.realName} ${chat.id}`.toLocaleLowerCase().includes(search)));
+}
+
+export function draftPayload(draft, catalog, now = Date.now()) {
+  if (!catalog?.ready || catalog.accountId !== draft.accountId) throw 'BROADCAST_ACCOUNT_NOT_READY';
+  if (!catalog.capabilities.text) throw 'BROADCAST_UNSUPPORTED';
+  const recipientIds = [...new Set(draft.recipientIds)];
+  const targets = recipientIds.map((id) => catalog.chats.find((chat) => chat.id === id));
+  if (!targets.length) throw 'BROADCAST_AUDIENCE_EMPTY';
+  if (targets.some((target) => !target)) throw 'BROADCAST_CATALOG_STALE';
+  const message = String(draft.message || '');
+  const vcardIds = [...new Set(draft.vcardIds)];
+  if (!message.trim() && !vcardIds.length) throw 'BROADCAST_CONTENT_EMPTY';
+  if (vcardIds.length && !catalog.capabilities.vcards) throw 'BROADCAST_VCARDS_UNAVAILABLE';
+  if (vcardIds.some((id) => !catalog.chats.some((chat) => chat.id === id && chat.kind === 'contact'))) {
+    throw 'BROADCAST_CATALOG_STALE';
+  }
+  if (draft.tagAll && !catalog.capabilities.tagAll) throw 'BROADCAST_TAG_ALL_UNAVAILABLE';
+  if (draft.tagAll && !message.trim()) throw 'BROADCAST_TAG_ALL_REQUIRES_TEXT';
+  if (/%nc/i.test(message) && targets.some((target) => !target.name.trim())) throw 'BROADCAST_NAME_MISSING';
+  if (/%nr/i.test(message) && targets.some((target) => !(target.realName || target.name).trim())) throw 'BROADCAST_NAME_MISSING';
+  const intervalMin = Number(draft.intervalMin);
+  const intervalMax = Number(draft.intervalMax);
+  if (!Number.isInteger(intervalMin) || !Number.isInteger(intervalMax)
+    || intervalMin < 5 || intervalMax > 60 || intervalMax < intervalMin) throw 'BROADCAST_INTERVAL_INVALID';
+  const scheduledAt = draft.scheduleEnabled ? new Date(draft.scheduleTime).getTime() : null;
+  if (draft.scheduleEnabled && !catalog.capabilities.scheduled) throw 'BROADCAST_SCHEDULE_UNAVAILABLE';
+  if (draft.scheduleEnabled && (!Number.isFinite(scheduledAt) || scheduledAt <= now)) throw 'BROADCAST_SCHEDULE_INVALID';
+  return { accountId: draft.accountId, catalogId: catalog.catalogId, recipientIds, message, vcardIds,
+    tagAll: Boolean(draft.tagAll), intervalMin, intervalMax, scheduledAt };
+}
+
+// A new native context does not change the user's intent. Retry the same UUID after an
+// uncertain create response; only editing semantic content starts a different request.
+export function submissionFor(payload, previous, uuid) {
+  const { catalogId: _catalog, ...intent } = payload;
+  const fingerprint = JSON.stringify(intent);
+  if (previous?.fingerprint === fingerprint) return previous;
+  const id = uuid();
+  if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    throw 'BROADCAST_ID_UNAVAILABLE';
+  }
+  return { id, fingerprint };
+}
+
+export function previewMessage(message, target = {}, now = Date.now()) {
+  const hour = new Date(now).getHours();
+  const greeting = hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
+  // Preview the first variant deterministically; the native sender chooses per target.
+  return String(message).replace(/\{([^{}|]+(?:\|[^{}|]+)+)\}/g, (_all, choices) => choices.split('|')[0].trim())
+    .replace(/%nc/gi, target.name || '（未提供姓名）')
+    .replace(/%nr/gi, target.realName || target.name || '（未提供昵称）')
+    .replace(/%sa/gi, greeting);
+}
+
+export function currentJob(jobs, accountId) {
+  const visible = jobs.filter((job) => job.accountId === accountId && !job.dismissed);
+  return visible.find((job) => executing.has(job.state))
+    || visible.filter((job) => pending.has(job.state)).sort((a, b) => (a.scheduledAt || a.createdAt) - (b.scheduledAt || b.createdAt))[0]
+    || visible.sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+}
+
+export function jobSummary(jobs) {
+  const visible = jobs.filter((job) => !job.dismissed);
+  return { active: visible.filter((job) => !terminal.has(job.state)).length,
+    running: visible.filter((job) => ['starting', 'running', 'stopping'].includes(job.state) && !job.reviewRequired && !job.storageBlocked).length,
+    pending: visible.filter((job) => pending.has(job.state)).length,
+    issues: visible.filter((job) => job.state === 'failed' || job.fail || job.uncertain || job.reviewRequired || job.storageBlocked).length };
+}
+
+export function resultRows(job) {
+  const rows = (job.results || []).filter((result) => result.outcome?.status !== 'confirmed').map((result) => {
+    const target = job.targets?.[result.index];
+    return { index: result.index, name: target?.name || `对象 ${Number(result.index) + 1}`,
+      status: result.outcome?.status, code: result.outcome?.code || 'BROADCAST_UNKNOWN' };
+  });
+  if (job.lastIssue && !rows.some((row) => row.code === job.lastIssue)) {
+    rows.unshift({ index: null, name: '任务', status: job.uncertain ? 'uncertain' : 'notSubmitted', code: job.lastIssue });
+  }
+  return rows;
+}
+
+export function jobLabel(job) {
+  if (job.storageBlocked) return '存储故障待处理';
+  if (job.reviewRequired) return '中断待核对';
+  return { scheduled: '已定时', queued: '排队中', starting: '准备中', running: '发送中', paused: '已暂停',
+    stopping: '停止中', completed: '已完成', stopped: '已停止', failed: '有异常' }[job.state] || '状态未知';
+}
+
+export function formatTime(value) {
+  return Number.isFinite(value) && value > 0 ? new Date(value).toLocaleString() : '立即发送';
+}

@@ -42,6 +42,7 @@ export function dom() {
     get options() { return this.children.filter((e) => e.tagName === 'option'); }
     get firstElementChild() { return this.children[0]; }
     get lastElementChild() { return this.children.at(-1); }
+    get childElementCount() { return this.children.length; }
     get textContent() { return this._text + this.children.map((e) => e.textContent).join(''); }
     set textContent(s) { this._text = String(s); this.replaceChildren(); }
     append(...items) {
@@ -53,10 +54,31 @@ export function dom() {
       }
     }
     replaceChildren(...items) { for (const e of this.children) e.parentElement = null; this.children = []; this.append(...items); }
+    appendChild(item) { this.append(item); return item; }
+    insertBefore(item, reference) {
+      if (!reference) { this.append(item); return item; }
+      if (reference.parentElement !== this) throw new Error('insertBefore reference is not a child');
+      reference.before(item); return item;
+    }
     before(item) {
       if (item.tagName === 'fragment') { for (const child of item.children.slice()) this.before(child); return; }
+      item.remove();
       const list = this.parentElement.children;
       list.splice(list.indexOf(this), 0, item); item.parentElement = this.parentElement;
+    }
+    after(item) {
+      if (item.tagName === 'fragment') {
+        let previous = this;
+        for (const child of item.children.slice()) { previous.after(child); previous = child; }
+        return;
+      }
+      item.remove();
+      const list = this.parentElement.children;
+      list.splice(list.indexOf(this) + 1, 0, item); item.parentElement = this.parentElement;
+    }
+    remove() {
+      if (this.parentElement) this.parentElement.children = this.parentElement.children.filter((node) => node !== this);
+      this.parentElement = null;
     }
     setAttribute(k, v) {
       this.attributes.set(k, String(v));
@@ -65,13 +87,22 @@ export function dom() {
       if (k.startsWith('data-')) this.dataset[k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
     }
     getAttribute(k) { return this.attributes.get(k) ?? null; }
+    hasAttribute(k) { return this.attributes.has(k); }
+    removeAttribute(k) {
+      this.attributes.delete(k);
+      if (['disabled', 'hidden', 'checked'].includes(k)) this[k] = false;
+      if (k.startsWith('data-')) delete this.dataset[k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
+    }
     addEventListener(k, callback) { const list = this.listeners.get(k) || []; list.push(callback); this.listeners.set(k, list); }
+    removeEventListener(k, callback) { this.listeners.set(k, (this.listeners.get(k) || []).filter((item) => item !== callback)); }
     fire(k, event = {}) {
       if (this.disabled) return;
-      const e = { target: this, button: 0, preventDefault() {}, ...event };
+      const e = { target: this, currentTarget: this, button: 0, preventDefault() {}, stopPropagation() {}, ...event };
       for (const callback of this.listeners.get(k) || []) callback(e);
     }
+    click() { this.fire('click'); }
     focus() { document.activeElement = this; }
+    setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
     matches(selector) {
       return selector.split(',').some((part) => {
         const s = part.trim();
@@ -108,6 +139,7 @@ export function dom() {
   }
   document = new Element('document');
   document.createElement = (tag) => new Element(tag);
+  document.createDocumentFragment = () => new Element('fragment');
   document.getElementById = (id) => document.querySelector(`#${id}`);
   const stack = [document];
   const html = compose().html.replace(/<!--[\s\S]*?-->/g, '');
@@ -124,7 +156,8 @@ export function dom() {
     stack.at(-1).append(e);
     if (!['meta', 'link', 'input', 'br', 'hr', 'img', 'source'].includes(tag) && !token.endsWith('/>')) stack.push(e.content || e);
   }
-  const window = { innerWidth: 960, innerHeight: 640, addEventListener() {}, setTimeout: (fn) => { fn(); return 0; } };
+  document.body = document.querySelector('body');
+  const window = { innerWidth: 960, innerHeight: 640, addEventListener() {}, clearTimeout() {}, setTimeout: (fn) => { fn(); return 0; } };
   return { document, window, get: document.getElementById };
 }
 

@@ -110,6 +110,33 @@
         "action"
       ],
       "response": "unit"
+    },
+    {
+      "name": "broadcast_catalog",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "BroadcastCatalog"
+    },
+    {
+      "name": "broadcast_create",
+      "arguments": [
+        "draft"
+      ],
+      "response": "CreatedBroadcast"
+    },
+    {
+      "name": "broadcast_snapshot",
+      "arguments": [],
+      "response": "BroadcastSnapshot"
+    },
+    {
+      "name": "broadcast_control",
+      "arguments": [
+        "jobId",
+        "action"
+      ],
+      "response": "BroadcastSnapshot"
     }
   ]
 }

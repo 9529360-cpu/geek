@@ -2,10 +2,10 @@ name: tauri-windows-prototype
 on:
   push:
     branches: [master, 'feat/tauri-windows-rust']
-    paths: ['desktop-tauri/**', 'ui/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+    paths: ['desktop-tauri/**', 'ui/**', 'package.json', 'package-lock.json', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
   pull_request:
     branches: [master]
-    paths: ['desktop-tauri/**', 'ui/**', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
+    paths: ['desktop-tauri/**', 'ui/**', 'package.json', 'package-lock.json', 'src/platform-catalog.cjs', '.github/workflows/tauri-windows.yml']
 permissions:
   contents: read
 concurrency:
@@ -28,6 +28,8 @@ jobs:
           package-manager-cache: false
       - name: Architecture, size, IPC and frontend behavior gates
         run: node desktop-tauri/scripts/run-tests.cjs
+      - name: Install locked platform assets without lifecycle scripts
+        run: npm ci --ignore-scripts --omit=dev --no-audit --no-fund
       - name: Retain exact source and original UI reference for independent checks
         if: always()
         uses: actions/upload-artifact@v7
@@ -38,6 +40,7 @@ jobs:
             desktop-tauri/test/
             desktop-tauri/scripts/
             desktop-tauri/contracts/
+            desktop-tauri/guest/
             desktop-tauri/src-tauri/src/
             desktop-tauri/src-tauri/Cargo.toml
             desktop-tauri/src-tauri/Cargo.lock
@@ -52,6 +55,8 @@ jobs:
             desktop-tauri/UI-PARITY.md
             ui/
             src/platform-catalog.cjs
+            package.json
+            package-lock.json
             AGENTS.md
             docs/README.md
           if-no-files-found: error

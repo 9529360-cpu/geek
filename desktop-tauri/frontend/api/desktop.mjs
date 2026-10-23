@@ -19,5 +19,9 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     reload: (id) => invoke('account_reload', { id }),
     layout: (viewport) => invoke('desktop_layout', { viewport }),
     settings: (settings) => invoke('desktop_settings', { settings }),
+    broadcastCatalog: (accountId) => invoke('broadcast_catalog', { accountId }),
+    broadcastCreate: (draft) => invoke('broadcast_create', { draft }),
+    broadcastSnapshot: () => invoke('broadcast_snapshot'),
+    broadcastControl: (jobId, action) => invoke('broadcast_control', { jobId, action }),
   });
 }

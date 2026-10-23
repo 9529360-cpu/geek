@@ -98,6 +98,9 @@ test('all commands share the same native sender gate and blocking executor', () 
     if (section.includes('pub async fn desktop_window(')) {
       assert.match(section, /execute\(webview, move \|app\| super::window::apply\(&app, action\)\)/);
       assert.doesNotMatch(section, /State|SharedDesktop|\.lock\(/);
+    } else if (/pub async fn broadcast_(catalog|create|snapshot|control)\(/.test(section)) {
+      assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<BroadcastDesktop>>\(\)/);
+      assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
     } else assert.match(section, /\{\s*execute_workspace\(webview, state,/);
   }
   assert.match(commands, /execute\(webview, move \|_\| \{\s*let mut desktop = shared\.lock\(/);
@@ -117,6 +120,9 @@ test('shell keeps original identifiers without unsafe dynamic markup', () => {
   assert.doesNotMatch(source, /innerHTML|insertAdjacentHTML|eval\(/);
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(new Set(ids).size, ids.length);
+  const generated = [...read('../frontend/views/broadcast-jobs.mjs').matchAll(/\.id = '([^']+)'/g)].map((m) => m[1]);
+  assert.equal(new Set([...ids, ...generated]).size, ids.length + generated.length);
+  ids.push(...generated);
   for (const [, id] of source.matchAll(/\$\('([^']+)'\)/g)) assert.ok(ids.includes(id), id);
 });
 

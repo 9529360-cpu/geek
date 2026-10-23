@@ -10,6 +10,36 @@ pub trait AccountRepository {
     fn save(&mut self, document: &Document) -> Result<()>;
 }
 
+/// Independent job storage; the process-wide account repository owns instance.lock.
+pub trait BroadcastRepository: Send + 'static {
+    fn load(&self) -> Result<Option<crate::domain::broadcast::BroadcastDocument>>;
+    fn save(&mut self, document: &crate::domain::broadcast::BroadcastDocument) -> Result<()>;
+}
+
+/// Addressed semantic operations only. Implementations must bound every native wait.
+pub trait BroadcastPlatform: Send + Sync + 'static {
+    fn acquire_binding(
+        &self,
+        account_id: &str,
+        platform_id: &str,
+    ) -> std::result::Result<
+        crate::domain::broadcast::GuestBinding,
+        crate::domain::broadcast::BroadcastIssue,
+    >;
+    fn local_hour(
+        &self,
+        binding: &crate::domain::broadcast::GuestBinding,
+    ) -> std::result::Result<u8, crate::domain::broadcast::BroadcastIssue>;
+    /// Call control.try_begin_commit() immediately before the one outbound mutation.
+    /// A submitted timeout/exception is Uncertain, never NotSubmitted or a retry.
+    fn dispatch(
+        &self,
+        binding: &crate::domain::broadcast::GuestBinding,
+        request: &crate::domain::broadcast::DispatchRequest,
+        control: &super::broadcast::DispatchControl,
+    ) -> crate::domain::broadcast::DispatchOutcome;
+}
+
 /// Native side effects. Account IDs are already validated by the use-case owner.
 /// This port exposes no arbitrary paths, scripts, URLs or privileged page bridge.
 pub trait DesktopHost {

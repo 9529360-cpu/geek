@@ -1,4 +1,5 @@
 /* Runtime adaptation only. Original palette, geometry, icons and dialogs are reused. */
+@import url('./broadcast.css');
 [hidden] { display: none !important; }
 /* Keep only native window controls above account modals, at their original position. */
 .top-bar { z-index: auto; }

@@ -4,7 +4,7 @@ Windows 专用独立开发版。Tauri 是桌面框架，Rust 负责本地后端�
 
 ## 开发与验证
 
-需要 Windows、Microsoft C++ Build Tools（桌面 C++ 工作负载及 Windows SDK）、Rust MSVC stable、Node.js 22+ 和 WebView2 Evergreen Runtime。前端没有 npm 依赖。Node 在构建时组装原版 UI 并导出平台元数据。
+需要 Windows、Microsoft C++ Build Tools（桌面 C++ 工作负载及 Windows SDK）、Rust MSVC stable、Node.js 22+ 和 WebView2 Evergreen Runtime。管理界面不运行 Node。构建需要通过根 package-lock 安装锁定的 WA-JS 平台资源；Node 组装原版 UI、平台元数据和固定 guest 适配器。
 
 The original Geek layout is the baseline, not the previous sidebar-form prototype.
 The build reuses `ui/index.html`, original CSS/fonts and platform icon data, then loads
@@ -14,6 +14,7 @@ only Tauri-specific controller modules. Original Electron files remain unchanged
 在仓库根目录运行：
 
 ```powershell
+npm ci --ignore-scripts --omit=dev --no-audit --no-fund
 node desktop-tauri/scripts/run-tests.cjs
 cargo test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
 cargo run --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
@@ -73,7 +74,7 @@ schema 4 新增账号字号和颜色，schema 3 的账号代理配置继续保�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：翻译/订阅/群发/附件桥、消息通知、崩溃恢复、Electron 数据迁移、安装器及自动更新。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：翻译/订阅、Telegram 群发和附件桥、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 群发的实现范围与恢复边界见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -117,9 +118,9 @@ tracks the actual chat container and is suspended while a modal/menu is open.
 
 Wired paths: create 1-10 accounts with proxy, switch accounts/families, save account
 name/font/color, drag reorder within a family, reload, close, archive, search/restore,
-tray preference and native window controls.
+tray preference, native window controls and the WhatsApp broadcast workflow.
 Not yet wired: restart/lock,
-auth/subscription, theme/startup options, translation/notes/broadcast and attachments.
+auth/subscription, theme/startup options, translation/notes, Telegram broadcast and attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 
@@ -161,3 +162,19 @@ Archived, unknown, and cross-family targets are rejected. External drag payloads
 are ignored. A successful save is required before the UI changes order; failure
 does not retry the move automatically. UUIDs, profiles, active selection, proxy
 settings, and open/closed guest state are preserved. No extra ordering store is used.
+
+## WhatsApp 群发
+
+原入口与四步工作台已接通 WhatsApp / 纯净版的文本、联系人和群选择、变量及随机版本、电子名片、文本消息中的 @全体、即时与定时任务。随机间隔在界面及原生入口均限定为 5–60 秒。联系人目录来自该账号的已登录页面，名字与目标在 Rust 创建任务时冻结；切换当前账号不会改变发送归属。只支持普通用户 Wid（`@c.us` / `@lid`）与普通群（`@g.us`），不把频道、状态广播或社区父群当作联系人。缺失姓名不能用聊天 ID 冒充变量值，成员数据不完整时不降级成部分 @全体。
+
+一个账号只能执行一个任务，其他任务排队；不同账号最多四个 worker 并发，每个 worker 每次只处理一个目标。当前账号任务条和全部账号任务中心可暂停、继续、停止并查看结果。任务条显示前先依据实际高度缩小原生聊天区域，避免 native WebView 覆盖操作按钮。关闭、刷新、修改代理或归档账号会撤销该 guest 的代次，并停止其未结束任务，包括定时任务。
+
+发送前把目标与展开后的文本写入 `broadcast.dpapi` 检查点，再通过单次提交闸门调用该账号的固定平台适配器。仅真实平台消息 ID 和 ACK≥1 计入确认；超时、回执缺失、部分发送或提交后异常均进入“结果不确定”并暂停，不能因重启或继续自动重发。暂停发生在提交前则保留当前目标与文本。平台未就绪时整任务暂停，避免把剩余对象依次算作失败。停止只阻止后续操作，不能撤回已提交消息。
+
+任务存储由独立 Rust owner 管理，沿用现有 DPAPI、原子替换和应用进程锁；不在账号 Workspace 锁内等待网页、回执或间隔。创建请求 UUID 去重，迟到创建响应或重试不会生成第二个任务。未确认的发送检查点在恢复后记录为 uncertain 并跳过；曾执行任务需要人工核对后继续，未开始的即时队列也不自动发送。未开始的定时任务恢复后可到点准备，但应用必须运行且对应账号页面需要就绪；不会后台自动打开所有账号。到点账号未就绪最多准备 20 次，之后显示明确失败。
+
+每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。附件、Telegram 原生输入、失败 CSV 导出、外部导入及未接通的高级选项仍保留原位置并标明不可用。
+
+平台桥只执行打包的命名语义调用，未向页面开放脚本、路径、密钥或 native IPC。构建复用原版 capability/adapter/safety 纯合同及锁定的 WA-JS，附带依赖许可和输入哈希。异步结果经有界 mailbox 返回；原生使用单调时钟期限，取消或导航会使旧 mailbox 和准备结果失效。每个 document 的 attempt ID 单次使用，达到有界容量则拒绝继续，不丢弃旧凭据来允许重放。
+
+离线 VM、真实控制器、并发 Rust 替身和 Windows DPAPI 测试覆盖上述边界；浏览器截图与严格 CSP 测试只证明外壳联动，不能代替真实 WhatsApp / WebView2 发送验收。开发验证不登录客户账号、不发送真实消息。

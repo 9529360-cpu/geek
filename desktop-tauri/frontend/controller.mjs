@@ -2,6 +2,7 @@ import { serialQueue, errorMessage } from './model.mjs';
 import { families, familyOf, visibleAccounts, viewportOf } from './models/shell.mjs';
 import { createShellView } from './view.mjs';
 import { batchCount } from './models/creation.mjs';
+import { createBroadcastController } from './controllers/broadcast.mjs';
 
 export function mountShell({ document, window, api }) {
   const view = createShellView(document);
@@ -18,8 +19,14 @@ export function mountShell({ document, window, api }) {
   const remembered = new Map();
   let layoutQueued = false;
   let layoutDirty = false;
-  const setBusy = (value) => { busy = value; view.busy(value, Boolean(current && api), Boolean(api), pendingWindows); };
-  const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible));
+  let layoutPromise = Promise.resolve();
+  let broadcast = null;
+  const setBusy = (value) => {
+    busy = value;
+    view.busy(value, Boolean(current && api), Boolean(api), pendingWindows);
+    broadcast?.setShellBusy(value);
+  };
+  const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible, $('broadcast-job-bar')));
 
   function render(next) {
     current = next;
@@ -32,10 +39,11 @@ export function mountShell({ document, window, api }) {
     if (!groups.some((item) => item.key === family)) family = groups[0]?.key || null;
     view.accounts.render(next, family, { activate, context, moveAccount, family: selectFamily });
     if (panel === 'account-library-overlay') renderLibrary();
+    broadcast?.renderShell(next);
     setBusy(busy);
   }
   function run(operation, clearStatus = true, refreshOnError = true) {
-    if (busy || !api) return Promise.resolve(false);
+    if (busy || broadcast?.busy || !api) return Promise.resolve(false);
     setBusy(true);
     if (clearStatus) view.status();
     return enqueue(async () => {
@@ -76,6 +84,7 @@ export function mountShell({ document, window, api }) {
   async function hidePanel() {
     if (panel) $(panel).classList.add('hidden');
     panel = null;
+    broadcast?.panelChanged(null);
     view.statusPanel(null);
     await syncLayout(true);
     returnFocus?.focus();
@@ -88,6 +97,7 @@ export function mountShell({ document, window, api }) {
     fill?.();
     view.statusPanel(id);
     $(id).classList.remove('hidden');
+    broadcast?.panelChanged(id);
     if (id === 'ctx-menu') {
       const menu = $(id);
       const rect = menu.getBoundingClientRect();
@@ -152,6 +162,8 @@ export function mountShell({ document, window, api }) {
     $('add-custom-url').required = id === 'website';
     setBusy(busy);
   }
+  broadcast = createBroadcastController({ document, window, api, getShellSnapshot: () => current,
+    showPanel, hidePanel, requestLayout });
   on('btn-app-center', 'click', () => run(() => showPanel('add-overlay', () => {
     selectedPlatform = null;
     $('add-name').value = '';
@@ -237,7 +249,7 @@ export function mountShell({ document, window, api }) {
   document.addEventListener('keydown', (event) => {
     if (panel && event.key === 'Escape') { event.preventDefault(); run(hidePanel); }
     if (panel && event.key === 'Tab') {
-      const controls = [...$(panel).querySelectorAll('button, input, select'),
+      const controls = [...$(panel).querySelectorAll('button, input, select, textarea'),
         ...document.querySelector('.win-controls').querySelectorAll('button')]
         .filter((el) => !el.disabled && el.getClientRects().length);
       if (!controls.length) return;
@@ -250,23 +262,26 @@ export function mountShell({ document, window, api }) {
     }
   });
   function requestLayout() {
-    if (!current || !api) return;
+    if (!current || !api) return Promise.resolve();
     layoutDirty = true;
-    if (layoutQueued) return;
+    if (layoutQueued) return layoutPromise;
     layoutQueued = true;
-    enqueue(async () => {
+    layoutPromise = enqueue(async () => {
       try { while (layoutDirty) { layoutDirty = false; await syncLayout(!panel); } }
-      catch { view.status(errorMessage('WEBVIEW_FAILED')); }
+      catch (error) { view.status(errorMessage('WEBVIEW_FAILED')); throw error; }
       finally { layoutQueued = false; }
     });
+    return layoutPromise;
   }
-  window.addEventListener('resize', requestLayout);
-  const observer = window.ResizeObserver ? new window.ResizeObserver(requestLayout) : null;
+  const resize = () => { void requestLayout().catch(() => {}); };
+  window.addEventListener('resize', resize);
+  const observer = window.ResizeObserver ? new window.ResizeObserver(resize) : null;
   observer?.observe($('webview-container'));
   if (api) run(async () => { render(await api.snapshot()); await syncLayout(true); }, true, false);
   else {
     setBusy(false);
     view.status('\u8bf7\u4ece Tauri Windows \u5f00\u53d1\u7248\u542f\u52a8\uff1b\u6d4f\u89c8\u5668\u9884\u89c8\u4e0d\u6a21\u62df\u8d26\u53f7\u529f\u80fd\u3002');
   }
-  return { idle: () => enqueue(() => {}), dispose: () => observer?.disconnect() };
+  return { idle: async () => { await enqueue(() => {}); await broadcast.idle(); await enqueue(() => {}); },
+    dispose: () => { observer?.disconnect(); broadcast.dispose(); window.removeEventListener?.('resize', resize); } };
 }

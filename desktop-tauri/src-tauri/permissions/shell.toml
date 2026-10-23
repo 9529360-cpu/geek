@@ -15,5 +15,9 @@ commands.allow = [
   "account_update_display",
   "account_move",
   "account_set_archived",
-  "desktop_settings"
+  "desktop_settings",
+  "broadcast_catalog",
+  "broadcast_create",
+  "broadcast_snapshot",
+  "broadcast_control"
 ]

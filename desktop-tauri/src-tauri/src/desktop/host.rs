@@ -1,4 +1,4 @@
-use super::{layout, tray::TrayState};
+use super::{layout, platform_sessions::PlatformSessions, tray::TrayState};
 use crate::{
     application::ports::DesktopHost,
     domain::{
@@ -9,9 +9,9 @@ use crate::{
     },
     infrastructure::profiles::account_profile,
 };
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use tauri::{
-    webview::{NewWindowResponse, PermissionResponse, WebviewBuilder},
+    webview::{NewWindowResponse, PageLoadEvent, PermissionResponse, WebviewBuilder},
     AppHandle, LogicalPosition, Manager, Webview, WebviewUrl,
 };
 
@@ -19,18 +19,26 @@ pub struct TauriHost {
     app: AppHandle,
     root: PathBuf,
     viewport: Viewport,
+    sessions: Arc<PlatformSessions>,
 }
 
 fn label(id: &str) -> String {
     format!("account-{id}")
 }
 
+fn revoke_document(guest: &Webview, generation: &str) {
+    if let Ok(value) = serde_json::to_string(generation) {
+        let _ = guest.eval(format!("window.__geekTauriPlatform?.revoke({value})"));
+    }
+}
+
 impl TauriHost {
-    pub fn new(app: AppHandle, root: PathBuf) -> Self {
+    pub fn new(app: AppHandle, root: PathBuf, sessions: Arc<PlatformSessions>) -> Self {
         Self {
             app,
             root,
             viewport: Viewport::default(),
+            sessions,
         }
     }
 
@@ -38,6 +46,13 @@ impl TauriHost {
         self.app
             .get_webview(&label(id))
             .ok_or(AppError::AccountNotOpen)
+    }
+
+    fn revoke(&self, id: &str, guest: &Webview) {
+        if let Some(binding) = self.sessions.current(id) {
+            revoke_document(guest, &binding.generation);
+        }
+        self.sessions.invalidate(id);
     }
 }
 
@@ -59,6 +74,9 @@ impl DesktopHost for TauriHost {
         let window = self.app.get_window("main").ok_or(AppError::WebviewFailed)?;
         let profile = account_profile(&self.root, &account.id)?;
         std::fs::create_dir_all(&profile).map_err(|_| AppError::StoreIo)?;
+        let incarnation = self.sessions.created(&account.id, &account.platform_id);
+        let sessions = Arc::clone(&self.sessions);
+        let account_id = account.id.clone();
         let builder = WebviewBuilder::new(
             label(&account.id),
             WebviewUrl::External(navigation.start().clone()),
@@ -68,6 +86,18 @@ impl DesktopHost for TauriHost {
         .devtools(false)
         .focused(false)
         .on_navigation(move |url| navigation.allows(url))
+        .on_page_load(move |guest, payload| {
+            if payload.event() == PageLoadEvent::Started {
+                if let Some(binding) = sessions.current_for_incarnation(&account_id, &incarnation) {
+                    revoke_document(&guest, &binding.generation);
+                }
+            }
+            sessions.page(
+                &account_id,
+                &incarnation,
+                payload.event() == PageLoadEvent::Started,
+            );
+        })
         .on_new_window(|_, _| NewWindowResponse::Deny)
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_download(|_, _| false);
@@ -78,11 +108,16 @@ impl DesktopHost for TauriHost {
             None => builder,
         };
         let (_, size) = layout::bounds(&window, self.viewport)?;
-        let guest = window
-            .add_child(builder, LogicalPosition::new(100_000.0, 0.0), size)
-            .map_err(|_| AppError::WebviewFailed)?;
+        let guest = match window.add_child(builder, LogicalPosition::new(100_000.0, 0.0), size) {
+            Ok(guest) => guest,
+            Err(_) => {
+                self.sessions.removed(&account.id);
+                return Err(AppError::WebviewFailed);
+            }
+        };
         if guest.hide().is_err() {
             let _ = guest.close();
+            self.sessions.removed(&account.id);
             return Err(AppError::WebviewFailed);
         }
         Ok(())
@@ -116,13 +151,17 @@ impl DesktopHost for TauriHost {
     }
 
     fn close(&mut self, id: &str) -> Result<()> {
-        self.guest(id)?.close().map_err(|_| AppError::WebviewFailed)
+        let guest = self.guest(id)?;
+        self.revoke(id, &guest);
+        guest.close().map_err(|_| AppError::WebviewFailed)?;
+        self.sessions.removed(id);
+        Ok(())
     }
 
     fn reload(&mut self, id: &str) -> Result<()> {
-        self.guest(id)?
-            .reload()
-            .map_err(|_| AppError::WebviewFailed)
+        let guest = self.guest(id)?;
+        self.revoke(id, &guest);
+        guest.reload().map_err(|_| AppError::WebviewFailed)
     }
 
     fn tray_available(&self) -> bool {

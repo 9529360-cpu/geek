@@ -53,6 +53,7 @@ frontend/app.mjs                       main.rs
 | --- | --- | --- |
 | domain | Account/Settings/Document, UUID/name/schema validation, platform/navigation policy, typed errors | Tauri, I/O, UI state, network, side effects |
 | application/accounts | Single account document; validate candidate, persist, then publish memory | Public mutable state, secondary config owner, native code |
+| application/broadcast | Independent encrypted job document, bounded scheduler, immutable targets and single-use submit admission | Workspace/network waits under its owner lock, replay of uncertain effects |
 | application/workspace | Activate/close/reload/archive/settings orchestration; active account | Browser profile rewriting, network jobs under its lock |
 | application/ports | Repository and native-host contracts | Concrete implementation or generic arbitrary-command interfaces |
 | infrastructure | Encryption/atomic writes/process lock/profile paths/catalog decoding | UI operations or calls back into use-case implementations |
@@ -69,7 +70,7 @@ It is a lexical maintenance guard, not a replacement for compiler checks or code
 
 Window chrome is a separate native adapter: `desktop_window` shares sender authorization
 and the blocking executor, but does not request `SharedDesktop` or wait on its mutex.
-Account/guest commands continue through the serialized workspace wrapper. The frontend
+Account/guest commands continue through the serialized workspace wrapper. Broadcast commands use the same authorization and blocking boundary with their separate BroadcastDesktop owner; no Workspace lock surrounds platform calls. The frontend
 likewise keeps window controls out of its account queue, with one pending request per
 window action; a pending maximize cannot block close. Only the original window buttons
 remain above modal overlays and inside their keyboard navigation boundary. Close still
@@ -182,7 +183,7 @@ WebRTC/UDP egress guarantee, and does not affect the shell or Rust HTTP clients.
 
 ## 6. Feature boundaries for subsequent implementation
 
-These are design constraints, **not implemented-feature claims or placeholder modules**.
+The table describes ownership constraints. The implemented WhatsApp broadcast subset is specified below; other entries remain constraints for subsequent work.
 Introduce each owner only with a working caller, tests and an integration path.
 
 | Feature owner | Inputs/state and commit rule |
@@ -257,3 +258,56 @@ The close action uses the ordinary close request, preserving the tray preference
 DOM/synthetic-host tests and offline Chromium comparisons are not native WebView2
 acceptance. Real DPI changes, native child visibility and drag/window behavior require
 Windows runtime verification in addition to compilation and use-case tests.
+
+## Broadcast ownership and platform bridge
+
+`application/broadcast*` owns the encrypted broadcast document, revisions, job queue and
+single-use DispatchControl admission. `desktop/broadcast` composes it with its own repository
+and platform port; its 250 ms scheduler never holds Workspace while waiting for a guest.
+At most four target workers run, with one executing job per account. Each target checkpoint
+also freezes the rendered message, so a pause before commit cannot redraw a random variant.
+All mutations persist a validated candidate before publication. A persistence error at
+settlement blocks execution while preserving the old checkpoint. Restart converts unresolved
+checkpoints to uncertain outcomes and skips those targets on explicit resume.
+
+Snapshots may project `storageBlocked` at an unchanged durable revision; consumers discard
+only strictly older revisions. Stop-after-settle is finalized under the same owner lock as
+worker removal, including the failure case. Retained history is bounded; only explicitly
+dismissed terminal jobs may be compacted when full, and their UUIDs become durable bounded
+tombstones. A retired UUID never creates another job. No acknowledged or uncertain message
+is retried automatically.
+
+`desktop/platform_sessions` binds account UUID, native view incarnation and document
+generation. Old incarnation callbacks cannot revoke or mark a replacement view ready.
+Explicit close/reload revokes the guest bridge, rotates native identity and queues lifecycle
+invalidation for the independent scheduler. Page navigation also rotates identity. Catalog
+leases are bounded and temporary; their audience and names come from the correct native
+guest, while the shell sends only selected IDs. Creation resolves these IDs into immutable
+Rust-owned targets. Closed/archived accounts and stale leases fail closed.
+
+`desktop/platform_bridge` evaluates only fixed bundled assets and named semantic requests.
+No renderer-controlled script crosses IPC. The original pure capability and safety contracts
+are extracted by `prepare-platform.cjs`; the existing pinned WA-JS runtime is the only WA
+runtime. The Electron sender and its timeout-to-success fallback are not included. Real
+runtime readiness precedes scheduled target checkpoint admission. Normal users/groups are
+admitted; unsupported channel/status/community-parent destinations are excluded and checked
+again immediately before a platform side effect.
+
+Windows eval callbacks do not await Promise results, so the guest uses a bounded mailbox.
+Rust begins an operation once and polls that same ID. Native monotonic deadlines and
+cancellation cover even a lost begin callback. Cleanup uses the originally held WebView and
+old generation token, including after native generation revocation. Guest cancel/revoke,
+expiry, and consumed attempt tombstones prevent late preparation or secondary card effects.
+Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
+that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
+
+The original four-step workbench and task center expose this contract. A measured task bar
+strip is reserved above native guest bounds before displaying controls; z-index alone cannot
+cover a native child. The shell keeps the guest's account identity independent of visibility.
+The named broadcast IPC remains authorized only to the local shell, with manifest/permission/
+gateway drift and independent-owner checks enforced by the architecture gate.
+
+Telegram native text input and file chooser delivery do not currently have an approved
+safe native adapter. They remain unavailable. Adding hand-written WebView2 COM outside the
+reviewed DPAPI boundary requires a deliberate architecture decision; JS Enter, synthetic
+file drops, arbitrary CDP and a remote-debugging port do not satisfy that boundary.

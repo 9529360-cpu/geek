@@ -24,7 +24,7 @@ test('initial snapshot failure leaves window controls and read-only recovery ava
   assert.equal(ui.get('runtime-status').classList.contains('hidden'), true);
   assert.equal(ui.calls.filter(([name]) => name === 'desktop_layout').at(-1)[1].viewport.visible, true);
   assert.equal(ui.state.accounts.length, 2);
-  assert.ok(names(ui).every((name) => ['desktop_snapshot', 'desktop_layout', 'desktop_window'].includes(name)));
+  assert.ok(names(ui).every((name) => ['desktop_snapshot', 'desktop_layout', 'desktop_window', 'broadcast_snapshot'].includes(name)));
 });
 
 test('retry cannot replay a failed save and keeps a modal suspended with its draft intact', async () => {
