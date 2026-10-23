@@ -275,6 +275,25 @@ All mutations persist a validated candidate before publication. A persistence er
 settlement blocks execution while preserving the old checkpoint. Restart converts unresolved
 checkpoints to uncertain outcomes and skips those targets on explicit resume.
 
+Attachments use that same job owner, checkpoint and commit admission. A shell-only native
+picker on a fresh STA thread creates temporary account-owned opaque references; it never
+returns paths or file bytes to the shell. The pinned rfd Rust API adds no dialog plugin,
+guest scripts or general filesystem IPC. At submit, selected metadata and private sources
+become immutable job-owned records in one encrypted document commit. Schema 2 reads old
+schema 1 without an eager rewrite. Snapshots expose only attachment metadata; private paths,
+size/mtime and SHA-256 stay in the encrypted document and are removed atomically at terminal
+settlement. Cleanup never removes the original file.
+
+The native attachment adapter verifies every source before the first side effect, retaining
+the same Windows read-shared handles through transfer. It streams 512 KiB chunks through a
+fixed guest protocol and checks the digest again at EOF. A document stages one File at a
+time; a pending WA-JS upload owns that slot until its actual Promise settles, including after
+cancellation or timeout. Files follow selection order, with the rendered message on the
+last file, then vcards. All receipts must be confirmed. The bundle has a 20-minute native
+deadline and each file has at most five minutes. A missing/changed source before commit
+fails the job; any failure after the first commit is uncertain and pauses without automatic
+replay. File and text dispatch share the existing queue, lifecycle invalidation and pacing.
+
 Snapshots may project `storageBlocked` at an unchanged durable revision; consumers discard
 only strictly older revisions. Stop-after-settle is finalized under the same owner lock as
 worker removal, including the failure case. Retained history is bounded; only explicitly
@@ -376,8 +395,9 @@ No extra handwritten unsafe or general-purpose network/URL IPC is introduced.
 Session/context commands share the native authorization/blocking boundary but use their
 own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
 The original UI provides login, quota, account/chat translation settings, incoming
-display and the plain-text/same-chat text-reply outgoing paths specified below. Mentions,
-media replies, attachments, Telegram translation, registration/purchase and bulk history remain explicitly unavailable
+display and the plain-text/same-chat text-reply outgoing paths specified below. Interactive
+mentions, media replies, interactive attachments, Telegram translation, registration/purchase
+and bulk history remain explicitly unavailable
 until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
 that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
@@ -461,7 +481,8 @@ cover a native child. The shell keeps the guest's account identity independent o
 The named broadcast IPC remains authorized only to the local shell, with manifest/permission/
 gateway drift and independent-owner checks enforced by the architecture gate.
 
-Telegram native text input and file chooser delivery do not currently have an approved
-safe native adapter. They remain unavailable. Adding hand-written WebView2 COM outside the
+Telegram native text input and delivery into a guest page's file chooser do not currently
+have an approved safe native adapter. They remain unavailable; WhatsApp broadcast attachments
+use the explicit WA-JS File API described above. Adding hand-written WebView2 COM outside the
 reviewed DPAPI boundary requires a deliberate architecture decision; JS Enter, synthetic
 file drops, arbitrary CDP and a remote-debugging port do not satisfy that boundary.

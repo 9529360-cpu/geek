@@ -77,11 +77,12 @@ export function createWorkbenchView(document, retry, changed) {
     values.get('audience').textContent = count ? `${count} 个对象` : '尚未选择对象';
     values.get('time').textContent = draft.scheduleEnabled ? (scheduledAt > Date.now() ? formatTime(scheduledAt) : '请选择未来的时间') : '立即发送';
     values.get('interval').textContent = `${draft.intervalMin}–${draft.intervalMax} 秒 · 随机等待`;
-    values.get('extras').textContent = `${draft.vcardIds.length} 张名片${draft.tagAll ? ' · @全体群成员' : ''}`;
+    const files = draft.attachments?.length || 0;
+    values.get('extras').textContent = `${files} 个附件，${draft.vcardIds.length} 张名片${draft.tagAll ? '，@全体群成员' : ''}`;
     values.get('mode').textContent = '固定账号与受众快照';
     const target = catalog?.chats.find((chat) => chat.id === draft.recipientIds[0]);
     previewText.textContent = draft.message.trim() ? previewMessage(draft.message, target).slice(0, 2000)
-      : draft.vcardIds.length ? '无文本，仅发送电子名片' : '未填写文本消息';
+      : files ? '无文本，仅发送附件' : draft.vcardIds.length ? '无文本，仅发送电子名片' : '未填写文本消息';
     let error = null;
     try { draftPayload(draft, catalog); } catch (code) { error = code; }
     if (!draft.scheduleEnabled && activeJob) error = 'BROADCAST_ACCOUNT_BUSY';
@@ -89,7 +90,7 @@ export function createWorkbenchView(document, retry, changed) {
     launch.textContent = error ? errorMessage(error) : draft.scheduleEnabled
       ? '定时任务创建时固定受众，到点后按当前账号队列执行。' : '发送后可暂停或停止后续对象，已提交的消息无法撤回。';
     $('broadcast-send').textContent = draft.scheduleEnabled ? `定时发送给 ${count} 个聊天` : `发送给 ${count} 个聊天`;
-    overlay.querySelector('.bc-footer-note').textContent = `间隔 ${draft.intervalMin}–${draft.intervalMax} 秒`;
+    overlay.querySelector('.bc-footer-note').textContent = `${files ? `${files} 个附件，` : ''}间隔 ${draft.intervalMin}–${draft.intervalMax} 秒`;
   }
 
   setStep('content');

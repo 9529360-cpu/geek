@@ -3,6 +3,8 @@ mod account_display;
 mod account_order;
 mod account_schema;
 mod account_translation;
+mod broadcast_attachment_recovery;
+mod broadcast_attachments;
 mod broadcast_execution;
 mod broadcast_persistence;
 mod broadcast_recovery;

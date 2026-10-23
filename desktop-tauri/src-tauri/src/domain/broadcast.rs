@@ -1,5 +1,8 @@
 //! Immutable broadcast inputs and durable progress. No guest, clock or I/O ownership.
-use super::error::{AppError, Result};
+use super::{
+    broadcast_attachment::{BroadcastAttachment, BroadcastAttachmentSource},
+    error::{AppError, Result},
+};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_JOBS: usize = 100;
@@ -31,6 +34,8 @@ pub struct BroadcastCapabilities {
     pub text: bool,
     pub tag_all: bool,
     pub vcards: bool,
+    #[serde(default)]
+    pub attachments: bool,
 }
 
 /// The desktop owner supplies these fields from authoritative account metadata.
@@ -51,6 +56,8 @@ pub struct BroadcastDraft {
     pub message: String,
     pub tag_all: bool,
     pub vcards: Vec<BroadcastVcard>,
+    #[serde(default)]
+    pub attachments: Vec<BroadcastAttachment>,
     pub interval_min_ms: u64,
     pub interval_max_ms: u64,
     pub scheduled_at: Option<u64>,
@@ -72,6 +79,7 @@ pub struct DispatchRequest {
     pub rendered_text: String,
     pub tag_all: bool,
     pub vcards: Vec<BroadcastVcard>,
+    pub attachments: Vec<BroadcastAttachmentSource>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +99,8 @@ pub enum BroadcastIssue {
     PersistenceFailed,
     ScheduleAccountUnavailable,
     RuntimeFailed,
+    AttachmentUnavailable,
+    AttachmentChanged,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +180,8 @@ pub struct BroadcastJob {
     pub message: String,
     pub tag_all: bool,
     pub vcards: Vec<BroadcastVcard>,
+    #[serde(default)]
+    pub attachments: Vec<BroadcastAttachment>,
     pub interval_min_ms: u64,
     pub interval_max_ms: u64,
     pub scheduled_at: Option<u64>,
@@ -206,6 +218,7 @@ impl BroadcastJob {
             message: self.message.clone(),
             tag_all: self.tag_all,
             vcards: self.vcards.clone(),
+            attachments: self.attachments.clone(),
             interval_min_ms: self.interval_min_ms,
             interval_max_ms: self.interval_max_ms,
             scheduled_at: self.scheduled_at,
@@ -223,6 +236,7 @@ impl BroadcastJob {
             message: draft.message,
             tag_all: draft.tag_all,
             vcards: draft.vcards,
+            attachments: draft.attachments,
             interval_min_ms: draft.interval_min_ms,
             interval_max_ms: draft.interval_max_ms,
             scheduled_at: draft.scheduled_at,
@@ -306,15 +320,18 @@ pub struct BroadcastDocument {
     pub jobs: Vec<BroadcastJob>,
     #[serde(default)]
     pub retired_ids: Vec<String>,
+    #[serde(default)]
+    pub attachment_sources: Vec<BroadcastAttachmentSource>,
 }
 
 impl Default for BroadcastDocument {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             revision: 0,
             jobs: Vec::new(),
             retired_ids: Vec::new(),
+            attachment_sources: Vec::new(),
         }
     }
 }

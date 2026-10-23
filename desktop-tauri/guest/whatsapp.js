@@ -24,7 +24,7 @@ function createWhatsAppAdapter() {
   function capabilities() {
     const W = runtime();
     const text = typeof W.chat?.sendTextMessage === 'function' && typeof W.chat?.get === 'function';
-    return { text, scheduled: text, attachments: false,
+    return { text, scheduled: text, attachments: text && typeof W.chat?.sendFileMessage === 'function',
       tagAll: text && typeof W.group?.getParticipants === 'function',
       vcards: typeof W.chat?.sendVCardContactMessage === 'function'
         && typeof W.contact?.getPnLidEntry === 'function' };
@@ -69,7 +69,13 @@ function createWhatsAppAdapter() {
       currentChatId: identity(chat?.id), targetChatId: request.targetId, needsComposer: false });
     if (!guard.ok) throw issue('TARGET_CHANGED');
     const options = { waitForAck: true };
-    if (request.message.trim()) requireMethods(W, ['chat.sendTextMessage']);
+    const files = request.attachments || [];
+    if (!Array.isArray(files) || files.length > 10 || files.some((file) => !validAttachment(file))
+        || new Set(files.map((file) => file.id)).size !== files.length
+        || files.reduce((total, file) => total + file.size, 0) > 1024 * 1024 * 1024
+        || (files.length && request.tagAll)) throw issue('CAPABILITY_UNAVAILABLE');
+    if (files.length) requireMethods(W, ['chat.sendFileMessage']);
+    else if (request.message.trim()) requireMethods(W, ['chat.sendTextMessage']);
     if (request.tagAll && !request.message.trim()) throw issue('CAPABILITY_UNAVAILABLE');
     if (request.tagAll && chat.isGroup) {
       requireMethods(W, ['group.getParticipants']);
@@ -95,18 +101,61 @@ function createWhatsAppAdapter() {
     return { request, options, vcards };
   }
 
-  async function dispatch(prepared, valid) {
+  function validAttachment(file) {
+    return file && typeof file.id === 'string' && /^[0-9a-f-]{36}$/.test(file.id)
+      && typeof file.name === 'string' && file.name.length > 0 && file.name.length <= 255
+      && !/[\\/:\u0000-\u001f\u007f]/.test(file.name)
+      && Number.isSafeInteger(file.size) && file.size >= 0 && file.size <= 512 * 1024 * 1024
+      && typeof file.mime === 'string' && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(file.mime)
+      && ['image', 'video', 'audio', 'document'].includes(file.kind);
+  }
+
+  function confirmedReceipt(result) {
+    const id = typeof result?.id === 'string' ? result.id : '';
+    if (!id || id === 'submitted' || id.length > 500 || /[\u0000-\u001f]/.test(id)
+        || !Number.isFinite(result.ack) || result.ack < 1) throw issue('RECEIPT_MISSING');
+    return id;
+  }
+
+  async function dispatchAttachment(prepared, file, index, valid) {
     let submitted = false;
+    try {
+      const W = runtime();
+      const { request } = prepared;
+      const metadata = request.attachments?.[index];
+      if (!valid() || !validAttachment(metadata) || !(file instanceof File)
+          || file.size !== metadata.size || file.name !== metadata.name || file.type !== metadata.mime) {
+        throw issue('CANCELLED');
+      }
+      requireMethods(W, ['chat.sendFileMessage', 'chat.get']);
+      const chat = W.chat.get(request.targetId);
+      if (!supported(chat, request.targetId)) throw issue('CAPABILITY_UNAVAILABLE');
+      const guard = GeekBroadcastSafety.authorizeSend({ opened: !!chat,
+        currentChatId: identity(chat?.id), targetChatId: request.targetId, needsComposer: false });
+      if (!guard.ok) throw issue('TARGET_CHANGED');
+      if (!valid()) throw issue('CANCELLED');
+      submitted = true;
+      const result = await W.chat.sendFileMessage(request.targetId, file, {
+        type: metadata.kind, filename: metadata.name, mimetype: metadata.mime,
+        caption: index === request.attachments.length - 1 ? request.message : '',
+        waitForAck: true, detectMentioned: false, linkPreview: false, markIsRead: false,
+      });
+      const receipt = confirmedReceipt(result);
+      if (!valid()) throw issue('CANCELLED');
+      return { status: 'confirmed', receipt };
+    } catch (error) {
+      return { status: submitted ? 'uncertain' : 'notSubmitted', code: error.code || 'RUNTIME_FAILED' };
+    }
+  }
+
+  async function dispatch(prepared, valid, attachmentReceipt = '') {
+    let submitted = Boolean(attachmentReceipt);
     const receipts = [];
+    if (attachmentReceipt) receipts.push(attachmentReceipt);
     const confirmed = (result) => {
-      const id = typeof result?.id === 'string' ? result.id : '';
       // A real platform ID and acknowledged submission are required. A click,
       // synthetic 'submitted' ID, empty result or elapsed timer is not success.
-      if (!id || id === 'submitted' || id.length > 500 || /[\u0000-\u001f]/.test(id)
-          || !Number.isFinite(result.ack) || result.ack < 1) {
-        throw issue('RECEIPT_MISSING');
-      }
-      receipts.push(id);
+      receipts.push(confirmedReceipt(result));
     };
     try {
       const W = runtime();
@@ -117,7 +166,7 @@ function createWhatsAppAdapter() {
       const guard = GeekBroadcastSafety.authorizeSend({ opened: !!chat,
         currentChatId: identity(chat?.id), targetChatId: request.targetId, needsComposer: false });
       if (!guard.ok) throw issue('TARGET_CHANGED');
-      if (request.message.trim()) {
+      if (!request.attachments?.length && request.message.trim()) {
         submitted = true;
         confirmed(await W.chat.sendTextMessage(request.targetId, request.message, options));
       }
@@ -134,7 +183,7 @@ function createWhatsAppAdapter() {
     }
   }
 
-  return { capabilities, ready, listChats, prepare, dispatch,
+  return { capabilities, ready, listChats, prepare, dispatch, dispatchAttachment,
     getCurrentChat: () => identity(runtime().chat?.getActiveChat?.()?.id),
     openChat: () => { throw issue('CAPABILITY_UNAVAILABLE'); },
     setComposerText: () => { throw issue('CAPABILITY_UNAVAILABLE'); },

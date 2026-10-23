@@ -130,8 +130,11 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     bar.dataset.jobId = job.id;
     title.textContent = `${jobLabel(job)} · ${job.current || 0}/${job.total || 0}`;
     const seconds = job.state === 'running' && job.nextSendAt ? Math.max(0, Math.ceil((job.nextSendAt - Date.now()) / 1000)) : null;
-    meta.textContent = `成功 ${job.ok || 0} · 未提交 ${job.fail || 0} · 未确认 ${job.uncertain || 0}`
-      + (seconds !== null ? ` · 下一条 ${seconds} 秒后` : job.state === 'scheduled' ? ` · ${formatTime(job.scheduledAt)}` : '');
+    const files = job.attachments || [];
+    meta.textContent = `成功 ${job.ok || 0}，未提交 ${job.fail || 0}，未确认 ${job.uncertain || 0}`
+      + (files.length ? `，${files.length} 个附件` : '')
+      + (seconds !== null ? `，下一条 ${seconds} 秒后` : job.state === 'scheduled' ? `，${formatTime(job.scheduledAt)}` : '');
+    meta.title = files.map((file) => file.name).join('\n');
     issue.textContent = job.storageBlocked
       ? '任务检查点未能保存，已停止自动执行。请检查本地存储后恢复；结果不确定的对象将跳过。'
       : job.reviewRequired
@@ -165,9 +168,11 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     const rowHead = element(document, 'div', 'bc-task-row-head');
     rowHead.append(element(document, 'strong', '', jobLabel(job)));
     if (scope === 'all') rowHead.append(element(document, 'span', 'bc-task-account-name', `${job.accountName || '未命名账号'} · WhatsApp`));
+    const files = job.attachments || [];
     const rowMeta = element(document, 'div', 'bc-task-row-meta',
-      `${job.current || 0}/${job.total || 0} · 成功 ${job.ok || 0} · 未提交 ${job.fail || 0} · 未确认 ${job.uncertain || 0}`
-      + (job.scheduledAt ? ` · ${formatTime(job.scheduledAt)}` : ''));
+      `${job.current || 0}/${job.total || 0}，成功 ${job.ok || 0}，未提交 ${job.fail || 0}，未确认 ${job.uncertain || 0}`
+      + (files.length ? `，${files.length} 个附件` : '') + (job.scheduledAt ? `，${formatTime(job.scheduledAt)}` : ''));
+    rowMeta.title = files.map((file) => file.name).join('\n');
     row.append(rowHead, rowMeta);
     const rowProgress = element(document, 'progress', 'bc-task-progress');
     rowProgress.max = Math.max(1, job.total || 0); rowProgress.value = job.current || 0;

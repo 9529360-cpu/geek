@@ -1,5 +1,6 @@
 use super::{
     broadcast::*,
+    broadcast_attachment::{validate_attachments, validate_sources},
     broadcast_render::{validate_template, validate_text},
     error::{AppError, Result},
 };
@@ -30,6 +31,8 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     if (!draft.message.trim().is_empty() && !account.capabilities.text)
         || (draft.tag_all && !account.capabilities.tag_all)
         || (!draft.vcards.is_empty() && !account.capabilities.vcards)
+        || (!draft.attachments.is_empty() && !account.capabilities.attachments)
+        || (!draft.attachments.is_empty() && draft.tag_all)
     {
         return Err(AppError::BroadcastUnsupported);
     }
@@ -41,11 +44,14 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
         || draft.interval_min_ms > draft.interval_max_ms
         || draft.scheduled_at == Some(0)
         || draft.tag_all && draft.message.trim().is_empty()
-        || (draft.message.trim().is_empty() && draft.vcards.is_empty())
+        || (draft.message.trim().is_empty()
+            && draft.vcards.is_empty()
+            && draft.attachments.is_empty())
     {
         return Err(AppError::BroadcastInvalid);
     }
     validate_text(&draft.message)?;
+    validate_attachments(&draft.attachments)?;
     let mut ids = HashSet::new();
     for target in &draft.targets {
         if !label(&target.id, 256, false)
@@ -79,9 +85,16 @@ pub fn binding_matches(binding: &GuestBinding, job: &BroadcastJob) -> bool {
 }
 
 pub fn validate_document(document: &BroadcastDocument) -> Result<()> {
-    if document.schema_version != 1 {
+    if !matches!(document.schema_version, 1 | 2) {
         return Err(AppError::StoreVersion);
     }
+    if document.schema_version == 1
+        && (!document.attachment_sources.is_empty()
+            || document.jobs.iter().any(|job| !job.attachments.is_empty()))
+    {
+        return Err(AppError::StoreInvalid);
+    }
+    validate_sources(document)?;
     if document.jobs.len() > MAX_JOBS || document.retired_ids.len() > MAX_RETIRED_IDS {
         return Err(AppError::StoreInvalid);
     }
@@ -101,6 +114,7 @@ pub fn validate_document(document: &BroadcastDocument) -> Result<()> {
                 text: true,
                 tag_all: true,
                 vcards: true,
+                attachments: true,
             },
         };
         validate_draft(&account, &job.draft()).map_err(|_| AppError::StoreInvalid)?;

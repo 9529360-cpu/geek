@@ -2,6 +2,26 @@ export const steps = Object.freeze(['content', 'audience', 'settings', 'review']
 export const terminal = new Set(['completed', 'stopped', 'failed']);
 export const executing = new Set(['starting', 'running', 'paused', 'stopping']);
 export const pending = new Set(['scheduled', 'queued']);
+export const attachmentLimits = Object.freeze({ count: 10, fileBytes: 512 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 });
+
+export function normalizeAttachments(value = []) {
+  if (!Array.isArray(value)) throw 'BROADCAST_ATTACHMENT_INVALID';
+  if (value.length > attachmentLimits.count) throw 'BROADCAST_FILE_COUNT_LIMIT';
+  const ids = new Set();
+  let total = 0;
+  return value.map((file) => {
+    if (!file || typeof file.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(file.id) || ids.has(file.id)
+      || typeof file.name !== 'string' || !file.name.trim() || file.name.length > 512 || /[\x00-\x1f\x7f/\\]/.test(file.name)
+      || !Number.isSafeInteger(file.size) || file.size < 0 || typeof file.mime !== 'string' || file.mime.length > 128
+      || !/^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/.test(file.mime)
+      || !['image', 'video', 'audio', 'document'].includes(file.kind)) throw 'BROADCAST_ATTACHMENT_INVALID';
+    if (file.size > attachmentLimits.fileBytes) throw 'BROADCAST_FILE_SIZE_LIMIT';
+    total += file.size;
+    if (total > attachmentLimits.totalBytes) throw 'BROADCAST_FILE_TOTAL_LIMIT';
+    ids.add(file.id);
+    return { id: file.id, name: file.name, size: file.size, mime: file.mime, kind: file.kind };
+  });
+}
 
 export function localSchedule(now = Date.now()) {
   const date = new Date(now + 30 * 60_000);
@@ -10,7 +30,7 @@ export function localSchedule(now = Date.now()) {
 }
 
 export function emptyDraft(accountId, now = Date.now()) {
-  return { accountId, recipientIds: [], message: '', vcardIds: [], tagAll: false,
+  return { accountId, recipientIds: [], message: '', vcardIds: [], attachments: [], tagAll: false,
     intervalMin: 5, intervalMax: 10, scheduleEnabled: false, scheduleTime: localSchedule(now) };
 }
 
@@ -43,7 +63,10 @@ export function draftPayload(draft, catalog, now = Date.now()) {
   if (targets.some((target) => !target)) throw 'BROADCAST_CATALOG_STALE';
   const message = String(draft.message || '');
   const vcardIds = [...new Set(draft.vcardIds)];
-  if (!message.trim() && !vcardIds.length) throw 'BROADCAST_CONTENT_EMPTY';
+  const attachments = normalizeAttachments(draft.attachments);
+  if (!message.trim() && !vcardIds.length && !attachments.length) throw 'BROADCAST_CONTENT_EMPTY';
+  if (attachments.length && !catalog.capabilities.attachments) throw 'BROADCAST_ATTACHMENTS_UNAVAILABLE';
+  if (attachments.length && draft.tagAll) throw 'BROADCAST_ATTACHMENTS_TAG_ALL';
   if (vcardIds.length && !catalog.capabilities.vcards) throw 'BROADCAST_VCARDS_UNAVAILABLE';
   if (vcardIds.some((id) => !catalog.chats.some((chat) => chat.id === id && chat.kind === 'contact'))) {
     throw 'BROADCAST_CATALOG_STALE';
@@ -60,6 +83,7 @@ export function draftPayload(draft, catalog, now = Date.now()) {
   if (draft.scheduleEnabled && !catalog.capabilities.scheduled) throw 'BROADCAST_SCHEDULE_UNAVAILABLE';
   if (draft.scheduleEnabled && (!Number.isFinite(scheduledAt) || scheduledAt <= now)) throw 'BROADCAST_SCHEDULE_INVALID';
   return { accountId: draft.accountId, catalogId: catalog.catalogId, recipientIds, message, vcardIds,
+    attachmentIds: attachments.map((file) => file.id),
     tagAll: Boolean(draft.tagAll), intervalMin, intervalMax, scheduledAt };
 }
 

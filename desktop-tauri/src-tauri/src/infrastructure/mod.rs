@@ -1,3 +1,4 @@
+pub mod broadcast_attachment_source;
 pub mod broadcast_repository;
 pub mod catalog;
 pub mod dpapi;

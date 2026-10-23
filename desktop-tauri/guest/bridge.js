@@ -7,6 +7,7 @@ const GeekPlatformTransports = createPlatformCapabilities({
 });
 const mailbox = new Map();
 const prepared = new Map();
+const attachments = createBroadcastAttachmentBuffer();
 // Document-lifetime tombstones: never evict a consumed attempt and permit replay.
 // Exhaustion fails closed until the owner explicitly reloads the document.
 const attempts = new Set();
@@ -23,8 +24,26 @@ const discard = (id) => {
 const clean = () => {
   const now = performance.now();
   for (const [id, entry] of mailbox) if (entry.deadline <= now) discard(id);
-  for (const [id, entry] of prepared) if (entry.expires <= now) prepared.delete(id);
+  for (const [id, entry] of prepared) if (entry.expires <= now) {
+    prepared.delete(id);
+    attachments.discard(id);
+  }
 };
+
+function attachment(expected, attemptId, request) {
+  clean();
+  const preparation = prepared.get(attemptId);
+  if (!alive(expected) || !preparation || preparation.busy
+      || request.index !== preparation.nextAttachment) return false;
+  const metadata = preparation.value.request.attachments?.[request.index];
+  if (!metadata) return false;
+  switch (request.operation) {
+    case 'start': return attachments.start(attemptId, request.index, metadata);
+    case 'chunk': return attachments.chunk(attemptId, request.index, request.offset, request.data);
+    case 'seal': return attachments.seal(attemptId, request.index);
+    default: return false;
+  }
+}
 
 function begin(request) {
   clean();
@@ -32,7 +51,8 @@ function begin(request) {
   if (mailbox.has(request.id)) return true;
   if (mailbox.size >= 32) return false;
   const expected = generation;
-  const duration = Math.max(1, Math.min(35000, Number(request.timeoutMs) || 18000));
+  const maximum = request.operation === 'dispatchAttachment' ? 300000 : 35000;
+  const duration = Math.max(1, Math.min(maximum, Number(request.timeoutMs) || 18000));
   const entry = { pending: true, deadline: performance.now() + duration, cancelled: false };
   const valid = () => alive(expected) && mailbox.get(request.id) === entry
     && !entry.cancelled && performance.now() < entry.deadline;
@@ -56,14 +76,45 @@ function begin(request) {
         attempts.add(attemptId); // Reserve before awaiting, including failed preparations.
         const value = await transport.prepare(request.payload);
         if (!valid()) throw issue('GUEST_CHANGED');
-        prepared.set(attemptId, { value, expires: performance.now() + 30000 });
+        const duration = value.request.attachments?.length ? 20 * 60 * 1000 : 30000;
+        prepared.set(attemptId, { value, expires: performance.now() + duration,
+          nextAttachment: 0, busy: false, receipt: '' });
         return { prepared: true };
+      }
+      case 'dispatchAttachment': {
+        const { attemptId, index } = request.payload;
+        const preparation = prepared.get(attemptId);
+        if (!preparation || preparation.busy || index !== preparation.nextAttachment) throw issue('NOT_SUBMITTED');
+        const owned = attachments.take(attemptId, index);
+        if (!owned) throw issue('NOT_SUBMITTED');
+        preparation.busy = true;
+        const current = () => valid() && prepared.get(attemptId) === preparation
+          && performance.now() < preparation.expires;
+        try {
+          const result = await transport.dispatchAttachment(preparation.value, owned.file, index, current);
+          if (result.status !== 'confirmed' || !current()) {
+            prepared.delete(attemptId);
+            return result;
+          }
+          preparation.nextAttachment += 1;
+          preparation.receipt = result.receipt;
+          return result;
+        } finally {
+          preparation.busy = false;
+          owned.release();
+          if (!current()) prepared.delete(attemptId);
+        }
       }
       case 'dispatch': {
         const preparation = prepared.get(request.payload.attemptId);
+        if (preparation?.busy) throw issue('NOT_SUBMITTED');
         prepared.delete(request.payload.attemptId);
         if (!preparation) return { status: 'notSubmitted', code: 'NOT_SUBMITTED' };
-        return transport.dispatch(preparation.value, () => valid() && performance.now() < preparation.expires);
+        attachments.discard(request.payload.attemptId);
+        if (preparation.nextAttachment !== (preparation.value.request.attachments?.length || 0)) {
+          return { status: preparation.receipt ? 'uncertain' : 'notSubmitted', code: 'NOT_SUBMITTED' };
+        }
+        return transport.dispatch(preparation.value, () => valid() && performance.now() < preparation.expires, preparation.receipt);
       }
       default:
         throw issue('CAPABILITY_UNAVAILABLE');
@@ -89,6 +140,13 @@ Object.defineProperty(window, '__geekTauriPlatform', { configurable: false, writ
       revoked = true;
       for (const id of mailbox.keys()) discard(id);
       prepared.clear();
+      attachments.clear();
+    },
+    attachment,
+    cancelAttempt: (expected, attemptId) => {
+      if (!alive(expected)) return;
+      prepared.delete(attemptId);
+      attachments.discard(attemptId);
     },
     begin,
     read: (expected, id) => {

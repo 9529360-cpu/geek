@@ -22,7 +22,12 @@ export function job(id = 'job-a', accountId = 'a', overrides = {}) {
   return { id, accountId, accountName: accountId === 'a' ? 'Alice account' : 'Bob account', platformId: 'whatsapp',
     targets: catalog(accountId).chats, state: 'running', current: 0, total: 3, ok: 0, fail: 0, uncertain: 0,
     results: [], nextSendAt: null, scheduledAt: null, createdAt: 1000, updatedAt: 1000, finishedAt: null,
-    dismissed: false, lastIssue: null, reviewRequired: false, ...structuredClone(overrides) };
+    dismissed: false, lastIssue: null, reviewRequired: false, attachments: [], ...structuredClone(overrides) };
+}
+
+export function attachment(number = 1, overrides = {}) {
+  return { id: `10000000-0000-4000-8000-${String(number).padStart(12, '0')}`, name: `图片 ${number}.png`,
+    size: 1024, mime: 'image/png', kind: 'image', ...structuredClone(overrides) };
 }
 
 // Events bubble for these controller/view behavior tests. Timers are manually
@@ -65,20 +70,40 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
   let panel = null;
   let controller;
   let layouts = 0;
+  const attachmentRefs = new Map();
   const publish = (next) => { backend = { ...backend, ...structuredClone(next) }; };
   async function invoke(name, value) {
     calls.push([name, structuredClone(value)]);
     const override = await before(name, value);
-    if (override !== undefined) return structuredClone(override);
+    if (override !== undefined) {
+      if (name === 'pick' && Array.isArray(override?.attachments)) for (const file of override.attachments) {
+        attachmentRefs.set(`${value}:${file?.id}`, structuredClone(file));
+      }
+      return structuredClone(override);
+    }
     if (failures.has(name)) throw 'STORE_IO';
     if (name === 'catalog') return catalog(value, accountCatalogs[value]);
     if (name === 'snapshot') return structuredClone(backend);
+    if (name === 'pick') return null;
+    if (name === 'release') {
+      for (const id of value.attachmentIds) {
+        if (!backend.jobs.some((item) => item.accountId === value.accountId && item.attachments?.some((file) => file.id === id))) {
+          attachmentRefs.delete(`${value.accountId}:${id}`);
+        }
+      }
+      return null;
+    }
     if (name === 'create') {
       if (!backend.jobs.some((item) => item.id === value.id)) {
         const chats = catalog(value.accountId, accountCatalogs[value.accountId]).chats;
         backend.jobs.push(job(value.id, value.accountId, { state: value.scheduledAt ? 'scheduled' : 'running',
           targets: value.recipientIds.map((id) => chats.find((chat) => chat.id === id)), total: value.recipientIds.length,
-          message: value.message, scheduledAt: value.scheduledAt, createdAt: Date.now() }));
+          message: value.message, scheduledAt: value.scheduledAt, createdAt: Date.now(),
+          attachments: value.attachmentIds.map((id) => {
+            const file = attachmentRefs.get(`${value.accountId}:${id}`);
+            if (!file) throw 'BROADCAST_ATTACHMENT_UNAVAILABLE';
+            return file;
+          }) }));
         backend.revision += 1;
       }
       return { jobId: value.id, snapshot: structuredClone(backend) };
@@ -94,7 +119,9 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     throw new Error('Unhandled test operation');
   }
   const api = { broadcastCatalog: (id) => invoke('catalog', id), broadcastSnapshot: () => invoke('snapshot', null),
-    broadcastCreate: (draft) => invoke('create', draft), broadcastControl: (jobId, action) => invoke('control', { jobId, action }) };
+    broadcastCreate: (draft) => invoke('create', draft), broadcastControl: (jobId, action) => invoke('control', { jobId, action }),
+    broadcastPickAttachments: (accountId) => invoke('pick', accountId),
+    broadcastReleaseAttachments: (accountId, attachmentIds) => invoke('release', { accountId, attachmentIds }) };
   async function showPanel(id, fill, focusId) {
     if (panel) ui.get(panel).classList.add('hidden');
     panel = id; fill?.(); ui.get(id).classList.remove('hidden'); controller?.panelChanged(id);

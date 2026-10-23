@@ -269,13 +269,14 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
                 |length| random_below(length as u64) as usize,
             )?
         };
-        let request = DispatchRequest {
+        let mut request = DispatchRequest {
             job_id: current.id.clone(),
             attempt_id: Uuid::new_v4().to_string(),
             target_id: current.targets[current.current].id.clone(),
             rendered_text,
             tag_all: current.tag_all,
             vcards: current.vcards.clone(),
+            attachments: Vec::new(),
         };
         {
             let mut inner = self.lock()?;
@@ -307,6 +308,8 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
             job.updated_at = Self::elapsed_time(at, started);
             inner.commit(candidate)?;
         }
+        request.attachments =
+            self.dispatch_sources(&current.account_id, id, &request.attempt_id)?;
         let outcome = if control.cancelled() {
             DispatchOutcome::NotSubmitted {
                 code: BroadcastIssue::Cancelled,
@@ -419,6 +422,13 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
                     code: BroadcastIssue::AccountUnavailable
                 }
             );
+        let attachment_failed_before_commit = !control.committed()
+            && matches!(
+                outcome,
+                DispatchOutcome::NotSubmitted {
+                    code: BroadcastIssue::AttachmentUnavailable | BroadcastIssue::AttachmentChanged,
+                }
+            );
         let uncertain = matches!(outcome, DispatchOutcome::Uncertain { .. });
         let guest_changed = matches!(
             outcome,
@@ -438,6 +448,8 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
         if stopped {
             job.review_required |= uncertain;
             job.finish(BroadcastState::Stopped, now);
+        } else if attachment_failed_before_commit {
+            job.finish(BroadcastState::Failed, now);
         } else if uncertain || guest_changed {
             job.state = BroadcastState::Paused;
             job.review_required = true;

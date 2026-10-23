@@ -129,7 +129,7 @@ impl NativePlatform {
         Ok(())
     }
 
-    fn call(
+    pub(super) fn call(
         &self,
         binding: &GuestBinding,
         operation: &str,
@@ -250,6 +250,9 @@ impl BroadcastPlatform for NativePlatform {
         request: &DispatchRequest,
         control: &DispatchControl,
     ) -> DispatchOutcome {
+        if !request.attachments.is_empty() {
+            return self.dispatch_attachments(binding, request, control);
+        }
         let failure = |code| DispatchOutcome::NotSubmitted { code };
         if control.cancelled() {
             return failure(BroadcastIssue::Cancelled);

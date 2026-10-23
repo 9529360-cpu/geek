@@ -3,6 +3,7 @@ use crate::{
     application::{broadcast::BroadcastService, ports::BroadcastRepository},
     domain::{broadcast::BroadcastDocument, error::AppError},
     infrastructure::{
+        broadcast_attachment_source::NativeAttachmentIo,
         broadcast_repository::EncryptedBroadcastRepository, dpapi, repository::EncryptedRepository,
     },
 };
@@ -19,11 +20,25 @@ fn broadcast_dpapi_restart_shares_instance_owner_without_exposing_message_plaint
     let mut input = draft(&owner, 1);
     input.message = "ConfidentialSyntheticMessage".into();
     input.scheduled_at = Some(NOW + 100_000);
+    let source_path = root.path().join("native-private-source.txt");
+    fs::write(&source_path, b"Synthetic attachment content").unwrap();
+    input.attachments = service
+        .register_attachments(
+            &owner.id,
+            std::slice::from_ref(&source_path),
+            false,
+            &NativeAttachmentIo,
+            &|| Ok(()),
+        )
+        .unwrap();
     let expected = service.submit(owner, input, NOW).unwrap();
     let bytes = fs::read(root.path().join("broadcast.dpapi")).unwrap();
     assert!(!bytes
         .windows(b"ConfidentialSyntheticMessage".len())
         .any(|value| value == b"ConfidentialSyntheticMessage"));
+    assert!(!bytes
+        .windows(b"native-private-source.txt".len())
+        .any(|value| value == b"native-private-source.txt"));
     drop(service);
     // Reopening the feature store works while the original process lock is held.
     let reopened = BroadcastService::open_at(
@@ -33,6 +48,7 @@ fn broadcast_dpapi_restart_shares_instance_owner_without_exposing_message_plaint
     )
     .unwrap();
     assert_eq!(reopened.list().unwrap(), vec![expected]);
+    assert!(source_path.is_file());
     assert!(root.path().join("instance.lock").is_file());
 }
 
@@ -75,7 +91,7 @@ fn damaged_or_future_broadcast_store_is_never_silently_reset() {
     assert!(open().is_err());
     assert_eq!(fs::read(&path).unwrap(), b"corrupt synthetic ciphertext");
     let future = BroadcastDocument {
-        schema_version: 2,
+        schema_version: 3,
         ..BroadcastDocument::default()
     };
     let encrypted = dpapi::encrypt(&serde_json::to_vec(&future).unwrap()).unwrap();

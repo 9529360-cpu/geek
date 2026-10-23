@@ -3,7 +3,7 @@ import { element, button, wire, hidden, unavailable } from './broadcast-elements
 import { createAudienceView } from './broadcast-audience.mjs';
 import { createWorkbenchView } from './broadcast-workbench.mjs';
 
-export function createBroadcastEditor({ document, onChange, onSubmit, onClose, onRetry, onControl }) {
+export function createBroadcastEditor({ document, onChange, onSubmit, onClose, onRetry, onControl, onPickAttachments, onRemoveAttachment }) {
   const $ = (id) => document.getElementById(id);
   const listeners = [];
   const bind = (id, event, fn) => {
@@ -16,6 +16,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   let owner = null;
   let pendingSignature = '';
   let availability = {};
+  let attachments = [];
   const audience = createAudienceView(document, onChange);
   const workbench = createWorkbenchView(document, onRetry, onChange);
   $('broadcast-close').setAttribute('aria-label', '关闭群发编辑器');
@@ -30,6 +31,12 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   for (const id of ['broadcast-message', 'broadcast-schedule-time']) bind(id, 'input', onChange);
   bind('broadcast-schedule-toggle', 'change', () => { scheduleVisibility(); onChange(); });
   bind('broadcast-tagall', 'change', onChange);
+  bind('broadcast-add-file', 'change', () => {
+    const input = $('broadcast-add-file');
+    if (input.checked) onPickAttachments();
+    input.checked = false;
+  });
+  bind('broadcast-dropzone', 'click', onPickAttachments);
   bind('broadcast-send', 'click', () => onSubmit(false));
   bind('broadcast-add-schedule', 'click', () => onSubmit(true));
   bind('broadcast-close', 'click', onClose);
@@ -52,14 +59,17 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     if (bound === 'max' && value < Number($('bc-range-min').value)) $('bc-range-min').value = String(value);
     syncRanges(); onChange();
   });
-  for (const id of ['broadcast-add-file', 'broadcast-dropzone', 'bc-save-message', 'bc-delete-message',
+  for (const id of ['bc-save-message', 'bc-delete-message',
     'bc-saved-accordion-toggle', 'bc-saved-messages', 'broadcast-save-group', 'broadcast-show-all-groups',
     'broadcast-saved-groups', 'broadcast-delete-group', 'broadcast-import-csv', 'bc-paste-numbers',
     'bc-group-members-select', 'bc-label-select', 'bc-exclude-contacts-select', 'bc-exclude-groups-select',
     'bc-saved-lists', 'bc-save-list', 'bc-delete-list', 'broadcast-export']) unavailable($(id));
   const fileLabel = $('broadcast-add-file').closest('label')?.querySelector('.bc-switch-label');
-  if (fileLabel) fileLabel.textContent = '添加图片/视频/文件 · 附件传输尚未迁移';
-  $('broadcast-dropzone').title = '附件传输尚未迁移';
+  if (fileLabel) fileLabel.textContent = '添加附件，最多 10 个';
+  $('broadcast-add-file').closest('label')?.classList.add('bc-action-trigger');
+  $('broadcast-add-file').setAttribute('aria-label', '添加附件');
+  $('broadcast-dropzone').querySelector('strong').textContent = '点击选择图片、视频或文件';
+  $('broadcast-dropzone').querySelector('small').textContent = '单个 512 MiB，总计 1 GiB';
   $('bc-group-tag-list').textContent = '自定义标签尚未迁移';
   $('broadcast-save-group').textContent = '保存为标签 · 尚未迁移';
   $('bc-saved-message-list').textContent = '常用消息存储尚未迁移';
@@ -80,25 +90,47 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
 
   function read() {
     return { accountId, ...audience.values(), message: $('broadcast-message').value,
+      attachments: attachments.map((file) => ({ ...file })),
       tagAll: $('broadcast-tagall').checked, intervalMin: Number($('broadcast-interval-min').value),
       intervalMax: Number($('broadcast-interval-max').value), scheduleEnabled: $('broadcast-schedule-toggle').checked,
       scheduleTime: $('broadcast-schedule-time').value };
+  }
+
+  function renderAttachments() {
+    const list = $('broadcast-files');
+    list.replaceChildren();
+    for (const file of attachments) {
+      const item = element(document, 'span', 'bf-item'); item.title = file.name;
+      item.dataset.attachmentId = file.id;
+      const remove = button(document, '×', () => onRemoveAttachment(file.id), 'bf-remove');
+      remove.setAttribute('aria-label', `移除附件 ${file.name}`);
+      item.append(element(document, 'span', 'bf-name', file.name), remove); list.append(item);
+    }
+    setAvailability(availability);
   }
 
   function setAvailability(next) {
     availability = next;
     const blocked = Boolean(next.shellBusy || next.creating || !next.apiAvailable);
     const ready = Boolean(catalog?.ready && !next.loading && !next.mismatch);
+    const filesBlocked = blocked || next.attachmentBusy || next.mismatch || !next.attachmentsAvailable;
+    const canPick = ready && catalog?.capabilities.attachments;
     audience.availability(blocked || !ready);
     workbench.availability(blocked);
     for (const id of ['broadcast-message', 'broadcast-insert-sa', 'broadcast-insert-var', 'broadcast-insert-nr',
       'bc-multiversion', 'bc-range-min', 'bc-range-max', 'broadcast-close', 'broadcast-cancel']) wire($(id), blocked);
     wire($('broadcast-schedule-toggle'), blocked || !catalog?.capabilities.scheduled);
     wire($('broadcast-schedule-time'), blocked || !catalog?.capabilities.scheduled);
-    wire($('broadcast-tagall'), blocked || !ready || !catalog?.capabilities.tagAll);
-    $('broadcast-tagall').title = catalog?.capabilities.tagAll ? '@全体群成员' : '当前账号的 @全体能力尚未就绪';
-    wire($('broadcast-send'), blocked || !ready);
-    wire($('broadcast-add-schedule'), blocked || !ready || !$('broadcast-schedule-toggle').checked || !catalog?.capabilities.scheduled);
+    wire($('broadcast-tagall'), blocked || !ready || !catalog?.capabilities.tagAll || attachments.length > 0);
+    $('broadcast-tagall').title = attachments.length ? '附件任务不支持@全体，请先移除附件。'
+      : catalog?.capabilities.tagAll ? '@全体群成员' : '当前账号的 @全体能力尚未就绪';
+    for (const id of ['broadcast-add-file', 'broadcast-dropzone']) {
+      wire($(id), filesBlocked || !canPick);
+      $(id).title = canPick && next.attachmentsAvailable ? next.attachmentBusy ? '正在处理附件…' : '选择要群发的附件' : '当前账号的附件发送尚未就绪';
+    }
+    for (const node of $('broadcast-files').querySelectorAll('button')) wire(node, filesBlocked);
+    wire($('broadcast-send'), blocked || !ready || next.attachmentBusy);
+    wire($('broadcast-add-schedule'), blocked || !ready || next.attachmentBusy || !$('broadcast-schedule-toggle').checked || !catalog?.capabilities.scheduled);
     for (const node of $('broadcast-schedule-list').querySelectorAll('button')) {
       wire(node, blocked || next.pendingControls?.has(node.dataset.jobId));
     }
@@ -107,7 +139,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   function renderSchedules(jobs) {
     const scheduled = jobs.filter((job) => job.accountId === accountId && pending.has(job.state))
       .sort((a, b) => (a.scheduledAt || a.createdAt) - (b.scheduledAt || b.createdAt));
-    const signature = JSON.stringify(scheduled.map((job) => [job.id, job.state, job.scheduledAt, job.total]));
+    const signature = JSON.stringify(scheduled.map((job) => [job.id, job.state, job.scheduledAt, job.total, job.attachments?.length || 0]));
     if (signature === pendingSignature) return;
     pendingSignature = signature;
     const list = $('broadcast-schedule-list');
@@ -123,7 +155,8 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     for (const job of scheduled) {
       const row = element(document, 'div', 'bc-safe-schedule-row');
       row.dataset.jobId = job.id;
-      const text = `${formatTime(job.scheduledAt)} · ${job.total} 个对象 · ${job.state === 'queued' ? '等待当前任务结束' : '已定时'}`;
+      const files = job.attachments?.length || 0;
+      const text = `${formatTime(job.scheduledAt)}，${job.total} 个对象${files ? `，${files} 个附件` : ''}，${job.state === 'queued' ? '等待当前任务结束' : '已定时'}`;
       const cancel = button(document, '取消', () => onControl(job.id, 'stop'), '');
       cancel.dataset.jobId = job.id;
       cancel.setAttribute('aria-label', `取消 ${formatTime(job.scheduledAt)} 的定时任务`);
@@ -136,6 +169,10 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     read,
     fill(draft, nextCatalog, nextOwner) {
       accountId = draft.accountId; owner = nextOwner; catalog = nextCatalog;
+      attachments = (draft.attachments || []).map((file) => ({ ...file }));
+      $('broadcast-dropzone').dataset.open = String(attachments.length > 0);
+      $('broadcast-add-file').checked = false;
+      renderAttachments();
       $('broadcast-message').value = draft.message;
       $('broadcast-tagall').checked = draft.tagAll;
       $('bc-range-min').value = String(draft.intervalMin); $('bc-range-max').value = String(draft.intervalMax);
@@ -146,12 +183,15 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
       workbench.setStep('content');
     },
     catalog(next) { catalog = next; audience.set(next); },
+    attachments(next) { attachments = next.map((file) => ({ ...file })); renderAttachments(); },
+    showAttachments() { $('broadcast-dropzone').dataset.open = 'true'; },
     render(jobs, activeJob) { workbench.render(read(), catalog, owner, activeJob); renderSchedules(jobs); scheduleVisibility(); },
     setStep: workbench.setStep,
     status: workbench.status,
     availability: setAvailability,
     clearMessage() {
       $('broadcast-message').value = '';
+      attachments = []; renderAttachments();
       audience.set(catalog, undefined, []);
       $('broadcast-message').focus();
     },
@@ -159,7 +199,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
       if (/SCHEDULE/.test(code)) { workbench.setStep('settings'); $('broadcast-schedule-time').focus(); }
       else if (/AUDIENCE|CATALOG|ACCOUNT/.test(code)) { workbench.setStep('audience'); $('broadcast-search').focus(); }
       else if (/INTERVAL/.test(code)) { workbench.setStep('settings'); $('bc-range-min').focus(); }
-      else { workbench.setStep('content'); $('broadcast-message').focus(); }
+      else { workbench.setStep('content'); $(/ATTACHMENT|FILE/.test(code) ? 'broadcast-dropzone' : 'broadcast-message').focus(); }
     },
     dispose() { for (const remove of listeners) remove(); audience.dispose(); },
   };

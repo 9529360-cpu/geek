@@ -3,6 +3,7 @@
 pub mod account;
 pub mod account_batch;
 pub mod broadcast;
+pub mod broadcast_attachment;
 pub mod broadcast_render;
 pub mod broadcast_validation;
 pub mod document;

@@ -29,6 +29,11 @@ use uuid::Uuid;
 
 type NativeBroadcast = BroadcastService<EncryptedBroadcastRepository, NativePlatform>;
 
+mod attachments;
+pub use attachments::PickedBroadcastAttachments;
+
+#[cfg(test)]
+mod attachment_tests;
 #[cfg(test)]
 mod tests;
 
@@ -92,6 +97,8 @@ pub struct CreateBroadcast {
     catalog_id: String,
     recipient_ids: Vec<String>,
     vcard_ids: Vec<String>,
+    #[serde(default)]
+    attachment_ids: Vec<String>,
     message: String,
     tag_all: bool,
     interval_min: u64,
@@ -113,6 +120,7 @@ pub struct BroadcastDesktop {
     catalogs: Mutex<Vec<CatalogLease>>,
     lifecycle: Mutex<()>,
     stopping: AtomicBool,
+    picker: Mutex<()>,
 }
 
 fn supported_id(id: &str, kind: ChatKind) -> bool {
@@ -135,7 +143,7 @@ fn supported_id(id: &str, kind: ChatKind) -> bool {
 fn native_catalog(value: serde_json::Value) -> Result<NativeCatalog> {
     let mut result: NativeCatalog =
         serde_json::from_value(value).map_err(|_| AppError::BroadcastUnavailable)?;
-    if result.chats.len() > 20_000 || result.capabilities.attachments {
+    if result.chats.len() > 20_000 {
         return Err(AppError::BroadcastUnavailable);
     }
     let mut seen = HashSet::new();
@@ -175,6 +183,11 @@ fn same_intent(job: &BroadcastJob, input: &CreateBroadcast) -> bool {
             .map(|v| &v.id)
             .eq(input.recipient_ids.iter())
         && job.vcards.iter().map(|v| &v.id).eq(input.vcard_ids.iter())
+        && job
+            .attachments
+            .iter()
+            .map(|v| &v.id)
+            .eq(input.attachment_ids.iter())
 }
 
 fn validate_create(input: &CreateBroadcast) -> Result<()> {
@@ -182,6 +195,9 @@ fn validate_create(input: &CreateBroadcast) -> Result<()> {
         || !valid_uuid(&input.account_id)
         || input.recipient_ids.len() > 2_000
         || input.vcard_ids.len() > 100
+        || input.attachment_ids.len() > 10
+        || input.attachment_ids.iter().any(|id| !valid_uuid(id))
+        || input.attachment_ids.iter().collect::<HashSet<_>>().len() != input.attachment_ids.len()
         || input.interval_min < 5
         || input.interval_max > 60
         || input.interval_min > input.interval_max
@@ -190,6 +206,9 @@ fn validate_create(input: &CreateBroadcast) -> Result<()> {
     }
     if input.message.len() > 32768 || input.recipient_ids.is_empty() {
         return Err(AppError::BroadcastInvalid);
+    }
+    if !input.attachment_ids.is_empty() && input.tag_all {
+        return Err(AppError::BroadcastUnsupported);
     }
     Ok(())
 }
@@ -201,6 +220,7 @@ fn frozen_draft(catalog: &BroadcastCatalog, input: &CreateBroadcast) -> Result<B
     if input.scheduled_at.is_some() && !catalog.capabilities.scheduled
         || input.tag_all && !catalog.capabilities.tag_all
         || !input.vcard_ids.is_empty() && !catalog.capabilities.vcards
+        || !input.attachment_ids.is_empty() && !catalog.capabilities.attachments
     {
         return Err(AppError::BroadcastUnsupported);
     }
@@ -240,6 +260,7 @@ fn frozen_draft(catalog: &BroadcastCatalog, input: &CreateBroadcast) -> Result<B
         account_id: input.account_id.clone(),
         targets,
         vcards,
+        attachments: Vec::new(), // Resolved by the native owner immediately before submit.
         message: input.message.clone(),
         tag_all: input.tag_all,
         scheduled_at: input.scheduled_at,
@@ -261,6 +282,7 @@ impl BroadcastDesktop {
             catalogs: Mutex::new(Vec::new()),
             lifecycle: Mutex::new(()),
             stopping: AtomicBool::new(false),
+            picker: Mutex::new(()),
         })
     }
 
@@ -437,7 +459,12 @@ impl BroadcastDesktop {
         if account.platform_id != binding.platform_id {
             return Err(AppError::BroadcastUnavailable);
         }
-        let draft = frozen_draft(&catalog, &input)?;
+        let mut draft = frozen_draft(&catalog, &input)?;
+        draft.attachments = self.service.resolve_attachments(
+            &input.account_id,
+            &input.id,
+            &input.attachment_ids,
+        )?;
         let job = self.service.submit(
             BroadcastAccount {
                 id: account.id,
@@ -447,6 +474,7 @@ impl BroadcastDesktop {
                     text: catalog.capabilities.text,
                     tag_all: catalog.capabilities.tag_all,
                     vcards: catalog.capabilities.vcards,
+                    attachments: catalog.capabilities.attachments,
                 },
             },
             draft,

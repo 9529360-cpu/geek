@@ -119,6 +119,16 @@
       "response": "BroadcastCatalog"
     },
     {
+      "name": "broadcast_pick_attachments",
+      "arguments": ["accountId"],
+      "response": "Option<PickedBroadcastAttachments>"
+    },
+    {
+      "name": "broadcast_release_attachments",
+      "arguments": ["accountId", "attachmentIds"],
+      "response": "unit"
+    },
+    {
       "name": "broadcast_create",
       "arguments": [
         "draft"

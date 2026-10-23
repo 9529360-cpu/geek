@@ -3,6 +3,7 @@
 pub mod accounts;
 pub mod broadcast;
 mod broadcast_actions;
+mod broadcast_attachments;
 mod broadcast_runner;
 pub mod ports;
 pub mod request_control;

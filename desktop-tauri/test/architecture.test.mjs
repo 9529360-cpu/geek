@@ -100,6 +100,25 @@ test('views cannot acquire the native API by importing its wrapper', () => {
   assert.match(checkFrontendGraph(files).join('\n'), /direction violation/);
 });
 
+test('attachment commands keep optional result shape and cannot bypass their authorized owner', () => {
+  const files = collect(root);
+  const key = 'src-tauri/src/desktop/commands.rs';
+  assert.deepEqual(checkCommands(files), []);
+  const response = new Map(files);
+  response.set(key, files.get(key).replace('Result<Option<PickedBroadcastAttachments>>', 'Result<PickedBroadcastAttachments>'));
+  assert.notEqual(response.get(key), files.get(key));
+  assert.match(checkCommands(response).join('\n'), /broadcast_pick_attachments: response type/);
+  for (const name of ['broadcast_pick_attachments', 'broadcast_release_attachments']) {
+    const offset = files.get(key).indexOf(`pub async fn ${name}`);
+    const before = files.get(key).slice(0, offset);
+    const after = files.get(key).slice(offset);
+    const mutant = new Map(files);
+    mutant.set(key, before + after.replace('execute(webview, move |app|', 'bypass(webview, move |app|'));
+    assert.notEqual(mutant.get(key), files.get(key));
+    assert.match(checkCommands(mutant).join('\n'), /Broadcast command.*authorization/);
+  }
+});
+
 test('import discovery accepts original field IDs and still detects multiline imports', () => {
   const files = new Map([
     ['frontend/views/example.mjs', "const fields = ['translation-message-from', 'translation-send-from'];\n"],

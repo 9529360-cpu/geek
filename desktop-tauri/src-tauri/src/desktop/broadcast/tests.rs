@@ -215,6 +215,7 @@ mod ingress {
                 text: true,
                 tag_all: true,
                 vcards: true,
+                attachments: true,
             },
         };
         let draft = BroadcastDraft {
@@ -239,6 +240,7 @@ mod ingress {
                 .collect(),
             message: input.message,
             tag_all: input.tag_all,
+            attachments: Vec::new(),
             interval_min_ms: 5_000,
             interval_max_ms: 10_000,
             scheduled_at: None,
@@ -341,7 +343,12 @@ mod ingress {
         }
         let mut attachments = catalog_value();
         attachments["capabilities"]["attachments"] = json!(true);
-        assert!(native_catalog(attachments).is_err());
+        assert!(
+            native_catalog(attachments)
+                .unwrap()
+                .capabilities
+                .attachments
+        );
         let mut oversized = catalog_value();
         oversized["chats"] = json!(vec![contact("status@broadcast"); 20_001]);
         assert!(native_catalog(oversized).is_err());

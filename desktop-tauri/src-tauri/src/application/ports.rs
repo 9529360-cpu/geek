@@ -9,6 +9,29 @@ use crate::domain::{
     presentation::Viewport,
 };
 
+/// Native attachment inspection is cancellable, bounded and never runs under an owner lock.
+pub trait BroadcastAttachmentIo: Send + Sync {
+    fn inspect(
+        &self,
+        path: &std::path::Path,
+        as_document: bool,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<crate::domain::broadcast_attachment::AttachmentFile>;
+    fn open_verified(
+        &self,
+        source: &crate::domain::broadcast_attachment::BroadcastAttachmentSource,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Box<dyn BroadcastAttachmentRead>>;
+}
+
+/// Owns one native read handle until EOF/drop. None means final integrity passed.
+pub trait BroadcastAttachmentRead: Send {
+    fn next_chunk(
+        &mut self,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Option<zeroize::Zeroizing<Vec<u8>>>>;
+}
+
 /// Only the repository owns serialization, encryption, locks and atomic I/O.
 /// A failed save must leave the previous durable document authoritative.
 pub trait AccountRepository {

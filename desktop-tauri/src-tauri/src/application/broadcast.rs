@@ -1,4 +1,5 @@
 //! One independent job owner. Native work is never performed under this mutex.
+use super::broadcast_attachments::StagedAttachment;
 use super::ports::{BroadcastPlatform, BroadcastRepository};
 use crate::domain::{
     broadcast::*,
@@ -46,10 +47,23 @@ pub(super) struct BroadcastInner<R> {
     pub in_flight: HashMap<String, DispatchControl>,
     pub blocked: HashSet<String>,
     pub shutting_down: bool,
+    pub staged: HashMap<String, StagedAttachment>,
 }
 
 impl<R: BroadcastRepository> BroadcastInner<R> {
     pub fn commit(&mut self, mut candidate: BroadcastDocument) -> Result<()> {
+        candidate.schema_version = 2;
+        // Terminal state and source retirement are one durable transaction.
+        // User files are never removed; only this job's private references expire.
+        let live: HashSet<_> = candidate
+            .jobs
+            .iter()
+            .filter(|job| !job.state.terminal())
+            .map(|job| &job.id)
+            .collect();
+        candidate
+            .attachment_sources
+            .retain(|source| live.contains(&source.job_id));
         candidate.revision = self
             .document
             .revision
@@ -118,6 +132,7 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
             in_flight: HashMap::new(),
             blocked: HashSet::new(),
             shutting_down: false,
+            staged: HashMap::new(),
         };
         let mut recovered = inner.document.clone();
         for job in &mut recovered.jobs {
@@ -221,6 +236,22 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
         if draft.scheduled_at.is_some_and(|at| at <= now) {
             return Err(AppError::BroadcastInvalid);
         }
+        let sources = draft
+            .attachments
+            .iter()
+            .map(|attachment| {
+                let selected = inner
+                    .staged
+                    .get(&attachment.id)
+                    .filter(|selected| {
+                        selected.account_id == account.id
+                            && selected.metadata == *attachment
+                            && !selected.expired()
+                    })
+                    .ok_or(AppError::BroadcastAttachmentUnavailable)?;
+                Ok(selected.source(&draft.id))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let job = BroadcastJob::from_draft(&account, draft, now);
         let mut candidate = inner.document.clone();
         if candidate.jobs.len() >= MAX_JOBS {
@@ -239,7 +270,11 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
             candidate.retired_ids.push(retired.id);
         }
         candidate.jobs.push(job.clone());
+        candidate.attachment_sources.extend(sources);
         inner.commit(candidate)?;
+        for attachment in &job.attachments {
+            inner.staged.remove(&attachment.id);
+        }
         Ok(job)
     }
 
@@ -248,6 +283,7 @@ impl<R: BroadcastRepository, P: BroadcastPlatform> BroadcastService<R, P> {
     pub fn shutdown(&self) -> Result<()> {
         let mut inner = self.lock()?;
         inner.shutting_down = true;
+        inner.staged.clear();
         for control in inner.in_flight.values() {
             control.cancel();
         }

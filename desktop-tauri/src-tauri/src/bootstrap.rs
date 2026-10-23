@@ -47,6 +47,8 @@ pub fn run() {
             commands::desktop_settings,
             commands::desktop_window,
             commands::broadcast_catalog,
+            commands::broadcast_pick_attachments,
+            commands::broadcast_release_attachments,
             commands::broadcast_create,
             commands::broadcast_snapshot,
             commands::broadcast_control,

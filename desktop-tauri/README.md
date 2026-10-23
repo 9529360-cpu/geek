@@ -74,7 +74,7 @@ schema 6 将聊天翻译覆盖收敛为原界面可独立设置的七个字段�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram 翻译/群发、提及/附件的发送翻译、媒体引用、附件桥、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 群发、极客登录、接收翻译、普通文字及同聊天文字引用回复的发送翻译范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram 翻译/群发、提及/附件的发送翻译、媒体引用、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 文字与附件群发、极客登录、接收翻译、普通文字及同聊天文字引用回复的发送翻译范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -122,7 +122,7 @@ tray preference, native window controls, WhatsApp broadcast, Geek login/quota,
 WhatsApp incoming-message translation, plain-text outgoing translation and same-chat
 text replies with account/chat settings and an independent SendIntent owner.
 Not yet wired: restart/lock, registration/purchase, theme/startup options, notes,
-Telegram translation/broadcast, mentions, media replies and attachments.
+Telegram translation/broadcast, interactive mentions, media replies and interactive attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 
@@ -167,7 +167,15 @@ settings, and open/closed guest state are preserved. No extra ordering store is 
 
 ## WhatsApp 群发
 
-原入口与四步工作台已接通 WhatsApp / 纯净版的文本、联系人和群选择、变量及随机版本、电子名片、文本消息中的 @全体、即时与定时任务。随机间隔在界面及原生入口均限定为 5–60 秒。联系人目录来自该账号的已登录页面，名字与目标在 Rust 创建任务时冻结；切换当前账号不会改变发送归属。只支持普通用户 Wid（`@c.us` / `@lid`）与普通群（`@g.us`），不把频道、状态广播或社区父群当作联系人。缺失姓名不能用聊天 ID 冒充变量值，成员数据不完整时不降级成部分 @全体。
+原入口与四步工作台已接通 WhatsApp / 纯净版的文本、附件、联系人和群选择、变量及随机版本、电子名片、文本消息中的 @全体、即时与定时任务。随机间隔在界面及原生入口均限定为 5–60 秒。联系人目录来自该账号的已登录页面，名字与目标在 Rust 创建任务时冻结；切换当前账号不会改变发送归属。只支持普通用户 Wid（`@c.us` / `@lid`）与普通群（`@g.us`），不把频道、状态广播或社区父群当作联系人。缺失姓名不能用聊天 ID 冒充变量值，成员数据不完整时不降级成部分 @全体。
+
+附件沿用原上传位置、文件名列表和删除操作，由原生多选框选择，最多 10 个、单个 512 MiB、合计 1 GiB。图片、视频、音频按对应类型发送，其他文件作为文档发送。多个附件按选择顺序逐件发送；展开后的正文仅作为最后一个附件的说明，不额外发送一条文字，随后才发送名片。可以只发附件。附件与 @全体的组合明确不可用，不静默忽略勾选。
+
+选择时计算文件指纹，前端只获得账号所属的 opaque ID 与文件名、大小和类型。原文件路径与指纹只保存在加密的 `broadcast.dpapi` 私有来源记录中，和任务在同一次原子写入中固定；任务快照和前端不会得到真实路径。草稿选择在内存中最多保留 6 小时；任务创建成功后转由任务持有，关闭界面或迟到的草稿清理不能移除已提交的来源。任务进入终态时，同次持久化移除私有引用，始终不删除用户原文件。
+
+定时和排队期间请保留原文件的位置与内容。每个目标提交前重新打开并校验全部附件；Windows 读取句柄禁止同时写入或删除，传输仍使用同一句柄并在结束时再次校验指纹。固定平台桥以 512 KiB 分块传输，一次只在该页面准备一个文件，不开放任意路径、URL 或文件系统调用。附件目标总时限 20 分钟，单件平台上传与回执等待最多 5 分钟；缺失或改变的来源会在首次发送前明确停止任务。已经调用平台发送后发生超时、取消、缺失回执或后续附件失败，整个目标记为不确定并暂停，恢复时不会自动重发前面已发出的附件。
+
+原生文件框使用固定版本的 rfd Rust API，在专用线程运行。它与 Tauri 官方对话框插件采用相同的原生后端，但不注册通用 dialog/fs 插件或向账号页面注入脚本。新增命令仍只授权给本地管理界面。
 
 一个账号只能执行一个任务，其他任务排队；不同账号最多四个 worker 并发，每个 worker 每次只处理一个目标。当前账号任务条和全部账号任务中心可暂停、继续、停止并查看结果。任务条显示前先依据实际高度缩小原生聊天区域，避免 native WebView 覆盖操作按钮。关闭、刷新、修改代理或归档账号会撤销该 guest 的代次，并停止其未结束任务，包括定时任务。
 
@@ -175,7 +183,7 @@ settings, and open/closed guest state are preserved. No extra ordering store is 
 
 任务存储由独立 Rust owner 管理，沿用现有 DPAPI、原子替换和应用进程锁；不在账号 Workspace 锁内等待网页、回执或间隔。创建请求 UUID 去重，迟到创建响应或重试不会生成第二个任务。未确认的发送检查点在恢复后记录为 uncertain 并跳过；曾执行任务需要人工核对后继续，未开始的即时队列也不自动发送。未开始的定时任务恢复后可到点准备，但应用必须运行且对应账号页面需要就绪；不会后台自动打开所有账号。到点账号未就绪最多准备 20 次，之后显示明确失败。
 
-每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。附件、Telegram 原生输入、失败 CSV 导出、外部导入及未接通的高级选项仍保留原位置并标明不可用。
+每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB；附件正文不写进该文档。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。Telegram 原生输入、失败 CSV 导出、外部导入及未接通的高级选项仍保留原位置并标明不可用。
 
 平台桥只执行打包的命名语义调用，未向页面开放脚本、路径、密钥或 native IPC。构建复用原版 capability/adapter/safety 纯合同及锁定的 WA-JS，附带依赖许可和输入哈希。异步结果经有界 mailbox 返回；原生使用单调时钟期限，取消或导航会使旧 mailbox 和准备结果失效。每个 document 的 attempt ID 单次使用，达到有界容量则拒绝继续，不丢弃旧凭据来允许重放。
 

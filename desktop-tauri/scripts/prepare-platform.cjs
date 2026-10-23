@@ -26,6 +26,7 @@ function compose(root = ROOT) {
     `const createPlatformCapabilities = ${context.window.GeekPlatformCapabilities.create.toString()};`,
     `const validateAdapter = ${context.window.GeekPlatformAdapterContract.validate.toString()};`,
     `const readCanonicalChats = async () => (${definitions.definitionFor({ family: 'whatsapp' }).getChats});`,
+    read('desktop-tauri/guest/broadcast-attachments.js'),
     read('desktop-tauri/guest/whatsapp.js'),
     read('desktop-tauri/guest/bridge.js'),
     '})();', '',
@@ -75,6 +76,7 @@ function prepare(output, root = ROOT) {
   fs.writeFileSync(path.join(output, 'platform-licenses.txt'), licenses);
   const inputs = ['ui/platform-capabilities.js', 'ui/platform-adapter-contract.js',
     'ui/platform-transport-definitions.js', 'ui/broadcast-safety.js',
+    'desktop-tauri/guest/broadcast-attachments.js',
     'desktop-tauri/guest/whatsapp.js', 'desktop-tauri/guest/bridge.js',
     'src/translation-output-safety.cjs', 'desktop-tauri/guest/translation.js',
     'desktop-tauri/guest/send-context.js', 'desktop-tauri/guest/send-composer.js',

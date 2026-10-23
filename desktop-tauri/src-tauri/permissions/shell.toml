@@ -17,6 +17,8 @@ commands.allow = [
   "account_set_archived",
   "desktop_settings",
   "broadcast_catalog",
+  "broadcast_pick_attachments",
+  "broadcast_release_attachments",
   "broadcast_create",
   "broadcast_snapshot",
   "broadcast_control",

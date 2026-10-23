@@ -107,6 +107,7 @@ pub struct FakePlatform {
     pub before_commit: Mutex<Option<Arc<Gate>>>,
     pub after_commit: Mutex<Option<Arc<Gate>>>,
     pub outcome: Mutex<Option<DispatchOutcome>>,
+    pub before_submission_issue: Mutex<Option<BroadcastIssue>>,
     pub commits: Mutex<usize>,
     pub enforce_generation: AtomicBool,
     pub hour: AtomicU8,
@@ -124,6 +125,7 @@ impl Default for FakePlatform {
             before_commit: Mutex::new(None),
             after_commit: Mutex::new(None),
             outcome: Mutex::new(None),
+            before_submission_issue: Mutex::new(None),
             commits: Mutex::new(0),
             enforce_generation: AtomicBool::new(false),
             hour: AtomicU8::new(16),
@@ -213,6 +215,9 @@ impl BroadcastPlatform for FakePlatform {
                 code: BroadcastIssue::GuestChanged,
             };
         }
+        if let Some(code) = *self.before_submission_issue.lock().unwrap() {
+            return DispatchOutcome::NotSubmitted { code };
+        }
         if !control.try_begin_commit() {
             return DispatchOutcome::NotSubmitted {
                 code: BroadcastIssue::Cancelled,
@@ -243,6 +248,7 @@ pub fn account(name: &str) -> BroadcastAccount {
             text: true,
             tag_all: true,
             vcards: true,
+            attachments: true,
         },
     }
 }
@@ -261,6 +267,7 @@ pub fn draft(account: &BroadcastAccount, count: usize) -> BroadcastDraft {
         message: "Hello %nc / %nr / %sa".into(),
         tag_all: false,
         vcards: Vec::new(),
+        attachments: Vec::new(),
         interval_min_ms: 1_000,
         interval_max_ms: 1_000,
         scheduled_at: None,

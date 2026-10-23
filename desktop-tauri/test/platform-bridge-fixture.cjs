@@ -1,6 +1,7 @@
 'use strict';
 
 const vm = require('node:vm');
+const { File, Blob } = require('node:buffer');
 const { compose } = require('../scripts/prepare-platform.cjs');
 
 // Execute the actual build composition, including the canonical registry, chat
@@ -31,7 +32,7 @@ function receipt(id = 'true_100@c.us_TEST0001', ack = 1) {
   return { id, ack, sendMsgResult: { messageSendResult: 'OK' } };
 }
 
-function fixture({ iframe = false, generation = uuid(1) } = {}) {
+function fixture({ iframe = false, generation = uuid(1), attachments = false } = {}) {
   let nextId = 10;
   let nextTimer = 0;
   const clock = { now: 1000, wall: 1700000000000 };
@@ -41,7 +42,8 @@ function fixture({ iframe = false, generation = uuid(1) } = {}) {
   const behavior = {};
   const state = { ready: true };
   const outbound = (kind, target, value, options) => {
-    const call = copy({ kind, target, value, options });
+    const call = copy({ kind, target, options });
+    call.value = kind === 'file' ? value : copy(value);
     sends.push(call);
     return behavior[kind] ? behavior[kind](call) : receipt(`true_${target}_TEST${sends.length}`);
   };
@@ -66,6 +68,9 @@ function fixture({ iframe = false, generation = uuid(1) } = {}) {
       getPnLidEntry: (id) => behavior.lookup ? behavior.lookup(id) : { phoneNumber: wid(ids.contact) },
     },
   };
+  if (attachments) {
+    WPP.chat.sendFileMessage = (target, value, options) => outbound('file', target, value, options);
+  }
   class FakeDate extends Date {
     constructor(...args) { super(...(args.length ? args : [clock.wall])); }
     static now() { return clock.wall; }
@@ -74,6 +79,7 @@ function fixture({ iframe = false, generation = uuid(1) } = {}) {
   window.top = iframe ? {} : window;
   const context = vm.createContext({
     window,
+    File, Blob, Uint8Array, atob, btoa,
     performance: { now: () => clock.now },
     Date: FakeDate,
     setTimeout: (callback, delay = 0) => {

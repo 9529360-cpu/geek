@@ -11,7 +11,7 @@ test('the original four steps wire selection, variables, intervals, and one immu
   await ui.open();
   assert.equal(ui.panel, 'broadcast-overlay');
   assert.equal(ui.get('broadcast-add-file').disabled, true);
-  assert.match(ui.get('broadcast-add-file').title, /尚未迁移/);
+  assert.match(ui.get('broadcast-add-file').title, /附件发送尚未就绪/);
   assert.equal(ui.get('broadcast-import-csv').disabled, true);
   assert.equal(ui.get('broadcast-workbench-nav').children.length, 4);
   assert.equal(ui.get('broadcast-send').classList.contains('hidden'), true);
@@ -34,7 +34,7 @@ test('the original four steps wire selection, variables, intervals, and one immu
   const creates = ui.calls.filter(([name]) => name === 'create');
   assert.equal(creates.length, 1);
   assert.deepEqual(creates[0][1], { id: '00000000-0000-4000-8000-000000000001', accountId: 'a', catalogId: 'a-catalog',
-    recipientIds: ['a-ann', 'a-team'], message: 'Hi %nc', vcardIds: [], tagAll: false,
+    recipientIds: ['a-ann', 'a-team'], message: 'Hi %nc', vcardIds: [], attachmentIds: [], tagAll: false,
     intervalMin: 12, intervalMax: 18, scheduledAt: null });
   assert.equal(ui.panel, null);
   assert.equal(ui.get('broadcast-job-bar').classList.contains('hidden'), false);

@@ -1,5 +1,8 @@
 use super::{
-    broadcast::{BroadcastCatalog, BroadcastDesktop, CreateBroadcast, CreatedBroadcast},
+    broadcast::{
+        BroadcastCatalog, BroadcastDesktop, CreateBroadcast, CreatedBroadcast,
+        PickedBroadcastAttachments,
+    },
     security::authorize,
     session::NativeSession,
     translation::TranslationDesktop,
@@ -232,6 +235,31 @@ pub async fn broadcast_create(
 ) -> Result<CreatedBroadcast> {
     execute(webview, move |app| {
         app.state::<Arc<BroadcastDesktop>>().create(draft)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_pick_attachments(
+    webview: Webview,
+    account_id: String,
+) -> Result<Option<PickedBroadcastAttachments>> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>()
+            .pick_attachments(&app, &account_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_release_attachments(
+    webview: Webview,
+    account_id: String,
+    attachment_ids: Vec<String>,
+) -> Result<()> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>()
+            .release_attachments(&account_id, &attachment_ids)
     })
     .await
 }

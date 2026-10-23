@@ -44,7 +44,7 @@ function checkCommands(files) {
   sameNames([...source.matchAll(/#\[tauri::command\]\s+pub async fn (\w+)/g)].map((m) => m[1]), names,
     'Rust ingress', failures);
   for (const command of manifest.commands) {
-    const signature = new RegExp(`pub async fn ${command.name}\\s*\\(([\\s\\S]*?)\\)\\s*->\\s*Result<([^>]+)>`).exec(source);
+    const signature = new RegExp(`pub async fn ${command.name}\\s*\\(([\\s\\S]*?)\\)\\s*->\\s*Result<([^\\n{]+)>\\s*\\{`).exec(source);
     if (!signature) { failures.push(`${command.name}: missing typed command signature`); continue; }
     const inputs = [...signature[1].matchAll(/\b([a-z_]+)\s*:(?!:)/g)]
       .map((match) => match[1]).filter((name) => !['webview', 'state'].includes(name))
@@ -82,7 +82,8 @@ function checkCommands(files) {
           || /\b(?:state|SharedDesktop|NativeDesktop)\b|\.lock\(/.test(section)) {
         failures.push('Window command must use shared authorization without account state');
       }
-    } else if (['broadcast_catalog', 'broadcast_create', 'broadcast_snapshot', 'broadcast_control'].includes(name)) {
+    } else if (['broadcast_catalog', 'broadcast_create', 'broadcast_snapshot', 'broadcast_control',
+      'broadcast_pick_attachments', 'broadcast_release_attachments'].includes(name)) {
       if (!/\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<BroadcastDesktop>>\(\)\s*\./.test(section)
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
         failures.push('Broadcast command must use shared authorization and its independent owner without account state');

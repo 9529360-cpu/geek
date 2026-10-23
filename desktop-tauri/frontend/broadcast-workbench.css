@@ -1,6 +1,35 @@
 /* Presentation carried from the active Electron broadcast workbench and job views. */
 /* The original working surface is intentionally retained; runtime adaptations follow below. */
 /* ui/broadcast-workbench.js */
+#broadcast-overlay .bc-dropzone[data-open="true"] {
+  display:flex;
+}
+#broadcast-overlay .bc-files {
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px;
+  margin-top:6px;
+}
+#broadcast-overlay .bf-name {
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+#broadcast-overlay .bf-remove {
+  flex:none;
+  border:0;
+  padding:0 2px;
+  background:transparent;
+  color:var(--text-tertiary);
+  cursor:pointer;
+}
+#broadcast-overlay .bf-remove:hover {
+  color:var(--danger);
+}
+#broadcast-overlay .bf-remove:focus-visible {
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
 #broadcast-overlay .bc-dialog {
   width:min(760px,calc(100vw - 28px));
   border-radius:14px;

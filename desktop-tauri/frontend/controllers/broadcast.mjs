@@ -1,4 +1,4 @@
-import { emptyDraft, normalizeCatalog, draftPayload, submissionFor, currentJob, executing, terminal } from '../models/broadcast.mjs';
+import { emptyDraft, normalizeCatalog, normalizeAttachments, draftPayload, submissionFor, currentJob, executing, terminal } from '../models/broadcast.mjs';
 import { errorCode, errorMessage } from '../models/broadcast-status.mjs';
 import { wire, unavailable } from '../views/broadcast-elements.mjs';
 import { createBroadcastEditor } from '../views/broadcast-editor.mjs';
@@ -8,11 +8,14 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   const $ = (id) => document.getElementById(id);
   const apiAvailable = ['broadcastCatalog', 'broadcastCreate', 'broadcastSnapshot', 'broadcastControl']
     .every((name) => typeof api?.[name] === 'function');
+  const attachmentsAvailable = ['broadcastPickAttachments', 'broadcastReleaseAttachments']
+    .every((name) => typeof api?.[name] === 'function');
   const operations = new Set();
   const drafts = new Map();
   const pendingControls = new Set();
   const listeners = [];
   let shell = getShellSnapshot();
+  let renderedActiveId = shell?.activeId;
   let shellBusy = false;
   let panel = null;
   let editorOwner = null;
@@ -20,6 +23,8 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   let submission = null;
   let loading = false;
   let creating = false;
+  let picking = false;
+  let removingAttachment = false;
   let editorEpoch = 0;
   let loadEpoch = 0;
   let disposed = false;
@@ -40,7 +45,8 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
   const report = (error) => {
     if (disposed) return;
-    lastStatus = { text: errorMessage(error), state: 'error', retry: /CATALOG|READY|UNAVAILABLE/.test(errorCode(error)) };
+    const code = errorCode(error);
+    lastStatus = { text: errorMessage(error), state: 'error', retry: !/ATTACHMENT|FILE/.test(code) && /CATALOG|READY|UNAVAILABLE/.test(code) };
     editor?.status(lastStatus.text, lastStatus.state, lastStatus.retry);
   };
   const owner = () => shell?.accounts.find((account) => account.id === editorOwner);
@@ -57,7 +63,8 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     editor.render(snapshot.jobs, running?.id === submission?.id ? null : running);
     if (mismatch()) editor.status(errorMessage('BROADCAST_ACCOUNT_CHANGED'), 'error');
     else editor.status(lastStatus.text, lastStatus.state, lastStatus.retry);
-    editor.availability({ shellBusy, creating, loading, mismatch: mismatch(), apiAvailable, pendingControls });
+    editor.availability({ shellBusy, creating, loading, mismatch: mismatch(), apiAvailable, pendingControls,
+      attachmentsAvailable, attachmentBusy: picking || removingAttachment });
   }
 
   function render() {
@@ -148,8 +155,69 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     await loadCatalog();
   }
 
+  function selectionCurrent(accountId, epoch) {
+    return !disposed && panel === 'broadcast-overlay' && editorOwner === accountId
+      && editorEpoch === epoch && !mismatch() && owner() && !owner().archived;
+  }
+
+  async function pickAttachments() {
+    if (disposed || creating || shellBusy || picking || removingAttachment || !attachmentsAvailable
+      || panel !== 'broadcast-overlay' || mismatch()) return;
+    const accountId = editorOwner;
+    const epoch = editorEpoch;
+    const retainedIds = new Set(editor.read().attachments.map((file) => file.id));
+    let picked = null;
+    let accepted = false;
+    try {
+      if (!catalog?.ready || !catalog.capabilities.attachments) throw 'BROADCAST_ATTACHMENTS_UNAVAILABLE';
+      if (editor.read().tagAll) throw 'BROADCAST_ATTACHMENTS_TAG_ALL';
+      picking = true;
+      editor.showAttachments(); render();
+      picked = await api.broadcastPickAttachments(accountId);
+      if (picked === null || !selectionCurrent(accountId, epoch)) return;
+      if (!picked || picked.accountId !== accountId || !Array.isArray(picked.attachments)) throw 'BROADCAST_ATTACHMENT_INVALID';
+      const draft = editor.read();
+      if (draft.tagAll) throw 'BROADCAST_ATTACHMENTS_TAG_ALL';
+      const next = normalizeAttachments([...draft.attachments, ...normalizeAttachments(picked.attachments)]);
+      editor.attachments(next); accepted = true; stash();
+      if (picked.attachments.length) lastStatus = { text: `已添加 ${picked.attachments.length} 个附件`, state: 'ready', retry: false };
+    } catch (error) {
+      if (selectionCurrent(accountId, epoch)) report(error);
+    } finally {
+      if (!accepted && Array.isArray(picked?.attachments)) {
+        const ids = [...new Set(picked.attachments.map((file) => file?.id)
+          .filter((id) => typeof id === 'string' && !retainedIds.has(id)))];
+        if (ids.length) await api.broadcastReleaseAttachments(accountId, ids).catch(() => {});
+      }
+      picking = false;
+      if (!disposed) render();
+    }
+  }
+
+  async function removeAttachment(id) {
+    if (disposed || creating || shellBusy || picking || removingAttachment || !attachmentsAvailable
+      || panel !== 'broadcast-overlay' || mismatch() || !editor.read().attachments.some((file) => file.id === id)) return;
+    const accountId = editorOwner;
+    const epoch = editorEpoch;
+    removingAttachment = true; render();
+    try {
+      await api.broadcastReleaseAttachments(accountId, [id]);
+      const saved = drafts.get(accountId);
+      if (saved) saved.draft.attachments = saved.draft.attachments.filter((file) => file.id !== id);
+      if (editorOwner === accountId) {
+        editor.attachments(editor.read().attachments.filter((file) => file.id !== id)); stash();
+      }
+      if (selectionCurrent(accountId, epoch)) lastStatus = { text: '附件已移除', state: 'ready', retry: false };
+    } catch (error) {
+      if (selectionCurrent(accountId, epoch)) report(error);
+    } finally {
+      removingAttachment = false;
+      if (!disposed) render();
+    }
+  }
+
   async function submit(continueEditing) {
-    if (disposed || creating || shellBusy || loading || !apiAvailable || panel !== 'broadcast-overlay') return;
+    if (disposed || creating || shellBusy || loading || picking || removingAttachment || !apiAvailable || panel !== 'broadcast-overlay') return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
     try {
@@ -232,6 +300,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     onChange: () => { stash(); refreshEditor(); },
     onSubmit: (continued) => track(submit(continued)), onClose: () => track(closePanel().catch(report)),
     onRetry: () => track(loadCatalog()), onControl: (id, action) => track(control(id, action)),
+    onPickAttachments: () => track(pickAttachments()), onRemoveAttachment: (id) => track(removeAttachment(id)),
   });
   jobsView = createBroadcastJobs({ document, window, requestLayout,
     onOpen: () => track(openTasks().catch(report)), onClose: () => track(closePanel().catch(report)),
@@ -265,8 +334,10 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     renderShell(next) {
       if (disposed) return;
       const first = !shell;
-      const previous = shell?.activeId;
+      const previous = renderedActiveId;
+      renderedActiveId = next?.activeId;
       shell = next;
+      if (previous !== next?.activeId) editorEpoch += 1;
       if (previous !== next?.activeId && loading) { loadEpoch += 1; loading = false; }
       render();
       if (first || snapshot.revision < 0) void refreshSnapshot();
@@ -276,7 +347,14 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     get busy() { return creating; },
     async idle() { while (operations.size) await Promise.allSettled([...operations]); },
     dispose() {
+      if (disposed) return;
+      stash();
       disposed = true; loadEpoch += 1; editorEpoch += 1;
+      if (attachmentsAvailable) for (const [accountId, saved] of drafts) {
+        const ids = saved.draft.attachments?.map((file) => file.id) || [];
+        if (ids.length) void api.broadcastReleaseAttachments(accountId, ids).catch(() => {});
+      }
+      drafts.clear();
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       for (const remove of listeners) remove(); editor.dispose(); jobsView.dispose();
     },
