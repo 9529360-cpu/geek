@@ -71,6 +71,8 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
   let controller;
   let layouts = 0;
   const attachmentRefs = new Map();
+  const importedCatalogs = new Map();
+  const catalogLeases = new Map();
   const publish = (next) => { backend = { ...backend, ...structuredClone(next) }; };
   async function invoke(name, value) {
     calls.push([name, structuredClone(value)]);
@@ -79,11 +81,18 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
       if (name === 'pick' && Array.isArray(override?.attachments)) for (const file of override.attachments) {
         attachmentRefs.set(`${value}:${file?.id}`, structuredClone(file));
       }
+      if (name === 'import' && override?.accountId === value.accountId && override.catalog?.accountId === value.accountId) {
+        importedCatalogs.set(value.accountId, structuredClone(override.catalog));
+        catalogLeases.set(`${value.accountId}:${override.catalog.catalogId}`, structuredClone(override.catalog));
+      }
+      if (name === 'catalog' && override?.accountId === value) catalogLeases.set(`${value}:${override.catalogId}`, structuredClone(override));
       return structuredClone(override);
     }
     if (failures.has(name)) throw 'STORE_IO';
-    if (name === 'catalog') return catalog(value, accountCatalogs[value]);
+    if (name === 'catalog') return structuredClone(importedCatalogs.get(value) || catalog(value, accountCatalogs[value]));
     if (name === 'snapshot') return structuredClone(backend);
+    if (name === 'import') return null;
+    if (name === 'export') return { ...value, revision: backend.revision, rowCount: 1, saved: true };
     if (name === 'pick') return null;
     if (name === 'release') {
       for (const id of value.attachmentIds) {
@@ -95,9 +104,15 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     }
     if (name === 'create') {
       if (!backend.jobs.some((item) => item.id === value.id)) {
-        const chats = catalog(value.accountId, accountCatalogs[value.accountId]).chats;
+        const source = catalogLeases.get(`${value.accountId}:${value.catalogId}`) || catalog(value.accountId, accountCatalogs[value.accountId]);
+        if (source.catalogId !== value.catalogId) throw 'BROADCAST_UNAVAILABLE';
+        const targets = value.recipientIds.map((id) => {
+          const target = source.chats.find((chat) => chat.id === id);
+          if (!target) throw 'BROADCAST_INVALID';
+          return target;
+        });
         backend.jobs.push(job(value.id, value.accountId, { state: value.scheduledAt ? 'scheduled' : 'running',
-          targets: value.recipientIds.map((id) => chats.find((chat) => chat.id === id)), total: value.recipientIds.length,
+          targets, total: value.recipientIds.length,
           message: value.message, scheduledAt: value.scheduledAt, createdAt: Date.now(),
           attachments: value.attachmentIds.map((id) => {
             const file = attachmentRefs.get(`${value.accountId}:${id}`);
@@ -121,7 +136,9 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
   const api = { broadcastCatalog: (id) => invoke('catalog', id), broadcastSnapshot: () => invoke('snapshot', null),
     broadcastCreate: (draft) => invoke('create', draft), broadcastControl: (jobId, action) => invoke('control', { jobId, action }),
     broadcastPickAttachments: (accountId) => invoke('pick', accountId),
-    broadcastReleaseAttachments: (accountId, attachmentIds) => invoke('release', { accountId, attachmentIds }) };
+    broadcastReleaseAttachments: (accountId, attachmentIds) => invoke('release', { accountId, attachmentIds }),
+    broadcastImportContacts: (accountId, catalogId) => invoke('import', { accountId, catalogId }),
+    broadcastExportFailures: (accountId, jobId) => invoke('export', { accountId, jobId }) };
   async function showPanel(id, fill, focusId) {
     if (panel) ui.get(panel).classList.add('hidden');
     panel = id; fill?.(); ui.get(id).classList.remove('hidden'); controller?.panelChanged(id);

@@ -120,13 +120,34 @@
     },
     {
       "name": "broadcast_pick_attachments",
-      "arguments": ["accountId"],
+      "arguments": [
+        "accountId"
+      ],
       "response": "Option<PickedBroadcastAttachments>"
     },
     {
       "name": "broadcast_release_attachments",
-      "arguments": ["accountId", "attachmentIds"],
+      "arguments": [
+        "accountId",
+        "attachmentIds"
+      ],
       "response": "unit"
+    },
+    {
+      "name": "broadcast_import_contacts",
+      "arguments": [
+        "accountId",
+        "catalogId"
+      ],
+      "response": "Option<ImportedBroadcastContacts>"
+    },
+    {
+      "name": "broadcast_export_failures",
+      "arguments": [
+        "accountId",
+        "jobId"
+      ],
+      "response": "ExportedBroadcastFailures"
     },
     {
       "name": "broadcast_create",

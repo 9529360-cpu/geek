@@ -49,6 +49,8 @@ pub fn run() {
             commands::broadcast_catalog,
             commands::broadcast_pick_attachments,
             commands::broadcast_release_attachments,
+            commands::broadcast_import_contacts,
+            commands::broadcast_export_failures,
             commands::broadcast_create,
             commands::broadcast_snapshot,
             commands::broadcast_control,
@@ -100,10 +102,10 @@ pub fn run() {
             ));
             let translation = Arc::new(TranslationDesktop::new(
                 Arc::clone(&workspace),
-                sessions,
+                Arc::clone(&sessions),
                 Arc::clone(&session),
                 translator,
-                TranslationGuest::new(platform),
+                TranslationGuest::new(platform, app.handle().clone(), sessions),
             ));
             app.manage(workspace);
             app.manage(Arc::clone(&broadcast));

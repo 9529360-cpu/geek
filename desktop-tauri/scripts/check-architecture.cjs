@@ -83,7 +83,8 @@ function checkCommands(files) {
         failures.push('Window command must use shared authorization without account state');
       }
     } else if (['broadcast_catalog', 'broadcast_create', 'broadcast_snapshot', 'broadcast_control',
-      'broadcast_pick_attachments', 'broadcast_release_attachments'].includes(name)) {
+      'broadcast_pick_attachments', 'broadcast_release_attachments',
+      'broadcast_import_contacts', 'broadcast_export_failures'].includes(name)) {
       if (!/\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<BroadcastDesktop>>\(\)\s*\./.test(section)
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
         failures.push('Broadcast command must use shared authorization and its independent owner without account state');

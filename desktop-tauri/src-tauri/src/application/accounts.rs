@@ -7,7 +7,9 @@ use crate::domain::{
     navigation::NavigationPolicy,
     platform::{self, Platform},
     proxy::ProxyConfig,
-    translation::{valid_chat_id, TranslationPolicyUpdate, TranslationSettings},
+    translation::{
+        supports_receive, valid_receive_chat_id, TranslationPolicyUpdate, TranslationSettings,
+    },
 };
 use uuid::Uuid;
 
@@ -229,7 +231,7 @@ impl<R: AccountRepository> Accounts<R> {
         expected_revision: u64,
     ) -> Result<()> {
         let current = self.openable_account(id)?;
-        if !matches!(current.platform_id.as_str(), "whatsapp" | "whatsapp-pure") {
+        if !supports_receive(&current.platform_id) {
             return Err(AppError::TranslationUnavailable);
         }
         if current.translation.revision != expected_revision {
@@ -242,12 +244,12 @@ impl<R: AccountRepository> Accounts<R> {
                 settings.global = policy;
             }
             (Some(chat_id), Some(TranslationPolicyUpdate::Chat(policy)))
-                if valid_chat_id(chat_id) =>
+                if valid_receive_chat_id(&current.platform_id, chat_id) =>
             {
                 policy.validate()?;
                 settings.chats.insert(chat_id.to_owned(), policy);
             }
-            (Some(chat_id), None) if valid_chat_id(chat_id) => {
+            (Some(chat_id), None) if valid_receive_chat_id(&current.platform_id, chat_id) => {
                 settings.chats.remove(chat_id);
             }
             _ => return Err(AppError::TranslationInvalid),
@@ -259,7 +261,7 @@ impl<R: AccountRepository> Accounts<R> {
             .revision
             .checked_add(1)
             .ok_or(AppError::TranslationLimit)?;
-        settings.validate()?;
+        settings.validate_for_platform(&current.platform_id)?;
         let mut next = self.document.clone();
         next.accounts
             .iter_mut()

@@ -184,6 +184,7 @@ function createWhatsAppAdapter() {
   }
 
   return { capabilities, ready, listChats, prepare, dispatch, dispatchAttachment,
+    resolveContacts: createBroadcastContactResolver({ runtime, identity, supported, requireMethods }),
     getCurrentChat: () => identity(runtime().chat?.getActiveChat?.()?.id),
     openChat: () => { throw issue('CAPABILITY_UNAVAILABLE'); },
     setComposerText: () => { throw issue('CAPABILITY_UNAVAILABLE'); },

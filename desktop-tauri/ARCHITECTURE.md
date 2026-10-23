@@ -323,6 +323,27 @@ cancellation cover even a lost begin callback. Cleanup uses the originally held 
 old generation token, including after native generation revocation. Guest cancel/revoke,
 expiry, and consumed attempt tombstones prevent late preparation or secondary card effects.
 
+### Recipient files and exception reports
+
+`domain/broadcast_import` is a bounded UTF-8 CSV/TXT parser. Only explicit phone/chat-ID
+columns become candidates; file names/contact names do not grant target authority. Statused
+exports admit only `NOT_SUBMITTED`, never uncertain targets or task rows. `desktop/broadcast/imports`
+selects a native file, resolves batches through the fixed WA-JS bridge, validates the exact
+returned candidate order and canonical contact models, then extends the existing catalog lease.
+The source catalog must remain live for that account/generation through the final catalog lock.
+No query, picker or disk wait owns Workspace, job state or the catalog mutex. A single finite
+import gate bounds external queries; late shell responses are rejected by the editor epoch.
+Verified directory-external contacts are capped at 2000 per lease; new selections survive eviction,
+and normal directory entries stay separate so repeated imports cannot grow the lease indefinitely.
+
+`application/broadcast_report` snapshots the existing owner, including projected storage failure,
+then releases the lock before domain CSV encoding. Explicit account/job ownership is required;
+no online guest is needed. Rows distinguish not-submitted, uncertain and task issues, without
+turning unexecuted targets into failures. `infrastructure/broadcast_files` performs bounded reads
+and atomic report replacement. Native pick/save dialogs are the only path authority; the shell
+commands accept IDs, never paths, file bytes or CSV bodies. Neither operation changes job state,
+checkpoints, persistence schema, retry policy or the sending owner.
+
 ## Session and incoming translation ownership
 
 `application/session*` owns one encrypted `session.dpapi`, independent of Workspace.
@@ -354,7 +375,7 @@ mutations before publishing snapshots. Unknown, archived or unsupported accounts
 revisions and unsupported history flags fail before writes. Missing policy defaults to
 manual-only translation.
 
-`desktop/translation` polls only the visible owned WA document. It releases Workspace
+`desktop/translation` polls only the visible owned WhatsApp or Telegram document. It releases Workspace
 before readiness, DOM callbacks or network work. At most two workers and eight queued
 requests exist globally; each has an independent native flight ID, a frozen logical
 request, session lease, document cancellation flag and view/chat cancellation flag. The
@@ -374,6 +395,14 @@ admission requires verified incoming metadata, a new timestamp and allowed chat 
 Target-Chinese messages already containing Han text preserve the original automatic skip.
 The current node identity, body, message/chat, native generation, login generation and
 policy revision must still match before rendering. This receive owner installs no composer interception.
+
+Telegram Web A/K adapters share that same request/display owner. They admit only manual visible
+ordinary text under exact native platform/URL/session bindings. Web A validates the route and
+header peer against a chat-keyed MessageList identity; Web K validates each row's peer and message
+ID. Unknown text structures, media, threads and special lists fail closed. Body extraction excludes
+metadata and reply previews. Both the native policy and incoming-request boundary reject automatic
+or outgoing Telegram requests. `TranslationGuest` uses fixed private Telegram DOM evaluation and
+does not broaden `NativePlatform`, load WPP on Telegram, or install another cache, scheduler or IPC.
 
 `application/translation` holds account-specific short-token slots and a bounded 15-minute
 memory cache (256 entries / 1 MiB), with session/account/chat/message/parameter keys. Even
@@ -396,7 +425,7 @@ Session/context commands share the native authorization/blocking boundary but us
 own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
 The original UI provides login, quota, account/chat translation settings, incoming
 display and the plain-text/same-chat text-reply outgoing paths specified below. Interactive
-mentions, media replies, interactive attachments, Telegram translation, registration/purchase
+mentions, media replies, interactive attachments, Telegram automatic/outgoing translation, registration/purchase
 and bulk history remain explicitly unavailable
 until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee

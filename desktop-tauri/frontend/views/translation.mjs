@@ -111,7 +111,7 @@ export function createTranslationView(document, actions) {
       : draft?.saving ? '正在保存…' : draft?.error || (draft?.saved ? '已保存' : '');
     $(`translation-${scope}-retry`).hidden = !draft?.error;
   }
-  function render({ account, supported, global, chat, context, contextPending, contextError, globalDraft, chatDraft,
+  function render({ account, supported, capabilities, global, chat, context, contextPending, contextError, globalDraft, chatDraft,
     shellBusy, connected, open, tab, session, sessionError, checking, confirmation }) {
     const globalPolicy = global || DEFAULT_POLICY;
     const chatPolicy = effectivePolicy(globalPolicy, chat);
@@ -136,6 +136,16 @@ export function createTranslationView(document, actions) {
     $('translation-send-from').disabled = !canEdit || !globalPolicy.enabled;
     $('translation-send-to').disabled = !canEdit || !globalPolicy.enabled;
     $('translation-target').disabled = !canEdit || !hasChat || !override || !chatPolicy.enabled;
+    const unavailableTitle = supported ? 'Telegram 仅支持手动消息翻译' : '此平台尚未接通翻译';
+    for (const id of ['translation-send', 'translation-send-from', 'translation-send-to', 'translation-include-zh',
+      'translation-enabled', 'translation-target', 'translation-auto-send']) {
+      $(id).disabled ||= !capabilities.outgoing;
+      $(id).title = capabilities.outgoing ? '' : unavailableTitle;
+    }
+    for (const id of ['translation-receive-auto', 'translation-channel-receive-auto', 'translation-group']) {
+      $(id).disabled ||= !capabilities.automatic;
+      $(id).title = capabilities.automatic ? '' : unavailableTitle;
+    }
     $('translation-global-reset').textContent = confirmation ? '确认恢复推荐设置' : '恢复翻译推荐设置';
     fields(globalFields, globalPolicy); fields(chatFields, chatPolicy);
     $('translation-receive-auto').checked = globalPolicy.translationMode === 'auto';
@@ -147,7 +157,7 @@ export function createTranslationView(document, actions) {
       = account ? `${account.name} · 独立保存，修改后自动生效` : '请先选择账号';
     $('translation-chat-mode').textContent = contextPending ? '正在读取聊天…' : hasChat ? (override ? '单独设置' : '跟随全局') : '未检测到聊天';
     $('translation-chat-mode').dataset.state = hasChat ? (override ? 'custom' : 'global') : 'idle';
-    $('translation-chat-hint').textContent = !supported ? '当前仅支持 WhatsApp 翻译。'
+    $('translation-chat-hint').textContent = !supported ? '此平台尚未接通翻译。'
       : contextError || (hasChat ? `当前聊天：${context.chat.name || '未命名聊天'}。本次设置固定到此聊天，其他选项跟随全局。` : '请先在当前账号打开一个聊天，再重新打开翻译设置。');
     const status = sessionStatus(session, sessionError);
     $('translation-service-state').textContent = status.label; $('translation-service-state').dataset.state = status.kind;

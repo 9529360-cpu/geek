@@ -3,7 +3,8 @@ import { element, button, wire, hidden, unavailable } from './broadcast-elements
 import { createAudienceView } from './broadcast-audience.mjs';
 import { createWorkbenchView } from './broadcast-workbench.mjs';
 
-export function createBroadcastEditor({ document, onChange, onSubmit, onClose, onRetry, onControl, onPickAttachments, onRemoveAttachment }) {
+export function createBroadcastEditor({ document, onChange, onSubmit, onClose, onRetry, onControl,
+  onPickAttachments, onRemoveAttachment, onImportContacts }) {
   const $ = (id) => document.getElementById(id);
   const listeners = [];
   const bind = (id, event, fn) => {
@@ -37,6 +38,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     input.checked = false;
   });
   bind('broadcast-dropzone', 'click', onPickAttachments);
+  bind('broadcast-import-csv', 'click', onImportContacts);
   bind('broadcast-send', 'click', () => onSubmit(false));
   bind('broadcast-add-schedule', 'click', () => onSubmit(true));
   bind('broadcast-close', 'click', onClose);
@@ -61,7 +63,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
   });
   for (const id of ['bc-save-message', 'bc-delete-message',
     'bc-saved-accordion-toggle', 'bc-saved-messages', 'broadcast-save-group', 'broadcast-show-all-groups',
-    'broadcast-saved-groups', 'broadcast-delete-group', 'broadcast-import-csv', 'bc-paste-numbers',
+    'broadcast-saved-groups', 'broadcast-delete-group', 'bc-paste-numbers',
     'bc-group-members-select', 'bc-label-select', 'bc-exclude-contacts-select', 'bc-exclude-groups-select',
     'bc-saved-lists', 'bc-save-list', 'bc-delete-list', 'broadcast-export']) unavailable($(id));
   const fileLabel = $('broadcast-add-file').closest('label')?.querySelector('.bc-switch-label');
@@ -113,9 +115,9 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     availability = next;
     const blocked = Boolean(next.shellBusy || next.creating || !next.apiAvailable);
     const ready = Boolean(catalog?.ready && !next.loading && !next.mismatch);
-    const filesBlocked = blocked || next.attachmentBusy || next.mismatch || !next.attachmentsAvailable;
+    const filesBlocked = blocked || next.attachmentBusy || next.importBusy || next.mismatch || !next.attachmentsAvailable;
     const canPick = ready && catalog?.capabilities.attachments;
-    audience.availability(blocked || !ready);
+    audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable);
     workbench.availability(blocked);
     for (const id of ['broadcast-message', 'broadcast-insert-sa', 'broadcast-insert-var', 'broadcast-insert-nr',
       'bc-multiversion', 'bc-range-min', 'bc-range-max', 'broadcast-close', 'broadcast-cancel']) wire($(id), blocked);
@@ -129,8 +131,9 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
       $(id).title = canPick && next.attachmentsAvailable ? next.attachmentBusy ? '正在处理附件…' : '选择要群发的附件' : '当前账号的附件发送尚未就绪';
     }
     for (const node of $('broadcast-files').querySelectorAll('button')) wire(node, filesBlocked);
-    wire($('broadcast-send'), blocked || !ready || next.attachmentBusy);
-    wire($('broadcast-add-schedule'), blocked || !ready || next.attachmentBusy || !$('broadcast-schedule-toggle').checked || !catalog?.capabilities.scheduled);
+    wire($('broadcast-send'), blocked || !ready || next.attachmentBusy || next.importBusy);
+    wire($('broadcast-add-schedule'), blocked || !ready || next.attachmentBusy || next.importBusy
+      || !$('broadcast-schedule-toggle').checked || !catalog?.capabilities.scheduled);
     for (const node of $('broadcast-schedule-list').querySelectorAll('button')) {
       wire(node, blocked || next.pendingControls?.has(node.dataset.jobId));
     }
@@ -178,11 +181,13 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
       $('bc-range-min').value = String(draft.intervalMin); $('bc-range-max').value = String(draft.intervalMax);
       $('broadcast-schedule-toggle').checked = draft.scheduleEnabled;
       $('broadcast-schedule-time').value = draft.scheduleTime;
-      audience.set(catalog, draft.recipientIds, draft.vcardIds); audience.resetSearch();
+      audience.set(catalog, draft); audience.resetSearch();
       syncRanges(); scheduleVisibility(); pendingSignature = '';
       workbench.setStep('content');
     },
     catalog(next) { catalog = next; audience.set(next); },
+    imported(result) { catalog = result.catalog; audience.imported(result); },
+    importStatus: audience.importStatus,
     attachments(next) { attachments = next.map((file) => ({ ...file })); renderAttachments(); },
     showAttachments() { $('broadcast-dropzone').dataset.open = 'true'; },
     render(jobs, activeJob) { workbench.render(read(), catalog, owner, activeJob); renderSchedules(jobs); scheduleVisibility(); },
@@ -192,12 +197,14 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     clearMessage() {
       $('broadcast-message').value = '';
       attachments = []; renderAttachments();
-      audience.set(catalog, undefined, []);
+      audience.clearCards();
       $('broadcast-message').focus();
     },
     focusError(code) {
       if (/SCHEDULE/.test(code)) { workbench.setStep('settings'); $('broadcast-schedule-time').focus(); }
-      else if (/AUDIENCE|CATALOG|ACCOUNT/.test(code)) { workbench.setStep('audience'); $('broadcast-search').focus(); }
+      else if (/AUDIENCE|CATALOG|ACCOUNT|IMPORT/.test(code)) {
+        workbench.setStep('audience'); $(read().audienceMode === 'excel' ? 'broadcast-import-csv' : 'broadcast-search').focus();
+      }
       else if (/INTERVAL/.test(code)) { workbench.setStep('settings'); $('bc-range-min').focus(); }
       else { workbench.setStep('content'); $(/ATTACHMENT|FILE/.test(code) ? 'broadcast-dropzone' : 'broadcast-message').focus(); }
     },

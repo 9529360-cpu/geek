@@ -51,7 +51,7 @@ pub fn validate_accounts(accounts: &[Account], platforms: &[Platform]) -> Result
             return Err(AppError::AppearanceInvalid);
         }
         a.proxy.validate()?;
-        a.translation.validate()?;
+        a.translation.validate_for_platform(&a.platform_id)?;
         let platform = platform::platform(platforms, &a.platform_id)?;
         NavigationPolicy::new(platform, a.website_url.as_deref())?;
     }

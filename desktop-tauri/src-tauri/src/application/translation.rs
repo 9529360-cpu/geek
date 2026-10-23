@@ -12,7 +12,7 @@ use crate::domain::{
     error::{AppError, Result},
     proxy::ProxyConfig,
     session::SessionToken,
-    translation::IncomingTranslation,
+    translation::{supports_receive, IncomingTranslation},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -101,13 +101,12 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
         incoming: IncomingTranslation,
     ) -> Result<PreparedTranslation> {
         let control = RequestControl::new(Duration::from_secs(35));
-        incoming.validate()?;
-        if account.archived || !matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure")
-        {
+        if account.archived || !supports_receive(&account.platform_id) {
             return Err(AppError::TranslationUnavailable);
         }
+        incoming.validate_for_platform(&account.platform_id)?;
         let policy = account.translation.policy(&incoming.chat_id);
-        policy.validate()?;
+        policy.validate_for_platform(&account.platform_id)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|time| time.as_secs())

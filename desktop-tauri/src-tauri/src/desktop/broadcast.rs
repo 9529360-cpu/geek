@@ -30,7 +30,12 @@ use uuid::Uuid;
 type NativeBroadcast = BroadcastService<EncryptedBroadcastRepository, NativePlatform>;
 
 mod attachments;
+mod catalog;
+mod imports;
+mod reports;
 pub use attachments::PickedBroadcastAttachments;
+pub use imports::ImportedBroadcastContacts;
+pub use reports::ExportedBroadcastFailures;
 
 #[cfg(test)]
 mod attachment_tests;
@@ -83,9 +88,12 @@ pub struct BroadcastCatalog {
     chats: Vec<CatalogChat>,
 }
 
+#[derive(Clone)]
 struct CatalogLease {
     catalog: BroadcastCatalog,
     binding: GuestBinding,
+    native_ids: HashSet<String>,
+    imported: Vec<CatalogChat>,
     issued: Instant,
 }
 
@@ -121,6 +129,7 @@ pub struct BroadcastDesktop {
     lifecycle: Mutex<()>,
     stopping: AtomicBool,
     picker: Mutex<()>,
+    importing: Mutex<()>,
 }
 
 fn supported_id(id: &str, kind: ChatKind) -> bool {
@@ -283,6 +292,7 @@ impl BroadcastDesktop {
             lifecycle: Mutex::new(()),
             stopping: AtomicBool::new(false),
             picker: Mutex::new(()),
+            importing: Mutex::new(()),
         })
     }
 
@@ -337,81 +347,6 @@ impl BroadcastDesktop {
     pub fn control(&self, id: &str, action: BroadcastAction) -> Result<BroadcastSnapshot> {
         self.service.control(id, action, now_ms())?;
         self.snapshot()
-    }
-
-    pub fn catalog(&self, account_id: &str) -> Result<BroadcastCatalog> {
-        if !valid_uuid(account_id) {
-            return Err(AppError::BroadcastInvalid);
-        }
-        let account = self
-            .platform
-            .account(account_id)
-            .map_err(|_| AppError::AccountUnknown)?;
-        let mut result = BroadcastCatalog {
-            account_id: account.id.clone(),
-            account_name: account.name,
-            platform_id: account.platform_id.clone(),
-            catalog_id: String::new(),
-            ready: false,
-            reason_code: None,
-            capabilities: CatalogCapabilities::default(),
-            chats: Vec::new(),
-        };
-        let binding = match self
-            .platform
-            .acquire_binding(account_id, &account.platform_id)
-        {
-            Ok(binding) => binding,
-            Err(code) => {
-                result.reason_code = Some(code);
-                return Ok(result);
-            }
-        };
-        let value = match self.platform.catalog(&binding) {
-            Ok(value) => value,
-            Err(code) => {
-                result.reason_code = Some(code);
-                return Ok(result);
-            }
-        };
-        if !self.sessions.valid(&binding) {
-            return Err(AppError::BroadcastUnavailable);
-        }
-        let native = native_catalog(value)?;
-        result.catalog_id = Uuid::new_v4().to_string();
-        result.capabilities = native.capabilities;
-        result.chats = native.chats;
-        result.ready = result.capabilities.text;
-        if !result.ready {
-            result.reason_code = Some(BroadcastIssue::CapabilityUnavailable);
-        }
-        let mut catalogs = self
-            .catalogs
-            .lock()
-            .map_err(|_| AppError::StateUnavailable)?;
-        catalogs.retain(|lease| lease.issued.elapsed() < Duration::from_secs(1800));
-        if catalogs
-            .iter()
-            .filter(|lease| lease.catalog.account_id == account_id)
-            .count()
-            >= 2
-        {
-            if let Some(index) = catalogs
-                .iter()
-                .position(|lease| lease.catalog.account_id == account_id)
-            {
-                catalogs.remove(index);
-            }
-        }
-        if catalogs.len() >= 40 {
-            catalogs.remove(0);
-        }
-        catalogs.push(CatalogLease {
-            catalog: result.clone(),
-            binding,
-            issued: Instant::now(),
-        });
-        Ok(result)
     }
 
     pub fn create(&self, input: CreateBroadcast) -> Result<CreatedBroadcast> {

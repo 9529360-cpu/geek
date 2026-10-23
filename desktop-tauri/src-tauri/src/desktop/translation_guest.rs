@@ -1,20 +1,28 @@
-//! Fixed incoming-translation display protocol, using the existing owned WA view.
-use super::platform_bridge::NativePlatform;
+//! Fixed incoming display protocol for an owned WA or Telegram document.
+use super::{platform_bridge::NativePlatform, platform_sessions::PlatformSessions};
 use crate::{
     application::ports::BroadcastPlatform,
     domain::{
         account::Account,
         broadcast::GuestBinding,
         error::{AppError, Result},
-        translation::{valid_chat_id, IncomingTranslation},
+        translation::{is_telegram, valid_receive_chat_id, IncomingTranslation},
+        url_policy::safe_https,
     },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
+    time::Duration,
 };
+
+use tauri::{AppHandle, Manager, Webview};
+use url::Url;
+
+#[cfg(test)]
+mod tests;
 
 const GUEST: &str = include_str!(concat!(env!("OUT_DIR"), "/translation-guest.js"));
 
@@ -43,18 +51,34 @@ pub struct GuestFrame {
 
 pub struct TranslationGuest {
     platform: Arc<NativePlatform>,
+    app: AppHandle,
+    sessions: Arc<PlatformSessions>,
     installed: Mutex<HashMap<String, String>>,
 }
 
 impl TranslationGuest {
-    pub fn new(platform: Arc<NativePlatform>) -> Self {
+    pub fn new(
+        platform: Arc<NativePlatform>,
+        app: AppHandle,
+        sessions: Arc<PlatformSessions>,
+    ) -> Self {
         Self {
             platform,
+            app,
+            sessions,
             installed: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn binding(&self, account: &Account) -> Result<GuestBinding> {
+        if is_telegram(&account.platform_id) {
+            let binding = self
+                .sessions
+                .binding(&account.id, &account.platform_id)
+                .map_err(|_| AppError::TranslationUnavailable)?;
+            self.telegram_guest(&binding)?;
+            return Ok(binding);
+        }
         self.platform
             .acquire_binding(&account.id, &account.platform_id)
             .map_err(|_| AppError::TranslationUnavailable)
@@ -74,18 +98,17 @@ impl TranslationGuest {
             .map_err(|_| AppError::StateUnavailable)?
             .get(&binding.account_id)
             .is_some_and(|generation| generation == &binding.generation);
-        if !installed {
+        if !installed && !is_telegram(&binding.platform_id) {
             self.platform
                 .install(binding)
                 .map_err(|_| AppError::TranslationUnavailable)?;
         }
-        let configuration = json!({ "generation": binding.generation,
+        let configuration = json!({ "generation": binding.generation, "platformId": binding.platform_id,
             "sessionGeneration": session_generation, "settings": account.translation.resolved(),
             "active": active, "autoAfter": auto_after });
         let source = if installed { "" } else { GUEST };
         let script = format!("(() => {{ {source}\n return window.__geekTauriTranslation?.configure({configuration}) === true; }})()");
         if self
-            .platform
             .evaluate(binding, script)
             .map_err(|_| AppError::TranslationUnavailable)?
             != Value::Bool(true)
@@ -102,7 +125,6 @@ impl TranslationGuest {
     pub fn poll(&self, binding: &GuestBinding) -> Result<GuestFrame> {
         let generation = json!(binding.generation);
         let result = self
-            .platform
             .evaluate(
                 binding,
                 format!("window.__geekTauriTranslation?.poll({generation}) ?? null"),
@@ -112,12 +134,12 @@ impl TranslationGuest {
             serde_json::from_value(result).map_err(|_| AppError::NetworkResponseInvalid)?;
         let mut ids = HashSet::new();
         if frame.requests.len() > 10
-            || frame
-                .requests
-                .iter()
-                .any(|request| !ids.insert(&request.id))
+            || frame.requests.iter().any(|request| {
+                !ids.insert(&request.id)
+                    || request.validate_for_platform(&binding.platform_id).is_err()
+            })
             || frame.chat.as_ref().is_some_and(|chat| {
-                !valid_chat_id(&chat.id)
+                !valid_receive_chat_id(&binding.platform_id, &chat.id)
                     || chat.name.len() > 1024
                     || chat.name.chars().any(char::is_control)
             })
@@ -137,22 +159,15 @@ impl TranslationGuest {
         let Ok(binding) = self.binding(account) else {
             return Ok(context);
         };
-        // Reading context does not activate automatic translation or change policy.
-        let source = "(() => { const c = window.WPP?.chat?.getActiveChat?.();\n\
-            const id = c?.id?._serialized;\n\
-            if (!id || c.isNewsletter || c.isBroadcast || c.isParentGroup || c.groupMetadata?.parent) return null;\n\
-            return {id, name: String(c.formattedTitle || c.name || c.contact?.pushname || id)\n\
-            .replace(/[\\x00-\\x1f\\x7f]/g, '').slice(0, 256)}; })()";
-        let value = self
-            .platform
-            .evaluate(&binding, source.to_owned())
-            .map_err(|_| AppError::TranslationUnavailable)?;
+        // Pure context inspection binds the document without activating requests or policy.
+        let script = format!("(() => {{ {GUEST}\n return window.__geekTauriTranslation?.context({}, {}) ?? null; }})()",
+            json!(binding.generation), json!(binding.platform_id));
+        let value = self.evaluate(&binding, script)?;
         let chat: Option<TranslationChat> =
             serde_json::from_value(value).map_err(|_| AppError::TranslationInvalid)?;
-        if chat
-            .as_ref()
-            .is_some_and(|chat| !valid_chat_id(&chat.id) || chat.name.len() > 1024)
-        {
+        if chat.as_ref().is_some_and(|chat| {
+            !valid_receive_chat_id(&binding.platform_id, &chat.id) || chat.name.len() > 1024
+        }) {
             return Err(AppError::TranslationInvalid);
         }
         context.generation = binding.generation;
@@ -185,9 +200,59 @@ impl TranslationGuest {
             "window.__geekTauriTranslation?.deliver(...{}) === true",
             json!(arguments)
         );
-        self.platform
-            .evaluate(binding, source)
+        self.evaluate(binding, source)
             .map(|value| value == Value::Bool(true))
             .map_err(|_| AppError::TranslationUnavailable)
     }
+
+    fn telegram_guest(&self, binding: &GuestBinding) -> Result<Webview> {
+        if !is_telegram(&binding.platform_id) || !self.sessions.valid(binding) {
+            return Err(AppError::TranslationUnavailable);
+        }
+        let guest = self
+            .app
+            .get_webview(&format!("account-{}", binding.account_id))
+            .ok_or(AppError::TranslationUnavailable)?;
+        let url = guest.url().map_err(|_| AppError::TranslationUnavailable)?;
+        if !telegram_url_matches(&binding.platform_id, &url) || !self.sessions.valid(binding) {
+            return Err(AppError::TranslationUnavailable);
+        }
+        Ok(guest)
+    }
+
+    // Only fixed callers above supply scripts. Neither renderer nor remote page receives an eval IPC.
+    fn evaluate(&self, binding: &GuestBinding, script: String) -> Result<Value> {
+        if !is_telegram(&binding.platform_id) {
+            return self
+                .platform
+                .evaluate(binding, script)
+                .map_err(|_| AppError::TranslationUnavailable);
+        }
+        let guest = self.telegram_guest(binding)?;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        guest
+            .eval_with_callback(script, move |value| {
+                let _ = sender.try_send(value);
+            })
+            .map_err(|_| AppError::TranslationUnavailable)?;
+        let value = receiver
+            .recv_timeout(Duration::from_secs(4))
+            .map_err(|_| AppError::TranslationTimeout)?;
+        self.telegram_guest(binding)?;
+        if value.len() > 4 * 1024 * 1024 {
+            return Err(AppError::TranslationInvalid);
+        }
+        serde_json::from_str(&value).map_err(|_| AppError::TranslationInvalid)
+    }
+}
+
+fn telegram_url_matches(platform: &str, url: &Url) -> bool {
+    safe_https(url)
+        && url.host_str() == Some("web.telegram.org")
+        && url.query().is_none()
+        && match platform {
+            "telegram-z" => matches!(url.path(), "/a" | "/a/"),
+            "telegram-k" => matches!(url.path(), "/k" | "/k/"),
+            _ => false,
+        }
 }

@@ -100,7 +100,7 @@ test('views cannot acquire the native API by importing its wrapper', () => {
   assert.match(checkFrontendGraph(files).join('\n'), /direction violation/);
 });
 
-test('attachment commands keep optional result shape and cannot bypass their authorized owner', () => {
+test('broadcast file commands keep optional result shape and cannot bypass their authorized owner', () => {
   const files = collect(root);
   const key = 'src-tauri/src/desktop/commands.rs';
   assert.deepEqual(checkCommands(files), []);
@@ -108,7 +108,8 @@ test('attachment commands keep optional result shape and cannot bypass their aut
   response.set(key, files.get(key).replace('Result<Option<PickedBroadcastAttachments>>', 'Result<PickedBroadcastAttachments>'));
   assert.notEqual(response.get(key), files.get(key));
   assert.match(checkCommands(response).join('\n'), /broadcast_pick_attachments: response type/);
-  for (const name of ['broadcast_pick_attachments', 'broadcast_release_attachments']) {
+  for (const name of ['broadcast_pick_attachments', 'broadcast_release_attachments',
+    'broadcast_import_contacts', 'broadcast_export_failures']) {
     const offset = files.get(key).indexOf(`pub async fn ${name}`);
     const before = files.get(key).slice(0, offset);
     const after = files.get(key).slice(offset);

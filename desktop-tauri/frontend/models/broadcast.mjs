@@ -30,7 +30,8 @@ export function localSchedule(now = Date.now()) {
 }
 
 export function emptyDraft(accountId, now = Date.now()) {
-  return { accountId, recipientIds: [], message: '', vcardIds: [], attachments: [], tagAll: false,
+  return { accountId, recipientIds: [], audienceMode: 'custom', manualRecipientIds: [], importedRecipientIds: [],
+    importFileName: '', importSummary: null, message: '', vcardIds: [], attachments: [], tagAll: false,
     intervalMin: 5, intervalMax: 10, scheduleEnabled: false, scheduleTime: localSchedule(now) };
 }
 
@@ -46,6 +47,36 @@ export function normalizeCatalog(value, accountId) {
   });
   if (value.ready && (typeof value.catalogId !== 'string' || !value.catalogId)) throw 'BROADCAST_CATALOG_INVALID';
   return { ...value, chats, capabilities: { ...value.capabilities } };
+}
+
+export function normalizeImportedContacts(value, accountId) {
+  if (!value || value.accountId !== accountId || typeof value.fileName !== 'string'
+    || !value.fileName.trim() || value.fileName.length > 512 || /[\x00-\x1f\x7f/\\]/.test(value.fileName)
+    || !Array.isArray(value.recipientIds) || value.recipientIds.length > 2000
+    || new Set(value.recipientIds).size !== value.recipientIds.length) throw 'BROADCAST_IMPORT_INVALID';
+  const summary = {};
+  for (const key of ['total', 'accepted', 'duplicates', 'invalid', 'unresolved', 'skipped']) {
+    const count = value.summary?.[key];
+    if (!Number.isSafeInteger(count) || count < 0) throw 'BROADCAST_IMPORT_INVALID';
+    summary[key] = count;
+  }
+  if (summary.accepted !== value.recipientIds.length
+    || summary.total !== summary.accepted + summary.duplicates + summary.invalid + summary.unresolved + summary.skipped) {
+    throw 'BROADCAST_IMPORT_INVALID';
+  }
+  let catalog;
+  try { catalog = normalizeCatalog(value.catalog, accountId); } catch { throw 'BROADCAST_IMPORT_INVALID'; }
+  const contacts = new Set(catalog.chats.filter((chat) => chat.kind === 'contact').map((chat) => chat.id));
+  if (!catalog.ready || value.recipientIds.some((id) => typeof id !== 'string' || !contacts.has(id))) throw 'BROADCAST_IMPORT_INVALID';
+  if (!value.recipientIds.length) throw 'BROADCAST_IMPORT_EMPTY';
+  return { accountId, fileName: value.fileName, catalog, recipientIds: value.recipientIds.slice(), summary };
+}
+
+export function importSummaryText(summary) {
+  if (!summary) return '尚未导入联系人';
+  return [`已导入 ${summary.accepted} 个联系人`, summary.duplicates && `重复 ${summary.duplicates} 个`,
+    summary.invalid && `格式无效 ${summary.invalid} 个`, summary.unresolved && `未核验 ${summary.unresolved} 个`,
+    summary.skipped && `已跳过 ${summary.skipped} 个`].filter(Boolean).join('，');
 }
 
 export function matchingChats(chats, query = '', kind = null) {
@@ -135,6 +166,11 @@ export function resultRows(job) {
     rows.unshift({ index: null, name: '任务', status: job.uncertain ? 'uncertain' : 'notSubmitted', code: job.lastIssue });
   }
   return rows;
+}
+
+export function hasExportableIssues(job) {
+  return Boolean(job && (job.storageBlocked || job.lastIssue
+    || job.results?.some((result) => ['notSubmitted', 'uncertain'].includes(result.outcome?.status))));
 }
 
 export function jobLabel(job) {

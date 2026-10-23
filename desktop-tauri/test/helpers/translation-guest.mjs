@@ -71,7 +71,7 @@ export function guest({ policy = {}, iframe = false } = {}) {
   window.top = iframe ? {} : window;
   runInNewContext(bundle, { window, document, crypto: { randomUUID }, TextEncoder, performance: { now: () => state.now } });
   const api = window.__geekTauriTranslation;
-  const configuration = { generation, sessionGeneration: subscription, active: true, autoAfter: 1000,
+  const configuration = { generation, platformId: 'whatsapp', sessionGeneration: subscription, active: true, autoAfter: 1000,
     settings: { revision: 0, chats: {}, global: { ...defaultPolicy, ...policy } } };
   const configure = () => api.configure(structuredClone(configuration));
   if (api) configure();

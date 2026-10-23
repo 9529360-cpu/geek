@@ -1,5 +1,5 @@
 import { createTranslationView } from '../views/translation.mjs';
-import { DEFAULT_POLICY, chatPolicyFrom, chatPolicyOf, effectivePolicy, isWhatsApp,
+import { DEFAULT_POLICY, chatPolicyFrom, chatPolicyOf, effectivePolicy, translationCapabilities, validatePlatformPolicy,
   policyOf, translationError, translationOf } from '../models/translation.mjs';
 
 export function createTranslationController({ document, api, getShellSnapshot, showPanel, hidePanel,
@@ -53,7 +53,7 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     const state = currentState();
     const chatId = context?.chat?.id;
     const session = getSession();
-    view.render({ account: item, supported: isWhatsApp(item), connected, shellBusy, open, tab,
+    view.render({ account: item, supported: translationCapabilities(item).receive, capabilities: translationCapabilities(item), connected, shellBusy, open, tab,
       global: configured(state), chat: chatId ? configured(state, chatId) : null,
       globalDraft: state?.drafts.get(null), chatDraft: chatId ? state?.drafts.get(chatId) : null,
       context, contextPending, contextError, checking, confirmation, session: session.snapshot, sessionError: session.error });
@@ -103,9 +103,10 @@ export function createTranslationController({ document, api, getShellSnapshot, s
   }
   function change(chatId, policy) {
     const state = currentState();
-    if (!state || !connected || shellBusy || !isWhatsApp(account())) return;
+    if (!state || !connected || shellBusy || !translationCapabilities(account()).receive) return;
     try {
       const normalized = policy === null ? null : chatId === null ? policyOf(policy) : chatPolicyOf(policy);
+      validatePlatformPolicy(account(), normalized);
       const previous = state.drafts.get(chatId);
       const draft = previous || {};
       Object.assign(draft, { policy: normalized, version: (previous?.version || 0) + 1,
@@ -128,7 +129,7 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     change(chatId, enabled ? chatPolicyFrom(configured(state)) : null);
   }
   function reset() {
-    if (!isWhatsApp(account()) || shellBusy) return;
+    if (!translationCapabilities(account()).receive || shellBusy) return;
     if (!confirmation) { confirmation = true; render(); return; }
     change(null, { ...DEFAULT_POLICY });
   }
@@ -150,7 +151,7 @@ export function createTranslationController({ document, api, getShellSnapshot, s
   }
   function loadContext() {
     const operationEpoch = ++contextEpoch;
-    if (!connected || !isWhatsApp(account())) { context = null; contextPending = false; render(); return; }
+    if (!connected || !translationCapabilities(account()).receive) { context = null; contextPending = false; render(); return; }
     track(readContext(activeId, operationEpoch));
   }
   async function toggle() {
@@ -160,7 +161,8 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     // Capture the native conversation while opening. Hiding the child view is a
     // presentation change, not a new account/chat binding.
     loadContext();
-    try { await showPanel('translation-popover', render, 'translation-receive-auto'); }
+    try { await showPanel('translation-popover', render, translationCapabilities(account()).automatic
+      ? 'translation-receive-auto' : 'translation-message-to'); }
     catch (failure) { reportError(translationError(failure)); }
     finally { opening = false; }
   }

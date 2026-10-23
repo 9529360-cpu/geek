@@ -1,14 +1,19 @@
-import { currentJob, terminal, pending, jobSummary, jobLabel, resultRows, formatTime } from '../models/broadcast.mjs';
+import { currentJob, terminal, pending, jobSummary, jobLabel, resultRows, formatTime, hasExportableIssues } from '../models/broadcast.mjs';
 import { errorMessage } from '../models/broadcast-status.mjs';
-import { element, button, wire, hidden, statusNode, unavailable } from './broadcast-elements.mjs';
+import { element, button, wire, hidden, statusNode } from './broadcast-elements.mjs';
 
-export function createBroadcastJobs({ document, window, onControl, onOpen, onClose, onViewAccount, requestLayout }) {
+export function createBroadcastJobs({ document, window, onControl, onOpen, onClose, onViewAccount, onExport, requestLayout }) {
   const $ = (id) => document.getElementById(id);
   let jobs = [];
   let activeId = null;
   let scope = 'current';
   let blocked = false;
   let pendingControls = new Set();
+  let pendingExports = new Set();
+  let exportAvailable = false;
+  const exportMessages = new Map();
+  let generalFeedback = '';
+  let feedbackJobId = null;
   let detailsId = null;
   let centerSignature = '';
   let layoutSignature = 'false:0';
@@ -48,8 +53,11 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     const job = currentJob(jobs, activeId);
     detailsId = detailsId === job?.id ? null : job?.id; renderBar();
   }, ''); failures.dataset.act = 'failures';
-  const exportFailures = button(document, '导出失败 CSV · 尚未迁移', () => {}, '');
-  unavailable(exportFailures, '失败名单文件导出尚未迁移');
+  const exportFailures = button(document, '导出异常 CSV', () => {
+    const job = currentJob(jobs, activeId);
+    if (job) onExport(job.accountId, job.id);
+  }, '');
+  exportFailures.dataset.act = 'export-failures';
   actions.append(pause, stop, failures, exportFailures);
   bar.append(head, meta, issue, feedback, progress, failureBox, actions);
   document.body.append(bar);
@@ -128,6 +136,9 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     hidden(bar, !job);
     if (!job) { notifyLayout(); return; }
     bar.dataset.jobId = job.id;
+    const notice = exportMessages.get(job.id);
+    feedback.textContent = notice?.text || (feedbackJobId === job.id ? generalFeedback : '');
+    feedback.dataset.state = notice?.state || 'ready';
     title.textContent = `${jobLabel(job)} · ${job.current || 0}/${job.total || 0}`;
     const seconds = job.state === 'running' && job.nextSendAt ? Math.max(0, Math.ceil((job.nextSendAt - Date.now()) / 1000)) : null;
     const files = job.attachments || [];
@@ -155,7 +166,9 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     stop.textContent = job.state === 'scheduled' ? '取消定时' : job.state === 'queued' ? '取消排队' : '停止后续发送';
     hidden(close, !finished);
     hidden(failures, !job.results?.length && !job.lastIssue);
-    hidden(exportFailures, !finished || !resultRows(job).length);
+    hidden(exportFailures, !hasExportableIssues(job));
+    wire(exportFailures, blocked || !exportAvailable || pendingExports.has(job.id));
+    exportFailures.title = exportAvailable ? '导出此任务的异常记录' : '异常记录导出尚不可用';
     wire(pause, blocked || pendingControl); wire(stop, blocked || pendingControl || job.state === 'stopping');
     wire(close, blocked || pendingControl); wire(failures, blocked);
     hidden(failureBox, detailsId !== job.id);
@@ -198,7 +211,19 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     if (resumable(job)) add('resume', job.storageBlocked ? '恢复任务' : job.reviewRequired ? '继续剩余未发送对象' : '继续');
     if (!terminal.has(job.state) && job.state !== 'stopping') add('stop', pending.has(job.state) ? '取消任务' : '停止后续发送');
     if (terminal.has(job.state)) add('dismiss', '关闭记录');
-    row.append(rowActions); return row;
+    if (hasExportableIssues(job)) {
+      const save = button(document, '导出异常 CSV', () => onExport(job.accountId, job.id), '');
+      save.dataset.jobId = job.id; save.dataset.action = 'export';
+      save.title = exportAvailable ? '导出此任务的异常记录' : '异常记录导出尚不可用';
+      wire(save, blocked || !exportAvailable || pendingExports.has(job.id)); rowActions.append(save);
+    }
+    row.append(rowActions);
+    const notice = exportMessages.get(job.id);
+    if (notice) {
+      const message = element(document, 'div', 'bc-job-feedback', notice.text);
+      message.setAttribute('role', 'status'); message.dataset.state = notice.state; row.append(message);
+    }
+    return row;
   }
 
   function renderCenter() {
@@ -210,7 +235,7 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
       : scoped[0]?.accountName || '当前账号的群发任务';
     wire(centerClose, blocked);
     if (overlay.classList.contains('hidden')) return;
-    const signature = JSON.stringify([scope, activeId, scoped, blocked, [...pendingControls]]);
+    const signature = JSON.stringify([scope, activeId, scoped, blocked, [...pendingControls], [...pendingExports], [...exportMessages]]);
     if (signature === centerSignature) return;
     centerSignature = signature;
     const focused = document.activeElement?.dataset;
@@ -223,8 +248,10 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
   }
 
   return {
-    render(next, currentAccountId, shellBusy, controls, apiAvailable) {
+    render(next, currentAccountId, shellBusy, controls, apiAvailable, exports = {}) {
       jobs = next; activeId = currentAccountId; blocked = shellBusy || !apiAvailable; pendingControls = controls;
+      exportAvailable = Boolean(exports.available); pendingExports = exports.pending || new Set();
+      for (const id of exportMessages.keys()) if (!jobs.some((job) => job.id === id && !job.dismissed)) exportMessages.delete(id);
       const counts = jobSummary(jobs);
       taskButton.dataset.activeCount = String(counts.active); taskCount.textContent = counts.active > 99 ? '99+' : String(counts.active);
       wire(taskButton, blocked); renderBar(); renderCenter();
@@ -240,7 +267,14 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
       }
     },
     opened() { centerSignature = ''; renderCenter(); },
-    feedback(message = '') { feedback.textContent = message; centerFeedback.textContent = message; notifyLayout(); },
-    dispose() { disposed = true; layoutEpoch += 1; observer?.disconnect(); },
+    feedback(message = '') {
+      feedbackJobId = currentJob(jobs, activeId)?.id || null; generalFeedback = message;
+      exportMessages.delete(feedbackJobId); centerFeedback.textContent = message; renderBar();
+    },
+    exportFeedback(accountId, jobId, text, state) {
+      if (disposed || !jobs.some((job) => job.id === jobId && job.accountId === accountId && !job.dismissed)) return;
+      exportMessages.set(jobId, { text, state }); renderBar(); renderCenter();
+    },
+    dispose() { disposed = true; layoutEpoch += 1; observer?.disconnect(); exportMessages.clear(); },
   };
 }

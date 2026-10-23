@@ -79,6 +79,19 @@ impl TranslationPolicy {
         Ok(())
     }
 
+    pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
+        self.validate()?;
+        if is_telegram(platform)
+            && (self.enabled
+                || self.auto_send
+                || self.group_auto
+                || self.translation_mode != "click")
+        {
+            return Err(AppError::TranslationUnavailable);
+        }
+        Ok(())
+    }
+
     pub fn should_translate_outgoing(&self, text: &str) -> bool {
         self.enabled
             && self.auto_send
@@ -183,10 +196,22 @@ impl TranslationSettings {
             return Err(AppError::TranslationLimit);
         }
         for (id, policy) in &self.chats {
-            if !valid_chat_id(id) {
+            if !valid_chat_id(id) && !valid_telegram_chat_id(id) {
                 return Err(AppError::TranslationInvalid);
             }
             policy.validate()?;
+        }
+        Ok(())
+    }
+
+    pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
+        self.validate()?;
+        self.global.validate_for_platform(platform)?;
+        for id in self.chats.keys() {
+            if !valid_receive_chat_id(platform, id) {
+                return Err(AppError::TranslationInvalid);
+            }
+            self.policy(id).validate_for_platform(platform)?;
         }
         Ok(())
     }
@@ -258,6 +283,30 @@ pub fn valid_chat_id(id: &str) -> bool {
         && ["c.us", "lid", "g.us"].contains(&domain)
 }
 
+pub fn is_telegram(platform: &str) -> bool {
+    matches!(platform, "telegram-z" | "telegram-k")
+}
+
+pub fn supports_receive(platform: &str) -> bool {
+    matches!(platform, "whatsapp" | "whatsapp-pure") || is_telegram(platform)
+}
+
+/// A separate receive namespace. Never accepted by WhatsApp send/broadcast IDs.
+pub fn valid_telegram_chat_id(id: &str) -> bool {
+    id.strip_prefix("tg:").is_some_and(|peer| {
+        peer.parse::<i64>()
+            .is_ok_and(|value| value != 0 && value.to_string() == peer)
+    })
+}
+
+pub fn valid_receive_chat_id(platform: &str, id: &str) -> bool {
+    match platform {
+        "whatsapp" | "whatsapp-pure" => valid_chat_id(id),
+        "telegram-z" | "telegram-k" => valid_telegram_chat_id(id),
+        _ => false,
+    }
+}
+
 pub fn validate_text(text: &str) -> Result<()> {
     if text.trim().is_empty()
         || text.len() > 32_768
@@ -289,7 +338,7 @@ pub struct IncomingTranslation {
 impl IncomingTranslation {
     pub fn validate(&self) -> Result<()> {
         if !super::account::valid_id(&self.id)
-            || !valid_chat_id(&self.chat_id)
+            || (!valid_chat_id(&self.chat_id) && !valid_telegram_chat_id(&self.chat_id))
             || !(1..=10_000).contains(&self.attempt)
             || self.message_id.is_empty()
             || self.message_id.len() > 256
@@ -298,5 +347,21 @@ impl IncomingTranslation {
             return Err(AppError::TranslationInvalid);
         }
         validate_text(&self.text)
+    }
+
+    pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
+        self.validate()?;
+        if !valid_receive_chat_id(platform, &self.chat_id)
+            || (is_telegram(platform)
+                && !self.message_id.parse::<u64>().is_ok_and(|value| {
+                    value > 0 && value <= i64::MAX as u64 && value.to_string() == self.message_id
+                }))
+        {
+            return Err(AppError::TranslationInvalid);
+        }
+        if is_telegram(platform) && !self.manual {
+            return Err(AppError::TranslationUnavailable);
+        }
+        Ok(())
     }
 }

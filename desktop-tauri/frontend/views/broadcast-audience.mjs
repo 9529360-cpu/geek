@@ -1,4 +1,4 @@
-import { matchingChats } from '../models/broadcast.mjs';
+import { matchingChats, importSummaryText } from '../models/broadcast.mjs';
 import { element, button, wire, hidden, unavailable } from './broadcast-elements.mjs';
 
 export function createAudienceView(document, changed) {
@@ -7,6 +7,12 @@ export function createAudienceView(document, changed) {
   let selected = new Set();
   let cards = new Set();
   let blocked = false;
+  let mode = 'custom';
+  let imported = [];
+  let importFileName = '';
+  let importSummary = null;
+  let importFeedback = null;
+  let importAvailable = false;
   const listeners = [];
   const bind = (node, type, fn) => {
     node.addEventListener(type, fn);
@@ -43,23 +49,38 @@ export function createAudienceView(document, changed) {
   bind($('broadcast-clear'), 'click', () => { selected.clear(); render(); changed(); });
   const radios = [...$('broadcast-overlay').querySelectorAll('input')].filter((node) => node.name === 'bc-sendto'
     || node.getAttribute('name') === 'bc-sendto');
-  const supported = new Set(['custom', 'all', 'all-contacts', 'all-groups']);
+  const supported = new Set(['custom', 'excel', 'all', 'all-contacts', 'all-groups']);
   for (const radio of radios) {
     if (!supported.has(radio.value)) {
       unavailable(radio);
       const label = radio.closest('label')?.querySelector('span');
-      if (label) label.append(element(document, 'small', 'bc-unavailable-note', ' · 尚未迁移'));
+      if (label) label.append(element(document, 'small', 'bc-unavailable-note', '（尚未迁移）'));
       continue;
     }
     bind(radio, 'change', () => {
       if (!radio.checked) return;
-      for (const other of radios) other.checked = other === radio;
-      if (radio.value !== 'custom') {
+      mode = radio.value;
+      if (!['custom', 'excel'].includes(mode)) {
         selected = new Set(matchingChats(chats(), '', radio.value === 'all' ? null : radio.value === 'all-groups' ? 'group' : 'contact')
           .map((chat) => chat.id));
       }
       render(); changed();
     });
+  }
+  $('bc-excel-meta').setAttribute('role', 'status');
+  $('bc-excel-meta').setAttribute('aria-live', 'polite');
+  $('bc-excel-meta').setAttribute('aria-atomic', 'true');
+
+  function renderImport() {
+    for (const radio of radios) radio.checked = radio.value === mode;
+    hidden($('bc-sendto-custom'), mode === 'excel');
+    hidden($('bc-sendto-excel'), mode !== 'excel');
+    if (mode === 'excel') $('bc-sendto-excel').closest('details').open = true;
+    const meta = $('bc-excel-meta');
+    const stale = catalog?.ready && imported.some((id) => !chats().some((chat) => chat.id === id));
+    meta.textContent = importFeedback?.text || (stale ? '已导入的联系人已失效，请重新导入。' : importSummaryText(importSummary));
+    meta.dataset.state = importFeedback?.state || (stale ? 'error' : 'ready');
+    meta.title = importFileName;
   }
 
   const vcardRoot = $('bc-vcard-list');
@@ -79,9 +100,9 @@ export function createAudienceView(document, changed) {
 
   function chip(chat, remove, className) {
     const node = element(document, 'span', className);
-    node.append(element(document, 'span', '', chat?.name || '当前不可用对象'));
+    node.append(element(document, 'span', '', chat?.name || chat?.id || '当前不可用对象'));
     const close = button(document, '×', (event) => { event.stopPropagation(); remove(); }, '');
-    close.setAttribute('aria-label', `移除 ${chat?.name || '当前不可用对象'}`);
+    close.setAttribute('aria-label', `移除 ${chat?.name || chat?.id || '当前不可用对象'}`);
     setAvailable(close, !blocked);
     node.append(close);
     return node;
@@ -112,6 +133,7 @@ export function createAudienceView(document, changed) {
   }
 
   function render() {
+    renderImport();
     $('bc-selected-chips').replaceChildren();
     for (const id of selected) {
       $('bc-selected-chips').append(chip(chats().find((chat) => chat.id === id), () => {
@@ -125,24 +147,30 @@ export function createAudienceView(document, changed) {
       const row = element(document, 'label', 'broadcast-item');
       const input = element(document, 'input');
       input.type = 'checkbox'; input.value = chat.id;
-      input.setAttribute('aria-label', `选择 ${chat.name || '未命名聊天'}`);
+      input.setAttribute('aria-label', `选择 ${chat.name || chat.id}`);
       setAvailable(input, !blocked && Boolean(catalog?.ready));
       input.addEventListener('change', () => { if (input.checked) selected.add(chat.id); render(); changed(); });
-      row.append(input, element(document, 'span', 'broadcast-name', chat.name || '未命名聊天'),
+      row.append(input, element(document, 'span', 'broadcast-name', chat.name || chat.id),
         element(document, 'span', `bc-type-badge${chat.kind === 'group' ? ' group' : ''}`, chat.kind === 'group' ? '群组' : '联系人'));
       list.append(row);
     }
     if (!visible.length) list.append(element(document, 'div', 'nav-empty', catalog?.ready ? '没有匹配的聊天' : '聊天列表尚未就绪'));
-    $('broadcast-meta').textContent = catalog?.ready ? `共 ${chats().length} 个聊天 · 已选 ${selected.size} 个` : '聊天列表尚未就绪';
+    $('broadcast-meta').textContent = catalog?.ready ? `共 ${chats().length} 个聊天，已选 ${selected.size} 个` : '聊天列表尚未就绪';
   }
 
-  function availability(value) {
+  function availability(value, canImport = importAvailable) {
     blocked = value;
+    importAvailable = canImport;
     const ready = Boolean(catalog?.ready);
     for (const id of ['broadcast-search', 'broadcast-select-all', 'broadcast-select-groups', 'broadcast-select-contacts', 'broadcast-clear']) {
       setAvailable($(id), !blocked && ready);
     }
-    for (const radio of radios) if (supported.has(radio.value)) setAvailable(radio, !blocked && ready);
+    for (const radio of radios) if (supported.has(radio.value)) {
+      setAvailable(radio, !blocked && ready && (radio.value !== 'excel' || importAvailable));
+      if (radio.value === 'excel') radio.title = importAvailable ? '从 CSV/TXT 选择联系人' : '联系人文件导入尚不可用';
+    }
+    setAvailable($('broadcast-import-csv'), !blocked && ready && importAvailable);
+    $('broadcast-import-csv').title = importAvailable ? '选择 CSV/TXT 联系人文件' : '联系人文件导入尚不可用';
     setAvailable($('broadcast-add-vcard'), !blocked && ready && Boolean(catalog?.capabilities.vcards));
     $('broadcast-add-vcard').title = catalog?.capabilities.vcards ? '选择电子名片' : '当前账号的名片能力尚未就绪';
     for (const input of $('broadcast-list').querySelectorAll('input')) setAvailable(input, !blocked && ready);
@@ -153,15 +181,31 @@ export function createAudienceView(document, changed) {
   }
 
   return {
-    set(next, recipientIds, vcardIds) {
+    set(next, draft) {
       catalog = next;
-      if (recipientIds) selected = new Set(recipientIds);
-      if (vcardIds) cards = new Set(vcardIds);
+      if (draft) {
+        selected = new Set(draft.manualRecipientIds || draft.recipientIds || []);
+        cards = new Set(draft.vcardIds || []);
+        mode = supported.has(draft.audienceMode) ? draft.audienceMode : 'custom';
+        imported = [...(draft.importedRecipientIds || [])];
+        importFileName = draft.importFileName || '';
+        importSummary = draft.importSummary ? { ...draft.importSummary } : null;
+        importFeedback = null;
+      }
       $('broadcast-add-vcard').checked = cards.size > 0;
       render(); renderCards(); availability(blocked);
     },
+    imported(result) {
+      catalog = result.catalog; imported = result.recipientIds.slice();
+      importFileName = result.fileName; importSummary = { ...result.summary }; importFeedback = null;
+      render(); renderCards(); availability(blocked);
+    },
+    importStatus(text = '', state = 'ready') { importFeedback = text ? { text, state } : null; renderImport(); },
+    clearCards() { cards.clear(); $('broadcast-add-vcard').checked = false; renderCards(); },
     resetSearch() { $('broadcast-search').value = ''; vcardSearch.value = ''; open(false); },
-    values: () => ({ recipientIds: [...selected], vcardIds: [...cards] }),
+    values: () => ({ recipientIds: mode === 'excel' ? imported.slice() : [...selected], vcardIds: [...cards],
+      audienceMode: mode, manualRecipientIds: [...selected], importedRecipientIds: imported.slice(),
+      importFileName, importSummary: importSummary ? { ...importSummary } : null }),
     availability,
     dispose() { for (const remove of listeners) remove(); },
   };

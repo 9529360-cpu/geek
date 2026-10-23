@@ -57,6 +57,20 @@ export function isWhatsApp(account) {
   return Boolean(account && !account.archived && ['whatsapp', 'whatsapp-pure'].includes(account.platformId));
 }
 
+export function translationCapabilities(account) {
+  const whatsapp = isWhatsApp(account);
+  const telegram = Boolean(account && !account.archived && ['telegram-z', 'telegram-k'].includes(account.platformId));
+  return { receive: whatsapp || telegram, automatic: whatsapp, outgoing: whatsapp };
+}
+
+export function validatePlatformPolicy(account, policy) {
+  const capabilities = translationCapabilities(account);
+  if (!capabilities.receive || (policy && ((!capabilities.outgoing && (policy.enabled || policy.autoSend))
+    || (!capabilities.automatic && (policy.translationMode !== 'click' || policy.groupAuto))))) {
+    throw 'TRANSLATION_UNAVAILABLE';
+  }
+}
+
 export function sessionOf(value) {
   if (!value || !Number.isSafeInteger(value.revision) || value.revision < 0
     || !['signedOut', 'signedIn'].includes(value.state) || typeof value.quotaFresh !== 'boolean'
@@ -91,7 +105,7 @@ const messages = Object.freeze({
   TRANSLATION_CANCELLED: '翻译已取消。',
   TRANSLATION_TIMEOUT: '翻译超时，请按需重试。',
   TRANSLATION_INVALID: '翻译设置无效，请检查后重试。',
-  TRANSLATION_UNAVAILABLE: '当前页面尚未准备好翻译，请打开 WhatsApp 聊天后重试。',
+  TRANSLATION_UNAVAILABLE: '此翻译功能暂不可用，请检查当前平台和聊天。',
   TRANSLATION_SETTINGS_CONFLICT: '设置已在其他操作中更新，草稿已保留，请检查后重试。',
   TRANSLATION_LIMIT: '翻译任务较多，请稍后重试。',
   TRANSLATION_UNAUTHORIZED: '翻译授权已失效，请重新登录。',

@@ -74,7 +74,7 @@ schema 6 将聊天翻译覆盖收敛为原界面可独立设置的七个字段�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram 翻译/群发、提及/附件的发送翻译、媒体引用、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 文字与附件群发、极客登录、接收翻译、普通文字及同聊天文字引用回复的发送翻译范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。仍未迁移：Telegram 自动接收及发送翻译/群发、提及/附件的发送翻译、媒体引用、注册/购买字符包、消息通知、应用整体崩溃恢复、Electron 数据迁移、安装器及自动更新。WhatsApp 文字与附件群发、文件收件人导入与异常导出、极客登录、WhatsApp 接收翻译、Telegram 手动接收翻译、普通文字及同聊天文字引用回复的发送翻译范围见下节。托盘存在不等于已经实现新消息通知。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -119,10 +119,11 @@ tracks the actual chat container and is suspended while a modal/menu is open.
 Wired paths: create 1-10 accounts with proxy, switch accounts/families, save account
 name/font/color, drag reorder within a family, reload, close, archive, search/restore,
 tray preference, native window controls, WhatsApp broadcast, Geek login/quota,
-WhatsApp incoming-message translation, plain-text outgoing translation and same-chat
+WhatsApp incoming-message translation, Telegram Web A/K manual incoming translation,
+WhatsApp plain-text outgoing translation and same-chat
 text replies with account/chat settings and an independent SendIntent owner.
 Not yet wired: restart/lock, registration/purchase, theme/startup options, notes,
-Telegram translation/broadcast, interactive mentions, media replies and interactive attachments.
+Telegram automatic/outgoing translation and broadcast, interactive mentions, media replies and interactive attachments.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 
@@ -177,19 +178,25 @@ settings, and open/closed guest state are preserved. No extra ordering store is 
 
 原生文件框使用固定版本的 rfd Rust API，在专用线程运行。它与 Tauri 官方对话框插件采用相同的原生后端，但不注册通用 dialog/fs 插件或向账号页面注入脚本。新增命令仍只授权给本地管理界面。
 
+CSV/TXT 收件人导入沿用原文件入口，支持 UTF-8/BOM、逗号/分号/Tab、引号字段和一行一个号码，最大 5 MiB、2000 个不同候选。识别“手机号/号码/电话/phone/number/whatsapp/mobile”等明确表头；无表头多列或歧义表头直接拒绝，不猜姓名列。号码必须完整，只去掉允许的空格、括号和连字符，不猜国家码；文件姓名不作为发送变量。明确“聊天ID”列允许普通 `@c.us/@lid`，拒绝群；存在“发送状态”列时，只接收 `NOT_SUBMITTED`，其他状态计为跳过。
+
+导入经锁定 WA-JS `queryExists` 和 `chat.find` 核对平台身份、加载实际聊天模型，再按 canonical ID 去重，支持当前列表之外的号码。`null` 只计为未核验，不能断言未注册；姓名取实际模型，缺失则保持空。每批两个只读查询、单次等待五秒、总流程十分钟限额；超时或账号/目录代次失效不发布部分结果。原生选择框取消、导入失败或迟到响应保留旧文件受众，手选联系人/群组另行保留。同代次的已核验联系人随短期目录刷新保留，最多 2000 个；换代次后必须重新核验。导入只扩展现有 catalog，创建仍走同一任务 owner 和冻结校验。
+
+任务原位置的“导出异常 CSV”按点击时的账号、任务及 revision 生成只读快照，进行中有异常也可导出，不要求账号在线。保留“联系人/聊天ID/失败原因”前三列，加“发送状态”，区分 `NOT_SUBMITTED`、`UNCERTAIN` 和 `TASK_ISSUE`；不导出已确认或尚未执行的对象，不把存储失败编造成某个联系人失败。使用 UTF-8 BOM、CRLF、引号转义和公式前缀文本化；原生保存框选址，临时文件写完并同步后原子替换。路径不返回前端，取消不报成功，不改任务状态，也不自动重发。
+
 一个账号只能执行一个任务，其他任务排队；不同账号最多四个 worker 并发，每个 worker 每次只处理一个目标。当前账号任务条和全部账号任务中心可暂停、继续、停止并查看结果。任务条显示前先依据实际高度缩小原生聊天区域，避免 native WebView 覆盖操作按钮。关闭、刷新、修改代理或归档账号会撤销该 guest 的代次，并停止其未结束任务，包括定时任务。
 
 发送前把目标与展开后的文本写入 `broadcast.dpapi` 检查点，再通过单次提交闸门调用该账号的固定平台适配器。仅真实平台消息 ID 和 ACK≥1 计入确认；超时、回执缺失、部分发送或提交后异常均进入“结果不确定”并暂停，不能因重启或继续自动重发。暂停发生在提交前则保留当前目标与文本。平台未就绪时整任务暂停，避免把剩余对象依次算作失败。停止只阻止后续操作，不能撤回已提交消息。
 
 任务存储由独立 Rust owner 管理，沿用现有 DPAPI、原子替换和应用进程锁；不在账号 Workspace 锁内等待网页、回执或间隔。创建请求 UUID 去重，迟到创建响应或重试不会生成第二个任务。未确认的发送检查点在恢复后记录为 uncertain 并跳过；曾执行任务需要人工核对后继续，未开始的即时队列也不自动发送。未开始的定时任务恢复后可到点准备，但应用必须运行且对应账号页面需要就绪；不会后台自动打开所有账号。到点账号未就绪最多准备 20 次，之后显示明确失败。
 
-每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB；附件正文不写进该文档。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。Telegram 原生输入、失败 CSV 导出、外部导入及未接通的高级选项仍保留原位置并标明不可用。
+每个任务最多 2000 个对象，最多保留 100 条完整任务，整个明文任务文档小于 2 MiB；附件正文不写进该文档。达到记录数上限后只回收已明确关闭的终态记录，同时持久保留其 UUID（最多 10000 条），防止旧创建请求重新发送。未关闭的历史或达到存储上限会明确拒绝创建。Telegram 群发、粘贴号码及未接通的高级选项仍保留原位置并标明不可用。
 
 平台桥只执行打包的命名语义调用，未向页面开放脚本、路径、密钥或 native IPC。构建复用原版 capability/adapter/safety 纯合同及锁定的 WA-JS，附带依赖许可和输入哈希。异步结果经有界 mailbox 返回；原生使用单调时钟期限，取消或导航会使旧 mailbox 和准备结果失效。每个 document 的 attempt ID 单次使用，达到有界容量则拒绝继续，不丢弃旧凭据来允许重放。
 
 离线 VM、真实控制器、并发 Rust 替身和 Windows DPAPI 测试覆盖上述边界；浏览器截图与严格 CSP 测试只证明外壳联动，不能代替真实 WhatsApp / WebView2 发送验收。开发验证不登录客户账号、不发送真实消息。
 
-## 极客登录与 WhatsApp 接收翻译
+## 极客登录与接收翻译
 
 个人中心复用原登录界面，已接通邮箱/密码登录、账户号、余额查询与退出。登录响应必须与 `/api/me` 返回的身份一致，凭据成功写入独立 `session.dpapi` 后才发布会话。登录 token 和翻译短 token 均仅由 Rust 持有，不回传 shell 或远程页面；密码在命令入口和服务入口使用清零包装，界面提交后立即清空密码字段。注册、购买字符包等入口仍标明尚未迁移。
 
@@ -201,6 +208,8 @@ settings, and open/closed guest state are preserved. No extra ordering store is 
 
 WhatsApp / 纯净版支持“点击翻译”和右键翻译当前可见消息，以及新收到消息的自动翻译。进入聊天、开启自动模式或重新显示账号时，已在页面上的消息按历史处理，只提供手动入口。自动请求只接收 WA-JS 元数据确认的入站消息，检查当前激活时间和群聊许可；目标中文时，已有汉字的消息按原规则跳过自动翻译。方向/时间未知、自己的消息和旧历史不会自动提交。译文只能写回同一账号、文档、会话、策略 revision、聊天、消息 ID、正文及当前 DOM 节点；聊天虚拟列表复用节点时不能挂入旧译文。
 
+Telegram Web A（Z 入口）和 Web K 已接通普通可见文字的点击/右键翻译，沿用账号及当前聊天设置、同一 TranslationService、缓存和请求 UUID。只接收精确 `web.telegram.org/a` 或 `/k` 的当前普通聊天；Web A 同时核对 hash、标题 peer 和以聊天为 key 的列表节点，Web K 核对每条消息的 peer/message ID。只提取正文，排除时间、引用预览、媒体、特殊列表及不明确身份；切聊天、复用节点或正文变化会拒绝旧结果。Telegram 自动接收、历史批量翻译和发送翻译仍明确禁用，Rust 策略入口及请求入口同步拒绝，不靠灰色按钮维持限制。
+
 执行层最多两个并发 worker、八条等待任务，手动请求优先，排队/取 token/HTTP/409 查询共用 35 秒期限。账号关闭、重载、导航、切聊天、隐藏、修改策略或退出会话均撤销对应工作；取消不能撤回服务端已收到的请求。每个逻辑请求冻结 UUID、文本、语言、线路和账号代理。只有 `request_in_progress` 可在原期限内查询同一请求；短 token 失效最多更新一次并保持原 ID。不确定网络错误不自动新建请求，点击重试查询同一次结果。显式“重新翻译”才创建新请求并跳过本地缓存，可能重新计费。
 
 同一登录会话内，只改字号、颜色、开关或其他聊天设置时，取消旧 revision 的等待，但仍保留当前消息的请求编号和已完成译文，普通点击继续查询原请求。只有源/目标语言、供应商或线路等翻译语义改变，才为受影响的聊天建立新意图。
@@ -209,7 +218,7 @@ WhatsApp / 纯净版支持“点击翻译”和右键翻译当前可见消息，
 
 翻译 HTTP 请求使用账号保存的 HTTP/SOCKS5/系统路由。系统模式通过 Windows `GetProxyConfigurationAsync` 对固定服务 URL 解析 PAC/WPAD/系统设置，使用返回的首个代理；仅无代理且系统明确允许时直连。解析或连接失败不会偷偷换代理或直连。独立 HTTP 客户端禁用环境代理覆盖、重定向和底层自动重试，SOCKS5 的目标 DNS 在代理侧解析。这里没有客户代理实连或 Windows PAC 真机验证的声明。
 
-接收翻译 owner 没有发送或修改输入框的能力。Telegram 翻译仍未迁移。测试使用合成账户和响应，不访问真实订阅或计费服务；实际 Windows/WebView2、WhatsApp 登录与服务联调由维护者另行验收。
+接收翻译 owner 没有发送或修改输入框的能力。Telegram 接收适配器不加载 WhatsApp runtime，也不扩大群发或 SendIntent 的平台范围。测试使用合成账户和响应，不访问真实订阅或计费服务；实际 Windows/WebView2、WhatsApp 登录与服务联调由维护者另行验收。
 
 接口来源：仓库的 `scripts/geek-subscription-worker*.js`、`scripts/geek-translate-worker.js`；系统代理参考 [Windows ProxyConfiguration](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.proxyconfiguration) 与 [GetProxyConfigurationAsync](https://learn.microsoft.com/en-us/uwp/api/windows.networking.connectivity.networkinformation.getproxyconfigurationasync)；HTTP 行为参考 [reqwest 0.13.5 ClientBuilder](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html)。
 

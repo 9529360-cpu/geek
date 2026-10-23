@@ -1,0 +1,78 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { fixture, deferred, turn } from './helpers/translation.mjs';
+import { translationCapabilities, validatePlatformPolicy, DEFAULT_POLICY } from '../frontend/models/translation.mjs';
+
+for (const id of ['tg', 'tgk']) {
+  test(`${id}: original receive settings and seven-field chat override work while automatic/send controls stay disabled`, async () => {
+    const ui = await fixture(); ui.chats.set(id, { id: 'tg:123', name: '123' });
+    ui.switchAccount(id); await ui.click('btn-translation');
+    assert.equal(ui.get('translation-message-to').disabled, false);
+    assert.equal(ui.get('translation-chat-override').disabled, false);
+    for (const control of ['translation-send', 'translation-send-from', 'translation-send-to', 'translation-include-zh',
+      'translation-receive-auto', 'translation-group', 'translation-enabled', 'translation-target', 'translation-channel-receive-auto']) {
+      assert.equal(ui.get(control).disabled, true, control); assert.match(ui.get(control).title, /仅支持手动/);
+    }
+    await ui.input('translation-message-to', 'it');
+    await ui.input('translation-chat-override', true);
+    await ui.input('translation-channel-message-to', 'es');
+    const policy = ui.backend.accounts.find((account) => account.id === id).translation;
+    assert.equal(policy.global.messageTarget, 'it'); assert.equal(policy.global.enabled, false);
+    assert.equal(policy.global.autoSend, false); assert.equal(policy.global.translationMode, 'click');
+    assert.equal(policy.chats['tg:123'].messageTarget, 'es'); assert.equal(Object.keys(policy.chats['tg:123']).length, 7);
+    const updates = ui.calls.filter(([name]) => name === 'update').map(([, args]) => args);
+    assert.ok(updates.every((args) => args.id === id));
+    assert.equal(ui.backend.accounts[0].translation.revision, 1);
+    await ui.input('translation-chat-override', false);
+    assert.equal(ui.backend.accounts.find((account) => account.id === id).translation.chats['tg:123'], undefined);
+  });
+
+  test(`${id}: forged disabled-switch events cannot enqueue unsupported policy IPC`, async () => {
+    const ui = await fixture(); ui.switchAccount(id); await ui.click('btn-translation');
+    const before = structuredClone(ui.backend);
+    for (const control of ['translation-send', 'translation-receive-auto']) {
+      const node = ui.get(control); node.disabled = false; node.checked = true; node.fire('change'); await ui.idle();
+      assert.equal(ui.calls.filter(([name]) => name === 'update').length, 0);
+      assert.equal(node.disabled, true);
+    }
+    assert.deepEqual(ui.backend, before);
+  });
+
+  test(`${id}: failed receive-policy saves keep the draft and retry the same account revision`, async () => {
+    const ui = await fixture(); ui.switchAccount(id); await ui.click('btn-translation');
+    ui.failures.set('update', 'STORE_IO'); await ui.input('translation-message-to', 'it');
+    assert.equal(ui.get('translation-message-to').value, 'it');
+    assert.equal(ui.backend.accounts.find((account) => account.id === id).translation.global.messageTarget, 'zh');
+    await ui.click('translation-close'); ui.switchAccount('a'); await ui.click('btn-translation');
+    assert.equal(ui.get('translation-message-to').value, 'zh');
+    await ui.click('translation-close'); ui.switchAccount(id); await ui.click('btn-translation');
+    ui.failures.delete('update'); await ui.click('translation-global-retry');
+    const calls = ui.calls.filter(([name]) => name === 'update').map(([, args]) => args);
+    assert.equal(calls.length, 2); assert.ok(calls.every((args) => args.id === id && args.expectedRevision === 1));
+    assert.equal(ui.backend.accounts.find((account) => account.id === id).translation.global.messageTarget, 'it');
+  });
+}
+
+test('late Telegram A context cannot replace the selected Telegram K settings context', async () => {
+  const held = deferred();
+  const ui = await fixture({ before: (method, args) => method === 'context' && args === 'tg' ? held.promise : undefined });
+  ui.chats.set('tgk', { id: 'tg:456', name: 'K chat' });
+  ui.switchAccount('tg'); ui.get('btn-translation').fire('click'); await turn();
+  ui.switchAccount('tgk'); await turn();
+  held.resolve({ accountId: 'tg', generation: 'old', available: true, chat: { id: 'tg:123', name: 'Late A' } });
+  await ui.idle(); assert.match(ui.get('translation-chat-hint').textContent, /K chat/);
+  await ui.input('translation-chat-override', true);
+  const update = ui.calls.find(([name]) => name === 'update')[1];
+  assert.equal(update.id, 'tgk'); assert.equal(update.chatId, 'tg:456');
+});
+
+test('capabilities remain explicit for archived, unknown and unavailable Telegram aliases', () => {
+  for (const account of [{ platformId: 'telegram' }, { platformId: 'telegram-pure' },
+    { platformId: 'line' }, { platformId: 'telegram-z', archived: true }]) {
+    assert.equal(translationCapabilities(account).receive, false);
+    assert.throws(() => validatePlatformPolicy(account, DEFAULT_POLICY));
+  }
+  for (const platformId of ['whatsapp', 'whatsapp-pure']) {
+    assert.deepEqual(translationCapabilities({ platformId }), { receive: true, automatic: true, outgoing: true });
+  }
+});

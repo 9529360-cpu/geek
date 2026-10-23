@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ROOT = path.resolve(__dirname, '../..');
+const { composeTranslation, translationInputs } = require('./prepare-translation.cjs');
 
 function compose(root = ROOT) {
   const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
@@ -27,20 +28,12 @@ function compose(root = ROOT) {
     `const validateAdapter = ${context.window.GeekPlatformAdapterContract.validate.toString()};`,
     `const readCanonicalChats = async () => (${definitions.definitionFor({ family: 'whatsapp' }).getChats});`,
     read('desktop-tauri/guest/broadcast-attachments.js'),
+    read('desktop-tauri/guest/broadcast-import.js'),
     read('desktop-tauri/guest/whatsapp.js'),
     read('desktop-tauri/guest/bridge.js'),
     '})();', '',
   ].join('\n');
   return source;
-}
-
-function composeTranslation(root = ROOT) {
-  const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
-  return ['(function () {', "'use strict';",
-    'if (window !== window.top || window.__geekTauriTranslation) return;',
-    'const module = { exports: {} };', read('src/translation-output-safety.cjs'),
-    'const assessOutput = module.exports.assessTranslationOutput;',
-    read('desktop-tauri/guest/translation.js'), '})();', ''].join('\n');
 }
 
 function composeSend(root = ROOT) {
@@ -77,8 +70,9 @@ function prepare(output, root = ROOT) {
   const inputs = ['ui/platform-capabilities.js', 'ui/platform-adapter-contract.js',
     'ui/platform-transport-definitions.js', 'ui/broadcast-safety.js',
     'desktop-tauri/guest/broadcast-attachments.js',
+    'desktop-tauri/guest/broadcast-import.js',
     'desktop-tauri/guest/whatsapp.js', 'desktop-tauri/guest/bridge.js',
-    'src/translation-output-safety.cjs', 'desktop-tauri/guest/translation.js',
+    ...translationInputs,
     'desktop-tauri/guest/send-context.js', 'desktop-tauri/guest/send-composer.js',
     'desktop-tauri/guest/send-view.js', 'desktop-tauri/guest/send.js'];
   const hash = (data) => crypto.createHash('sha256').update(data).digest('hex');

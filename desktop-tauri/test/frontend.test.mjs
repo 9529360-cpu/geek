@@ -98,7 +98,7 @@ test('all commands share the same native sender gate and blocking executor', () 
     if (section.includes('pub async fn desktop_window(')) {
       assert.match(section, /execute\(webview, move \|app\| super::window::apply\(&app, action\)\)/);
       assert.doesNotMatch(section, /State|SharedDesktop|\.lock\(/);
-    } else if (/pub async fn broadcast_(catalog|create|snapshot|control|pick_attachments|release_attachments)\(/.test(section)) {
+    } else if (/pub async fn broadcast_(catalog|create|snapshot|control|pick_attachments|release_attachments|import_contacts|export_failures)\(/.test(section)) {
       assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<BroadcastDesktop>>\(\)/);
       assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
     } else if (/pub async fn session_(snapshot|login|refresh|logout)\(/.test(section)) {

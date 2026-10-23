@@ -12,7 +12,7 @@ test('the original four steps wire selection, variables, intervals, and one immu
   assert.equal(ui.panel, 'broadcast-overlay');
   assert.equal(ui.get('broadcast-add-file').disabled, true);
   assert.match(ui.get('broadcast-add-file').title, /附件发送尚未就绪/);
-  assert.equal(ui.get('broadcast-import-csv').disabled, true);
+  assert.equal(ui.get('broadcast-import-csv').disabled, false);
   assert.equal(ui.get('broadcast-workbench-nav').children.length, 4);
   assert.equal(ui.get('broadcast-send').classList.contains('hidden'), true);
   await ui.input('broadcast-message', 'Hi ');

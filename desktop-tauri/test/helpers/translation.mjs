@@ -21,7 +21,9 @@ export async function fixture({ before = async () => {}, sessionState = signedIn
   let shell = { activeId: 'a', accounts: [
     { id: 'a', name: '客服一', platformId: 'whatsapp', archived: false },
     { id: 'b', name: '客服二', platformId: 'whatsapp-pure', archived: false },
-    { id: 'tg', name: 'Telegram', platformId: 'telegram-z', archived: false },
+    { id: 'tg', name: 'Telegram A', platformId: 'telegram-z', archived: false },
+    { id: 'tgk', name: 'Telegram K', platformId: 'telegram-k', archived: false },
+    { id: 'line', name: 'LINE', platformId: 'line', archived: false },
   ].map((account) => ({ ...account, translation: { revision: 1, global: { ...DEFAULT_POLICY }, chats: {} } })) };
   let backend = structuredClone(shell);
   let panel = null;

@@ -1,4 +1,5 @@
-import { emptyDraft, normalizeCatalog, normalizeAttachments, draftPayload, submissionFor, currentJob, executing, terminal } from '../models/broadcast.mjs';
+import { emptyDraft, normalizeCatalog, normalizeAttachments, normalizeImportedContacts, draftPayload,
+  submissionFor, hasExportableIssues, executing, terminal } from '../models/broadcast.mjs';
 import { errorCode, errorMessage } from '../models/broadcast-status.mjs';
 import { wire, unavailable } from '../views/broadcast-elements.mjs';
 import { createBroadcastEditor } from '../views/broadcast-editor.mjs';
@@ -10,9 +11,12 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     .every((name) => typeof api?.[name] === 'function');
   const attachmentsAvailable = ['broadcastPickAttachments', 'broadcastReleaseAttachments']
     .every((name) => typeof api?.[name] === 'function');
+  const importAvailable = typeof api?.broadcastImportContacts === 'function';
+  const exportAvailable = typeof api?.broadcastExportFailures === 'function';
   const operations = new Set();
   const drafts = new Map();
   const pendingControls = new Set();
+  const pendingExports = new Set();
   const listeners = [];
   let shell = getShellSnapshot();
   let renderedActiveId = shell?.activeId;
@@ -25,6 +29,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   let creating = false;
   let picking = false;
   let removingAttachment = false;
+  let importing = false;
   let editorEpoch = 0;
   let loadEpoch = 0;
   let disposed = false;
@@ -46,7 +51,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   const report = (error) => {
     if (disposed) return;
     const code = errorCode(error);
-    lastStatus = { text: errorMessage(error), state: 'error', retry: !/ATTACHMENT|FILE/.test(code) && /CATALOG|READY|UNAVAILABLE/.test(code) };
+    lastStatus = { text: errorMessage(error), state: 'error', retry: !/ATTACHMENT|FILE|IMPORT|EXPORT/.test(code) && /CATALOG|READY|UNAVAILABLE/.test(code) };
     editor?.status(lastStatus.text, lastStatus.state, lastStatus.retry);
   };
   const owner = () => shell?.accounts.find((account) => account.id === editorOwner);
@@ -64,7 +69,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     if (mismatch()) editor.status(errorMessage('BROADCAST_ACCOUNT_CHANGED'), 'error');
     else editor.status(lastStatus.text, lastStatus.state, lastStatus.retry);
     editor.availability({ shellBusy, creating, loading, mismatch: mismatch(), apiAvailable, pendingControls,
-      attachmentsAvailable, attachmentBusy: picking || removingAttachment });
+      attachmentsAvailable, attachmentBusy: picking || removingAttachment, importAvailable, importBusy: importing });
   }
 
   function render() {
@@ -75,7 +80,8 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     $('btn-broadcast').title = supported ? '群发' : account ? '当前平台群发尚未迁移；现支持 WhatsApp' : '请先选择 WhatsApp 账号';
     $('btn-broadcast').setAttribute('aria-label', $('btn-broadcast').title);
     wire($('bc-menu-send'), shellBusy || creating || !apiAvailable || !supported);
-    jobsView?.render(snapshot.jobs, shell?.activeId, shellBusy, pendingControls, apiAvailable);
+    jobsView?.render(snapshot.jobs, shell?.activeId, shellBusy, pendingControls, apiAvailable,
+      { available: exportAvailable, pending: pendingExports });
     refreshEditor();
   }
 
@@ -160,8 +166,30 @@ export function createBroadcastController({ document, window, api, getShellSnaps
       && editorEpoch === epoch && !mismatch() && owner() && !owner().archived;
   }
 
+  async function importContacts() {
+    if (disposed || creating || shellBusy || loading || importing || picking || removingAttachment || !importAvailable
+      || panel !== 'broadcast-overlay' || mismatch() || !catalog?.ready || !owner() || owner().archived) return;
+    const accountId = editorOwner;
+    const epoch = editorEpoch;
+    const catalogId = catalog.catalogId;
+    importing = true; editor.importStatus('正在读取并核验联系人…', 'loading'); render();
+    try {
+      const result = await api.broadcastImportContacts(accountId, catalogId);
+      if (!selectionCurrent(accountId, epoch) || catalog?.catalogId !== catalogId) return;
+      if (result === null) { editor.importStatus(); return; }
+      const imported = normalizeImportedContacts(result, accountId);
+      catalog = imported.catalog; editor.imported(imported); stash();
+    } catch (error) {
+      if (selectionCurrent(accountId, epoch) && catalog?.catalogId === catalogId) editor.importStatus(errorMessage(error), 'error');
+    } finally {
+      importing = false;
+      if (!disposed && !selectionCurrent(accountId, epoch) && editorOwner === accountId) editor.importStatus();
+      if (!disposed) render();
+    }
+  }
+
   async function pickAttachments() {
-    if (disposed || creating || shellBusy || picking || removingAttachment || !attachmentsAvailable
+    if (disposed || creating || shellBusy || picking || removingAttachment || importing || !attachmentsAvailable
       || panel !== 'broadcast-overlay' || mismatch()) return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
@@ -195,7 +223,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
 
   async function removeAttachment(id) {
-    if (disposed || creating || shellBusy || picking || removingAttachment || !attachmentsAvailable
+    if (disposed || creating || shellBusy || picking || removingAttachment || importing || !attachmentsAvailable
       || panel !== 'broadcast-overlay' || mismatch() || !editor.read().attachments.some((file) => file.id === id)) return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
@@ -217,7 +245,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
 
   async function submit(continueEditing) {
-    if (disposed || creating || shellBusy || loading || picking || removingAttachment || !apiAvailable || panel !== 'broadcast-overlay') return;
+    if (disposed || creating || shellBusy || loading || picking || removingAttachment || importing || !apiAvailable || panel !== 'broadcast-overlay') return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
     try {
@@ -274,6 +302,28 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     } finally { pendingControls.delete(jobId); if (!disposed) { render(); schedulePoll(); } }
   }
 
+  async function exportFailures(accountId, jobId) {
+    if (disposed || shellBusy || !exportAvailable || pendingExports.has(jobId)) return;
+    const job = snapshot.jobs.find((item) => item.id === jobId && item.accountId === accountId && !item.dismissed);
+    if (!hasExportableIssues(job)) return;
+    pendingExports.add(jobId); jobsView.exportFeedback(accountId, jobId, '正在导出…', 'loading'); render();
+    try {
+      const result = await api.broadcastExportFailures(accountId, jobId);
+      if (disposed) return;
+      if (!result || result.accountId !== accountId || result.jobId !== jobId || typeof result.saved !== 'boolean'
+        || !Number.isSafeInteger(result.revision) || result.revision < 0
+        || !Number.isSafeInteger(result.rowCount) || result.rowCount < 0 || (result.saved && !result.rowCount)) {
+        throw 'BROADCAST_EXPORT_FAILED';
+      }
+      jobsView.exportFeedback(accountId, jobId, result.saved ? `已导出 ${result.rowCount} 条异常记录` : '已取消导出', 'ready');
+    } catch (error) {
+      if (!disposed) jobsView.exportFeedback(accountId, jobId, errorMessage(error), 'error');
+    } finally {
+      pendingExports.delete(jobId);
+      if (!disposed) render();
+    }
+  }
+
   async function closePanel() {
     if (creating || disposed) return;
     stash();
@@ -301,10 +351,12 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     onSubmit: (continued) => track(submit(continued)), onClose: () => track(closePanel().catch(report)),
     onRetry: () => track(loadCatalog()), onControl: (id, action) => track(control(id, action)),
     onPickAttachments: () => track(pickAttachments()), onRemoveAttachment: (id) => track(removeAttachment(id)),
+    onImportContacts: () => track(importContacts()),
   });
   jobsView = createBroadcastJobs({ document, window, requestLayout,
     onOpen: () => track(openTasks().catch(report)), onClose: () => track(closePanel().catch(report)),
     onControl: (id, action) => track(control(id, action)),
+    onExport: (accountId, jobId) => track(exportFailures(accountId, jobId)),
     onViewAccount: (id) => track((async () => {
       await closePanel();
       const account = [...document.querySelectorAll('.nav-account')].find((node) => node.dataset.id === id);

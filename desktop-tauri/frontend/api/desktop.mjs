@@ -23,6 +23,10 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     broadcastPickAttachments: (accountId) => invoke('broadcast_pick_attachments', { accountId }),
     broadcastReleaseAttachments: (accountId, attachmentIds) =>
       invoke('broadcast_release_attachments', { accountId, attachmentIds }),
+    broadcastImportContacts: (accountId, catalogId) =>
+      invoke('broadcast_import_contacts', { accountId, catalogId }),
+    broadcastExportFailures: (accountId, jobId) =>
+      invoke('broadcast_export_failures', { accountId, jobId }),
     broadcastCreate: (draft) => invoke('broadcast_create', { draft }),
     broadcastSnapshot: () => invoke('broadcast_snapshot'),
     broadcastControl: (jobId, action) => invoke('broadcast_control', { jobId, action }),

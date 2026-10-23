@@ -1,7 +1,7 @@
 use super::{
     broadcast::{
         BroadcastCatalog, BroadcastDesktop, CreateBroadcast, CreatedBroadcast,
-        PickedBroadcastAttachments,
+        ExportedBroadcastFailures, ImportedBroadcastContacts, PickedBroadcastAttachments,
     },
     security::authorize,
     session::NativeSession,
@@ -224,6 +224,32 @@ pub async fn desktop_window(webview: Webview, action: WindowAction) -> Result<()
 pub async fn broadcast_catalog(webview: Webview, account_id: String) -> Result<BroadcastCatalog> {
     execute(webview, move |app| {
         app.state::<Arc<BroadcastDesktop>>().catalog(&account_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_import_contacts(
+    webview: Webview,
+    account_id: String,
+    catalog_id: String,
+) -> Result<Option<ImportedBroadcastContacts>> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>()
+            .import_contacts(&app, &account_id, &catalog_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn broadcast_export_failures(
+    webview: Webview,
+    account_id: String,
+    job_id: String,
+) -> Result<ExportedBroadcastFailures> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>()
+            .export_failures(&app, &account_id, &job_id)
     })
     .await
 }

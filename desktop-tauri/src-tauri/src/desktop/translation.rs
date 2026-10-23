@@ -11,7 +11,7 @@ use crate::{
         account::Account,
         broadcast::GuestBinding,
         error::{AppError, Result},
-        translation::IncomingTranslation,
+        translation::{supports_receive, IncomingTranslation},
     },
 };
 use sha2::{Digest, Sha256};
@@ -159,7 +159,7 @@ impl TranslationDesktop {
             .lock()
             .map_err(|_| AppError::StateUnavailable)?
             .visible_account()
-            .filter(|account| matches!(account.platform_id.as_str(), "whatsapp" | "whatsapp-pure")))
+            .filter(|account| supports_receive(&account.platform_id)))
     }
 
     fn poll(&self, runner: &mut Runner) -> Result<()> {
@@ -267,8 +267,8 @@ impl TranslationDesktop {
     }
 
     fn admit(&self, runner: &mut Runner, incoming: IncomingTranslation) -> Result<()> {
-        incoming.validate()?;
         let view = runner.view.as_mut().ok_or(AppError::StateUnavailable)?;
+        incoming.validate_for_platform(&view.binding.platform_id)?;
         if view.chat_id.as_deref() != Some(incoming.chat_id.as_str()) {
             return Err(AppError::TranslationInvalid);
         }

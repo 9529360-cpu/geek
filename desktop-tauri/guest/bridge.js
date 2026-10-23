@@ -68,6 +68,8 @@ function begin(request) {
         const chats = await transport.listChats();
         return { capabilities: transport.capabilities(), chats };
       }
+      case 'resolveContacts':
+        return transport.resolveContacts(request.payload, valid);
       case 'prepare': {
         const attemptId = request.payload.attemptId;
         if (!token(attemptId) || attempts.has(attemptId) || attempts.size >= 20000 || prepared.size >= 8) {
