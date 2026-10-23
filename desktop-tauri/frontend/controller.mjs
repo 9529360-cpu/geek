@@ -58,7 +58,13 @@ export function mountShell({ document, window, api }) {
       await api.windowAction(action);
       return true;
     } catch (error) {
-      view.status(errorMessage(typeof error === 'string' ? error : 'UNKNOWN'));
+      // Window chrome has no account-state recovery action. Never replace an
+      // existing account diagnostic or create stale recovery UI while account
+      // work is still pending. The control re-enables so the action itself can
+      // be retried directly.
+      if (!busy && !$('runtime-status-message').textContent) {
+        view.status(errorMessage(typeof error === 'string' ? error : 'UNKNOWN'), false);
+      }
       return false;
     } finally {
       pendingWindows.delete(action);
