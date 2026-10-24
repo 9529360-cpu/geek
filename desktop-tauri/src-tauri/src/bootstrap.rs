@@ -60,6 +60,12 @@ pub fn run() {
             commands::broadcast_delete_preset,
             commands::broadcast_restore_audience,
             commands::broadcast_export_failures,
+            commands::advanced::broadcast_export_contacts,
+            commands::advanced::broadcast_history,
+            commands::advanced::broadcast_export_history,
+            commands::advanced::account_export_backup,
+            commands::advanced::account_pick_backup,
+            commands::advanced::account_restore_backup,
             commands::broadcast_create,
             commands::broadcast_snapshot,
             commands::broadcast_control,
@@ -67,8 +73,9 @@ pub fn run() {
             commands::session_login,
             commands::session_refresh,
             commands::session_logout,
-            commands::translation_context,
-            commands::account_update_translation
+            commands::translation::translation_context,
+            commands::translation::translation_health,
+            commands::translation::account_update_translation
         ])
         .on_window_event(tray::on_window_event)
         .setup(|app| {

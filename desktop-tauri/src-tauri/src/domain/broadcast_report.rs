@@ -1,4 +1,5 @@
 //! A read-only report of settled exceptions and task-level issues.
+use super::csv_export::cell as csv_cell;
 use super::{
     broadcast::{BroadcastIssue, BroadcastJob, DispatchOutcome},
     error::{AppError, Result},
@@ -107,22 +108,6 @@ impl BroadcastFailureReport {
         }
         csv
     }
-}
-
-fn csv_cell(csv: &mut String, value: &str) {
-    csv.push('"');
-    let visible = value.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
-    if visible.starts_with(['=', '+', '-', '@']) {
-        csv.push('\'');
-    }
-    for c in value.chars() {
-        match c {
-            '"' => csv.push_str("\"\""),
-            '\r' | '\n' => csv.push(' '),
-            _ => csv.push(c),
-        }
-    }
-    csv.push('"');
 }
 
 fn issue_code(code: BroadcastIssue) -> &'static str {

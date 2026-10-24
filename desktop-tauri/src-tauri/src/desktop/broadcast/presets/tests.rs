@@ -137,7 +137,7 @@ fn current_native_groups_are_restored_without_any_contact_query() {
 }
 
 #[test]
-fn telegram_presets_restore_only_current_native_peers_without_phone_resolution_or_import_cache() {
+fn telegram_presets_recheck_absent_contacts_and_keep_groups_bound_to_current_directory() {
     let mut directory = lease();
     directory.catalog.platform_id = "telegram-k".into();
     directory.binding.platform_id = "telegram-k".into();
@@ -155,15 +155,28 @@ fn telegram_presets_restore_only_current_native_peers_without_phone_resolution_o
     let (restored, contacts, summary) = restore_targets(
         &directory,
         &ids(&["tg:123", "tg:-999", "tg:-456", "tg:999"]),
-        |_| panic!("Telegram saved peers must never resolve through WhatsApp contacts"),
+        |batch| {
+            assert_eq!(batch, ids(&["tg:999"]));
+            Ok(serde_json::json!([{ "candidate": "tg:999", "chat": {
+                "id": "tg:999", "name": "Current loaded peer", "realName": "Current loaded peer", "kind": "contact"
+            }}]))
+        },
         || Ok(()),
         || Duration::ZERO,
     )
     .unwrap();
-    assert_eq!(restored, ids(&["tg:123", "tg:-456"]));
-    assert!(contacts.is_empty());
-    assert_eq!((summary.accepted, summary.skipped), (2, 2));
+    assert_eq!(restored, ids(&["tg:123", "tg:-456", "tg:999"]));
+    assert_eq!(
+        contacts
+            .iter()
+            .map(|chat| chat.id.as_str())
+            .collect::<Vec<_>>(),
+        ["tg:123", "tg:999"]
+    );
+    assert_eq!((summary.accepted, summary.skipped), (3, 1));
     directory.native_ids.remove("tg:123");
+    assert!(freeze_audience_ids(&directory, &ids(&["tg:123"])).is_ok());
+    directory.catalog.chats.retain(|chat| chat.id != "tg:123");
     assert!(freeze_audience_ids(&directory, &ids(&["tg:123"])).is_err());
     assert!(freeze_audience_ids(&directory, &ids(&["100@c.us"])).is_err());
 }

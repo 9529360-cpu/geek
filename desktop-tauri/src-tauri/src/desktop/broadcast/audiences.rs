@@ -1,6 +1,6 @@
 //! Audience expansion borrows the same import gate, catalog lease and deadline.
 use super::{
-    imports::{ImportSummary, RecipientImport},
+    imports::{non_self_contact, ImportSummary, RecipientImport},
     *,
 };
 use crate::domain::{broadcast::MAX_TARGETS, broadcast_import::BroadcastImportCandidates};
@@ -55,11 +55,10 @@ impl BroadcastDesktop {
                 validate_groups(&import.lease, &group_ids)?;
                 let mut candidates = GroupCandidates::default();
                 for group_id in group_ids {
-                    candidates.accept(import.call(
-                        "groupMembers",
-                        json!({ "groupId": group_id }),
-                        started,
-                    )?)?;
+                    candidates.accept(
+                        &import.lease.catalog.platform_id,
+                        import.call("groupMembers", json!({ "groupId": group_id }), started)?,
+                    )?;
                 }
                 if candidates.parsed.candidates.is_empty() {
                     return Err(AppError::BroadcastImportEmpty);
@@ -118,7 +117,7 @@ fn validate_groups(lease: &CatalogLease, groups: &[String]) -> Result<()> {
 }
 
 impl GroupCandidates {
-    fn accept(&mut self, value: serde_json::Value) -> Result<()> {
+    fn accept(&mut self, platform: &str, value: serde_json::Value) -> Result<()> {
         let mut group: GroupMembers =
             serde_json::from_value(value).map_err(|_| AppError::BroadcastImportUnavailable)?;
         if group
@@ -134,7 +133,8 @@ impl GroupCandidates {
             || group
                 .self_ids
                 .iter()
-                .any(|id| !supported_id(id, ChatKind::Contact))
+                .any(|id| !supported_catalog_id(platform, id, ChatKind::Contact))
+            || platform == "telegram-k" && group.self_ids.len() != 1
             || group
                 .self_ids
                 .iter()
@@ -154,13 +154,7 @@ impl GroupCandidates {
             return Err(AppError::BroadcastImportUnavailable);
         }
         for id in group.candidates {
-            if !supported_id(&id, ChatKind::Contact)
-                || group.self_ids.contains(&id)
-                || !group.self_ids.iter().any(|own| {
-                    own.rsplit_once('@').map(|(_, server)| server)
-                        == id.rsplit_once('@').map(|(_, server)| server)
-                })
-            {
+            if !non_self_contact(platform, &id, &group.self_ids) {
                 return Err(AppError::BroadcastImportUnavailable);
             }
             if !self.seen.insert(id.clone()) {

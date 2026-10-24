@@ -70,6 +70,28 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
         Ok(self.snapshot())
     }
 
+    pub fn backup_account(&self, id: &str) -> Result<crate::domain::account::Account> {
+        self.accounts.account(id)
+    }
+
+    pub fn restore_backup<P: super::ports::BroadcastPresetRepository>(
+        &mut self,
+        presets: &mut super::broadcast_presets::BroadcastPresets<P>,
+        id: &str,
+        expected_preset_revision: u64,
+        expected_translation_revision: u64,
+        data: &crate::domain::account_backup::BackupData,
+    ) -> Result<super::account_backup::BackupRestoration> {
+        super::account_backup::restore(
+            &mut self.accounts,
+            presets,
+            id,
+            expected_preset_revision,
+            expected_translation_revision,
+            data,
+        )
+    }
+
     pub fn create(
         &mut self,
         name: &str,

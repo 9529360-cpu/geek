@@ -8,7 +8,7 @@ import { runInNewContext } from 'node:vm';
 
 const safety = createRequire(import.meta.url)('../../../ui/broadcast-safety.js');
 const files = ['telegram-send-runtime.js', 'telegram-send-receipt.js', 'telegram-attachments.js',
-  'telegram-send.js', 'telegram-reply-context.js', 'send-composer-telegram.js'];
+  'telegram-audience.js', 'telegram-send.js', 'telegram-reply-context.js', 'send-composer-telegram.js'];
 const source = files.map((file) => readFileSync(new URL(`../../guest/${file}`, import.meta.url), 'utf8')).join('\n');
 export const deferred = () => {
   let resolve, reject;
@@ -71,7 +71,13 @@ export function installTelegramPorts({ window, container, chatInput, editor, but
       [-202, { _: 'channel', id: 202, pFlags: { megagroup: true }, title: 'Team' }]]),
     mirrors: new Map(), pending: new Map(), byServerId: new Map(), maxLength: 4096, allowed: true,
     stars: undefined, requirement: { _: 'requirementToContactEmpty' }, migrated: undefined, botforum: false,
-    replyLookups: [], generateOptions: [],
+    replyLookups: [], generateOptions: [], phoneLookups: [], memberLookups: [],
+    phones: new Map([['12025550101', 101]]),
+    fullGroups: new Map([[202, { _: 'channelFull', id: 202,
+      pFlags: { can_view_participants: true }, participants_count: 2 }]]), fullGroupLookups: [],
+    memberPages: new Map([['202:0', { _: 'channels.channelParticipants', count: 2,
+      participants: [{ _: 'channelParticipant', user_id: 101 }, { _: 'channelParticipantSelf', user_id: 90 }],
+      users: [], chats: [] }]]),
     shortcut: 'enter', final: 700, mode: 'short', popup: false, changes: [], clears: [] };
   const root = new Emitter(); root.myId = state.self;
   const im = new Emitter();
@@ -131,7 +137,29 @@ export function installTelegramPorts({ window, container, chatInput, editor, but
           : state.peers.get(id)?._ === 'chat' ? { _: 'inputPeerChat', chat_id: -id }
             : { _: 'inputPeerChannel', channel_id: -id, access_hash: '600' },
       },
-      appUsersManager: { getRequirementToContact: async () => state.requirement },
+      appUsersManager: {
+        getRequirementToContact: async () => state.requirement,
+        async resolvePhone(phone) {
+          state.phoneLookups.push({ account, phone, at: state.now });
+          if (state.phoneGate) await state.phoneGate.promise;
+          if (state.phoneError) throw state.phoneError;
+          const id = state.phones.get(phone);
+          if (!id) throw { type: 'PHONE_NOT_OCCUPIED' };
+          return state.phoneResult || state.peers.get(id);
+        },
+      },
+      appProfileManager: {
+        async getChannelFull(id) {
+          state.fullGroupLookups.push({ account, id });
+          return state.fullGroups.get(id);
+        },
+        async getParticipants(options) {
+          state.memberLookups.push({ account, options: structuredClone(options) });
+          if (state.memberGate) await state.memberGate.promise;
+          if (state.memberHook) state.memberHook(options);
+          return state.memberPages.get(`${options.id}:${options.offset}`);
+        },
+      },
       appMessagesManager: {
         canSendToPeer: async () => state.allowed,
         async getInputReplyTo(options) {

@@ -1,6 +1,7 @@
 use super::ports::AccountRepository;
 use crate::domain::{
     account::{self, Account, Settings, MAX_ACCOUNTS},
+    account_backup::TranslationBackup,
     account_batch,
     document::{Document, SCHEMA_VERSION},
     error::{AppError, Result},
@@ -269,6 +270,61 @@ impl<R: AccountRepository> Accounts<R> {
             .ok_or(AppError::AccountUnknown)?
             .translation = settings;
         self.commit(next)
+    }
+
+    /// Read-only preflight for a section; the later restore repeats this CAS.
+    pub fn validate_restore_translation(
+        &self,
+        id: &str,
+        expected_revision: u64,
+        backup: &TranslationBackup,
+    ) -> Result<()> {
+        self.translation_restore_candidate(id, expected_revision, backup)
+            .map(|_| ())
+    }
+
+    /// One account-document transaction, independent of preset persistence.
+    pub fn restore_translation(
+        &mut self,
+        id: &str,
+        expected_revision: u64,
+        backup: &TranslationBackup,
+    ) -> Result<()> {
+        if let Some(candidate) =
+            self.translation_restore_candidate(id, expected_revision, backup)?
+        {
+            self.commit(candidate)?;
+        }
+        Ok(())
+    }
+
+    fn translation_restore_candidate(
+        &self,
+        id: &str,
+        expected_revision: u64,
+        backup: &TranslationBackup,
+    ) -> Result<Option<Document>> {
+        let current = self.openable_account(id)?;
+        if current.translation.revision != expected_revision {
+            return Err(AppError::TranslationSettingsConflict);
+        }
+        let mut settings = backup.apply_to(&current.translation, &current.platform_id)?;
+        if settings == current.translation {
+            return Ok(None);
+        }
+        settings.revision = settings
+            .revision
+            .checked_add(1)
+            .ok_or(AppError::TranslationLimit)?;
+        let mut candidate = self.document.clone();
+        candidate
+            .accounts
+            .iter_mut()
+            .find(|account| account.id == id)
+            .ok_or(AppError::AccountUnknown)?
+            .translation = settings;
+        candidate.validate(&self.platforms)?;
+        Ok(Some(candidate))
     }
 
     pub fn account(&self, id: &str) -> Result<Account> {

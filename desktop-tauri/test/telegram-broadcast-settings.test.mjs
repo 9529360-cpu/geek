@@ -26,9 +26,10 @@ test('K uses the original four-step workbench, immutable peers, schedule and acc
   await ui.open();
   assert.equal(ui.panel, 'broadcast-overlay');
   assert.equal(ui.get('broadcast-workbench-nav').children.length, 4);
-  for (const id of ['broadcast-import-csv', 'broadcast-add-file', 'broadcast-add-vcard', 'broadcast-tagall']) {
+  for (const id of ['broadcast-add-file', 'broadcast-add-vcard', 'broadcast-tagall']) {
     assert.equal(ui.get(id).disabled, true, id);
   }
+  assert.equal(ui.get('broadcast-import-csv').disabled, false);
   assert.equal(ui.get('broadcast-schedule-toggle').disabled, false);
   assert.equal(ui.get('broadcast-message').maxLength, 4096);
   assert.equal(ui.get('bc-save-message').disabled, false);
@@ -75,6 +76,35 @@ test('restoring K audience reacquires the current catalog and never retargets a 
   ui.switchAccount('wa'); await ui.click('broadcast-send');
   assert.equal(ui.calls.some(([name]) => name === 'create'), false);
   assert.match(ui.get('broadcast-workbench-status').textContent, /发送账号已切换/);
+});
+
+test('K file and pasted audiences pass only verified Telegram peers through the original workbench', async (t) => {
+  const source = { ...kCatalog, capabilities: { ...kCatalog.capabilities, groupMembers: true } };
+  const result = (kind) => ({ accountId: 'k', fileName: '客户.csv',
+    catalog: catalog('k', { ...source, catalogId: `k-${kind}`, chats: [...source.chats,
+      { id: 'tg:999', name: 'Verified K user', realName: 'Verified K user', kind: 'contact' }] }),
+    recipientIds: ['tg:999'], summary: { total: 1, accepted: 1, duplicates: 0, invalid: 0, unresolved: 0, skipped: 0 } });
+  const ui = await fixture({ state: kState, accountCatalogs: { k: source },
+    before: (name) => ['import', 'resolve'].includes(name) ? result(name) : undefined });
+  t.after(() => ui.controller.dispose()); await ui.open();
+  const mode = async (value) => {
+    const radio = ui.get('broadcast-overlay').querySelectorAll('input').find((node) => node.value === value && node.getAttribute('name') === 'bc-sendto');
+    assert.equal(radio.disabled, false); radio.checked = true; await ui.fire(radio, 'change');
+  };
+  await mode('excel'); await ui.click('broadcast-import-csv');
+  assert.match(ui.get('bc-sendto-excel').textContent, /隐私设置.*分批导入/);
+  assert.deepEqual(ui.calls.find(([name]) => name === 'import')[1], { accountId: 'k', catalogId: 'k-catalog' });
+  await mode('paste'); await ui.input('bc-paste-numbers', '+12025550101');
+  await ui.click('broadcast-verify-numbers');
+  assert.deepEqual(ui.calls.find(([name]) => name === 'resolve')[1], { accountId: 'k', catalogId: 'k-import', text: '+12025550101' });
+  await ui.input('broadcast-message', 'Hello %nc');
+  for (let i = 0; i < 3; i += 1) await ui.click('broadcast-workbench-next');
+  assert.match(ui.get('broadcast-review-card').textContent, /Hello Verified K user/);
+  await ui.click('broadcast-send');
+  const payload = ui.calls.find(([name]) => name === 'create')[1];
+  assert.equal(payload.accountId, 'k'); assert.equal(payload.catalogId, 'k-resolve');
+  assert.deepEqual(payload.recipientIds, ['tg:999']);
+  assert.equal(JSON.stringify(payload).includes('12025550101'), false);
 });
 
 test('K file selection preserves the caption and schedules opaque attachments under the original account', async (t) => {

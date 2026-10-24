@@ -159,7 +159,7 @@ mod ingress {
                 .collect::<Vec<_>>(),
             vec!["123@c.us"]
         );
-        for field in ["vcards", "tagAll", "attachments", "groupMembers"] {
+        for field in ["vcards", "tagAll"] {
             let mut forged = value.clone();
             forged["capabilities"][field] = json!(true);
             assert!(matches!(
@@ -173,6 +173,23 @@ mod ingress {
             native_catalog(forged, "telegram-k"),
             Err(AppError::BroadcastUnavailable)
         ));
+    }
+
+    #[test]
+    fn actual_telegram_bridge_catalog_reaches_native_with_implemented_capabilities() {
+        // The guest integration test checks its real bridge response against the
+        // same fixture, so a stale native capability guard cannot silently block
+        // both the text and attachment catalog after a guest feature is added.
+        let value = serde_json::from_str(include_str!(
+            "../../../../test/fixtures/telegram-catalog-ready.json"
+        ))
+        .unwrap();
+        let result = native_catalog(value, "telegram-k").unwrap();
+        assert!(result.capabilities.text);
+        assert!(result.capabilities.attachments);
+        assert!(result.capabilities.group_members);
+        assert_eq!(result.chats.len(), 2);
+        assert!(result.labels.is_none());
     }
 
     #[test]

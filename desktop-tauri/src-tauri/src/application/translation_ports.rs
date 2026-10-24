@@ -113,3 +113,9 @@ pub trait TranslationGateway: Send + Sync + 'static {
         control: &RequestControl,
     ) -> Result<TranslationReply>;
 }
+
+/// A public, nonbillable GET. This port deliberately has no token, account,
+/// message, route selection or quota arguments.
+pub trait TranslationHealthGateway: Send + Sync + 'static {
+    fn health(&self, control: &RequestControl) -> Result<bool>;
+}

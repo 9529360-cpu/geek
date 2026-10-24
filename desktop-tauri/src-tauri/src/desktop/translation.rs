@@ -1,4 +1,6 @@
 //! Two bounded incoming workers; no network or guest wait owns Workspace.
+mod health;
+
 use super::{
     platform_sessions::PlatformSessions,
     session::{NativeSession, NativeTranslation},
@@ -19,7 +21,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, Mutex,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -35,6 +37,7 @@ pub struct TranslationDesktop {
     service: Arc<NativeTranslation>,
     guest: TranslationGuest,
     stop: Arc<AtomicBool>,
+    health_gate: Mutex<()>,
 }
 
 struct Work {
@@ -93,6 +96,7 @@ impl TranslationDesktop {
             service,
             guest,
             stop: Arc::new(AtomicBool::new(false)),
+            health_gate: Mutex::new(()),
         }
     }
 

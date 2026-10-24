@@ -2,6 +2,7 @@
 use super::{
     broadcast::MAX_TARGETS,
     error::{AppError, Result},
+    translation::valid_telegram_chat_id,
 };
 use std::collections::HashSet;
 
@@ -17,7 +18,10 @@ pub struct BroadcastImportCandidates {
     pub skipped_count: usize,
 }
 
-pub fn parse_broadcast_import(bytes: &[u8]) -> Result<BroadcastImportCandidates> {
+pub fn parse_broadcast_import(bytes: &[u8], platform: &str) -> Result<BroadcastImportCandidates> {
+    if !matches!(platform, "whatsapp" | "whatsapp-pure" | "telegram-k") {
+        return Err(AppError::BroadcastUnsupported);
+    }
     if bytes.len() > MAX_IMPORT_BYTES {
         return Err(AppError::BroadcastImportLimit);
     }
@@ -35,11 +39,11 @@ pub fn parse_broadcast_import(bytes: &[u8]) -> Result<BroadcastImportCandidates>
     let mut result = BroadcastImportCandidates::default();
     let mut seen = HashSet::new();
     if header.is_none() {
-        result.accept(&first, &Header::plain(), &mut seen)?;
+        result.accept(&first, &Header::plain(), &mut seen, platform)?;
     }
     let header = header.unwrap_or_else(Header::plain);
     while let Some(record) = records.next_nonempty()? {
-        result.accept(&record, &header, &mut seen)?;
+        result.accept(&record, &header, &mut seen, platform)?;
     }
     result.finish()
 }
@@ -52,7 +56,7 @@ pub fn parse_broadcast_pasted_recipients(text: &str) -> Result<BroadcastImportCa
     let mut seen = HashSet::new();
     for line in text.split(['\r', '\n']) {
         if !line.trim().is_empty() {
-            result.accept_candidate(line, RecipientKind::Phone, &mut seen)?;
+            result.accept_candidate(line, RecipientKind::Phone, &mut seen, "whatsapp")?;
         }
     }
     result.finish()
@@ -72,6 +76,7 @@ impl BroadcastImportCandidates {
         row: &[String],
         header: &Header,
         seen: &mut HashSet<String>,
+        platform: &str,
     ) -> Result<()> {
         if row.len() != header.columns {
             if !header.present {
@@ -84,7 +89,7 @@ impl BroadcastImportCandidates {
         {
             self.skipped_count += 1;
         } else {
-            self.accept_candidate(&row[header.recipient], header.kind, seen)?;
+            self.accept_candidate(&row[header.recipient], header.kind, seen, platform)?;
         }
         Ok(())
     }
@@ -94,8 +99,9 @@ impl BroadcastImportCandidates {
         value: &str,
         kind: RecipientKind,
         seen: &mut HashSet<String>,
+        platform: &str,
     ) -> Result<()> {
-        if let Some(candidate) = normalize_candidate(value, kind) {
+        if let Some(candidate) = normalize_candidate(value, kind, platform) {
             if !seen.insert(candidate.clone()) {
                 self.duplicate_count += 1;
             } else {
@@ -171,12 +177,19 @@ impl Header {
     }
 }
 
-fn normalize_candidate(value: &str, kind: RecipientKind) -> Option<String> {
+fn normalize_candidate(value: &str, kind: RecipientKind, platform: &str) -> Option<String> {
     if value.chars().any(char::is_control) {
         return None;
     }
     let value = value.trim_matches(' ');
     if matches!(kind, RecipientKind::ChatId) {
+        if platform == "telegram-k" {
+            return (valid_telegram_chat_id(value)
+                && value[3..]
+                    .parse::<u64>()
+                    .is_ok_and(|id| id <= 9_007_199_254_740_991))
+            .then(|| value.to_owned());
+        }
         let (number, domain) = value.split_once('@')?;
         return (matches!(domain, "c.us" | "lid")
             && !number.is_empty()

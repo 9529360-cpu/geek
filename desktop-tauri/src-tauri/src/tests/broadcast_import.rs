@@ -2,12 +2,51 @@ use crate::domain::{
     broadcast::BroadcastIssue,
     broadcast::MAX_TARGETS,
     broadcast_import::{
-        parse_broadcast_import, parse_broadcast_pasted_recipients, MAX_IMPORT_BYTES,
-        MAX_PASTED_RECIPIENT_BYTES,
+        parse_broadcast_import as parse_import_for_platform, parse_broadcast_pasted_recipients,
+        BroadcastImportCandidates, MAX_IMPORT_BYTES, MAX_PASTED_RECIPIENT_BYTES,
     },
     broadcast_report::{BroadcastFailureReport, BroadcastFailureRow, BroadcastFailureStatus},
     error::AppError,
 };
+
+fn parse_broadcast_import(bytes: &[u8]) -> Result<BroadcastImportCandidates, AppError> {
+    parse_import_for_platform(bytes, "whatsapp")
+}
+
+#[test]
+fn telegram_files_reuse_phone_parsing_but_only_accept_exact_positive_peer_contact_ids() {
+    let phones = b"phone,name\n+1 (202) 555-0101,Alice\n12025550102,Bob\n";
+    assert_eq!(
+        parse_import_for_platform(phones, "telegram-k")
+            .unwrap()
+            .candidates,
+        parse_broadcast_import(phones).unwrap().candidates
+    );
+    let text = "chatId\ntg:101\ntg:9007199254740991\ntg:-202\ntg:0\ntg:01\ntg:+101\ntg:9007199254740992\n101@c.us\n";
+    let parsed = parse_import_for_platform(text.as_bytes(), "telegram-k").unwrap();
+    assert_eq!(parsed.candidates, ["tg:101", "tg:9007199254740991"]);
+    assert_eq!(parsed.invalid_count, 6);
+    assert!(matches!(
+        parse_import_for_platform(b"chatId\ntg:101\n", "whatsapp"),
+        Err(AppError::BroadcastImportEmpty)
+    ));
+    assert!(matches!(
+        parse_import_for_platform(phones, "telegram-z"),
+        Err(AppError::BroadcastUnsupported)
+    ));
+}
+
+#[test]
+fn telegram_failure_report_import_keeps_the_same_not_submitted_only_rule() {
+    let parsed = parse_import_for_platform(
+        b"chatId,status\ntg:101,NOT_SUBMITTED\ntg:102,UNCERTAIN\ntg:103,CONFIRMED\ntg:101,NOT_SUBMITTED\n",
+        "telegram-k",
+    ).unwrap();
+    assert_eq!(parsed.candidates, ["tg:101"]);
+    assert_eq!(parsed.duplicate_count, 1);
+    assert_eq!(parsed.skipped_count, 2);
+    assert_eq!(parsed.invalid_count, 0);
+}
 
 #[test]
 fn quoted_csv_semicolon_tsv_and_plain_text_preserve_recipient_order_and_ignore_names() {

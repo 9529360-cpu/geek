@@ -1,4 +1,6 @@
 //! Cancellable display and SendIntent transforms. This owner never selects a chat or sends.
+mod health;
+
 use super::{
     ports::{TranslationCacheClock, TranslationCacheRepository},
     request_control::RequestControl,

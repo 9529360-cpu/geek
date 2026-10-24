@@ -40,6 +40,14 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
       invoke('broadcast_restore_audience', { accountId, catalogId, expectedRevision, presetId }),
     broadcastExportFailures: (accountId, jobId) =>
       invoke('broadcast_export_failures', { accountId, jobId }),
+    broadcastExportContacts: (accountId) => invoke('broadcast_export_contacts', { accountId }),
+    broadcastHistory: (accountId) => invoke('broadcast_history', { accountId }),
+    broadcastExportHistory: (accountId, expectedRevision) =>
+      invoke('broadcast_export_history', { accountId, expectedRevision }),
+    accountExportBackup: (accountId) => invoke('account_export_backup', { accountId }),
+    accountPickBackup: (accountId) => invoke('account_pick_backup', { accountId }),
+    accountRestoreBackup: (accountId, expectedPresetRevision, expectedTranslationRevision, data) =>
+      invoke('account_restore_backup', { accountId, expectedPresetRevision, expectedTranslationRevision, data }),
     broadcastCreate: (draft) => invoke('broadcast_create', { draft }),
     broadcastSnapshot: () => invoke('broadcast_snapshot'),
     broadcastControl: (jobId, action) => invoke('broadcast_control', { jobId, action }),
@@ -48,6 +56,7 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     sessionRefresh: () => invoke('session_refresh'),
     sessionLogout: () => invoke('session_logout'),
     translationContext: (accountId) => invoke('translation_context', { accountId }),
+    translationHealth: () => invoke('translation_health'),
     updateTranslation: (id, chatId, policy, expectedRevision) =>
       invoke('account_update_translation', { id, chatId, policy, expectedRevision }),
   });

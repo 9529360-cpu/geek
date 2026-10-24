@@ -12,6 +12,10 @@ export const turn = () => new Promise((resolve) => setImmediate(resolve));
 export const signedOut = () => ({ revision: 1, state: 'signedOut', user: null, remainingChars: null, quotaFresh: false, issue: null });
 export const signedIn = (changes = {}) => ({ revision: 2, state: 'signedIn',
   user: { id: 7, email: 'synthetic@example.invalid', accountNo: 'TEST-7' }, remainingChars: 20000, quotaFresh: true, issue: null, ...changes });
+export const gatewayHealth = () => ({ ok: true, endpointCount: 1, availableCount: 1,
+  routes: { primary: { configured: true, healthy: true, latencyMs: 42, translationLatencyMs: null, code: null },
+    backup: { configured: false, healthy: false, latencyMs: null, translationLatencyMs: null, code: null } },
+  recommendedRoute: 'primary' });
 
 export function sessionClock() {
   let now = 0, sequence = 0;
@@ -66,6 +70,7 @@ export async function fixture({ before = async () => {}, sessionState = signedIn
     if (override !== undefined) return structuredClone(override);
     if (failures.has(name)) throw failures.get(name);
     if (name === 'sessionSnapshot' || name === 'sessionRefresh') return structuredClone(sessionBackend);
+    if (name === 'health') return gatewayHealth();
     if (name === 'sessionLogin') { sessionBackend = signedIn({ revision: sessionBackend.revision + 1 }); return structuredClone(sessionBackend); }
     if (name === 'sessionLogout') {
       sessionBackend = { ...signedOut(), revision: sessionBackend.revision + 1 }; return structuredClone(sessionBackend);
@@ -79,6 +84,7 @@ export async function fixture({ before = async () => {}, sessionState = signedIn
     sessionSnapshot: () => invoke('sessionSnapshot', null), sessionRefresh: () => invoke('sessionRefresh', null),
     sessionLogin: (email, password) => invoke('sessionLogin', { email, password }), sessionLogout: () => invoke('sessionLogout', null),
     translationContext: (id) => invoke('context', id),
+    translationHealth: () => invoke('health', null),
     updateTranslation: (id, chatId, policy, expectedRevision) => invoke('update', { id, chatId, policy, expectedRevision }),
     snapshot: () => invoke('snapshot', null),
   };

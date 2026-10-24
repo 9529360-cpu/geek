@@ -13,6 +13,7 @@ use zeroize::Zeroizing;
 mod tests;
 
 pub const MAX_RESPONSE_BYTES: usize = 256 * 1024;
+pub const MAX_HEALTH_RESPONSE_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Endpoint {
@@ -22,6 +23,7 @@ pub enum Endpoint {
     Quota,
     TranslationToken,
     Translate,
+    TranslationHealth,
 }
 
 impl Endpoint {
@@ -35,13 +37,22 @@ impl Endpoint {
                 "https://geek-subscription.9529360.workers.dev/api/translation-token"
             }
             Self::Translate => "https://geek-translate.9529360.workers.dev/v1/translate",
+            Self::TranslationHealth => "https://geek-translate.9529360.workers.dev/health",
         }
     }
 
     pub fn method(self) -> &'static str {
         match self {
-            Self::Me | Self::Status | Self::Quota => "GET",
+            Self::Me | Self::Status | Self::Quota | Self::TranslationHealth => "GET",
             Self::Login | Self::TranslationToken | Self::Translate => "POST",
+        }
+    }
+
+    pub fn response_limit(self) -> usize {
+        if self == Self::TranslationHealth {
+            MAX_HEALTH_RESPONSE_BYTES
+        } else {
+            MAX_RESPONSE_BYTES
         }
     }
 }
@@ -57,6 +68,17 @@ pub struct FixedRequest<'a> {
 }
 
 impl FixedRequest<'_> {
+    pub fn translation_health() -> FixedRequest<'static> {
+        FixedRequest {
+            endpoint: Endpoint::TranslationHealth,
+            bearer: None,
+            body: None,
+            request_id: None,
+            deadline_ms: None,
+            translation_intent: None,
+        }
+    }
+
     pub fn authenticated(endpoint: Endpoint, bearer: &str) -> FixedRequest<'_> {
         FixedRequest {
             endpoint,
@@ -141,14 +163,14 @@ impl HttpTransport {
                 let status = response.status().as_u16();
                 if response
                     .content_length()
-                    .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
+                    .is_some_and(|size| size > request.endpoint.response_limit() as u64)
                 {
                     return Err(AppError::NetworkResponseInvalid);
                 }
                 let mut body = Zeroizing::new(Vec::new());
                 while let Some(chunk) = response.chunk().await.map_err(map_network)? {
                     control.check()?;
-                    if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                    if body.len().saturating_add(chunk.len()) > request.endpoint.response_limit() {
                         return Err(AppError::NetworkResponseInvalid);
                     }
                     body.extend_from_slice(&chunk);
@@ -175,6 +197,14 @@ fn service_request(
 ) -> Result<reqwest::RequestBuilder> {
     control.check()?;
     if (request.endpoint == Endpoint::Translate) != request.translation_intent.is_some() {
+        return Err(AppError::NetworkResponseInvalid);
+    }
+    if request.endpoint == Endpoint::TranslationHealth
+        && (request.bearer.is_some()
+            || request.body.is_some()
+            || request.request_id.is_some()
+            || request.deadline_ms.is_some())
+    {
         return Err(AppError::NetworkResponseInvalid);
     }
     let method = reqwest::Method::from_bytes(request.endpoint.method().as_bytes())

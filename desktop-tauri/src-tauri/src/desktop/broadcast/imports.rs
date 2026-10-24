@@ -95,7 +95,8 @@ impl BroadcastDesktop {
         };
         let Some(path) = path else { return Ok(None) };
         import.check()?;
-        let parsed = parse_broadcast_import(&read_import(&path)?)?;
+        let parsed =
+            parse_broadcast_import(&read_import(&path)?, &import.lease.catalog.platform_id)?;
         let recipients = import.resolve(parsed)?;
         let file_name = path
             .file_name()
@@ -217,6 +218,7 @@ impl RecipientImport<'_> {
     ) -> Result<ResolvedBroadcastRecipients> {
         let (resolved, summary) = verify_candidates(
             parsed,
+            &self.lease.catalog.platform_id,
             |batch, _| {
                 let mut payload = json!({ "candidates": batch });
                 if let Some(ids) = self_ids {
@@ -228,13 +230,9 @@ impl RecipientImport<'_> {
             || started.elapsed(),
         )?;
         if self_ids.is_some_and(|ids| {
-            resolved.iter().any(|chat| {
-                ids.contains(&chat.id)
-                    || !ids.iter().any(|own| {
-                        own.rsplit_once('@').map(|(_, server)| server)
-                            == chat.id.rsplit_once('@').map(|(_, server)| server)
-                    })
-            })
+            resolved
+                .iter()
+                .any(|chat| !non_self_contact(&self.lease.catalog.platform_id, &chat.id, ids))
         }) {
             return Err(AppError::BroadcastImportUnavailable);
         }
@@ -281,6 +279,7 @@ pub(super) fn remaining(elapsed: Duration) -> Result<Duration> {
 
 fn verify_candidates(
     parsed: BroadcastImportCandidates,
+    platform: &str,
     mut call: impl FnMut(&[String], Duration) -> Result<serde_json::Value>,
     check: impl Fn() -> Result<()>,
     elapsed: impl Fn() -> Duration,
@@ -303,7 +302,7 @@ fn verify_candidates(
         let value = call(batch, remaining(elapsed())?.min(Duration::from_secs(35)))?;
         check()?;
         remaining(elapsed())?;
-        for chat in resolved_batch(value, batch)? {
+        for chat in resolved_batch(value, batch, platform)? {
             match chat {
                 Some(chat) if seen.insert(chat.id.clone()) => resolved.push(chat),
                 Some(_) => summary.duplicates += 1,
@@ -321,6 +320,7 @@ fn verify_candidates(
 pub(super) fn resolved_batch(
     value: serde_json::Value,
     candidates: &[String],
+    platform: &str,
 ) -> Result<Vec<Option<CatalogChat>>> {
     let rows: Vec<ResolvedContact> =
         serde_json::from_value(value).map_err(|_| AppError::BroadcastImportUnavailable)?;
@@ -335,7 +335,12 @@ pub(super) fn resolved_batch(
             }
             row.chat
                 .map(|mut chat| {
-                    if chat.kind != ChatKind::Contact || !supported_id(&chat.id, chat.kind) {
+                    if chat.kind != ChatKind::Contact
+                        || !supported_catalog_id(platform, &chat.id, chat.kind)
+                        || platform == "telegram-k"
+                            && expected.starts_with("tg:")
+                            && *expected != chat.id
+                    {
                         return Err(AppError::BroadcastImportUnavailable);
                     }
                     chat.name = chat
@@ -355,6 +360,23 @@ pub(super) fn resolved_batch(
                 .transpose()
         })
         .collect()
+}
+
+pub(super) fn non_self_contact(platform: &str, id: &str, self_ids: &[String]) -> bool {
+    supported_catalog_id(platform, id, ChatKind::Contact)
+        && !self_ids.iter().any(|own| own == id)
+        && match platform {
+            "telegram-k" => {
+                self_ids.len() == 1
+                    && supported_catalog_id(platform, &self_ids[0], ChatKind::Contact)
+            }
+            "whatsapp" | "whatsapp-pure" => self_ids.iter().any(|own| {
+                supported_id(own, ChatKind::Contact)
+                    && own.rsplit_once('@').map(|(_, server)| server)
+                        == id.rsplit_once('@').map(|(_, server)| server)
+            }),
+            _ => false,
+        }
 }
 
 #[cfg(test)]

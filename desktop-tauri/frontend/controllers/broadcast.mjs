@@ -16,6 +16,8 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   const resolveAvailable = typeof api?.broadcastResolveRecipients === 'function';
   const audienceAvailable = typeof api?.broadcastResolveAudience === 'function';
   const exportAvailable = typeof api?.broadcastExportFailures === 'function';
+  const advancedAvailable = ['broadcastExportContacts', 'broadcastHistory', 'accountExportBackup', 'accountPickBackup']
+    .some((name) => typeof api?.[name] === 'function');
   const operations = new Set();
   const drafts = new Map();
   const pendingControls = new Set();
@@ -83,8 +85,9 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     if (disposed) return;
     const account = shell?.accounts.find((item) => item.id === shell.activeId && !item.archived);
     const supported = account && ['whatsapp', 'whatsapp-pure', 'telegram-k'].includes(account.platformId);
-    wire($('btn-broadcast'), shellBusy || creating || !apiAvailable || !supported);
-    $('btn-broadcast').title = supported ? '群发' : account ? '当前平台群发尚未迁移；现支持 WhatsApp 和 Telegram K' : '请先选择支持群发的账号';
+    wire($('btn-broadcast'), shellBusy || creating || !account || (!advancedAvailable && (!apiAvailable || !supported)));
+    $('btn-broadcast').title = supported ? '群发' : account && advancedAvailable ? '高级工具'
+      : account ? '当前平台群发尚未迁移；现支持 WhatsApp 和 Telegram K' : '请先选择账号';
     $('btn-broadcast').setAttribute('aria-label', $('btn-broadcast').title);
     wire($('bc-menu-send'), shellBusy || creating || !apiAvailable || !supported);
     jobsView?.render(snapshot.jobs, shell?.activeId, shellBusy, pendingControls, apiAvailable,
@@ -418,7 +421,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   });
   bind($('btn-broadcast'), 'click', () => track((async () => {
     if (panel === 'broadcast-menu') { await closePanel(); return; }
-    if (creating || shellBusy || !apiAvailable) return;
+    if (creating || shellBusy || (!apiAvailable && !advancedAvailable)) return;
     const bounds = $('btn-broadcast').getBoundingClientRect();
     await showPanel('broadcast-menu', () => {
       $('broadcast-menu').style.left = `${Math.max(4, Math.min(bounds.left || bounds.x, window.innerWidth - 220))}px`;
@@ -433,7 +436,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
       void track(closePanel().catch(report));
     }
   });
-  for (const id of ['bc-menu-grouptools', 'bc-menu-export', 'bc-menu-backup', 'bc-menu-report']) unavailable($(id));
+  unavailable($('bc-menu-grouptools'));
 
   return {
     renderShell(next) {

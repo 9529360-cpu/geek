@@ -126,8 +126,7 @@ fn current_chats(lease: &CatalogLease) -> HashMap<&str, &CatalogChat> {
         .iter()
         .filter(|chat| {
             supported_catalog_id(&lease.catalog.platform_id, &chat.id, chat.kind)
-                && ((lease.catalog.platform_id != "telegram-k" && chat.kind == ChatKind::Contact)
-                    || lease.native_ids.contains(&chat.id))
+                && ((chat.kind == ChatKind::Contact) || lease.native_ids.contains(&chat.id))
         })
         .map(|chat| (chat.id.as_str(), chat))
         .collect()
@@ -177,7 +176,7 @@ fn restore_targets(
     for (index, id) in ids.iter().enumerate() {
         if let Some(chat) = chats.get(id.as_str()) {
             slots[index] = Some((*chat).clone());
-        } else if lease.catalog.platform_id != "telegram-k" && supported_id(id, ChatKind::Contact) {
+        } else if supported_catalog_id(&lease.catalog.platform_id, id, ChatKind::Contact) {
             missing.push((index, id.clone()));
         } else {
             summary.skipped += 1;
@@ -190,7 +189,11 @@ fn restore_targets(
         let value = call(&candidates)?;
         check()?;
         remaining(elapsed())?;
-        for ((index, _), resolved) in batch.iter().zip(resolved_batch(value, &candidates)?) {
+        for ((index, _), resolved) in batch.iter().zip(resolved_batch(
+            value,
+            &candidates,
+            &lease.catalog.platform_id,
+        )?) {
             if resolved.is_none() {
                 summary.unresolved += 1;
             }
@@ -205,7 +208,7 @@ fn restore_targets(
             recipients.push(chat.id.clone());
             // Protect every selected contact from bounded-cache eviction; group
             // authority remains in the native directory and never enters this cache.
-            if lease.catalog.platform_id != "telegram-k" && chat.kind == ChatKind::Contact {
+            if chat.kind == ChatKind::Contact {
                 additions.push(chat);
             }
         } else {

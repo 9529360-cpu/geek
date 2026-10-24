@@ -1,6 +1,26 @@
 use super::*;
 use std::cell::Cell;
 
+fn parse_broadcast_import(bytes: &[u8]) -> Result<BroadcastImportCandidates> {
+    super::parse_broadcast_import(bytes, "whatsapp")
+}
+
+fn resolved_batch(
+    value: serde_json::Value,
+    candidates: &[String],
+) -> Result<Vec<Option<CatalogChat>>> {
+    super::resolved_batch(value, candidates, "whatsapp")
+}
+
+fn verify_candidates(
+    parsed: BroadcastImportCandidates,
+    call: impl FnMut(&[String], Duration) -> Result<serde_json::Value>,
+    check: impl Fn() -> Result<()>,
+    elapsed: impl Fn() -> Duration,
+) -> Result<(Vec<CatalogChat>, ImportSummary)> {
+    super::verify_candidates(parsed, "whatsapp", call, check, elapsed)
+}
+
 fn row(candidate: &str, id: Option<&str>) -> serde_json::Value {
     json!({
         "candidate": candidate,
@@ -8,6 +28,99 @@ fn row(candidate: &str, id: Option<&str>) -> serde_json::Value {
             "id": id, "kind": "contact", "name": "Loaded contact", "realName": ""
         }))
     })
+}
+
+#[test]
+fn telegram_resolution_is_platform_bound_and_cannot_retarget_explicit_peer_ids() {
+    let phone = vec!["12025550101".into()];
+    let value = json!([row(&phone[0], Some("tg:101"))]);
+    assert_eq!(
+        super::resolved_batch(value.clone(), &phone, "telegram-k").unwrap()[0]
+            .as_ref()
+            .unwrap()
+            .id,
+        "tg:101"
+    );
+    assert!(super::resolved_batch(value, &phone, "whatsapp").is_err());
+    for id in ["101@c.us", "tg:-202", "tg:0", "tg:01"] {
+        assert!(
+            super::resolved_batch(json!([row(&phone[0], Some(id))]), &phone, "telegram-k").is_err()
+        );
+    }
+    let explicit = vec!["tg:101".into()];
+    assert!(super::resolved_batch(
+        json!([row("tg:101", Some("tg:102"))]),
+        &explicit,
+        "telegram-k"
+    )
+    .is_err());
+    assert!(super::resolved_batch(
+        json!([row("tg:101", Some("tg:101"))]),
+        &explicit,
+        "telegram-k"
+    )
+    .is_ok());
+}
+
+#[test]
+fn telegram_phone_aliases_deduplicate_after_exact_resolution_without_changing_accounting() {
+    let parsed =
+        parse_broadcast_pasted_recipients("12025550101\n12025550102\n12025550103").unwrap();
+    let (contacts, summary) = super::verify_candidates(
+        parsed,
+        "telegram-k",
+        |batch, _| {
+            Ok(serde_json::Value::Array(
+                batch
+                    .iter()
+                    .map(|candidate| {
+                        row(
+                            candidate,
+                            if candidate.ends_with('3') {
+                                None
+                            } else {
+                                Some("tg:101")
+                            },
+                        )
+                    })
+                    .collect(),
+            ))
+        },
+        || Ok(()),
+        || Duration::ZERO,
+    )
+    .unwrap();
+    assert_eq!(contacts.len(), 1);
+    assert_eq!(contacts[0].id, "tg:101");
+    assert_eq!(
+        serde_json::to_value(summary).unwrap(),
+        json!({
+            "total": 3, "accepted": 1, "duplicates": 1, "invalid": 0, "unresolved": 1, "skipped": 0
+        })
+    );
+}
+
+#[test]
+fn non_self_contacts_require_one_canonical_telegram_self_or_a_verified_whatsapp_namespace() {
+    let own = vec!["tg:90".into()];
+    assert!(non_self_contact("telegram-k", "tg:101", &own));
+    for id in ["tg:90", "tg:-202", "101@c.us"] {
+        assert!(!non_self_contact("telegram-k", id, &own));
+    }
+    for ids in [
+        vec![],
+        vec!["90@c.us".into()],
+        vec!["tg:90".into(), "tg:91".into()],
+    ] {
+        assert!(!non_self_contact("telegram-k", "tg:101", &ids));
+    }
+    assert!(!non_self_contact("whatsapp", "tg:101", &own));
+    assert!(non_self_contact("whatsapp", "101@lid", &["90@lid".into()]));
+    assert!(!non_self_contact(
+        "whatsapp",
+        "101@lid",
+        &["90@c.us".into()]
+    ));
 }
 
 #[test]

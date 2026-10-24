@@ -1,4 +1,6 @@
 //! Fixed subscription and translation contracts. No retries, logging or guest secrets.
+mod health;
+
 use super::http::{Endpoint, FixedRequest, HttpResponse, HttpTransport, MAX_RESPONSE_BYTES};
 use crate::{
     application::ports::{

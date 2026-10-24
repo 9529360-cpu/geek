@@ -48,6 +48,70 @@ fn group(ids: Vec<String>, skipped: usize) -> serde_json::Value {
 }
 
 #[test]
+fn telegram_members_use_one_exact_self_id_and_preserve_cross_group_deduplication() {
+    let mut result = GroupCandidates::default();
+    result
+        .accept(
+            "telegram-k",
+            json!({
+                "candidates": ["tg:101", "tg:102"], "selfIds": ["tg:90"], "skipped": 1
+            }),
+        )
+        .unwrap();
+    result
+        .accept(
+            "telegram-k",
+            json!({
+                "candidates": ["tg:102", "tg:103"], "selfIds": ["tg:90"], "skipped": 2
+            }),
+        )
+        .unwrap();
+    assert_eq!(result.parsed.candidates, ["tg:101", "tg:102", "tg:103"]);
+    assert_eq!(result.parsed.duplicate_count, 1);
+    assert_eq!(result.parsed.skipped_count, 3);
+    assert!(result
+        .accept(
+            "telegram-k",
+            json!({
+                "candidates": ["tg:104"], "selfIds": ["tg:91"], "skipped": 0
+            })
+        )
+        .is_err());
+}
+
+#[test]
+fn telegram_member_rows_reject_self_groups_cross_platform_aliases_and_duplicate_self_authority() {
+    for value in [
+        json!({ "candidates": ["tg:90"], "selfIds": ["tg:90"], "skipped": 0 }),
+        json!({ "candidates": ["tg:-202"], "selfIds": ["tg:90"], "skipped": 0 }),
+        json!({ "candidates": ["101@c.us"], "selfIds": ["tg:90"], "skipped": 0 }),
+        json!({ "candidates": ["tg:101"], "selfIds": ["90@c.us"], "skipped": 0 }),
+        json!({ "candidates": ["tg:101"], "selfIds": ["tg:90", "tg:91"], "skipped": 0 }),
+        json!({ "candidates": ["tg:101"], "selfIds": ["tg:090"], "skipped": 0 }),
+    ] {
+        assert!(GroupCandidates::default()
+            .accept("telegram-k", value)
+            .is_err());
+    }
+}
+
+#[test]
+fn telegram_group_sources_still_require_current_native_directory_membership() {
+    let mut lease = lease();
+    lease.catalog.platform_id = "telegram-k".into();
+    lease.binding.platform_id = "telegram-k".into();
+    lease.catalog.chats = vec![
+        chat("tg:101", ChatKind::Contact),
+        chat("tg:-202", ChatKind::Group),
+    ];
+    lease.native_ids = ["tg:101".into(), "tg:-202".into()].into();
+    assert!(validate_groups(&lease, &["tg:-202".into()]).is_ok());
+    assert!(validate_groups(&lease, &["tg:101".into()]).is_err());
+    lease.native_ids.remove("tg:-202");
+    assert!(validate_groups(&lease, &["tg:-202".into()]).is_err());
+}
+
+#[test]
 fn source_ipc_is_a_closed_tagged_choice_without_renderer_targets_or_names() {
     for value in [
         json!({ "kind": "groups", "groupIds": ["200@g.us"] }),
@@ -104,14 +168,17 @@ fn group_selection_requires_unique_original_native_groups_and_the_advertised_cap
 fn group_candidates_preserve_first_order_deduplicate_across_groups_and_retain_self_skip_counts() {
     let mut result = GroupCandidates::default();
     result
-        .accept(group(
-            vec!["100@c.us".into(), "200@lid".into(), "100@c.us".into()],
-            1,
-        ))
+        .accept(
+            "whatsapp",
+            group(
+                vec!["100@c.us".into(), "200@lid".into(), "100@c.us".into()],
+                1,
+            ),
+        )
         .unwrap();
     let mut second = group(vec!["200@lid".into(), "300@c.us".into()], 2);
     second["selfIds"] = json!(["901@lid", "900@c.us"]);
-    result.accept(second).unwrap();
+    result.accept("whatsapp", second).unwrap();
     assert_eq!(
         result.parsed.candidates,
         ["100@c.us", "200@lid", "300@c.us"]
@@ -125,11 +192,16 @@ fn group_candidates_preserve_first_order_deduplicate_across_groups_and_retain_se
 #[test]
 fn group_identity_changes_unknown_namespaces_self_candidates_and_wide_payloads_are_rejected() {
     let mut result = GroupCandidates::default();
-    result.accept(group(vec!["100@c.us".into()], 0)).unwrap();
+    result
+        .accept("whatsapp", group(vec!["100@c.us".into()], 0))
+        .unwrap();
     assert!(matches!(
-        result.accept(json!({
-            "candidates": ["200@lid"], "selfIds": ["999@c.us", "901@lid"], "skipped": 0
-        })),
+        result.accept(
+            "whatsapp",
+            json!({
+                "candidates": ["200@lid"], "selfIds": ["999@c.us", "901@lid"], "skipped": 0
+            })
+        ),
         Err(AppError::BroadcastImportUnavailable)
     ));
     for bad in [
@@ -143,7 +215,7 @@ fn group_identity_changes_unknown_namespaces_self_candidates_and_wide_payloads_a
         json!({ "candidates": ["100@c.us"], "selfIds": ["900@c.us"], "skipped": -1 }),
         json!({ "candidates": ["100@c.us"], "selfIds": ["900@c.us"], "skipped": 0, "names": [] }),
     ] {
-        assert!(GroupCandidates::default().accept(bad).is_err());
+        assert!(GroupCandidates::default().accept("whatsapp", bad).is_err());
     }
 }
 
@@ -151,16 +223,18 @@ fn group_identity_changes_unknown_namespaces_self_candidates_and_wide_payloads_a
 fn group_limits_never_return_a_truncated_audience_and_count_raw_members_including_skips() {
     let ids: Vec<_> = (10000..12000).map(|i| format!("{i}@c.us")).collect();
     let mut result = GroupCandidates::default();
-    result.accept(group(ids.clone(), 8000)).unwrap();
+    result.accept("whatsapp", group(ids.clone(), 8000)).unwrap();
     assert_eq!(result.parsed.candidates.len(), MAX_TARGETS);
-    result.accept(group(vec![ids[0].clone()], 0)).unwrap();
+    result
+        .accept("whatsapp", group(vec![ids[0].clone()], 0))
+        .unwrap();
     assert_eq!(result.parsed.duplicate_count, 1);
     assert!(matches!(
-        result.accept(group(vec!["12000@c.us".into()], 0)),
+        result.accept("whatsapp", group(vec!["12000@c.us".into()], 0)),
         Err(AppError::BroadcastImportLimit)
     ));
     assert!(matches!(
-        GroupCandidates::default().accept(group(ids, 8001)),
+        GroupCandidates::default().accept("whatsapp", group(ids, 8001)),
         Err(AppError::BroadcastImportLimit)
     ));
 }

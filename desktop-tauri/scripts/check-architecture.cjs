@@ -40,7 +40,10 @@ function checkCommands(files) {
   if (manifest.version !== 1 || names.some((name) => !/^[a-z]+(?:_[a-z]+)+$/.test(name))) {
     failures.push('Invalid version or command identifier in contracts/commands.json');
   }
-  const source = get('src-tauri/src/desktop/commands.rs');
+  const entry = get('src-tauri/src/desktop/commands.rs');
+  const commandFiles = [entry, ...[...files].filter(([name]) =>
+    /^src-tauri\/src\/desktop\/commands\/[a-z_]+\.rs$/.test(name)).map(([, source]) => source)];
+  const source = commandFiles.join('\n');
   sameNames([...source.matchAll(/#\[tauri::command\]\s+pub async fn (\w+)/g)].map((m) => m[1]), names,
     'Rust ingress', failures);
   for (const command of manifest.commands) {
@@ -53,7 +56,7 @@ function checkCommands(files) {
     const response = signature[2].trim() === '()' ? 'unit' : signature[2].trim();
     if (response !== command.response) failures.push(`${command.name}: response type differs from manifest`);
   }
-  sameNames([...get('src-tauri/src/bootstrap.rs').matchAll(/commands::(\w+)/g)].map((m) => m[1]), names,
+  sameNames([...get('src-tauri/src/bootstrap.rs').matchAll(/commands::(?:[a-z_]+::)*(\w+)/g)].map((m) => m[1]), names,
     'Rust handler registration', failures);
   const permission = get('src-tauri/permissions/shell.toml').match(/commands\.allow\s*=\s*\[([^\]]*)\]/s);
   sameNames([...(permission?.[1] || '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]), names,
@@ -63,7 +66,8 @@ function checkCommands(files) {
   if (!get('src-tauri/build.rs').includes('command-manifest.cjs')) {
     failures.push('Build must read AppManifest commands from the canonical command manifest');
   }
-  const [helpers, ...commands] = maskNonCode(source).split('#[tauri::command]');
+  const helpers = maskNonCode(entry).split('#[tauri::command]')[0];
+  const commands = commandFiles.flatMap((file) => maskNonCode(file).split('#[tauri::command]').slice(1));
   const common = helpers.split('async fn execute_workspace')[0];
   const workspace = helpers.slice(common.length);
   if (!/authorize\(&webview\)\?;[\s\S]*spawn_blocking\(move \|\| operation\(app\)\)/.test(common)
@@ -87,7 +91,8 @@ function checkCommands(files) {
       'broadcast_import_contacts', 'broadcast_resolve_recipients', 'broadcast_resolve_audience',
       'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience',
       'broadcast_delete_preset', 'broadcast_restore_audience',
-      'broadcast_export_failures'].includes(name)) {
+      'broadcast_export_failures', 'broadcast_export_contacts', 'broadcast_history', 'broadcast_export_history',
+      'account_export_backup', 'account_pick_backup', 'account_restore_backup'].includes(name)) {
       if (!/\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<BroadcastDesktop>>\(\)\s*\./.test(section)
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
         failures.push('Broadcast command must use shared authorization and its independent owner without account state');
@@ -100,7 +105,7 @@ function checkCommands(files) {
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
         failures.push('Session command must use shared authorization and its independent owner without account state');
       }
-    } else if (name === 'translation_context') {
+    } else if (['translation_context', 'translation_health'].includes(name)) {
       if (!/\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<TranslationDesktop>>\(\)\s*\./.test(section)
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
         failures.push('Translation command must use shared authorization and its independent owner without account state');

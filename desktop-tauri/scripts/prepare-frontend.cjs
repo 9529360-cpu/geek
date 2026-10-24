@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { composeSession } = require('./prepare-session.cjs');
+const { composeAdvanced } = require('./prepare-advanced.cjs');
 const ROOT = path.resolve(__dirname, '../..');
 const OUTPUT = path.join(ROOT, 'desktop-tauri/src-tauri/target/ui');
 const STYLES = ['fonts.css', 'style.css', 'style-mac.css', 'translation-settings.css',
@@ -14,6 +15,7 @@ function compose(root = ROOT) {
   const read = (name) => fs.readFileSync(path.join(root, name), 'utf8').replace(/\r\n?/g, '\n');
   const original = read('ui/index.html');
   const session = composeSession(read('ui/subscription.html'));
+  const advanced = composeAdvanced(read('ui/advanced-tools-workbench.js'));
   if ((original.match(/<main class="app">/g) || []).length !== 1) throw new Error('Original UI structure changed');
   const css = [];
   let html = original
@@ -41,13 +43,15 @@ function compose(root = ROOT) {
     + 'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>'
     + '<path d="M3 12h18M12 3c2.7 2.5 4 5.5 4 9s-1.3 6.5-4 9M12 3c-2.7 2.5-4 5.5-4 9s1.3 6.5 4 9"/></svg></template>');
   html = html.replace('</head>', '  <link rel="stylesheet" href="original-inline.css">\n'
+    + '  <link rel="stylesheet" href="advanced-original.css">\n'
     + '  <link rel="stylesheet" href="runtime.css">\n  <script type="module" src="app.mjs"></script>\n</head>')
-    .replace('</body>', icons.join('\n') + '\n' + read('desktop-tauri/frontend/dialogs.html') + '\n' + session.html + '\n</body>');
-  return { html, inlineCss: css.join('\n') + '\n', sessionCss: session.css, original };
+    .replace('</body>', icons.join('\n') + '\n' + read('desktop-tauri/frontend/dialogs.html')
+      + '\n' + session.html + '\n' + advanced.html + '\n</body>');
+  return { html, inlineCss: css.join('\n') + '\n', sessionCss: session.css, advancedCss: advanced.css, original };
 }
 
 function prepare(root = ROOT, output = OUTPUT) {
-  const { html, inlineCss, sessionCss } = compose(root);
+  const { html, inlineCss, sessionCss, advancedCss } = compose(root);
   fs.mkdirSync(output, { recursive: true });
   // A stale bundle must not retain removed scripts/assets between builds.
   for (const entry of fs.readdirSync(output)) fs.rmSync(path.join(output, entry), { recursive: true, force: true });
@@ -56,7 +60,9 @@ function prepare(root = ROOT, output = OUTPUT) {
   fs.writeFileSync(path.join(output, 'index.html'), html);
   fs.writeFileSync(path.join(output, 'original-inline.css'), inlineCss);
   fs.writeFileSync(path.join(output, 'session-original.css'), sessionCss);
-  const inputs = ['ui/index.html', 'ui/subscription.html', 'ui/app.js', ...STYLES.map((name) => `ui/${name}`)];
+  fs.writeFileSync(path.join(output, 'advanced-original.css'), advancedCss);
+  const inputs = ['ui/index.html', 'ui/subscription.html', 'ui/app.js', 'ui/advanced-tools-workbench.js',
+    ...STYLES.map((name) => `ui/${name}`)];
   for (const name of STYLES) fs.copyFileSync(path.join(root, 'ui', name), path.join(output, name));
   fs.cpSync(path.join(root, 'ui/fonts'), path.join(output, 'fonts'), { recursive: true });
   const manifest = Object.fromEntries(inputs.map((name) => [name, digest(fs.readFileSync(path.join(root, name)))]));

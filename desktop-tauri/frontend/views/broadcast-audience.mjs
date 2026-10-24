@@ -26,6 +26,12 @@ export function createAudienceView(document, changed, resolveSource) {
   };
   const setAvailable = (node, yes) => { wire(node, !yes); };
   const sources = createRecipientSourcesView(document, () => { render(); changed(); }, resolveSource);
+  const telegramNotes = ['bc-sendto-excel', 'bc-sendto-paste'].map((id) => {
+    const note = element(document, 'small', 'bc-unavailable-note',
+      'Telegram 号码需逐个核验，受对方隐私设置和查询速度限制；较大的名单请分批导入。');
+    $(id).append(note);
+    return note;
+  });
   const dropdown = $('bc-selectize-dropdown');
   const open = (value) => {
     hidden(dropdown, !value);
@@ -108,6 +114,7 @@ export function createAudienceView(document, changed, resolveSource) {
   }
 
   function renderImport() {
+    for (const note of telegramNotes) hidden(note, catalog?.platformId !== 'telegram-k');
     for (const radio of radios) radio.checked = radio.value === mode;
     const separate = ['excel', 'paste', 'group-members', 'label', 'exclude-contacts', 'exclude-groups'];
     hidden($('bc-sendto-custom'), separate.includes(mode));

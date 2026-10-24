@@ -114,13 +114,13 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     const ready = Boolean(catalog?.ready && !next.loading && !next.mismatch);
     const filesBlocked = blocked || next.attachmentBusy || next.importBusy || next.mismatch || !next.attachmentsAvailable;
     const canPick = ready && catalog?.capabilities.attachments;
-    const whatsapp = ['whatsapp', 'whatsapp-pure'].includes(catalog?.platformId);
+    const imports = ['whatsapp', 'whatsapp-pure', 'telegram-k'].includes(catalog?.platformId);
     $('broadcast-message').maxLength = messageLimit(catalog?.platformId, attachments.length);
     $('broadcast-message').title = catalog?.platformId === 'telegram-k'
       ? attachments.length ? '附件说明最多 1024 字符，插入姓名和问候语后的完整内容也受此限制。'
         : '每条消息最多 4096 字符，插入姓名和问候语后的完整内容也受此限制。' : '';
-    audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable && whatsapp,
-      { canPaste: next.resolveAvailable && whatsapp, canAudience: next.audienceAvailable && whatsapp,
+    audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable && imports,
+      { canPaste: next.resolveAvailable && imports, canAudience: next.audienceAvailable && imports,
         editable: !blocked && ready && !next.attachmentBusy });
     workbench.availability(blocked);
     for (const id of ['broadcast-message', 'broadcast-insert-sa', 'broadcast-insert-var', 'broadcast-insert-nr',

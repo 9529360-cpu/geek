@@ -11,12 +11,14 @@ function createTelegramKAdapter() {
     if (!owner.current()) throw runtime.issue('ACCOUNT_UNAVAILABLE');
     return owner;
   }
+  const audiences = createTelegramAudience({ runtime, captureOwner });
   const clean = (value) => typeof value === 'string'
     ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 256) : '';
   function capabilities() {
     let text = false;
     try { text = captureOwner().current(); } catch {}
-    return { text, scheduled: text, attachments: text, tagAll: false, groupMembers: false, vcards: false };
+    return { text, scheduled: text, attachments: text, tagAll: false,
+      groupMembers: text && audiences.groupMembersAvailable(), vcards: false };
   }
   async function ready() {
     const deadline = performance.now() + 12000;
@@ -104,8 +106,8 @@ function createTelegramKAdapter() {
   }
   const unavailable = () => { throw runtime.issue('CAPABILITY_UNAVAILABLE'); };
   return { capabilities, ready, listChats, prepare, dispatch,
-    audienceOptions: async () => null, groupMembers: unavailable, labelMembers: unavailable,
-    resolveContacts: unavailable, dispatchAttachment, openChat: unavailable,
+    audienceOptions: async () => null, groupMembers: audiences.groupMembers, labelMembers: unavailable,
+    resolveContacts: audiences.resolveContacts, dispatchAttachment, openChat: unavailable,
     setComposerText: unavailable, sendText: dispatch, getCurrentChat: () => {
       const id = runtime.peerNumber(location.hash.slice(1));
       return id === null ? '' : `tg:${id}`;

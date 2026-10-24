@@ -110,14 +110,19 @@ test('broadcast file commands keep optional result shape and cannot bypass their
   assert.match(checkCommands(response).join('\n'), /broadcast_pick_attachments: response type/);
   for (const name of ['broadcast_pick_attachments', 'broadcast_release_attachments',
     'broadcast_import_contacts', 'broadcast_export_failures',
+    'broadcast_export_contacts', 'broadcast_history', 'broadcast_export_history',
+    'account_export_backup', 'account_pick_backup', 'account_restore_backup',
     'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience',
     'broadcast_delete_preset', 'broadcast_restore_audience']) {
-    const offset = files.get(key).indexOf(`pub async fn ${name}`);
-    const before = files.get(key).slice(0, offset);
-    const after = files.get(key).slice(offset);
+    const owner = [...files].find(([path, source]) => path.startsWith('src-tauri/src/desktop/commands')
+      && source.includes(`pub async fn ${name}`))?.[0];
+    assert.ok(owner, name);
+    const offset = files.get(owner).indexOf(`pub async fn ${name}`);
+    const before = files.get(owner).slice(0, offset);
+    const after = files.get(owner).slice(offset);
     const mutant = new Map(files);
-    mutant.set(key, before + after.replace('execute(webview, move |app|', 'bypass(webview, move |app|'));
-    assert.notEqual(mutant.get(key), files.get(key));
+    mutant.set(owner, before + after.replace('execute(webview, move |app|', 'bypass(webview, move |app|'));
+    assert.notEqual(mutant.get(owner), files.get(owner));
     assert.match(checkCommands(mutant).join('\n'), /Broadcast command.*authorization/);
   }
 });
@@ -136,9 +141,10 @@ test('session and translation commands cannot acquire workspace or bypass author
   const files = collect(root);
   const key = 'src-tauri/src/desktop/commands.rs';
   for (const owner of ['NativeSession', 'TranslationDesktop']) {
+    const path = owner === 'TranslationDesktop' ? 'src-tauri/src/desktop/commands/translation.rs' : key;
     for (const replacement of ['SharedDesktop', 'OtherOwner']) {
       const mutant = new Map(files);
-      mutant.set(key, files.get(key).replace(`app.state::<Arc<${owner}>>()`, `app.state::<Arc<${replacement}>>()`));
+      mutant.set(path, files.get(path).replace(`app.state::<Arc<${owner}>>()`, `app.state::<Arc<${replacement}>>()`));
       assert.match(checkCommands(mutant).join('\n'), /(?:Session|Translation) command.*authorization/);
     }
   }

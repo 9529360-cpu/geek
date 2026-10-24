@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod account_backup;
 pub mod accounts;
 pub mod broadcast;
 mod broadcast_actions;

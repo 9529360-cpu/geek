@@ -1,4 +1,5 @@
 import { createTranslationView } from '../views/translation.mjs';
+import { healthOf } from '../models/translation-health.mjs';
 import { DEFAULT_POLICY, chatPolicyFrom, chatPolicyOf, effectivePolicy, translationCapabilities, validatePlatformPolicy,
   policyOf, translationError, translationOf } from '../models/translation.mjs';
 
@@ -18,6 +19,8 @@ export function createTranslationController({ document, api, getShellSnapshot, s
   let contextError = '';
   let contextEpoch = 0;
   let checking = false;
+  let health = null;
+  let healthError = '';
   let confirmation = false;
   const track = (task) => {
     tasks.add(task);
@@ -56,7 +59,7 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     view.render({ account: item, supported: translationCapabilities(item).receive, capabilities: translationCapabilities(item), connected, shellBusy, open, tab,
       global: configured(state), chat: chatId ? configured(state, chatId) : null,
       globalDraft: state?.drafts.get(null), chatDraft: chatId ? state?.drafts.get(chatId) : null,
-      context, contextPending, contextError, checking, confirmation, session: session.snapshot, sessionError: session.error });
+      context, contextPending, contextError, checking, health, healthError, confirmation, session: session.snapshot, sessionError: session.error });
   }
   function acceptAuthority(snapshot, id) {
     const item = snapshot?.accounts?.find((entry) => entry.id === id);
@@ -170,9 +173,21 @@ export function createTranslationController({ document, api, getShellSnapshot, s
     try { await hidePanel(); } catch (failure) { reportError(translationError(failure)); }
   }
   async function check() {
-    if (checking || shellBusy) return;
+    if (checking || shellBusy || disposed) return;
     checking = true; render();
-    try { await refreshSession(); } finally { checking = false; render(); }
+    try {
+      // Health is a credential-free observation. Account readiness has its own
+      // owner and can fail independently without replacing the gateway result.
+      const [, result] = await Promise.allSettled([
+        refreshSession(),
+        typeof api?.translationHealth === 'function' ? api.translationHealth() : Promise.reject('TRANSLATION_UNAVAILABLE'),
+      ]);
+      if (disposed) return;
+      if (result.status === 'fulfilled') {
+        try { health = healthOf(result.value); healthError = ''; }
+        catch (failure) { health = null; healthError = translationError(failure); }
+      } else { health = null; healthError = translationError(result.reason); }
+    } finally { checking = false; render(); }
   }
   render();
   return {

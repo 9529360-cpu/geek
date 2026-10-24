@@ -216,6 +216,52 @@
       "response": "ExportedBroadcastFailures"
     },
     {
+      "name": "broadcast_export_contacts",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "ExportedBroadcastData"
+    },
+    {
+      "name": "broadcast_history",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "BroadcastHistoryReport"
+    },
+    {
+      "name": "broadcast_export_history",
+      "arguments": [
+        "accountId",
+        "expectedRevision"
+      ],
+      "response": "ExportedBroadcastData"
+    },
+    {
+      "name": "account_export_backup",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "ExportedAccountBackup"
+    },
+    {
+      "name": "account_pick_backup",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "Option<ReviewedAccountBackup>"
+    },
+    {
+      "name": "account_restore_backup",
+      "arguments": [
+        "accountId",
+        "expectedPresetRevision",
+        "expectedTranslationRevision",
+        "data"
+      ],
+      "response": "RestoredAccountBackup"
+    },
+    {
       "name": "broadcast_create",
       "arguments": [
         "draft"
@@ -264,6 +310,11 @@
         "accountId"
       ],
       "response": "TranslationContext"
+    },
+    {
+      "name": "translation_health",
+      "arguments": [],
+      "response": "TranslationHealthSnapshot"
     },
     {
       "name": "account_update_translation",

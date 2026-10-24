@@ -2,6 +2,7 @@
 use super::ports::BroadcastPresetRepository;
 use crate::domain::{
     account::{valid_id, MAX_ACCOUNTS},
+    account_backup::PresetBackup,
     broadcast_presets::{
         normalize_preset_name, validate_preset_message, validate_preset_recipients,
         BroadcastAudiencePreset, BroadcastMessagePreset, BroadcastPresetDocument,
@@ -135,6 +136,87 @@ impl<R: BroadcastPresetRepository> BroadcastPresets<R> {
             .ok_or(AppError::BroadcastPresetUnknown)
     }
 
+    /// Validate the entire replacement and store limit without publishing it.
+    pub fn validate_restore(
+        &self,
+        account_id: &str,
+        expected_revision: u64,
+        backup: &PresetBackup,
+    ) -> Result<()> {
+        let current = self.at_revision(account_id, expected_revision)?;
+        let mut candidate = self.restore_snapshot(&current, backup)?;
+        if candidate != current {
+            candidate.revision = next_revision(candidate.revision)?;
+            self.candidate_document(&candidate)?;
+        }
+        Ok(())
+    }
+
+    /// Restored recipients remain hints: only the existing catalog can resolve
+    /// them into a later audience. Portable input cannot restore preset UUIDs.
+    pub fn restore(
+        &mut self,
+        account_id: &str,
+        expected_revision: u64,
+        backup: &PresetBackup,
+    ) -> Result<BroadcastPresetSnapshot> {
+        let current = self.at_revision(account_id, expected_revision)?;
+        let candidate = self.restore_snapshot(&current, backup)?;
+        self.update(account_id, expected_revision, |account| {
+            if *account == candidate {
+                return Ok(false);
+            }
+            *account = candidate;
+            Ok(true)
+        })
+    }
+
+    fn restore_snapshot(
+        &self,
+        current: &BroadcastPresetSnapshot,
+        backup: &PresetBackup,
+    ) -> Result<BroadcastPresetSnapshot> {
+        backup.validate()?;
+        let mut candidate = current.clone();
+        if let Some(messages) = &backup.messages {
+            candidate.messages = messages
+                .iter()
+                .map(|message| BroadcastMessagePreset {
+                    id: current
+                        .messages
+                        .iter()
+                        .find(|entry| entry.name == message.name)
+                        .map(|entry| entry.id.clone())
+                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                    name: message.name.clone(),
+                    message: message.message.clone(),
+                })
+                .collect();
+        }
+        if let Some(audiences) = &backup.audiences {
+            // Duplicate audience names are valid. Match each identical row once
+            // so a retry preserves both content and independent local identities.
+            let mut remaining = current.audiences.iter().collect::<Vec<_>>();
+            candidate.audiences = audiences
+                .iter()
+                .map(|audience| {
+                    let existing = remaining.iter().position(|entry| {
+                        entry.name == audience.name && entry.recipient_ids == audience.recipient_ids
+                    });
+                    let id = existing
+                        .map(|index| remaining.remove(index).id.clone())
+                        .unwrap_or_else(|| Uuid::new_v4().to_string());
+                    BroadcastAudiencePreset {
+                        id,
+                        name: audience.name.clone(),
+                        recipient_ids: audience.recipient_ids.clone(),
+                    }
+                })
+                .collect();
+        }
+        Ok(candidate)
+    }
+
     fn at_revision(&self, account_id: &str, expected: u64) -> Result<BroadcastPresetSnapshot> {
         if expected > MAX_PRESET_REVISION {
             return Err(AppError::BroadcastPresetInvalid);
@@ -156,16 +238,26 @@ impl<R: BroadcastPresetRepository> BroadcastPresets<R> {
         if !edit(&mut account)? {
             return Ok(account);
         }
-        account.revision = account
-            .revision
-            .checked_add(1)
-            .filter(|revision| *revision <= MAX_PRESET_REVISION)
-            .ok_or(AppError::BroadcastPresetLimit)?;
+        account.revision = next_revision(account.revision)?;
+        let next = self.candidate_document(&account)?;
+        self.repository
+            .save(&next)
+            .map_err(|_| AppError::BroadcastPresetPersistence)?;
+        // Empty account rows retain their revision: deleting the last preset must
+        // not let an old revision-zero draft become authoritative after restart.
+        self.document = next;
+        Ok(account)
+    }
+
+    fn candidate_document(
+        &self,
+        account: &BroadcastPresetSnapshot,
+    ) -> Result<BroadcastPresetDocument> {
         let mut next = self.document.clone();
         if let Some(existing) = next
             .accounts
             .iter_mut()
-            .find(|entry| entry.account_id == account_id)
+            .find(|entry| entry.account_id == account.account_id)
         {
             *existing = account.clone();
         } else {
@@ -175,12 +267,13 @@ impl<R: BroadcastPresetRepository> BroadcastPresets<R> {
             next.accounts.push(account.clone());
         }
         next.validate()?;
-        self.repository
-            .save(&next)
-            .map_err(|_| AppError::BroadcastPresetPersistence)?;
-        // Empty account rows retain their revision: deleting the last preset must
-        // not let an old revision-zero draft become authoritative after restart.
-        self.document = next;
-        Ok(account)
+        Ok(next)
     }
+}
+
+fn next_revision(revision: u64) -> Result<u64> {
+    revision
+        .checked_add(1)
+        .filter(|revision| *revision <= MAX_PRESET_REVISION)
+        .ok_or(AppError::BroadcastPresetLimit)
 }

@@ -91,24 +91,27 @@ test('only the local shell webview receives narrow permissions', () => {
 
 test('all commands share the same native sender gate and blocking executor', () => {
   const commands = read('../src-tauri/src/desktop/commands.rs');
+  const ingress = [commands, read('../src-tauri/src/desktop/commands/advanced.rs'),
+    read('../src-tauri/src/desktop/commands/translation.rs')];
   const security = read('../src-tauri/src/desktop/security.rs');
   assert.match(commands, /authorize\(&webview\)\?;/);
   assert.match(commands, /spawn_blocking/);
   const broadcastCommands = ['catalog', 'create', 'snapshot', 'control', 'pick_attachments', 'release_attachments',
     'import_contacts', 'resolve_recipients', 'resolve_audience', 'export_failures', 'presets', 'save_message', 'save_audience',
-    'delete_preset', 'restore_audience'];
-  for (const section of commands.split('#[tauri::command]').slice(1)) {
+    'delete_preset', 'restore_audience', 'export_contacts', 'history', 'export_history'];
+  for (const section of ingress.flatMap((file) => file.split('#[tauri::command]').slice(1))) {
     if (section.includes('pub async fn desktop_window(')) {
       assert.match(section, /execute\(webview, move \|app\| super::window::apply\(&app, action\)\)/);
       assert.doesNotMatch(section, /State|SharedDesktop|\.lock\(/);
-    } else if (broadcastCommands.includes(section.match(/pub async fn broadcast_(\w+)\(/)?.[1])) {
+    } else if (broadcastCommands.includes(section.match(/pub async fn broadcast_(\w+)\(/)?.[1])
+        || /pub async fn account_(export_backup|pick_backup|restore_backup)\(/.test(section)) {
       assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<BroadcastDesktop>>\(\)/);
       assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
     } else if (/pub async fn session_(snapshot|login|refresh|logout)\(/.test(section)) {
       assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<NativeSession>>\(\)/);
       assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
       if (section.includes('fn session_login(')) assert.match(section, /Zeroizing::new\(password\)/);
-    } else if (section.includes('pub async fn translation_context(')) {
+    } else if (/pub async fn translation_(context|health)\(/.test(section)) {
       assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<TranslationDesktop>>\(\)/);
       assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
     } else assert.match(section, /\{\s*execute_workspace\(webview, state,/);

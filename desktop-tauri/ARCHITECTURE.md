@@ -405,16 +405,42 @@ publication checks both preset revision and catalog lease, with no preset lock a
 waits and no Workspace/job/catalog lock across persistence. A zero-recipient restoration is an
 explicit successful result, so the editor clears old selections and disables creation.
 
-Telegram K messages and recipient presets use the same owner and schema. Every restored
-`tg:` peer must still exist in that account's fresh native catalog. Missing peers are skipped;
-they never enter the WhatsApp resolver/import cache. Native save and restore reject mixed
-platform namespaces before publication. Stored message templates retain their original
+Telegram K messages and recipient presets use the same owner and schema. Current groups
+must exist in the fresh native directory. Missing contacts pass through the same bounded
+import operation using K's exact current-account user model and input peer, never the WA
+resolver. The existing imported-contact cache protects those verified peers for that same
+generation. Native save and restore reject mixed platform namespaces before publication. Stored message templates retain their original
 format; the Telegram length limit is enforced on all expanded variants before job creation.
 
 The frontend restores a list into the existing custom-selection draft and retains exclusions;
 applying a message changes only its raw body. Current editor/account/catalog/revision tokens guard
 asynchronous reads and writes. Five finite shell-only commands expose these operations; no generic
 key/value store, path API, alternate job owner or legacy profile access is added.
+
+### Portable settings and statistical exports
+
+The original advanced-tools shell and CSS are extracted at build time, with the original
+source included in UI provenance. Its three typed controller flows capture account identity
+before suspending guests. Late responses cannot reopen an invalidated panel or replace a
+newer account's draft. Successful translation restores merge only that account's newer
+settings into the current shell snapshot.
+
+`domain/account_backup` defines strict portable v3 and bounded original-v2 conversion.
+Missing components preserve data; null is invalid and explicit empty collections clear.
+`application/account_backup` coordinates the existing Accounts and BroadcastPresets owners:
+platform, capacity and both requested revisions are checked before any write, then each
+owner reports its own durable result. There is no cross-file rollback promise or new store.
+The desktop facade locks presets before Workspace, matching recipient restoration, and
+holds neither lock over a native picker or export write. Renderer-supplied typed restore
+data is validated again against the actual target. No portable identity or revision grants
+permission to send; restored audiences reacquire live catalog authority when used.
+
+`domain/broadcast_history` projects only statistics from the existing job owner. Pending and
+uncertain stay distinct from confirmed and not-submitted. Exports freeze the checked revision
+before the native save dialog; contact CSV filters groups and both CSV paths share spreadsheet
+formula neutralization. Old closed tasks reclaimed by the bounded job store are not promised
+as permanent history. `commands/advanced` and `commands/translation` are narrow ingress modules;
+the inventory and mutation-tested authorization gate cover these modules and the root ingress.
 
 ## Session and incoming translation ownership
 
@@ -553,6 +579,20 @@ reply/entity shapes, Telegram Web A outgoing, registration/purchase and bulk his
 until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
 that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
+
+### Read-only gateway health
+
+TranslationHealthGateway is an observation port on the existing NativeApi. The service uses
+no SessionLease, translation token, cache or quota admission. A separate finite gate allows
+one request under the shared shutdown cancellation and a five-second deadline. HTTP permits
+only the fixed public health GET with no bearer, body or translation headers and a 16 KiB
+streaming limit. Only `ok` plus the exact service identity establishes health; malformed,
+late or overlarge responses cannot become success. A healthy response is configuration and
+network evidence, not a provider translation or an account authorization result.
+
+The configured native endpoint set currently contains one primary gateway; backup is explicitly
+unconfigured and translation latency is absent. The UI keeps account readiness separate and
+never treats the worker's provider records or request route tag as another measured gateway.
 
 ## Interactive SendIntent ownership
 

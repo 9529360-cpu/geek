@@ -39,21 +39,20 @@ pub fn read_import(path: &Path) -> Result<Vec<u8>> {
 }
 
 pub fn write_report(path: &Path, csv: &str) -> Result<()> {
+    write_export(path, csv, AppError::BroadcastExportFailed)
+}
+
+pub(crate) fn write_export(path: &Path, content: &str, error: AppError) -> Result<()> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-        .ok_or(AppError::BroadcastExportFailed)?;
+        .ok_or(error)?;
     // Finish and flush beside the destination before atomic replacement. A
     // failed write leaves the previously saved report intact.
-    let mut file =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| AppError::BroadcastExportFailed)?;
-    file.write_all(csv.as_bytes())
-        .map_err(|_| AppError::BroadcastExportFailed)?;
-    file.as_file()
-        .sync_all()
-        .map_err(|_| AppError::BroadcastExportFailed)?;
-    file.persist(path)
-        .map_err(|_| AppError::BroadcastExportFailed)?;
+    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|_| error)?;
+    file.write_all(content.as_bytes()).map_err(|_| error)?;
+    file.as_file().sync_all().map_err(|_| error)?;
+    file.persist(path).map_err(|_| error)?;
     Ok(())
 }
 

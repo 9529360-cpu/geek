@@ -55,6 +55,39 @@ Media uses the specific `send_photos`, `send_videos` or `send_docs` right both
 before upload and again before submission. Current caption permission is never
 inferred from the text permission.
 
+## Read-only recipient discovery
+
+The existing RecipientImport gate, catalog lease and ten-minute absolute deadline also
+own K file/pasted-number and group-member sources. The guest publishes its real ready
+catalog capability envelope to a shared fixture checked by both the composed bridge test
+and Rust native ingress; implemented attachments and groupMembers cannot be rejected by
+a stale native capability guard. vCards, tag-all and platform-label capabilities remain
+unavailable.
+
+Phone candidates use the bound `appUsersManager.resolvePhone` method, backed by official
+[`contacts.resolvePhone`](https://core.telegram.org/method/contacts.resolvePhone). The actual
+saved user model and usable input peer establish the canonical ID; names and number
+substrings do not. Explicit `tg:<user-id>` candidates must resolve to that exact loaded
+user. Calls are read-only and respect at least three seconds between phone queries across
+native batches; user privacy, platform rate limits and the shared deadline can reject a
+large import. The 2000-target limit is not a guarantee that 2000 phone RPCs fit the deadline.
+Only `PHONE_NOT_OCCUPIED` becomes an unresolved phone; other RPC failures reject the import.
+
+Basic groups require an exact full `chatParticipants` identity/version. Ordinary megagroups
+require exact `getChannelFull` identity, permission to view participants, no hidden-member
+flag and a complete count of at most 10000. The recent-participants pagination must exactly
+match this full count, with strict offsets, no duplicate/missing pages and a final exact
+unique set. A recent subset is never treated as the entire group. Self/service/unusable
+peers are filtered and every final contact passes the same account-bound resolver. No chat
+is opened, no contact is imported and no message or draft is changed during discovery.
+
+The fixed source is `src/lib/appManagers/appUsersManager.ts` lines 405–415 and
+`appProfileManager.ts` lines 594–810 in the reviewed tweb commit above. Full-count evidence
+is necessary because [`channelParticipantsRecent`](https://core.telegram.org/constructor/channelParticipantsRecent)
+does not itself promise all members. The current-model imported cache is shared with the
+other recipient sources; saved K contacts are rechecked through this resolver and saved
+groups still require current native-directory membership.
+
 ## Interactive whole-message text replies
 
 The existing `SendContext::Reply { messageId, chatId }` is reused. For K,

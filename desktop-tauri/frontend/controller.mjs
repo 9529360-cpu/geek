@@ -5,6 +5,7 @@ import { batchCount } from './models/creation.mjs';
 import { createBroadcastController } from './controllers/broadcast.mjs';
 import { createSessionController } from './controllers/session.mjs';
 import { createTranslationController } from './controllers/translation.mjs';
+import { createAdvancedToolsController } from './controllers/advanced-tools.mjs';
 
 export function mountShell({ document, window, api }) {
   const view = createShellView(document);
@@ -25,12 +26,14 @@ export function mountShell({ document, window, api }) {
   let broadcast = null;
   let session = null;
   let translation = null;
+  let advanced = null;
   const setBusy = (value) => {
     busy = value;
     view.busy(value, Boolean(current && api), Boolean(api), pendingWindows);
     broadcast?.setShellBusy(value);
     session?.setShellBusy(value);
     translation?.setShellBusy(value);
+    advanced?.setShellBusy(value);
   };
   const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible, $('broadcast-job-bar')));
 
@@ -47,6 +50,7 @@ export function mountShell({ document, window, api }) {
     if (panel === 'account-library-overlay') renderLibrary();
     broadcast?.renderShell(next);
     translation?.renderShell(next);
+    advanced?.renderShell(next);
     setBusy(busy);
   }
   function acceptTranslationSnapshot(next, id) {
@@ -102,12 +106,14 @@ export function mountShell({ document, window, api }) {
     broadcast?.panelChanged(null);
     session?.panelChanged(null);
     translation?.panelChanged(null);
+    advanced?.panelChanged(null);
     view.statusPanel(null);
     await syncLayout(true);
     returnFocus?.focus();
   }
-  async function showPanel(id, fill, focusId) {
+  async function showPanel(id, fill, focusId, isCurrent = () => true) {
     await syncLayout(false); // Do not expose an overlay until the native guest is hidden.
+    if (!isCurrent()) { await syncLayout(!panel); return false; }
     if (!panel) returnFocus = document.activeElement;
     if (panel) $(panel).classList.add('hidden');
     panel = id;
@@ -117,6 +123,7 @@ export function mountShell({ document, window, api }) {
     broadcast?.panelChanged(id);
     session?.panelChanged(id);
     translation?.panelChanged(id);
+    advanced?.panelChanged(id);
     if (id === 'ctx-menu') {
       const menu = $(id);
       const rect = menu.getBoundingClientRect();
@@ -187,6 +194,8 @@ export function mountShell({ document, window, api }) {
   translation = createTranslationController({ document, api, getShellSnapshot: () => current, showPanel, hidePanel,
     acceptSnapshot: acceptTranslationSnapshot, getSession: () => ({ snapshot: session.snapshot, error: session.error }),
     refreshSession: () => session.refresh(), openSession: () => session.open(), reportError: (message) => view.status(message) });
+  advanced = createAdvancedToolsController({ document, api, getShellSnapshot: () => current, showPanel, hidePanel,
+    acceptSnapshot: acceptTranslationSnapshot, reportError: (message) => view.status(message) });
   on('btn-app-center', 'click', () => run(() => showPanel('add-overlay', () => {
     selectedPlatform = null;
     $('add-name').value = '';
@@ -312,8 +321,8 @@ export function mountShell({ document, window, api }) {
     view.status('\u8bf7\u4ece Tauri Windows \u5f00\u53d1\u7248\u542f\u52a8\uff1b\u6d4f\u89c8\u5668\u9884\u89c8\u4e0d\u6a21\u62df\u8d26\u53f7\u529f\u80fd\u3002');
   }
   return { idle: async () => {
-    await enqueue(() => {}); await broadcast.idle(); await session.idle(); await translation.idle(); await enqueue(() => {});
+    await enqueue(() => {}); await broadcast.idle(); await session.idle(); await translation.idle(); await advanced.idle(); await enqueue(() => {});
   }, dispose: () => {
-    observer?.disconnect(); broadcast.dispose(); session.dispose(); translation.dispose(); window.removeEventListener?.('resize', resize);
+    observer?.disconnect(); broadcast.dispose(); session.dispose(); translation.dispose(); advanced.dispose(); window.removeEventListener?.('resize', resize);
   } };
 }

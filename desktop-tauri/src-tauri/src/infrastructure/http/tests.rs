@@ -94,3 +94,45 @@ fn authentication_endpoints_never_receive_an_intent_and_missing_translation_inte
         Err(AppError::NetworkResponseInvalid)
     ));
 }
+
+#[test]
+fn public_health_builder_cannot_acquire_credentials_body_billing_headers_or_another_endpoint() {
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let control = RequestControl::new(Duration::from_secs(5));
+    let input = FixedRequest::translation_health();
+    let request = service_request(&client, &input, &control)
+        .unwrap()
+        .build()
+        .unwrap();
+    assert_eq!(request.method(), reqwest::Method::GET);
+    assert_eq!(
+        request.url().as_str(),
+        "https://geek-translate.9529360.workers.dev/health"
+    );
+    assert!(request.body().is_none());
+    for header in [
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "X-Geek-Deadline-Ms",
+        "X-Geek-Translation-Intent",
+    ] {
+        assert!(!request.headers().contains_key(header));
+    }
+    assert_eq!(Endpoint::TranslationHealth.response_limit(), 16 * 1024);
+    assert_eq!(Endpoint::Translate.response_limit(), MAX_RESPONSE_BYTES);
+    for field in 0..5 {
+        let mut input = FixedRequest::translation_health();
+        match field {
+            0 => input.bearer = Some("synthetic-token"),
+            1 => input.body = Some("{}"),
+            2 => input.request_id = Some("synthetic-id"),
+            3 => input.deadline_ms = Some(5000),
+            _ => input.translation_intent = Some(TranslationIntent::OutgoingSend),
+        }
+        assert!(matches!(
+            service_request(&client, &input, &control),
+            Err(AppError::NetworkResponseInvalid)
+        ));
+    }
+}

@@ -1,4 +1,5 @@
 import { DEFAULT_POLICY, LANGUAGES, chatPolicyFrom, effectivePolicy, sessionStatus } from '../models/translation.mjs';
+import { healthStatus } from '../models/translation-health.mjs';
 
 const globalFields = {
   'translation-message-to': 'messageTarget', 'translation-message-from': 'messageFrom', 'translation-server': 'route',
@@ -51,7 +52,9 @@ export function createTranslationView(document, actions) {
   bind('translation-channel-receive-auto', 'change', actions.chatChanged);
   for (const id of Object.keys(chatFields)) bind(id, 'change', actions.chatChanged);
   bind('translation-chat-reset', 'click', () => actions.override(false));
-  bind('translation-gateway-test', 'click', actions.check).textContent = '检查登录和余额';
+  bind('translation-gateway-test', 'click', actions.check).textContent = '检测网关和账户';
+  $('translation-gateway-status').setAttribute('role', 'status');
+  $('translation-gateway-status').setAttribute('aria-live', 'polite');
   const tabs = popover.querySelectorAll('.translation-tab');
   for (const node of tabs) {
     node.dataset.wired = 'true'; node.setAttribute('role', 'tab');
@@ -111,7 +114,7 @@ export function createTranslationView(document, actions) {
     $(`translation-${scope}-retry`).hidden = !draft?.error;
   }
   function render({ account, supported, capabilities, global, chat, context, contextPending, contextError, globalDraft, chatDraft,
-    shellBusy, connected, open, tab, session, sessionError, checking, confirmation }) {
+    shellBusy, connected, open, tab, session, sessionError, checking, health, healthError, confirmation }) {
     const globalPolicy = global || DEFAULT_POLICY;
     const chatPolicy = effectivePolicy(globalPolicy, chat);
     const hasChat = Boolean(context?.available && context.chat);
@@ -161,7 +164,7 @@ export function createTranslationView(document, actions) {
     $('translation-chat-custom').classList.toggle('hidden', !override);
     $('translation-auto-send').checked = chatPolicy.enabled && chatPolicy.autoSend;
     popover.querySelector('.translation-head-copy').querySelector('small').textContent
-      = account ? `${account.name} · 独立保存，修改后自动生效` : '请先选择账号';
+      = account ? `${account.name}，独立保存，修改后自动生效` : '请先选择账号';
     $('translation-chat-mode').textContent = contextPending ? '正在读取聊天…' : hasChat ? (override ? '单独设置' : '跟随全局') : '未检测到聊天';
     $('translation-chat-mode').dataset.state = hasChat ? (override ? 'custom' : 'global') : 'idle';
     $('translation-chat-hint').textContent = !supported ? '此平台尚未接通翻译。'
@@ -172,7 +175,9 @@ export function createTranslationView(document, actions) {
     $('translation-service-detail').dataset.state = status.kind;
     $('translation-session-open').hidden = session?.state === 'signedIn';
     $('translation-gateway-test').disabled = !connected || shellBusy || checking;
-    $('translation-gateway-status').textContent = checking ? '检查中…' : '仅检查登录和余额，不发起计费翻译。';
+    const gatewayStatus = healthStatus(health, healthError, checking);
+    $('translation-gateway-status').textContent = gatewayStatus.text;
+    $('translation-gateway-status').dataset.state = gatewayStatus.state;
     for (const node of popover.querySelectorAll('.translation-tab')) {
       const active = node.dataset.translationTab === tab;
       node.classList.toggle('active', active); node.setAttribute('aria-selected', String(active));

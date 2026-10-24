@@ -150,7 +150,7 @@ test('catalog exposes namespaced real users and ordinary groups with finite medi
     { id: 'tg:-202', name: 'Team', realName: 'Team', kind: 'group' },
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(f.adapter.capabilities())),
-    { text: true, scheduled: true, attachments: true, tagAll: false, groupMembers: false, vcards: false });
+    { text: true, scheduled: true, attachments: true, tagAll: false, groupMembers: true, vcards: false });
   assert.equal(await f.adapter.audienceOptions(), null);
 });
 
