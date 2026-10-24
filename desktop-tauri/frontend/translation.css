@@ -1,0 +1,25 @@
+/* Preserve the original 430px, three-tab translation popover. */
+.translation-popover { display: flex; flex-direction: column; }
+.translation-popover.hidden { display: none; }
+.translation-popover .translation-tab-panel { min-height: 0; overflow-y: auto; }
+.translation-popover .translation-tabs,
+.translation-popover .translation-popover-head,
+.translation-popover .translation-service-detail { flex-shrink: 0; }
+.translation-service-detail[data-state='ok'] { color: var(--text-tertiary); }
+#translation-session-open { margin: 0 12px 8px; width: auto; align-self: stretch; }
+#translation-tab-advanced .translation-service-actions { flex-direction: column; align-items: stretch; }
+#translation-tab-advanced .translation-service-actions .translation-save { width: auto; align-self: flex-start; }
+#translation-tab-advanced .translation-service-actions .translation-hint { min-width: 0; flex: none; text-align: left; overflow-wrap: anywhere; }
+.translation-retry { margin-top: 6px; width: 100%; }
+.translation-feedback { flex-shrink: 0; padding: 0 12px 10px; border-top: 1px solid var(--border-subtle); }
+.translation-feedback .translation-save-status { text-align: left; }
+.translation-head-copy small { overflow-wrap: anywhere; }
+.translation-chat-hint { overflow-wrap: anywhere; }
+.translation-popover button:focus-visible,
+.translation-popover input:focus-visible,
+.translation-popover select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.translation-popover .translation-save-status { overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .translation-appearance-preview-text { transition: none; }
+}

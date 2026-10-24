@@ -1,0 +1,43 @@
+/* Runtime adaptation only. Original palette, geometry, icons and dialogs are reused. */
+@import url('./broadcast.css');
+@import url('./session.css');
+@import url('./translation.css');
+[hidden] { display: none !important; }
+/* Keep only native window controls above account modals, at their original position. */
+.top-bar { z-index: auto; }
+.win-controls { position: relative; z-index: 101; }
+.side-nav { transition: none; position: relative; }
+.nav-account, .tab-item, .add-platform-card { font-family: inherit; color: inherit; text-align: left; }
+.nav-account { width: 100%; }
+.side-nav .nav-account .nav-account-name { font-size: 16px; color: #18a058; }
+.side-nav.collapsed .nav-account { width: auto; }
+.tab-item .tab-dot, .nav-account .acc-dot { display: none; }
+button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity: 0.5; }
+.add-dialog { max-height: calc(100vh - 32px); overflow-y: auto; }
+.add-dialog .row-item input { min-width: 0; }
+.runtime-note { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
+.runtime-status {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  font-size: 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  z-index: 10000;
+}
+.runtime-status.in-dialog { position: static; margin: 8px 16px; }
+.runtime-status button { margin-top: 6px; white-space: normal; }
+.library-accounts { display: flex; flex-direction: column; gap: 8px; max-height: 45vh; overflow: auto; }
+.library-row { display: flex; gap: 8px; align-items: center; }
+.library-row strong { flex: 1; overflow-wrap: anywhere; }
+.ctx-menu .ctx-item { display: block; width: 100%; border: 0; background: none; text-align: left; font: inherit; }
+.ctx-menu .ctx-item:hover { background: var(--hover-bg); }
+#account-tabs > .nav-empty { padding: 0; font-size: 12px; }
+.ctx-menu { max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow-y: auto; }

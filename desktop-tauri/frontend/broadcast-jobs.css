@@ -1,0 +1,486 @@
+/* Original task center: ui/broadcast-workbench.js. */
+.bc-task-center-button {
+  position:relative;
+  margin-left:8px;
+  height:28px;
+  padding:0 9px;
+  border:1px solid var(--border-standard);
+  border-radius:7px;
+  background:var(--bg-elevated);
+  color:var(--text-secondary);
+  font-size:10.5px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+}
+.bc-task-center-button:hover {
+  background:var(--bg-hover);
+  color:var(--text-primary);
+}
+.bc-task-center-count {
+  display:none;
+  min-width:16px;
+  height:16px;
+  padding:0 4px;
+  border-radius:999px;
+  align-items:center;
+  justify-content:center;
+  background:var(--accent);
+  color:#06120c;
+  font-size:9px;
+  font-weight:800;
+}
+.bc-task-center-button[data-active-count]:not([data-active-count="0"]) .bc-task-center-count {
+  display:inline-flex;
+}
+.bc-task-center-overlay {
+  position:fixed;
+  inset:0;
+  z-index:250;
+  background:rgba(0,0,0,.38);
+  display:grid;
+  place-items:center;
+  backdrop-filter:blur(3px);
+}
+.bc-task-center-overlay.hidden {
+  display:none;
+}
+.bc-task-center {
+  width:min(760px,calc(100vw - 32px));
+  max-height:min(720px,calc(100vh - 40px));
+  overflow:hidden;
+  border:1px solid var(--border-standard);
+  border-radius:16px;
+  background:var(--bg-surface);
+  box-shadow:0 24px 80px rgba(0,0,0,.42);
+  display:flex;
+  flex-direction:column;
+}
+.bc-task-center-head {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:14px 16px 12px;
+  border-bottom:1px solid var(--border-standard);
+}
+.bc-task-center-title {
+  min-width:0;
+}
+.bc-task-center-head strong {
+  display:block;
+  font-size:14px;
+}
+.bc-task-center-head small {
+  display:block;
+  margin-top:2px;
+  color:var(--text-tertiary);
+  font-size:10.5px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.bc-task-center-head button {
+  margin-left:auto;
+  border:0;
+  background:transparent;
+  color:var(--text-tertiary);
+  font-size:20px;
+  cursor:pointer;
+}
+.bc-task-center-toolbar {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:10px 12px 0;
+}
+.bc-task-scope {
+  display:inline-flex;
+  padding:3px;
+  border:1px solid var(--border-standard);
+  border-radius:9px;
+  background:var(--bg-elevated);
+}
+.bc-task-scope button {
+  height:26px;
+  padding:0 10px;
+  border:0;
+  border-radius:6px;
+  background:transparent;
+  color:var(--text-tertiary);
+  font-size:10.5px;
+  cursor:pointer;
+}
+.bc-task-scope button[aria-pressed="true"] {
+  background:var(--bg-surface);
+  color:var(--text-primary);
+  box-shadow:0 1px 4px rgba(0,0,0,.18);
+}
+.bc-task-center-hint {
+  margin-left:auto;
+  color:var(--text-tertiary);
+  font-size:10px;
+}
+.bc-task-summary {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:7px;
+  padding:9px 12px;
+}
+.bc-task-summary-item {
+  padding:8px 9px;
+  border:1px solid var(--border-standard);
+  border-radius:9px;
+  background:var(--bg-elevated);
+}
+.bc-task-summary-item small {
+  display:block;
+  color:var(--text-tertiary);
+  font-size:9.5px;
+}
+.bc-task-summary-item strong {
+  display:block;
+  margin-top:2px;
+  font-size:15px;
+}
+.bc-task-summary-item[data-tone="issue"] strong {
+  color:#ff8b82;
+}
+.bc-task-center-body {
+  overflow:auto;
+  padding:0 12px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.bc-task-row {
+  padding:10px 11px;
+  border:1px solid var(--border-standard);
+  border-radius:10px;
+  background:var(--bg-elevated);
+}
+.bc-task-row[data-state="running"],.bc-task-row[data-state="starting"] {
+  border-color:color-mix(in srgb,var(--accent) 26%,var(--border-standard));
+}
+.bc-task-row-head {
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-width:0;
+}
+.bc-task-row-head strong {
+  font-size:12px;
+}
+.bc-task-account-name {
+  max-width:220px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--text-secondary);
+  font-size:10.5px;
+}
+.bc-task-state {
+  margin-left:auto;
+  padding:2px 6px;
+  border-radius:999px;
+  background:var(--accent-soft);
+  color:var(--accent);
+  font-size:9.5px;
+}
+.bc-task-row-meta {
+  margin-top:5px;
+  color:var(--text-tertiary);
+  font-size:10.5px;
+}
+.bc-task-progress {
+  height:4px;
+  margin-top:8px;
+  border-radius:999px;
+  background:var(--border-standard);
+  overflow:hidden;
+}
+.bc-task-progress span {
+  display:block;
+  height:100%;
+  border-radius:inherit;
+  background:var(--accent);
+  transition:width .2s ease;
+}
+.bc-task-row-error {
+  margin-top:7px;
+  padding:6px 8px;
+  border-radius:7px;
+  background:color-mix(in srgb,#ff7d74 9%,transparent);
+  color:#ff9b91;
+  font-size:10px;
+  line-height:1.4;
+  word-break:break-word;
+}
+.bc-task-actions {
+  display:flex;
+  gap:6px;
+  margin-top:8px;
+  flex-wrap:wrap;
+}
+.bc-task-actions button {
+  height:26px;
+  padding:0 8px;
+  border:1px solid var(--border-standard);
+  border-radius:6px;
+  background:var(--bg-surface);
+  color:var(--text-secondary);
+  font-size:10.5px;
+  cursor:pointer;
+}
+.bc-task-actions button:hover {
+  background:var(--bg-hover);
+  color:var(--text-primary);
+}
+.bc-task-actions .bc-task-view-account {
+  margin-right:auto;
+}
+.bc-task-history-title {
+  margin:7px 2px 0;
+  color:var(--text-secondary);
+  font-size:11px;
+  font-weight:700;
+}
+.bc-task-empty {
+  padding:30px 12px;
+  text-align:center;
+  color:var(--text-tertiary);
+  font-size:11.5px;
+}
+.bc-task-scope-note {
+  padding:3px 2px 7px;
+  color:var(--text-tertiary);
+  font-size:10px;
+  text-align:center;
+}
+@media (max-width:640px) {
+  .bc-task-summary {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .bc-task-center-hint {
+    display:none;
+  }
+  .bc-task-account-name {
+    max-width:120px;
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  .bc-task-progress span {
+    transition:none!important;
+    animation:none!important;
+  }
+}
+/* Original current-account task bar: ui/broadcast-job-controller.js. */
+
+#broadcast-job-bar {
+  position:fixed;
+  top:46px;
+  right:18px;
+  z-index:88;
+  width:min(350px,calc(100vw - 36px));
+  padding:11px 12px;
+  border:1px solid var(--border-standard);
+  border-radius:10px;
+  background:color-mix(in srgb,var(--bg-surface) 94%,transparent);
+  box-shadow:0 14px 38px rgba(0,0,0,.34);
+  backdrop-filter:blur(18px);
+  color:var(--text-primary);
+  font:12px/1.4 var(--font-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);
+}
+#broadcast-job-bar.hidden {
+  display:none!important;
+}
+.bc-job-head {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.bc-job-dot {
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-soft);
+}
+.bc-job-title {
+  font-size:12.5px;
+  font-weight:650;
+  flex:1;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.bc-job-close {
+  border:0;
+  background:transparent;
+  color:var(--text-tertiary);
+  font-size:17px;
+  line-height:1;
+  cursor:pointer;
+  padding:2px 4px;
+  border-radius:5px;
+}
+.bc-job-close:hover {
+  background:var(--bg-hover);
+  color:var(--text-primary);
+}
+.bc-job-meta {
+  margin:5px 0 0 15px;
+  color:var(--text-tertiary);
+  font-size:11px;
+}
+.bc-job-feedback {
+  min-height:15px;
+  margin:4px 0 0 15px;
+  color:var(--text-tertiary);
+  font-size:10.5px;
+}
+.bc-job-feedback[data-state="error"] {
+  color:#f56c6c;
+}
+.bc-job-progress {
+  height:4px;
+  margin:8px 0 0 15px;
+  border-radius:999px;
+  background:var(--bg-elevated);
+  overflow:hidden;
+}
+.bc-job-progress>i {
+  display:block;
+  height:100%;
+  width:0;
+  background:var(--accent);
+  transition:width .25s ease;
+}
+.bc-job-actions {
+  display:flex;
+  justify-content:flex-end;
+  gap:6px;
+  margin-top:9px;
+}
+.bc-job-actions button {
+  height:27px;
+  padding:3px 9px;
+  border:1px solid var(--border-standard);
+  border-radius:6px;
+  background:var(--bg-elevated);
+  color:var(--text-secondary);
+  font-size:11px;
+  cursor:pointer;
+}
+.bc-job-actions button:hover {
+  color:var(--text-primary);
+  background:var(--bg-hover);
+}
+.bc-job-actions .danger {
+  color:#ff7d74;
+}
+.bc-job-failures {
+  max-height:150px;
+  overflow:auto;
+  margin:8px 0 0 15px;
+  padding:7px 8px;
+  border-radius:6px;
+  background:var(--bg-elevated);
+  color:var(--text-secondary);
+  font-size:10.5px;
+  white-space:pre-wrap;
+}
+/* Native layout, typed outcomes, and account task indicators. */
+
+#broadcast-job-bar.bc-layout-pending {
+  visibility: hidden;
+  pointer-events: none;
+}
+#broadcast-job-bar {
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+}
+.bc-job-actions {
+  flex-wrap: wrap;
+}
+.bc-job-actions button {
+  height: auto;
+  min-height: 27px;
+}
+.bc-job-hard-failure {
+  margin: 5px 0 0 15px;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.bc-task-feedback {
+  padding: 0 12px 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.bc-task-feedback:empty {
+  display: none;
+}
+.bc-task-progress {
+  display: block;
+  width: 100%;
+  border: 0;
+  appearance: none;
+}
+.bc-task-progress::-webkit-progress-bar {
+  background: var(--border-standard);
+  border-radius: inherit;
+}
+.bc-task-progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: inherit;
+}
+.bc-task-row details {
+  margin-top: 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.bc-task-row summary {
+  cursor: pointer;
+}
+.bc-task-results {
+  max-height: 180px;
+  overflow: auto;
+  font-size: 10.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.bc-task-result[data-outcome="uncertain"] {
+  color: #d9a35b;
+}
+.bc-task-result[data-outcome="notSubmitted"] {
+  color: #ff9b91;
+}
+.bc-account-job-state {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  line-height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--text-tertiary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-standard);
+}
+.bc-account-job-state[data-state="running"], .bc-account-job-state[data-state="starting"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.bc-account-job-state[data-state="paused"], .bc-account-job-state[data-state="queued"], .bc-account-job-state[data-state="scheduled"] {
+  color: #d9a35b;
+}
+.bc-account-job-state[data-state="failed"] {
+  color: #ff9b91;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bc-job-progress > i, .bc-task-progress {
+    transition: none;
+  }
+}

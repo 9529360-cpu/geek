@@ -1,0 +1,41 @@
+/* Original subscription CSS is extracted and scoped by prepare-session.cjs. */
+@import url('./session-original.css');
+
+.session-dialog {
+  width: min(900px, calc(100vw - 32px));
+  height: min(600px, calc(100vh - 68px));
+  max-height: calc(100vh - 68px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  position: relative;
+}
+.session-dialog .wrap { height: 100%; }
+.session-dialog .brand { flex-shrink: 0; }
+.session-dialog .main { min-width: 0; overflow-y: auto; }
+.session-dialog .session-text-link {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+}
+.session-dialog .session-text-link:disabled { text-decoration: none; }
+.session-dialog .field input { user-select: text; }
+.session-dialog .err { overflow-wrap: anywhere; }
+.session-dialog .service-health { bottom: 40px; }
+.session-dialog .status-card { padding: 0; }
+.session-dialog #session-view-home .switch-row { gap: 18px; }
+.session-dialog button:focus-visible,
+.session-dialog a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.session-account-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.session-account-status { margin-top: 8px; color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 800px) {
+  .session-dialog .brand { width: 230px; padding: 28px 20px; }
+  .session-dialog .main { padding: 36px 28px 86px; }
+  .session-dialog .service-health { left: 28px; right: 28px; }
+  .session-dialog .footer-note { width: calc(100% - 56px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-dialog .view.on { animation: none; }
+}
