@@ -29,6 +29,8 @@ fn document() -> BroadcastPresetDocument {
                 name: "Frozen selection".into(),
                 recipient_ids: vec!["100@c.us".into(), "200-300@g.us".into()],
             }],
+            excluded_contact_ids: Vec::new(),
+            excluded_group_ids: Vec::new(),
         }],
     }
 }
@@ -165,7 +167,7 @@ fn every_persisted_level_rejects_unknown_or_missing_fields_and_kinds_are_closed(
 #[test]
 fn corrupt_semantics_never_become_an_open_owner_or_trigger_an_eager_rewrite() {
     let mut invalid = Vec::new();
-    for schema in [0, 2, u32::MAX] {
+    for schema in [0, 3, u32::MAX] {
         let mut candidate = document();
         candidate.schema_version = schema;
         invalid.push(candidate);

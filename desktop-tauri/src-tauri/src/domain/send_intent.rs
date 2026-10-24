@@ -24,6 +24,13 @@ pub enum SendContext {
     Mentions {
         mentions: Vec<SendMention>,
     },
+    ReplyMentions {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "chatId")]
+        chat_id: String,
+        mentions: Vec<SendMention>,
+    },
     Attachment {
         #[serde(rename = "attachmentId")]
         attachment_id: String,
@@ -48,6 +55,17 @@ impl SendContext {
             Self::Mentions { mentions } => {
                 valid_chat_id(expected_chat)
                     && expected_chat.ends_with("@g.us")
+                    && validate_mentions(text, mentions).is_ok()
+            }
+            Self::ReplyMentions {
+                message_id,
+                chat_id,
+                mentions,
+            } => {
+                chat_id == expected_chat
+                    && valid_chat_id(expected_chat)
+                    && expected_chat.ends_with("@g.us")
+                    && valid_reply_key(message_id, expected_chat)
                     && validate_mentions(text, mentions).is_ok()
             }
             Self::Attachment { attachment_id } => {

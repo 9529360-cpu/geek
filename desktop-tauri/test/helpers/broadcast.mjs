@@ -122,6 +122,10 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     }
     if (name === 'create') {
       if (!backend.jobs.some((item) => item.id === value.id)) {
+        const exclusions = saved?.read(value.accountId);
+        if (exclusions && value.recipientIds.some((id) => exclusions.excludedContactIds.includes(id) || exclusions.excludedGroupIds.includes(id))) {
+          throw 'BROADCAST_EXCLUSION_CONFLICT';
+        }
         const source = catalogLeases.get(`${value.accountId}:${value.catalogId}`) || catalog(value.accountId, accountCatalogs[value.accountId]);
         if (source.catalogId !== value.catalogId) throw 'BROADCAST_UNAVAILABLE';
         const targets = value.recipientIds.map((id) => {
@@ -162,6 +166,8 @@ export async function fixture({ initialJobs = [], accountCatalogs = {}, before =
     broadcastExportFailures: (accountId, jobId) => invoke('export', { accountId, jobId }) };
   if (saved) Object.assign(api, {
     broadcastPresets: (accountId) => invoke('presets', accountId),
+    broadcastSaveExclusions: (accountId, expectedRevision, excludedContactIds, excludedGroupIds) =>
+      invoke('saveExclusions', { accountId, expectedRevision, excludedContactIds, excludedGroupIds }),
     broadcastSaveMessage: (accountId, expectedRevision, name, message) => invoke('saveMessage', { accountId, expectedRevision, name, message }),
     broadcastSaveAudience: (accountId, catalogId, expectedRevision, name, recipientIds) =>
       invoke('saveAudience', { accountId, catalogId, expectedRevision, name, recipientIds }),

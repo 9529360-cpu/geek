@@ -113,7 +113,7 @@ function createWhatsAppTextComposer(changed) {
   function matches(record, value) {
     return value.chatId === record.chatId && value.editor === record.editor && value.chat === record.chat
       && value.text === record.text && value.composerRevision === record.composerRevision && context.matches(record, value)
-      && (record.context.kind === 'mentions'
+      && (['mentions', 'replyMentions'].includes(record.context.kind)
         ? mentions.matches(record.composerState?.mentions?.proof, value) : !value.mentions);
   }
   function clear(record) {
@@ -154,8 +154,8 @@ function createWhatsAppTextComposer(changed) {
     const value = read();
     if (!matches(record, value)) throw issue('SEND_INTENT_CHANGED');
     const options = { waitForAck: true, detectMentioned: false, linkPreview: false };
-    if (record.context.kind === 'reply') options.quotedMsg = record.quoteModel;
-    if (record.context.kind === 'mentions') Object.assign(options, mentions.submitOptions(record.composerState.mentions.proof));
+    if (['reply', 'replyMentions'].includes(record.context.kind)) options.quotedMsg = record.quoteModel;
+    if (['mentions', 'replyMentions'].includes(record.context.kind)) Object.assign(options, mentions.submitOptions(record.composerState.mentions.proof));
     return value.W.chat.sendTextMessage(record.chatId, text, options);
   }
   const input = (event) => {
@@ -174,7 +174,7 @@ function createWhatsAppTextComposer(changed) {
   });
   observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true,
     attributes: true, attributeFilter: ['contenteditable', 'data-testid', 'data-tab', 'data-mention-jid',
-      'data-mention-id', 'data-app-text-template', 'role', 'hidden', 'aria-label', 'aria-hidden', 'title', 'src', 'srcset', 'alt'] });
+      'data-mention-id', 'data-app-text-template', 'role', 'hidden', 'aria-label', 'aria-hidden', 'title', 'src', 'srcset', 'alt', 'style'] });
   document.addEventListener('beforeinput', input, true);
   document.addEventListener('input', input, true);
   return { selector, read, currentChat, matches, clear, submission, submit,

@@ -1,6 +1,22 @@
 const controls = /[\u0000-\u001f\u007f-\u009f]/;
 const messageControls = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 
+export function exclusionIds(value) {
+  if (!Array.isArray(value) || value.length > 2000 || new Set(value).size !== value.length
+    || value.some((id) => typeof id !== 'string' || !id || id.length > 500 || /\s/.test(id) || controls.test(id))) {
+    throw 'BROADCAST_PRESET_INVALID';
+  }
+  return value.slice();
+}
+
+export function exclusionsOf(value) {
+  return { excludedContactIds: exclusionIds(value.excludedContactIds), excludedGroupIds: exclusionIds(value.excludedGroupIds) };
+}
+
+export function exclusionFingerprint(value) {
+  return JSON.stringify([value.excludedContactIds, value.excludedGroupIds]);
+}
+
 export function presetName(value) {
   if (typeof value !== 'string' || !value.trim() || controls.test(value)) throw 'BROADCAST_PRESET_INVALID';
   const name = value.trim();
@@ -14,7 +30,7 @@ export function presetMessage(value) {
   return value;
 }
 
-export function normalizePresets(value, accountId) {
+export function normalizePresets(value, accountId, requireExclusions = false) {
   if (!value || value.accountId !== accountId || !Number.isSafeInteger(value.revision) || value.revision < 0
     || !Array.isArray(value.messages) || !Array.isArray(value.audiences)
     || value.messages.length > 100 || value.audiences.length > 100) throw 'BROADCAST_PRESET_INVALID';
@@ -33,7 +49,12 @@ export function normalizePresets(value, accountId) {
       return { id: item.id, name: item.name, recipientIds: item.recipientIds.slice() };
     });
   };
-  return { accountId, revision: value.revision, messages: rows(value.messages, 'message'), audiences: rows(value.audiences, 'audience') };
+  // Older native snapshots have no durable exclusions; a partially present or
+  // null pair is never interpreted as an empty saved deny list.
+  const exclusions = !requireExclusions && !Object.hasOwn(value, 'excludedContactIds') && !Object.hasOwn(value, 'excludedGroupIds')
+    ? { excludedContactIds: [], excludedGroupIds: [] } : exclusionsOf(value);
+  return { accountId, revision: value.revision, messages: rows(value.messages, 'message'), audiences: rows(value.audiences, 'audience'),
+    ...exclusions };
 }
 
 // Changes to an audience source also matter when its verified result is still empty.

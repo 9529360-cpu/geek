@@ -4,13 +4,14 @@ use super::{
     *,
 };
 use crate::domain::broadcast_presets::{
-    validate_preset_recipients, BroadcastPresetKind, BroadcastPresetSnapshot,
+    validate_exclusions_for_platform, validate_preset_recipients, BroadcastPresetKind,
+    BroadcastPresetSnapshot,
 };
 use serde_json::json;
 use std::sync::MutexGuard;
 
 impl BroadcastDesktop {
-    fn preset_account(&self, account_id: &str) -> Result<()> {
+    fn preset_account(&self, account_id: &str) -> Result<String> {
         if !valid_uuid(account_id) {
             return Err(AppError::BroadcastPresetInvalid);
         }
@@ -27,7 +28,7 @@ impl BroadcastDesktop {
         ) {
             return Err(AppError::BroadcastUnsupported);
         }
-        Ok(())
+        Ok(account.platform_id)
     }
 
     fn preset_owner(&self) -> Result<MutexGuard<'_, NativeBroadcastPresets>> {
@@ -49,6 +50,25 @@ impl BroadcastDesktop {
         self.preset_account(account_id)?;
         self.preset_owner()?
             .save_message(account_id, expected_revision, name, message)
+    }
+
+    pub fn save_exclusions(
+        &self,
+        account_id: &str,
+        expected_revision: u64,
+        excluded_contact_ids: Vec<String>,
+        excluded_group_ids: Vec<String>,
+    ) -> Result<BroadcastPresetSnapshot> {
+        let platform = self.preset_account(account_id)?;
+        validate_exclusions_for_platform(&platform, &excluded_contact_ids, &excluded_group_ids)?;
+        // Exclusions are deny-only hints, including peers absent from today's
+        // directory. No catalog/guest permission or live resolution is needed.
+        self.preset_owner()?.save_exclusions(
+            account_id,
+            expected_revision,
+            excluded_contact_ids,
+            excluded_group_ids,
+        )
     }
 
     pub fn save_audience(

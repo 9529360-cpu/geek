@@ -1,22 +1,30 @@
 import { draftRecipients, normalizeResolvedRecipients, importSummaryText } from '../models/broadcast.mjs';
-import { normalizePresets, presetName, presetMessage, audienceDraftFingerprint } from '../models/broadcast-presets.mjs';
+import { normalizePresets, presetName, presetMessage, audienceDraftFingerprint, exclusionsOf, exclusionFingerprint }
+  from '../models/broadcast-presets.mjs';
 import { errorCode, errorMessage } from '../models/broadcast-status.mjs';
 import { createBroadcastPresetsView } from '../views/broadcast-presets.mjs';
+import { createBroadcastExclusionsView } from '../views/broadcast-exclusions.mjs';
 
 // Account/editor identity and recipient reads remain owned by the broadcast controller.
 // This helper owns only the revisioned, durable preset collection and its editor forms.
-export function createBroadcastPresets({ document, api, context, track, changed, applyMessage, applyAudience }) {
+export function createBroadcastPresets({ document, api, context, track, changed, applyMessage, applyAudience, applyExclusions }) {
   const available = ['broadcastPresets', 'broadcastSaveMessage', 'broadcastSaveAudience', 'broadcastDeletePreset', 'broadcastRestoreAudience']
     .every((name) => typeof api?.[name] === 'function');
+  const exclusionsAvailable = available && typeof api?.broadcastSaveExclusions === 'function';
   const names = new Map();
+  const pendingExclusions = new Map();
   const audienceOperations = new Set();
   let scope = null;
   let snapshot = null;
   let operation = null;
   let conflict = false;
+  let exclusionsReadFailed = false;
   let disposed = false;
   let message = '', audience = '';
   let messageRevision = 0, audienceRevision = 0;
+  let exclusions = '', exclusionRevision = 0;
+  const exclusionsView = createBroadcastExclusionsView({ document,
+    onSave: () => track(saveExclusions()), onReload: () => track(load(true)) });
   const view = createBroadcastPresetsView({ document,
     onSave: (kind) => track(save(kind)), onDelete: (kind, id) => track(remove(kind, id)),
     onApplyMessage: useMessage, onRestore: (id) => track(restore(id)),
@@ -29,15 +37,19 @@ export function createBroadcastPresets({ document, api, context, track, changed,
     if (!scope || scope.accountId !== state.accountId || scope.epoch !== state.epoch) {
       if (scope) names.set(scope.accountId, view.names());
       scope = { accountId: state.accountId, epoch: state.epoch };
-      snapshot = null; operation = null; conflict = false;
+      snapshot = null; operation = null; conflict = false; exclusionsReadFailed = false;
       view.bind(names.get(state.accountId));
       if (available) for (const kind of ['message', 'audience']) view.feedback(kind, '请刷新资料。', 'ready', true);
       message = state.draft.message; audience = audienceDraftFingerprint(state.draft);
       messageRevision = 0; audienceRevision = 0;
+      exclusions = exclusionFingerprint(state.draft); exclusionRevision = 0;
+      exclusionsView.feedback(exclusionsAvailable ? '正在读取排除项…' : '', 'loading');
     }
     if (message !== state.draft.message) { message = state.draft.message; messageRevision += 1; }
     const next = audienceDraftFingerprint(state.draft);
     if (audience !== next) { audience = next; audienceRevision += 1; }
+    const nextExclusions = exclusionFingerprint(state.draft);
+    if (exclusions !== nextExclusions) { exclusions = nextExclusions; exclusionRevision += 1; }
     return state;
   }
 
@@ -48,13 +60,17 @@ export function createBroadcastPresets({ document, api, context, track, changed,
     view.availability({ available, ready: Boolean(snapshot), busy: Boolean(operation), conflict,
       blocked: !state.open || state.blocked,
       audienceReady: Boolean(state.catalog?.ready && !state.audienceBusy && !audienceOperations.size) });
+    exclusionsView.render({ available: exclusionsAvailable, open: state.open, ready: Boolean(snapshot),
+      busy: Boolean(operation), blocked: state.blocked, conflict: conflict || exclusionsReadFailed, dirty: pendingExclusions.has(state.accountId),
+      directoryReady: Boolean(state.catalog?.ready && !state.audienceBusy && !audienceOperations.size) });
   }
 
   function capture(action, kind = null) {
     const state = observe();
     return { action, kind, ...scope, revision: snapshot?.revision,
       catalogId: kind === 'audience' && action !== 'delete' ? state.catalog?.catalogId : undefined,
-      inputRevision: action === 'load' ? undefined : kind === 'message' ? messageRevision : audienceRevision,
+      inputRevision: action === 'load' ? undefined : kind === 'message' ? messageRevision
+        : kind === 'exclusions' ? exclusionRevision : audienceRevision,
       nameRevision: action === 'save' || action === 'delete' ? view.revision(kind) : undefined };
   }
 
@@ -67,13 +83,15 @@ export function createBroadcastPresets({ document, api, context, track, changed,
     if (!ownerCurrent(ticket)) return false;
     const state = context();
     return (ticket.catalogId === undefined || state.catalog?.catalogId === ticket.catalogId)
-      && (ticket.inputRevision === undefined || ticket.inputRevision === (ticket.kind === 'message' ? messageRevision : audienceRevision))
+      && (ticket.inputRevision === undefined || ticket.inputRevision === (ticket.kind === 'message' ? messageRevision
+        : ticket.kind === 'exclusions' ? exclusionRevision : audienceRevision))
       && (ticket.nameRevision === undefined || ticket.nameRevision === view.revision(ticket.kind));
   }
 
   function canAct(kind, directory = kind === 'audience') {
     const state = observe();
     return available && !disposed && !operation && !conflict && snapshot && state.open && !state.blocked
+      && (kind !== 'exclusions' || !exclusionsReadFailed)
       && (!directory || state.catalog?.ready && !state.audienceBusy && !audienceOperations.size);
   }
 
@@ -82,6 +100,13 @@ export function createBroadcastPresets({ document, api, context, track, changed,
     const code = errorCode(error);
     const refresh = ['BROADCAST_PRESET_CONFLICT', 'BROADCAST_PRESET_UNKNOWN'].includes(code);
     if (refresh) conflict = true;
+    if (ticket.action === 'load') exclusionsReadFailed = true;
+    if (ticket.kind === 'exclusions' || ticket.action === 'load') {
+      exclusionsView.feedback(ticket.action === 'load' ? '排除项未能读取，请重试。'
+        : refresh ? '已保存的排除项已变化，请重新读取。' : '排除项未保存，请重试。', 'error',
+      { save: ticket.action !== 'load' && !refresh, reload: true });
+      if (ticket.kind === 'exclusions') return;
+    }
     const text = ticket.action === 'load' ? '资料暂时无法读取，请刷新重试。' : errorMessage(error);
     for (const kind of ticket.kind ? [ticket.kind] : ['message', 'audience']) view.feedback(kind, text, 'error', refresh || ticket.action === 'load');
   }
@@ -91,6 +116,10 @@ export function createBroadcastPresets({ document, api, context, track, changed,
     if (operation !== ticket) { render(); changed(); return; }
     if (!applied && ownerCurrent(ticket) && !current(ticket)) {
       if (ticket.action === 'restore') view.feedback('audience', '选择已变化，原选择已保留。', 'ready');
+      else if (ticket.kind === 'exclusions') {
+        conflict = true;
+        exclusionsView.feedback('排除项已变化，请重新读取保存结果。', 'error', { reload: true });
+      }
       else if (ticket.action !== 'load') {
         conflict = true;
         view.feedback(ticket.kind, '草稿已变化，请刷新资料查看结果。', 'error', true);
@@ -99,20 +128,53 @@ export function createBroadcastPresets({ document, api, context, track, changed,
     operation = null; render(); changed();
   }
 
-  async function load() {
+  async function load(discardExclusions = false) {
     const state = observe();
     if (!available || disposed || operation || !state.open || state.blocked) { render(); return; }
     const ticket = capture('load'); operation = ticket;
     for (const kind of ['message', 'audience']) view.feedback(kind, '正在读取资料…', 'loading');
-    render();
+    exclusionsView.feedback('正在读取排除项…', 'loading');
+    render(); changed();
     let applied = false;
     try {
       const value = await api.broadcastPresets(ticket.accountId);
       if (!current(ticket)) return;
-      const next = normalizePresets(value, ticket.accountId);
+      const next = normalizePresets(value, ticket.accountId, exclusionsAvailable);
       if (snapshot && next.revision < snapshot.revision) throw 'BROADCAST_PRESET_CONFLICT';
-      snapshot = next; conflict = false; applied = true;
+      snapshot = next; conflict = false; exclusionsReadFailed = false; applied = true;
+      if (exclusionsAvailable) {
+        const pending = pendingExclusions.get(ticket.accountId);
+        if (discardExclusions || pending && exclusionFingerprint(pending) === exclusionFingerprint(next)) {
+          pendingExclusions.delete(ticket.accountId);
+        }
+        const unsaved = pendingExclusions.get(ticket.accountId);
+        applyExclusions(unsaved || exclusionsOf(next));
+        exclusionsView.feedback(unsaved ? '排除项尚未保存' : '', unsaved ? 'error' : 'ready',
+          { save: Boolean(unsaved), reload: Boolean(unsaved) });
+      }
       for (const kind of ['message', 'audience']) view.feedback(kind);
+    } catch (error) { failure(ticket, error); }
+    finally { finish(ticket, applied); }
+  }
+
+  async function saveExclusions() {
+    if (!exclusionsAvailable || !canAct('exclusions', false)) { render(); return; }
+    const ticket = capture('saveExclusions', 'exclusions');
+    const payload = exclusionsOf(context().draft);
+    pendingExclusions.set(ticket.accountId, payload);
+    operation = ticket;
+    exclusionsView.feedback('正在保存…', 'loading'); render(); changed();
+    let applied = false;
+    try {
+      const value = await api.broadcastSaveExclusions(ticket.accountId, ticket.revision,
+        payload.excludedContactIds, payload.excludedGroupIds);
+      if (!current(ticket)) return;
+      const next = normalizePresets(value, ticket.accountId, true);
+      if (next.revision < ticket.revision || exclusionFingerprint(next) !== exclusionFingerprint(payload)
+        || next.revision === ticket.revision && JSON.stringify(next) !== JSON.stringify(snapshot)) throw 'BROADCAST_PRESET_CONFLICT';
+      snapshot = next; applied = true;
+      pendingExclusions.delete(ticket.accountId);
+      exclusionsView.feedback('已保存', 'ready');
     } catch (error) { failure(ticket, error); }
     finally { finish(ticket, applied); }
   }
@@ -134,7 +196,7 @@ export function createBroadcastPresets({ document, api, context, track, changed,
         ? await api.broadcastSaveMessage(ticket.accountId, ticket.revision, name, payload)
         : await api.broadcastSaveAudience(ticket.accountId, ticket.catalogId, ticket.revision, name, payload);
       if (!current(ticket)) return;
-      const next = normalizePresets(value, ticket.accountId);
+      const next = normalizePresets(value, ticket.accountId, exclusionsAvailable);
       const unchanged = kind === 'message' && next.revision === ticket.revision
         && JSON.stringify(next) === JSON.stringify(snapshot)
         && next.messages.some((item) => item.name === name && item.message === payload);
@@ -155,7 +217,7 @@ export function createBroadcastPresets({ document, api, context, track, changed,
     try {
       const value = await api.broadcastDeletePreset(ticket.accountId, ticket.revision, kind, id);
       if (!current(ticket)) return;
-      const next = normalizePresets(value, ticket.accountId);
+      const next = normalizePresets(value, ticket.accountId, exclusionsAvailable);
       if (next.revision <= ticket.revision) throw 'BROADCAST_PRESET_CONFLICT';
       snapshot = next; applied = true; view.deleted(kind); view.feedback(kind, '已删除', 'ready');
     } catch (error) { failure(ticket, error); }
@@ -189,7 +251,19 @@ export function createBroadcastPresets({ document, api, context, track, changed,
 
   return {
     load, render,
+    exclusionsChanged() {
+      if (!exclusionsAvailable) return;
+      const state = observe();
+      if (!state.open) return;
+      pendingExclusions.set(state.accountId, exclusionsOf(state.draft));
+      void track(saveExclusions());
+    },
+    get exclusionsBlocked() {
+      const state = observe();
+      return exclusionsAvailable && (!snapshot || conflict || exclusionsReadFailed || ['load', 'saveExclusions'].includes(operation?.action)
+        || pendingExclusions.has(state.accountId));
+    },
     get audienceBusy() { return audienceOperations.size > 0; },
-    dispose() { disposed = true; operation = null; names.clear(); audienceOperations.clear(); view.dispose(); },
+    dispose() { disposed = true; operation = null; names.clear(); pendingExclusions.clear(); audienceOperations.clear(); view.dispose(); },
   };
 }

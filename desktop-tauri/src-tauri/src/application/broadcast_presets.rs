@@ -4,10 +4,10 @@ use crate::domain::{
     account::{valid_id, MAX_ACCOUNTS},
     account_backup::PresetBackup,
     broadcast_presets::{
-        normalize_preset_name, validate_preset_message, validate_preset_recipients,
-        BroadcastAudiencePreset, BroadcastMessagePreset, BroadcastPresetDocument,
-        BroadcastPresetKind, BroadcastPresetSnapshot, MAX_PRESETS_PER_COLLECTION,
-        MAX_PRESET_REVISION,
+        normalize_preset_name, validate_exclusions, validate_preset_message,
+        validate_preset_recipients, BroadcastAudiencePreset, BroadcastMessagePreset,
+        BroadcastPresetDocument, BroadcastPresetKind, BroadcastPresetSnapshot,
+        MAX_PRESETS_PER_COLLECTION, MAX_PRESET_REVISION, PRESET_SCHEMA_VERSION,
     },
     error::{AppError, Result},
 };
@@ -90,6 +90,41 @@ impl<R: BroadcastPresetRepository> BroadcastPresets<R> {
             });
             Ok(true)
         })
+    }
+
+    pub fn save_exclusions(
+        &mut self,
+        account_id: &str,
+        expected_revision: u64,
+        excluded_contact_ids: Vec<String>,
+        excluded_group_ids: Vec<String>,
+    ) -> Result<BroadcastPresetSnapshot> {
+        validate_exclusions(&excluded_contact_ids, &excluded_group_ids)?;
+        self.update(account_id, expected_revision, |account| {
+            if account.excluded_contact_ids == excluded_contact_ids
+                && account.excluded_group_ids == excluded_group_ids
+            {
+                return Ok(false);
+            }
+            account.excluded_contact_ids = excluded_contact_ids;
+            account.excluded_group_ids = excluded_group_ids;
+            Ok(true)
+        })
+    }
+
+    /// Used under the same owner lock as new-job submission. Existing frozen jobs
+    /// are independent; this deny list cannot create targets or edit their intent.
+    pub fn ensure_not_excluded(&self, account_id: &str, recipient_ids: &[String]) -> Result<()> {
+        let current = self.snapshot(account_id)?;
+        let excluded = current
+            .excluded_contact_ids
+            .iter()
+            .chain(&current.excluded_group_ids)
+            .collect::<std::collections::HashSet<_>>();
+        if recipient_ids.iter().any(|id| excluded.contains(id)) {
+            return Err(AppError::BroadcastExclusionConflict);
+        }
+        Ok(())
     }
 
     pub fn delete(
@@ -214,6 +249,16 @@ impl<R: BroadcastPresetRepository> BroadcastPresets<R> {
                 })
                 .collect();
         }
+        if let Some(contacts) = &backup.excluded_contact_ids {
+            candidate.excluded_contact_ids = contacts.clone();
+        }
+        if let Some(groups) = &backup.excluded_group_ids {
+            candidate.excluded_group_ids = groups.clone();
+        }
+        validate_exclusions(
+            &candidate.excluded_contact_ids,
+            &candidate.excluded_group_ids,
+        )?;
         Ok(candidate)
     }
 
@@ -254,6 +299,7 @@ impl<R: BroadcastPresetRepository> BroadcastPresets<R> {
         account: &BroadcastPresetSnapshot,
     ) -> Result<BroadcastPresetDocument> {
         let mut next = self.document.clone();
+        next.schema_version = PRESET_SCHEMA_VERSION;
         if let Some(existing) = next
             .accounts
             .iter_mut()

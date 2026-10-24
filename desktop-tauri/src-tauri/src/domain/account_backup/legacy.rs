@@ -13,9 +13,6 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 const UNSUPPORTED_KEYS: &[&str] = &[
-    "broadcastExclude",
-    "broadcastExcludeContacts",
-    "broadcastExcludeGroups",
     "broadcastGroups",
     "savedGroups",
     "groupLinks",
@@ -170,6 +167,7 @@ pub(super) fn parse(value: Value) -> Result<BackupImport> {
     }
     validate_metadata(&record.account, &record.exported_at, &record.excludes)?;
     let mut presets = PresetBackup::default();
+    let mut shared_exclusions = None;
     let mut translation = TranslationBackup::default();
     let mut reported_unsupported = Vec::new();
     let mut ignored_keys = Vec::new();
@@ -208,6 +206,9 @@ pub(super) fn parse(value: Value) -> Result<BackupImport> {
                         .collect::<Result<_>>()?,
                 );
             }
+            "broadcastExcludeContacts" => presets.excluded_contact_ids = Some(decode(value)?),
+            "broadcastExcludeGroups" => presets.excluded_group_ids = Some(decode(value)?),
+            "broadcastExclude" => shared_exclusions = Some(decode::<Vec<String>>(value)?),
             "translationGlobal" => {
                 translation.global = Some(decode::<LegacyGlobal>(value)?.convert()?)
             }
@@ -219,7 +220,8 @@ pub(super) fn parse(value: Value) -> Result<BackupImport> {
             _ => return Err(AppError::BackupInvalid),
         }
     }
-    let has_presets = presets.messages.is_some() || presets.audiences.is_some();
+    merge_exclusions(&mut presets, shared_exclusions)?;
+    let has_presets = presets.is_present();
     let has_translation = translation.global.is_some() || translation.chats.is_some();
     if !has_presets
         && !has_translation
@@ -238,4 +240,45 @@ pub(super) fn parse(value: Value) -> Result<BackupImport> {
         reported_unsupported,
         ignored_keys,
     })
+}
+
+fn merge_exclusions(presets: &mut PresetBackup, shared: Option<Vec<String>>) -> Result<()> {
+    use crate::domain::broadcast_presets::{exclusion_kind, validate_exclusions, ExclusionKind};
+    use std::collections::HashSet;
+
+    validate_exclusions(
+        presets.excluded_contact_ids.as_deref().unwrap_or_default(),
+        presets.excluded_group_ids.as_deref().unwrap_or_default(),
+    )?;
+    let Some(shared) = shared else {
+        return Ok(());
+    };
+    let mut contacts = Vec::new();
+    let mut groups = Vec::new();
+    let mut seen = HashSet::new();
+    for id in shared {
+        if !seen.insert(id.clone()) {
+            return Err(AppError::BroadcastPresetInvalid);
+        }
+        match exclusion_kind(&id) {
+            Some(ExclusionKind::Contact) => contacts.push(id),
+            Some(ExclusionKind::Group) => groups.push(id),
+            None => return Err(AppError::BroadcastPresetInvalid),
+        }
+    }
+    validate_exclusions(&contacts, &groups)?;
+    // A present combined list describes both kinds, including an explicit empty
+    // list. Union overlapping legacy keys without dropping a deny-only hint.
+    for (specific, combined) in [
+        (&mut presets.excluded_contact_ids, contacts),
+        (&mut presets.excluded_group_ids, groups),
+    ] {
+        let ids = specific.get_or_insert_with(Vec::new);
+        let mut present: HashSet<String> = ids.iter().cloned().collect();
+        ids.extend(combined.into_iter().filter(|id| present.insert(id.clone())));
+    }
+    validate_exclusions(
+        presets.excluded_contact_ids.as_deref().unwrap_or_default(),
+        presets.excluded_group_ids.as_deref().unwrap_or_default(),
+    )
 }

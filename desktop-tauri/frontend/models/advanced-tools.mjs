@@ -1,6 +1,7 @@
 import { errorMessage as shellError } from '../model.mjs';
 import { errorCode, errorMessage as broadcastError } from './broadcast-status.mjs';
 import { DEFAULT_POLICY, policyOf, chatPolicyOf, translationOf, translationError } from './translation.mjs';
+import { exclusionIds } from './broadcast-presets.mjs';
 
 const own = (value, key) => Object.hasOwn(value, key);
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -53,7 +54,7 @@ export function backupDataOf(value) {
   const data = {};
   if (own(value, 'presets')) {
     const presets = value.presets;
-    knownObject(presets, ['messages', 'audiences']);
+    knownObject(presets, ['messages', 'audiences', 'excludedContactIds', 'excludedGroupIds']);
     if (!Object.keys(presets).length) invalid();
     data.presets = {};
     for (const kind of ['messages', 'audiences']) {
@@ -69,6 +70,10 @@ export function backupDataOf(value) {
         if (!Array.isArray(entry.recipientIds) || !entry.recipientIds.every(text)) invalid();
         return { name: entry.name, recipientIds: [...entry.recipientIds] };
       });
+    }
+    for (const key of ['excludedContactIds', 'excludedGroupIds']) {
+      if (!own(presets, key)) continue;
+      try { data.presets[key] = exclusionIds(presets[key]); } catch { invalid(); }
     }
   }
   if (own(value, 'translation')) {
@@ -104,6 +109,7 @@ export function backupPreviewOf(value, accountId) {
 
 export function previewCounts(data) {
   return [['常用消息', data.presets, 'messages'], ['自定义标签', data.presets, 'audiences'],
+    ['联系人排除项', data.presets, 'excludedContactIds'], ['群组排除项', data.presets, 'excludedGroupIds'],
     ['全局翻译', data.translation, 'global'], ['单聊翻译', data.translation, 'chats']].map(([label, section, key]) => {
     const present = Boolean(section && own(section, key));
     const size = !present ? null : key === 'global' ? 1 : key === 'chats' ? Object.keys(section[key]).length : section[key].length;

@@ -5,8 +5,9 @@ mod strict_json;
 use super::{
     account::Account,
     broadcast_presets::{
-        normalize_preset_name, validate_preset_message, validate_preset_recipients,
-        BroadcastPresetSnapshot, MAX_PRESETS_PER_COLLECTION,
+        normalize_preset_name, validate_exclusions, validate_exclusions_for_platform,
+        validate_preset_message, validate_preset_recipients, BroadcastPresetSnapshot,
+        MAX_PRESETS_PER_COLLECTION,
     },
     error::{AppError, Result},
     translation::{
@@ -69,6 +70,18 @@ pub struct PresetBackup {
         skip_serializing_if = "Option::is_none"
     )]
     pub audiences: Option<Vec<BackupAudience>>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub excluded_contact_ids: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub excluded_group_ids: Option<Vec<String>>,
 }
 
 impl PresetBackup {
@@ -94,11 +107,20 @@ impl PresetBackup {
                     })
                     .collect(),
             ),
+            excluded_contact_ids: Some(snapshot.excluded_contact_ids.clone()),
+            excluded_group_ids: Some(snapshot.excluded_group_ids.clone()),
         }
     }
 
+    pub fn is_present(&self) -> bool {
+        self.messages.is_some()
+            || self.audiences.is_some()
+            || self.excluded_contact_ids.is_some()
+            || self.excluded_group_ids.is_some()
+    }
+
     pub fn validate(&self) -> Result<()> {
-        if self.messages.is_none() && self.audiences.is_none() {
+        if !self.is_present() {
             return Err(AppError::BackupInvalid);
         }
         let mut names = HashSet::new();
@@ -126,11 +148,20 @@ impl PresetBackup {
                 validate_preset_recipients(&audience.recipient_ids)?;
             }
         }
+        validate_exclusions(
+            self.excluded_contact_ids.as_deref().unwrap_or_default(),
+            self.excluded_group_ids.as_deref().unwrap_or_default(),
+        )?;
         Ok(())
     }
 
     pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
         self.validate()?;
+        validate_exclusions_for_platform(
+            platform,
+            self.excluded_contact_ids.as_deref().unwrap_or_default(),
+            self.excluded_group_ids.as_deref().unwrap_or_default(),
+        )?;
         if let Some(audiences) = &self.audiences {
             if audiences
                 .iter()

@@ -83,7 +83,7 @@ export function createAdvancedToolsView(document, actions) {
     renderHistory(null);
   }
   function backup() {
-    const exportCard = card('导出设置备份', '备份常用消息、自定义标签与翻译设置。排除项和群工具配置暂不支持恢复。');
+    const exportCard = card('导出设置备份', '备份常用消息、自定义标签、联系人和群组排除项及翻译设置。群工具配置暂不支持恢复。');
     actionRow(exportCard, button('at-export-backup', '导出备份', actions.exportBackup, true));
     statusNode(exportCard, 'backup-export');
     const importCard = card('恢复设置备份', '先选择备份并核对范围。文件中存在的项目会替换当前设置，空集合会清空，未包含的项目保持现有。');
@@ -134,7 +134,7 @@ export function createAdvancedToolsView(document, actions) {
       if (source.ignoredKeys.length) preview.append(element(document, 'div', 'at-card-copy',
         `不会恢复：${source.ignoredKeys.map(backupKeyLabel).join('、')}`));
     }
-    for (const [kind, label] of [['presets', '常用消息与标签'], ['translation', '翻译设置']]) {
+    for (const [kind, label] of [['presets', '群发资料'], ['translation', '翻译设置']]) {
       const result = sections[kind];
       if (!result) continue;
       const success = ['restored', 'unchanged'].includes(result.status);

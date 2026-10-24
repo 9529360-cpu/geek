@@ -58,6 +58,8 @@ fn backup() -> BackupData {
                 name: "Customers".into(),
                 recipient_ids: vec!["12@c.us".into()],
             }]),
+            excluded_contact_ids: Some(vec!["34@c.us".into()]),
+            excluded_group_ids: Some(vec!["56@g.us".into()]),
         }),
         translation: Some(TranslationBackup {
             global: Some(TranslationPolicy {
@@ -86,6 +88,14 @@ fn complete_restore_reports_real_revisions_and_preserves_the_neighbor_account() 
     );
     assert_eq!(f.accounts.account(&f.b).unwrap(), neighbor);
     assert_eq!(f.presets.snapshot(&f.b).unwrap().revision, 0);
+    assert_eq!(
+        f.presets.snapshot(&f.a).unwrap().excluded_contact_ids,
+        vec!["34@c.us"]
+    );
+    assert_eq!(
+        f.presets.snapshot(&f.a).unwrap().excluded_group_ids,
+        vec!["56@g.us"]
+    );
     assert_eq!(f.preset_repository.0.lock().unwrap().saves, 1);
     assert_eq!(f.account_repository.0.lock().unwrap().saves, 3);
 }
@@ -100,6 +110,10 @@ fn later_translation_failure_keeps_the_saved_presets_and_retry_does_not_rewrite_
     assert_eq!(partial.translation.status, RestorationStatus::Failed);
     assert_eq!(partial.translation.code, Some(AppError::StoreIo));
     assert_eq!(partial.translation.revision, 0);
+    assert_eq!(
+        f.presets.ensure_not_excluded(&f.a, &["34@c.us".into()]),
+        Err(AppError::BroadcastExclusionConflict)
+    );
     assert_eq!(
         f.presets.snapshot(&f.a).unwrap().messages[0].message,
         "hello"
@@ -127,6 +141,12 @@ fn first_preset_failure_does_not_prevent_the_independent_translation_commit() {
         Some(AppError::BroadcastPresetPersistence)
     );
     assert_eq!(partial.presets.revision, 0);
+    assert!(f
+        .presets
+        .snapshot(&f.a)
+        .unwrap()
+        .excluded_contact_ids
+        .is_empty());
     assert_eq!(partial.translation.status, RestorationStatus::Restored);
     assert_eq!(partial.translation.revision, 1);
     f.preset_repository.0.lock().unwrap().fail = false;
@@ -170,6 +190,17 @@ fn every_preflight_finishes_before_either_owner_can_persist() {
             0,
             0,
             BackupData {
+                presets: Some(PresetBackup {
+                    excluded_group_ids: Some(vec!["34@c.us".into()]),
+                    ..Default::default()
+                }),
+                ..backup()
+            },
+        ),
+        (
+            0,
+            0,
+            BackupData {
                 translation: Some(TranslationBackup {
                     global: Some(TranslationPolicy {
                         translate_history: true,
@@ -190,6 +221,7 @@ fn every_preflight_finishes_before_either_owner_can_persist() {
                         name: "Foreign".into(),
                         recipient_ids: vec!["tg:42".into()],
                     }]),
+                    ..Default::default()
                 }),
                 ..backup()
             },
@@ -225,6 +257,7 @@ fn total_preset_store_limit_is_preflighted_before_an_independent_translation_upd
                 .collect(),
         ),
         audiences: None,
+        ..Default::default()
     };
     f.presets.restore(&f.b, 0, &first_half).unwrap();
     let data = BackupData {

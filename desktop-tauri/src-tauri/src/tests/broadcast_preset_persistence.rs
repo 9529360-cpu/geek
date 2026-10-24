@@ -22,12 +22,20 @@ fn encrypted_presets_restart_under_the_existing_instance_lock_and_never_touch_li
     owner
         .save_message(&id(1), 0, "SyntheticSecretName", "SyntheticSecretBody")
         .unwrap();
-    let a = owner
+    owner
         .save_audience(
             &id(1),
             1,
             "SyntheticSecretAudience",
             vec!["99887766@c.us".into(), "123-456@g.us".into()],
+        )
+        .unwrap();
+    let a = owner
+        .save_exclusions(
+            &id(1),
+            2,
+            vec!["88776655@c.us".into()],
+            vec!["123-456@g.us".into()],
         )
         .unwrap();
     let b = owner.save_message(&id(2), 0, "Other", "isolated").unwrap();
@@ -37,6 +45,7 @@ fn encrypted_presets_restart_under_the_existing_instance_lock_and_never_touch_li
         "SyntheticSecretBody",
         "SyntheticSecretAudience",
         "99887766@c.us",
+        "88776655@c.us",
     ] {
         assert!(!encrypted
             .windows(secret.len())
@@ -49,7 +58,7 @@ fn encrypted_presets_restart_under_the_existing_instance_lock_and_never_touch_li
     .unwrap();
     assert!(reopened.snapshot(&id(1)).unwrap() == a);
     assert!(reopened.snapshot(&id(2)).unwrap() == b);
-    assert!(reopened.audience(&id(1), 2, &a.audiences[0].id).unwrap() == a.audiences[0]);
+    assert!(reopened.audience(&id(1), 3, &a.audiences[0].id).unwrap() == a.audiences[0]);
     assert_eq!(fs::read(path).unwrap(), encrypted);
     assert_eq!(fs::read(jobs).unwrap(), b"synthetic separate live-job file");
     assert!(root.path().join("instance.lock").is_file());
@@ -74,6 +83,10 @@ fn failed_windows_atomic_replace_keeps_the_exact_old_ciphertext_memory_and_revis
         .unwrap();
     assert!(matches!(
         owner.save_message(&id(1), 1, "Original", "new"),
+        Err(AppError::BroadcastPresetPersistence)
+    ));
+    assert!(matches!(
+        owner.save_exclusions(&id(1), 1, vec!["12@c.us".into()], Vec::new()),
         Err(AppError::BroadcastPresetPersistence)
     ));
     assert!(owner.snapshot(&id(1)).unwrap() == before);
@@ -102,15 +115,67 @@ fn corrupted_future_or_unrecognized_encrypted_documents_fail_without_reset_or_re
     assert!(matches!(open(), Err(AppError::BroadcastPresetInvalid)));
     assert_eq!(fs::read(&path).unwrap(), b"corrupt synthetic ciphertext");
     for value in [
-        serde_json::json!({"schemaVersion":2,"accounts":[]}),
+        serde_json::json!({"schemaVersion":3,"accounts":[]}),
         serde_json::json!({"schemaVersion":1,"accounts":[],"unexpected":true}),
         serde_json::json!({"schemaVersion":1,"accounts":[{"accountId":id(1),"revision":0,"messages":[],"audiences":[]}]}),
+        serde_json::json!({"schemaVersion":2,"accounts":[{"accountId":id(1),"revision":1,"messages":[],"audiences":[]}]}),
     ] {
         let encrypted = dpapi::encrypt(&serde_json::to_vec(&value).unwrap()).unwrap();
         fs::write(&path, &encrypted[..]).unwrap();
         assert!(matches!(open(), Err(AppError::BroadcastPresetInvalid)));
         assert_eq!(fs::read(&path).unwrap(), encrypted[..]);
     }
+}
+
+#[test]
+fn encrypted_legacy_schema_is_preserved_on_load_and_only_upgraded_after_a_real_save() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("broadcast-presets.dpapi");
+    let old = serde_json::json!({"schemaVersion":1,"accounts":[{
+        "accountId":id(1),"revision":4,"messages":[],"audiences":[]
+    }]});
+    let old_bytes = dpapi::encrypt(&serde_json::to_vec(&old).unwrap()).unwrap();
+    fs::write(&path, &old_bytes[..]).unwrap();
+    let mut owner = BroadcastPresets::open(
+        EncryptedBroadcastPresetRepository::open(root.path().to_path_buf()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), old_bytes[..]);
+    let before = owner.snapshot(&id(1)).unwrap();
+    assert!(before.excluded_contact_ids.is_empty() && before.excluded_group_ids.is_empty());
+    owner
+        .save_exclusions(&id(1), 4, Vec::new(), Vec::new())
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), old_bytes[..]);
+    let held = OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(&path)
+        .unwrap();
+    assert!(matches!(
+        owner.save_exclusions(&id(1), 4, vec!["12@c.us".into()], Vec::new()),
+        Err(AppError::BroadcastPresetPersistence)
+    ));
+    assert!(owner.snapshot(&id(1)).unwrap() == before);
+    assert_eq!(fs::read(&path).unwrap(), old_bytes[..]);
+    drop(held);
+    let saved = owner
+        .save_exclusions(&id(1), 4, vec!["12@c.us".into()], Vec::new())
+        .unwrap();
+    let encrypted = fs::read(&path).unwrap();
+    let plain = dpapi::decrypt(&encrypted).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&plain).unwrap();
+    assert_eq!(value["schemaVersion"], 2);
+    assert_eq!(
+        value["accounts"][0]["excludedContactIds"],
+        serde_json::json!(["12@c.us"])
+    );
+    let reopened = BroadcastPresets::open(
+        EncryptedBroadcastPresetRepository::open(root.path().to_path_buf()).unwrap(),
+    )
+    .unwrap();
+    assert!(reopened.snapshot(&id(1)).unwrap() == saved);
+    assert_eq!(fs::read(path).unwrap(), encrypted);
 }
 
 #[test]
@@ -127,7 +192,7 @@ fn repository_rejects_oversized_ciphertext_and_invalid_saves_without_touching_au
     ));
     assert_eq!(fs::read(&path).unwrap(), oversized);
     let invalid = BroadcastPresetDocument {
-        schema_version: 2,
+        schema_version: 3,
         ..Default::default()
     };
     assert!(matches!(

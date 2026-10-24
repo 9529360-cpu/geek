@@ -89,7 +89,7 @@ function checkCommands(files) {
     } else if (['broadcast_catalog', 'broadcast_create', 'broadcast_snapshot', 'broadcast_control',
       'broadcast_pick_attachments', 'broadcast_release_attachments',
       'broadcast_import_contacts', 'broadcast_resolve_recipients', 'broadcast_resolve_audience',
-      'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience',
+      'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience', 'broadcast_save_exclusions',
       'broadcast_delete_preset', 'broadcast_restore_audience',
       'broadcast_export_failures', 'broadcast_export_contacts', 'broadcast_history', 'broadcast_export_history',
       'account_export_backup', 'account_pick_backup', 'account_restore_backup'].includes(name)) {

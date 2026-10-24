@@ -39,6 +39,8 @@ serves K text, ordered attachments, schedules and saved messages/audiences. The 
 shows K photos/videos/documents and changes the caption limit without truncating a draft;
 unavailable import/entity controls remain disabled by capability. WhatsApp outgoing retains
 its original send gesture and adds verified group mentions, captioned image/video replies,
+and ordinary PDF replies with a user-written caption and matching loaded page previews,
+and verified same-group replies combined with selected contact mentions,
 single image/video or identified-PDF captions, and bounded image/PDF batches with one selected
 caption through the actual preview send button. A selected video may accompany images;
 video/PDF mixtures and multiple videos remain unavailable. Batches send separate ordered
@@ -48,5 +50,8 @@ Visible account/translation panels refresh the existing native session snapshot;
 keep evidence and dismissal without a resume control, while failed stop persistence exposes
 an explicit finish-stop action in the original task bar and center.
 These paths share the existing application owners and do not introduce a replacement layout.
+Exclusion selectors keep their original locations and save per account; inline save/retry
+feedback uses their existing action rows. Backup review includes both exclusion collections
+and distinguishes preserving an absent collection from clearing an explicitly empty one.
 The Tauri workbench's open recipient dropdown participates in the scrollable body layout so
 its rows remain reachable above the footer at both 1280 × 820 and the 960 × 640 minimum size.

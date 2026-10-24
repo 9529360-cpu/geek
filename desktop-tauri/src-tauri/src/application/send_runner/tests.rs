@@ -1,6 +1,7 @@
 use super::*;
 use crate::domain::{
     send_intent::{SendContext, SendOutcome, SendState},
+    send_mentions::SendMention,
     translation::ChatTranslationPolicy,
 };
 
@@ -177,6 +178,69 @@ fn changing_reply_context_without_a_new_attempt_revokes_the_frozen_worker_before
     assert!(state.prepared.is_empty());
     assert!(state.commits.is_empty());
     assert_eq!(h.transform.executions.load(Ordering::Acquire), 1);
+}
+
+#[test]
+fn changing_either_combined_context_component_revokes_the_frozen_worker() {
+    for change_quote in [false, true] {
+        let mut h = Harness::new();
+        let (view, mut request) = fixture(true);
+        request.chat_id = "12025550123-99@g.us".into();
+        request.text = "Hello @123".into();
+        request.context = SendContext::ReplyMentions {
+            message_id: format!("false_{}_QUOTE1", request.chat_id),
+            chat_id: request.chat_id.clone(),
+            mentions: vec![SendMention {
+                id: "123@c.us".into(),
+                offset: 6,
+                length: 4,
+            }],
+        };
+        let blocked = Block::new();
+        h.transform.steps.lock().unwrap().push_back(Step::Block(
+            Arc::clone(&blocked.0),
+            Ok("Late paid @123".into()),
+        ));
+        h.platform.select(view, request.clone());
+        h.poll();
+        h.start();
+        blocked.0.entered();
+        {
+            let mut state = h.platform.state.lock().unwrap();
+            let SendContext::ReplyMentions {
+                message_id,
+                mentions,
+                ..
+            } = &mut state.request.as_mut().unwrap().context
+            else {
+                panic!("the pending request must retain its combined context");
+            };
+            if change_quote {
+                *message_id = format!("false_{}_QUOTE2", request.chat_id);
+            } else {
+                mentions[0].id = "123@lid".into();
+            }
+        }
+        assert_eq!(
+            h.service.poll(&mut h.runner),
+            Err(AppError::SendIntentConflict)
+        );
+        h.service.suspend(&mut h.runner);
+        assert!(h.runner.flight.is_some());
+        assert!(h.runner.queued.is_none());
+        blocked.0.release();
+        h.finish();
+        assert_eq!(h.status(&request.id).state, SendState::Failed);
+        assert_eq!(
+            h.status(&request.id).issue,
+            Some(AppError::SendIntentConflict)
+        );
+        assert!(!h.status(&request.id).retryable);
+        let state = h.platform.state.lock().unwrap();
+        assert!(state.prepared.is_empty());
+        assert!(state.commits.is_empty());
+        assert_eq!(h.transform.executions.load(Ordering::Acquire), 1);
+    }
 }
 
 #[test]

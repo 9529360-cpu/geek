@@ -59,11 +59,13 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> SendTrans
             return Ok(ticket.request.text.clone());
         }
         let mentions = match &ticket.request.context {
-            SendContext::Mentions { mentions } => Some(MentionTranslation::encode(
-                &ticket.request.id,
-                &ticket.request.text,
-                mentions,
-            )?),
+            SendContext::Mentions { mentions } | SendContext::ReplyMentions { mentions, .. } => {
+                Some(MentionTranslation::encode(
+                    &ticket.request.id,
+                    &ticket.request.text,
+                    mentions,
+                )?)
+            }
             _ => None,
         };
         let work = self.translation.prepare_outgoing(

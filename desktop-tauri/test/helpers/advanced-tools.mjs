@@ -25,7 +25,7 @@ export function backup(accountId = 'a', data = {
 }) {
   return { accountId, presetRevision: 3, translationRevision: 1, backup: { version: 3,
     account: { name: '备份账号', type: 'whatsapp' }, data: structuredClone(data),
-    reportedUnsupported: ['broadcastExcludeContacts', 'gtAutoCfg'], ignoredKeys: ['sendHistory', 'scheduleTasks'] } };
+    reportedUnsupported: ['savedGroups', 'gtAutoCfg'], ignoredKeys: ['sendHistory', 'scheduleTasks'] } };
 }
 
 export async function fixture({ before = async () => {}, layoutBefore = async () => {}, fullShell = false, missing = [] } = {}) {
@@ -56,7 +56,8 @@ export async function fixture({ before = async () => {}, layoutBefore = async ()
     platforms: ['whatsapp', 'whatsapp-pure', 'website'].map((id) => ({ id, name: id, enabled: true,
       family: id.startsWith('whatsapp') ? 'whatsapp' : id })) };
   let shell = structuredClone(backend);
-  const presets = new Map(accounts.map((item) => [item.id, { revision: 3, messages: [], audiences: [{ name: '原标签', recipientIds: ['100@c.us'] }] }]));
+  const presets = new Map(accounts.map((item) => [item.id, { revision: 3, messages: [],
+    audiences: [{ name: '原标签', recipientIds: ['100@c.us'] }], excludedContactIds: ['101@c.us'], excludedGroupIds: ['200@g.us'] }]));
   const histories = new Map(accounts.map((item) => [item.id, history(item.id)]));
   const calls = []; const errors = []; const failures = new Map();
   let selectedBackup = backup();

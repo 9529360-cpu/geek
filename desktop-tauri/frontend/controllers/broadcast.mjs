@@ -58,7 +58,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     if (disposed) return;
     const code = errorCode(error);
     lastStatus = { text: errorMessage(error), state: 'error', localDraft,
-      retry: !/ATTACHMENT|FILE|IMPORT|EXPORT/.test(code) && /CATALOG|READY|UNAVAILABLE/.test(code) };
+      retry: !/ATTACHMENT|FILE|IMPORT|EXPORT/.test(code) && /CATALOG|READY|UNAVAILABLE|EXCLUSION/.test(code) };
     editor?.status(lastStatus.text, lastStatus.state, lastStatus.retry);
   };
   const owner = () => shell?.accounts.find((account) => account.id === editorOwner);
@@ -77,7 +77,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     else editor.status(lastStatus.text, lastStatus.state, lastStatus.retry);
     editor.availability({ shellBusy, creating, loading, mismatch: mismatch(), apiAvailable, pendingControls,
       attachmentsAvailable, attachmentBusy: picking || removingAttachment, importAvailable, resolveAvailable, audienceAvailable,
-      importBusy: importing || presets?.audienceBusy });
+      importBusy: importing || presets?.audienceBusy, exclusionsBlocked: presets?.exclusionsBlocked });
     presets?.render();
   }
 
@@ -275,7 +275,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   }
 
   async function submit(continueEditing) {
-    if (disposed || creating || shellBusy || loading || picking || removingAttachment || importing || presets?.audienceBusy
+    if (disposed || creating || shellBusy || loading || picking || removingAttachment || importing || presets?.audienceBusy || presets?.exclusionsBlocked
       || !apiAvailable || panel !== 'broadcast-overlay') return;
     const accountId = editorOwner;
     const epoch = editorEpoch;
@@ -393,10 +393,12 @@ export function createBroadcastController({ document, window, api, getShellSnaps
       if (reason === 'audience-updated' && lastStatus.state !== 'error') {
         lastStatus = { text: '发送对象已更新，排除项已保留', state: 'ready', retry: false };
       }
-      stash(); refreshEditor();
+      stash();
+      if (reason === 'exclusions-changed') presets?.exclusionsChanged();
+      refreshEditor();
     },
     onSubmit: (continued) => track(submit(continued)), onClose: () => track(closePanel().catch(report)),
-    onRetry: () => track(loadCatalog()), onControl: (id, action) => track(control(id, action)),
+    onRetry: () => track(Promise.allSettled([loadCatalog(), presets?.load()])), onControl: (id, action) => track(control(id, action)),
     onPickAttachments: () => track(pickAttachments()), onRemoveAttachment: (id) => track(removeAttachment(id)),
     onImportContacts: () => track(importContacts()),
     onResolveSource: (kind) => track(importContacts(kind)),
@@ -408,6 +410,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
     changed: refreshEditor,
     applyMessage: (message) => editor.message(message),
     applyAudience: (result) => { catalog = result.catalog; editor.restored(result); stash(); refreshEditor(); },
+    applyExclusions: (value) => { editor.exclusions(value); stash(); },
   });
   jobsView = createBroadcastJobs({ document, window, requestLayout,
     onOpen: () => track(openTasks().catch(report)), onClose: () => track(closePanel().catch(report)),

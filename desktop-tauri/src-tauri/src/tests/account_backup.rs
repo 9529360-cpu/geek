@@ -38,6 +38,7 @@ fn text_backup() -> BackupData {
                 message: "Hello %nc".into(),
             }]),
             audiences: None,
+            ..Default::default()
         }),
         translation: None,
     }
@@ -141,19 +142,21 @@ fn v2_missing_components_stay_absent_and_known_unsupported_or_execution_keys_are
         "scheduleTasks": [{"enabled": true}], "broadcastJobSchedules": [{"status": "running"}]
     }));
     let imported = parse(&record).unwrap();
-    assert_eq!(imported.reported_unsupported.len(), 9);
+    assert_eq!(imported.reported_unsupported.len(), 6);
     assert_eq!(imported.ignored_keys.len(), 3);
     let presets = imported.data.presets.unwrap();
     assert_eq!(presets.messages, Some(Vec::new()));
     assert!(presets.audiences.is_none());
+    assert_eq!(
+        presets.excluded_contact_ids,
+        Some(vec!["12025550123@c.us".into()])
+    );
+    assert_eq!(presets.excluded_group_ids, Some(Vec::new()));
     let translation = imported.data.translation.unwrap();
     assert!(translation.global.is_none());
     assert!(translation.chats.unwrap().is_empty());
-    let unsupported_only = parse(&legacy(json!({"broadcastExclude": []}))).unwrap();
-    assert_eq!(
-        unsupported_only.reported_unsupported,
-        vec!["broadcastExclude"]
-    );
+    let unsupported_only = parse(&legacy(json!({"groupLinks": []}))).unwrap();
+    assert_eq!(unsupported_only.reported_unsupported, vec!["groupLinks"]);
     assert!(unsupported_only.data.presets.is_none() && unsupported_only.data.translation.is_none());
 }
 
@@ -331,6 +334,7 @@ fn typed_partial_translation_preserves_inheritance_and_portable_audiences_have_n
                 name: "A".into(),
                 recipient_ids: vec!["12@c.us".into()],
             }]),
+            ..Default::default()
         }),
         translation: Some(TranslationBackup::from_settings(&current)),
     };

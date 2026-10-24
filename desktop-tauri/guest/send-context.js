@@ -1,4 +1,4 @@
-// Named wire context plus a narrow, model-backed plain-text reply adapter.
+// Named wire context plus independently proved quote and contact-mention semantics.
 function sameSendContext(left, right) {
   const validMentions = (value) => Array.isArray(value) && value.length > 0 && value.length <= 32
     && value.every((item) => item && typeof item === 'object' && !Array.isArray(item)
@@ -13,15 +13,18 @@ function sameSendContext(left, right) {
       : value.kind === 'attachment' ? keys === 'attachmentId,kind' && typeof value.attachmentId === 'string'
           && /^[\da-f]{8}-[\da-f]{4}-[1-5][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i.test(value.attachmentId)
         : value.kind === 'mentions' ? keys === 'kind,mentions' && validMentions(value.mentions)
-        : value.kind === 'reply' && keys === 'chatId,kind,messageId'
+        : (value.kind === 'reply' && keys === 'chatId,kind,messageId'
+          || value.kind === 'replyMentions' && keys === 'chatId,kind,mentions,messageId' && validMentions(value.mentions))
           && typeof value.messageId === 'string' && typeof value.chatId === 'string';
   };
+  const sameMentions = (left, right) => left.mentions.length === right.mentions.length
+    && left.mentions.every((item, index) => item.id === right.mentions[index].id
+      && item.offset === right.mentions[index].offset && item.length === right.mentions[index].length);
   return valid(left) && valid(right) && left.kind === right.kind
     && (left.kind === 'plain' || left.kind === 'attachment' && left.attachmentId === right.attachmentId
-      || left.kind === 'mentions' && left.mentions.length === right.mentions.length
-      && left.mentions.every((item, index) => item.id === right.mentions[index].id
-        && item.offset === right.mentions[index].offset && item.length === right.mentions[index].length)
-      || left.kind === 'reply' && left.messageId === right.messageId && left.chatId === right.chatId);
+      || left.kind === 'mentions' && sameMentions(left, right)
+      || (left.kind === 'reply' || left.kind === 'replyMentions') && left.messageId === right.messageId && left.chatId === right.chatId
+        && (left.kind === 'reply' || sameMentions(left, right)));
 }
 
 function createSendContext({ normalize, visible, issue, mentions }) {
@@ -101,15 +104,19 @@ function createSendContext({ normalize, visible, issue, mentions }) {
     for (const child of footer.childNodes) visit(child);
     return leaves;
   }
-  function passiveElement(node) {
+  function passiveElement(node, proof) {
     const tags = new Set(['DIV', 'P', 'SPAN', 'BR']);
     const attributes = new Set(['class', 'dir', 'style', 'data-testid', 'data-lexical-text', 'data-lexical-linebreak']);
     return node.nodeType === 1 && tags.has(node.tagName)
-      && [...node.attributes].every((attr) => attributes.has(attr.name));
+      && [...node.attributes].every((attr) => attributes.has(attr.name))
+      // PDF previews are the only proved inline styles in this quote shape.
+      // A CSS comment/escape or another image property must not bypass the
+      // exact preview matcher and then fall through as an innocent DIV.
+      && (!proof?.documentPreviews || !node.getAttribute('style')?.trim());
   }
   function passive(node, proof) {
-    return node.nodeType === 3 || media.allowsImage(node, proof)
-      || passiveElement(node) && [...node.childNodes].every((child) => passive(child, proof));
+    return node.nodeType === 3 || media.allowsNode(node, proof)
+      || passiveElement(node, proof) && [...node.childNodes].every((child) => passive(child, proof));
   }
   function replyRegion(value, model, proof) {
     const { footer, editor, W } = value;
@@ -136,15 +143,15 @@ function createSendContext({ normalize, visible, issue, mentions }) {
     const structure = (node) => {
       if (node === editor || node.nodeType === 3) return true;
       if (node.nodeType !== 1) return false;
-      if (media.allowsImage(node, imageProof)) return true;
+      if (media.allowsNode(node, imageProof)) return true;
       if (!visible(node) || node.matches('button, [role="button"], svg')
           && !node.contains(bodyNode) && (!author || !node.contains(author))) return true;
-      return passiveElement(node) && [...node.childNodes].every(structure);
+      return passiveElement(node, imageProof) && [...node.childNodes].every(structure);
     };
     if (![...footer.childNodes].every(structure)) throw issue();
     let region = bodyNode;
     if (author) while (region && !region.contains(author)) region = region.parentNode;
-    if (imageProof) while (region && !region.contains(imageProof.image)) region = region.parentNode;
+    for (const node of media.nodes(imageProof)) while (region && !region.contains(node)) region = region.parentNode;
     if (!region || region === footer || region.contains(editor)) throw issue();
     // The range is derived from the exact loaded body and verified author, never
     // a guessed WhatsApp testid. Keep every node identity for the final CAS.
@@ -160,7 +167,6 @@ function createSendContext({ normalize, visible, issue, mentions }) {
     const remote = field(value.chat, fields[1]);
     if (!empty(field(value.chat, fields[2])) || !empty(field(value.chat, fields[3]))) throw issue();
     const plain = empty(source);
-    if (!plain && value.mentions) throw issue();
     if (plain && !empty(remote) || !plain && !empty(remote) && idOf(remote) !== value.chatId) throw issue();
     const quote = plain ? null : quoteModel(value, source);
     const suspicious = '[contenteditable="false"], img, video, audio, canvas, textarea, '
@@ -168,7 +174,7 @@ function createSendContext({ normalize, visible, issue, mentions }) {
       + '[data-testid*="media-editor"], [data-mention-jid], [data-mention-id]'
       + (plain ? ', [data-testid*="quoted"]' : '');
     if ([...value.footer.querySelectorAll(suspicious)].some((node) => visible(node)
-        && !media.allowsImage(node, quote?.proof?.quoteMedia)
+        && !media.allowsNode(node, quote?.proof?.quoteMedia)
         && !mentions.allowsNode(value.mentions?.proof, node))) throw issue();
     if (plain) {
       // Preserve the existing ordinary composer guard, including control labels.
@@ -181,7 +187,11 @@ function createSendContext({ normalize, visible, issue, mentions }) {
       return { context: value.mentions?.context || Object.freeze({ kind: 'plain' }),
         quoteModel: null, quoteNodes: [], quoteRegion: null, quoteMedia: null };
     }
-    return { context: quote.context, quoteModel: quote.model, ...replyRegion(value, quote.model, quote.proof) };
+    // Keep the independently owned entity proof unchanged; only the frozen wire
+    // context combines it with the separately verified same-chat quote identity.
+    const context = value.mentions
+      ? Object.freeze({ ...quote.context, kind: 'replyMentions', mentions: value.mentions.context.mentions }) : quote.context;
+    return { context, quoteModel: quote.model, ...replyRegion(value, quote.model, quote.proof) };
   }
   function matches(record, value) {
     return sameSendContext(record.context, value.context) && record.quoteModel === value.quoteModel

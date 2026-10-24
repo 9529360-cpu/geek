@@ -23,6 +23,7 @@ commands.allow = [
   "broadcast_resolve_recipients",
   "broadcast_resolve_audience",
   "broadcast_presets",
+  "broadcast_save_exclusions",
   "broadcast_save_message",
   "broadcast_save_audience",
   "broadcast_delete_preset",

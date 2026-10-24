@@ -6,6 +6,49 @@ import { DEFAULT_POLICY } from '../frontend/models/translation.mjs';
 
 const calls = (ui, name) => ui.calls.filter(([command]) => command === name);
 
+test('exclusion-only backup previews both kinds and restores only its explicitly present collection', async () => {
+  const ui = await fixture();
+  ui.setBackup(backup('a', { presets: { excludedContactIds: [] } }));
+  await ui.click('bc-menu-backup'); await ui.click('at-pick-backup');
+  assert.match(ui.get('at-backup-preview').textContent, /联系人排除项0清空现有/);
+  assert.match(ui.get('at-backup-preview').textContent, /群组排除项—保持现有/);
+  assert.equal(calls(ui, 'account_restore_backup').length, 0);
+  await ui.click('at-restore-backup');
+  assert.deepEqual(calls(ui, 'account_restore_backup')[0][1].data, { presets: { excludedContactIds: [] } });
+  assert.deepEqual(ui.presets.get('a').excludedContactIds, []);
+  assert.deepEqual(ui.presets.get('a').excludedGroupIds, ['200@g.us']);
+  assert.deepEqual(ui.presets.get('b').excludedContactIds, ['101@c.us']);
+  assert.equal(ui.get('at-result-presets').dataset.state, 'success');
+});
+
+test('a failed exclusion restore retains its reviewed list for an explicit retry without touching translation', async () => {
+  let first = true; let ui;
+  ui = await fixture({ before: (command, args) => {
+    if (command === 'account_restore_backup' && first) {
+      first = false; return ui.restore(args, { failPresets: 'BROADCAST_PRESET_PERSISTENCE' });
+    }
+  } });
+  const data = { presets: { excludedContactIds: ['102@c.us'], excludedGroupIds: [] } };
+  ui.setBackup(backup('a', data)); await ui.click('bc-menu-backup'); await ui.click('at-pick-backup');
+  await ui.click('at-restore-backup');
+  assert.deepEqual(ui.presets.get('a').excludedContactIds, ['101@c.us']);
+  assert.deepEqual(ui.presets.get('a').excludedGroupIds, ['200@g.us']);
+  assert.match(ui.get('at-status-backup-import').textContent, /未完成部分/);
+  await ui.click('at-restore-backup');
+  assert.deepEqual(calls(ui, 'account_restore_backup').at(-1)[1].data, data);
+  assert.deepEqual(ui.presets.get('a').excludedContactIds, ['102@c.us']);
+  assert.deepEqual(ui.presets.get('a').excludedGroupIds, []);
+  assert.equal(ui.backend.accounts[0].translation.revision, 1);
+});
+
+test('backup exclusion arrays reject null, malformed and duplicate values rather than silently clearing settings', () => {
+  for (const value of [null, {}, [null], [''], ['id', 'id'], ['id with spaces'], Array.from({ length: 2001 }, (_, i) => String(i))]) {
+    assert.throws(() => backupDataOf({ presets: { excludedContactIds: value } }));
+    assert.throws(() => backupDataOf({ presets: { excludedGroupIds: value } }));
+  }
+  assert.deepEqual(backupDataOf({ presets: { excludedGroupIds: [] } }), { presets: { excludedGroupIds: [] } });
+});
+
 test('backup review preserves absent versus explicitly empty collections and requires the restore button', async () => {
   const ui = await fixture();
   const chosen = backup('a', { presets: { messages: [] }, translation: { chats: {} } });
@@ -13,8 +56,9 @@ test('backup review preserves absent versus explicitly empty collections and req
   ui.setBackup(chosen);
   await ui.click('bc-menu-backup'); await ui.click('at-pick-backup');
   const cards = ui.get('at-backup-preview').querySelectorAll('.at-stat').map((node) => node.textContent);
-  assert.deepEqual(cards, ['常用消息0清空现有', '自定义标签—保持现有', '全局翻译—保持现有', '单聊翻译0清空现有']);
-  assert.match(ui.get('at-backup-preview').textContent, /联系人排除项、群工具自动配置/);
+  assert.deepEqual(cards, ['常用消息0清空现有', '自定义标签—保持现有', '联系人排除项—保持现有', '群组排除项—保持现有',
+    '全局翻译—保持现有', '单聊翻译0清空现有']);
+  assert.match(ui.get('at-backup-preview').textContent, /保存的群组、群工具自动配置/);
   assert.match(ui.get('at-backup-preview').textContent, /不会恢复：发送历史、定时任务/);
   assert.match(ui.get('at-backup-preview').textContent, /<img src=x/);
   assert.equal(ui.get('at-backup-preview').querySelector('img'), null);
@@ -37,7 +81,7 @@ test('a backup containing only unavailable keys is reviewable but cannot clear o
   assert.equal(ui.get('at-restore-backup').disabled, true);
   assert.match(ui.get('at-status-backup-import').textContent, /未包含可恢复/);
   assert.equal(calls(ui, 'account_restore_backup').length, 0);
-  assert.equal(ui.get('at-backup-preview').querySelectorAll('.at-stat').filter((node) => node.textContent.includes('保持现有')).length, 4);
+  assert.equal(ui.get('at-backup-preview').querySelectorAll('.at-stat').filter((node) => node.textContent.includes('保持现有')).length, 6);
 });
 
 test('cancelled or failed file selection keeps the previous reviewed backup and never writes settings', async () => {
@@ -126,7 +170,8 @@ test('late backup picks cannot replace a new preview after close or account ABA'
   ui.get('bc-menu-backup').fire('click'); await turn(); ui.get('at-pick-backup').fire('click'); await turn();
   gate.resolve(); await ui.idle();
   assert.deepEqual(ui.get('at-backup-preview').querySelectorAll('.at-stat').map((node) => node.textContent),
-    ['常用消息0清空现有', '自定义标签—保持现有', '全局翻译—保持现有', '单聊翻译—保持现有']);
+    ['常用消息0清空现有', '自定义标签—保持现有', '联系人排除项—保持现有', '群组排除项—保持现有',
+      '全局翻译—保持现有', '单聊翻译—保持现有']);
   await ui.click('at-restore-backup');
   assert.deepEqual(calls(ui, 'account_restore_backup')[0][1].data, { presets: { messages: [] } });
 });

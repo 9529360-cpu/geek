@@ -1,15 +1,23 @@
 //! Account-owned reusable text and frozen audiences, independent of live jobs.
+mod exclusions;
+mod storage;
+
 use super::{
     account::{valid_id, MAX_ACCOUNTS},
     broadcast::MAX_TARGETS,
     broadcast_render::validate_text,
     error::{AppError, Result},
 };
+#[cfg(test)]
+pub use exclusions::validate_exclusion_ids;
+pub use exclusions::{
+    exclusion_kind, validate_exclusions, validate_exclusions_for_platform, ExclusionKind,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use zeroize::Zeroizing;
 
-pub const PRESET_SCHEMA_VERSION: u32 = 1;
+pub const PRESET_SCHEMA_VERSION: u32 = 2;
 pub const MAX_PRESETS_PER_COLLECTION: usize = 100;
 pub const MAX_PRESET_STORE_BYTES: usize = 2 * 1024 * 1024 - 4096;
 pub const MAX_PRESET_REVISION: u64 = 9_007_199_254_740_991;
@@ -44,6 +52,8 @@ pub struct BroadcastPresetSnapshot {
     pub revision: u64,
     pub messages: Vec<BroadcastMessagePreset>,
     pub audiences: Vec<BroadcastAudiencePreset>,
+    pub excluded_contact_ids: Vec<String>,
+    pub excluded_group_ids: Vec<String>,
 }
 
 impl BroadcastPresetSnapshot {
@@ -53,12 +63,14 @@ impl BroadcastPresetSnapshot {
             revision: 0,
             messages: Vec::new(),
             audiences: Vec::new(),
+            excluded_contact_ids: Vec::new(),
+            excluded_group_ids: Vec::new(),
         }
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "storage::StoredDocument")]
 pub struct BroadcastPresetDocument {
     pub schema_version: u32,
     pub accounts: Vec<BroadcastPresetSnapshot>,
@@ -126,7 +138,7 @@ pub fn validate_preset_recipients(ids: &[String]) -> Result<()> {
 
 impl BroadcastPresetDocument {
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != PRESET_SCHEMA_VERSION {
+        if !matches!(self.schema_version, 1 | PRESET_SCHEMA_VERSION) {
             return Err(AppError::BroadcastPresetInvalid);
         }
         if self.accounts.len() > MAX_ACCOUNTS {
@@ -142,6 +154,13 @@ impl BroadcastPresetDocument {
             {
                 return Err(AppError::BroadcastPresetInvalid);
             }
+            if self.schema_version == 1
+                && (!account.excluded_contact_ids.is_empty()
+                    || !account.excluded_group_ids.is_empty())
+            {
+                return Err(AppError::BroadcastPresetInvalid);
+            }
+            validate_exclusions(&account.excluded_contact_ids, &account.excluded_group_ids)?;
             if account.messages.len() > MAX_PRESETS_PER_COLLECTION
                 || account.audiences.len() > MAX_PRESETS_PER_COLLECTION
             {

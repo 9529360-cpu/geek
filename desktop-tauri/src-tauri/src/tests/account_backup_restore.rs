@@ -19,6 +19,7 @@ fn text_backup(message: &str) -> PresetBackup {
             message: message.into(),
         }]),
         audiences: None,
+        ..Default::default()
     }
 }
 
@@ -133,6 +134,7 @@ fn duplicate_audience_rows_keep_distinct_local_ids_and_explicit_clear_retains_re
     let backup = PresetBackup {
         messages: None,
         audiences: Some(vec![audience.clone(), audience]),
+        ..Default::default()
     };
     let restored = owner.restore(&id(1), 0, &backup).unwrap();
     assert_ne!(restored.audiences[0].id, restored.audiences[1].id);
@@ -142,6 +144,7 @@ fn duplicate_audience_rows_keep_distinct_local_ids_and_explicit_clear_retains_re
     let clear = PresetBackup {
         messages: Some(Vec::new()),
         audiences: Some(Vec::new()),
+        ..Default::default()
     };
     let empty = owner.restore(&id(1), 1, &clear).unwrap();
     assert_eq!(empty.revision, 2);
@@ -169,6 +172,7 @@ fn invalid_preset_section_preflight_and_restore_leave_both_accounts_unchanged() 
                 message: "".into(),
             }]),
             audiences: None,
+            ..Default::default()
         },
         PresetBackup {
             messages: None,
@@ -176,6 +180,7 @@ fn invalid_preset_section_preflight_and_restore_leave_both_accounts_unchanged() 
                 name: "X".into(),
                 recipient_ids: vec!["12@c.us".into(), "12@c.us".into()],
             }]),
+            ..Default::default()
         },
         PresetBackup {
             messages: Some(
@@ -187,6 +192,7 @@ fn invalid_preset_section_preflight_and_restore_leave_both_accounts_unchanged() 
                     .collect(),
             ),
             audiences: None,
+            ..Default::default()
         },
     ] {
         assert!(owner.validate_restore(&id(1), 1, &invalid).is_err());

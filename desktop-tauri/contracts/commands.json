@@ -167,6 +167,16 @@
       "response": "BroadcastPresetSnapshot"
     },
     {
+      "name": "broadcast_save_exclusions",
+      "arguments": [
+        "accountId",
+        "expectedRevision",
+        "excludedContactIds",
+        "excludedGroupIds"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
       "name": "broadcast_save_message",
       "arguments": [
         "accountId",

@@ -40,6 +40,7 @@ const messages = {
   BROADCAST_PRESET_CONFLICT: '保存的资料已变化，请刷新后重试。',
   BROADCAST_PRESET_UNKNOWN: '这条资料已不存在，请刷新后重试。',
   BROADCAST_PRESET_PERSISTENCE: '资料未能保存，原列表和草稿仍保留。',
+  BROADCAST_EXCLUSION_CONFLICT: '排除名单已变化，请刷新后重新核对发送对象。',
   BROADCAST_IMPORT_INVALID: '联系人文件格式无效，请检查号码列或聊天ID列。',
   BROADCAST_IMPORT_LIMIT: '联系人文件最多 5 MiB，最多 2000 个不同收件人。',
   BROADCAST_IMPORT_EMPTY: '没有可核验的收件人，原选择已保留。',

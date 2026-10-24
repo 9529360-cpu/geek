@@ -89,9 +89,10 @@ export function createAudienceView(document, changed, resolveSource) {
     const select = $(id);
     select.setAttribute('aria-label', kind === 'contact' ? '排除指定联系人' : '排除指定群组');
     bind(select, 'change', () => {
+      if (blocked) return;
       const ids = new Set([...select.options].filter((option) => option.selected).map((option) => option.value));
       if (kind === 'contact') excludedContacts = ids; else excludedGroups = ids;
-      render(); changed();
+      render(); changed('exclusions-changed');
     });
     const update = button(document, '更新对象', () => {
       if (blocked || !catalog?.ready) return;
@@ -286,6 +287,11 @@ export function createAudienceView(document, changed, resolveSource) {
     importStatus(text = '', state = 'ready') { importFeedback = text ? { text, state } : null; renderImport(); },
     sourceStatus: sources.status,
     clearCards() { cards.clear(); $('broadcast-add-vcard').checked = false; renderCards(); },
+    exclusions(value) {
+      excludedContacts = new Set(value.excludedContactIds);
+      excludedGroups = new Set(value.excludedGroupIds);
+      render();
+    },
     resetSearch() { $('broadcast-search').value = ''; vcardSearch.value = ''; open(false); },
     values: () => ({ ...selection(), vcardIds: [...cards],
       audienceMode: mode, manualRecipientIds: [...selected], importedRecipientIds: imported.slice(),

@@ -55,6 +55,7 @@ pub fn run() {
             commands::broadcast_resolve_recipients,
             commands::broadcast_resolve_audience,
             commands::broadcast_presets,
+            commands::broadcast_save_exclusions,
             commands::broadcast_save_message,
             commands::broadcast_save_audience,
             commands::broadcast_delete_preset,

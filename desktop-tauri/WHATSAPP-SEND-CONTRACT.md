@@ -1,7 +1,7 @@
 # WhatsApp interactive send: verified special contexts
 
 This records the platform contract behind the existing `SendIntent` owner. It covers
-contact mentions, replies to loaded image/video messages, and captions for a prepared
+contact mentions, verified replies with or without contact mentions, and captions for a prepared
 image, video, positively identified PDF or bounded media batch. Each mode has its own bounded input
 proof and acceptance evidence. Local synthetic-platform tests do not establish delivery
 through an authenticated WhatsApp account.
@@ -79,7 +79,8 @@ that each non-overlapping range equals `@` plus that UID's numeric user. The DOM
 contact objects, participant models and parsable draft remain private to the guest.
 
 Bot/group mentions, `@all`, unknown rich content, self mentions, ambiguous identity,
-and combinations with a quote or a new attachment are rejected. Ordinary text without
+and combinations with a new attachment are rejected. Verified quotes use the combined
+context specified below. Ordinary text without
 entities continues through the existing plain-composer proof. A bare UID in text does
 not establish a selected mention.
 
@@ -152,8 +153,130 @@ Image/video reply ACK retains the whole source text and quote. The platform cont
 does not provide a reviewed synchronous atomic quote-clear operation; clearing just
 the editor text would leave a stale quote attached to the next message.
 
-Audio, documents, stickers, view-once content, absent captions, unproved thumbnails,
-newly selected attachments and combined mentions remain outside this reply adapter.
+Audio, generic documents, stickers, view-once content, absent captions, unproved thumbnails
+and newly selected attachments remain outside this reply adapter.
+
+## Replying to a loaded ordinary PDF with a user caption
+
+The same adapter also accepts a finite PDF subset. This continues the original
+[`ui/whatsapp-send-intent-capability.js`](../ui/whatsapp-send-intent-capability.js)
+composer workflow: select a platform reply and translate the new body using the
+existing Enter/send action. No separate quote picker or send owner is introduced.
+The original same-chat, loaded `MsgModel`/`MsgKey` and `canReplyMsg` checks still apply.
+
+### Source-backed visible content
+
+In the freshly retrieved [document formatting asset][restore],
+`WAWebQuotedMsgUtils.formatQuotedMsg` routes ordinary documents through
+`WAWebFormatMsgText`, `WAWebMessagePluginFormatMsgText` and its document registry entry
+to `WAWebFormatDocumentMsgText`. Its ordinary branch displays a nonempty caption only
+when `isCaptionByUser` is true. Otherwise it displays the filename and possibly a
+localized page count; this adapter does not guess that localized string.
+
+The accepted models have `type: "document"`, `mimetype: "application/pdf"`, a complete
+nonempty caption and `isCaptionByUser: true`. Template, dynamic-button, vCard and
+view-once flags must be false. `MsgModel` and the real `MediaDataModel` must agree on
+the PDF filename, positive integral byte size and page count. The filename is a
+bounded plain basename ending in `.pdf`; unknown subtype, nonempty footer, protected
+PDF or conflicting metadata is rejected. These strict metadata/footer conditions are
+the adapter's conservative scope, not additional requirements imposed by the platform.
+In particular, the platform's ordinary branch does not append an inactive footer.
+
+The [quoted-media components][quoted-media] register documents with
+`WAWebMediaMsgPreviewQuotedMsgThumbnailIcon.react` and render their media through
+`WAWebMediaMsgPreview`. Its non-image branch emits one leaf DIV for each loaded
+`preview` and `fullPreviewData` holder, in that order. Each leaf uses only a class
+and one `background-image: url(...)` inline declaration; this is a different shape
+from the existing image/video IMG proof.
+
+The PDF proof admits one or two distinct, unreleased `OpaqueData` previews. Each has
+an accepted image MIME, a WhatsApp-origin Blob URL and a byte size from 1 to 512 KiB.
+The complete ordered URL list must match the visible leaf DIVs exactly. A bounded
+base64 `preview` string may be present when a real opaque `fullPreviewData` supplies
+the thumbnail: the platform ignores that string in this renderer, and the adapter
+does not decode it, create a URL, download the PDF or read any document bytes.
+
+Unknown CSS does not establish a preview. Multiple URLs, shorthand, gradients,
+remote URLs, duplicate/missing/reordered images, interactive wrappers and extra
+image nodes are rejected. Other passive nodes in the PDF quote cannot carry a
+nonempty inline style; CSS comments, escaped property names and other image-bearing
+properties cannot bypass the exact preview matcher. The quote region must contain
+the entire caption, known author if present, and every proved thumbnail node.
+
+### Ownership, submission and evidence
+
+The existing composer freezes the original model and media owner, caption-ownership
+flag, special flags, filename, byte size, page count, hashes, both preview holders and
+their URL/MIME/byte-size/released state. Model subscriptions and the style observer
+fence changes restored before the next poll. Final synchronous comparison rejects
+same-key model replacements and identical-looking replacement nodes or holders.
+
+Submission still passes only the frozen original model as `quotedMsg` to pinned
+`sendTextMessage`; it never rebuilds or uploads a document. The ordinary `reply` wire
+context carries only chat/message identity. A PDF with selected contact mentions
+uses the same new PDF proof plus the unchanged independent mention proof, and only
+the outgoing body enters protected translation. All quoted content stays in the
+guest. Confirmation and uncertainty retain the complete draft, and neither outcome
+opens a second send of an unchanged body.
+
+`test/send-document-reply-guest.test.mjs` adds eight composed-guest tests covering
+the four preview shapes, direct-model/MsgKey lookup, PDF plus mentions, metadata and
+preview ABA, CSS ABA, final comparison, invalid source/DOM combinations, lost ACK
+and late confirmation. A separate read-only experiment executed the official
+quoted-document dispatcher and formatter with its source-selected registry entry;
+it distinguished user captions from generated filename/vCard content without sending.
+Fresh official source downloads and independent review were repeated for this slice.
+
+An offline Chromium 151.0.7922.34 check used a non-root sandbox, a locally fulfilled
+navigation and interception of all other network requests. The current composed
+guest passed four real CSS serialization shapes, a real style-MutationObserver ABA
+check, and three browser-parsed comment/escape/content-image rejection cases. Its
+platform ports were explicit doubles; these results are source, DOM and integration
+evidence, not authenticated WhatsApp delivery. Generic documents, captionless PDF
+cards, unproved previews and newly selected attachments remain unavailable here.
+
+## Verified reply with selected contact mentions
+
+The `replyMentions` context combines the existing independently verified reply and
+ordinary-group contact-mention proofs. It accepts the same complete text quote,
+captioned image/video quote or limited user-captioned PDF quote described above. Neither proof relaxes the other's DOM,
+model, identity, size or lifecycle checks. The quote region still cannot contain an
+unproved mention span merely because the outgoing editor has a valid entity.
+
+The wire shape is exactly `kind`, `messageId`, `chatId` and `mentions`. Native validation
+requires the original same-chat WhatsApp group reply key plus canonical, bounded,
+non-overlapping UTF-16 mention ranges in the new body. Telegram K does not admit this
+variant. Quoted body, author, thumbnails and raw models stay inside the guest. The
+existing `MentionTranslation` protects only the outgoing body with the same intent UUID,
+so retry, token safety and billing rules remain those of the ordinary mention path.
+
+The pinned `prepareRawMessage` Git blob
+`c3fe092f38f4e9d1c0695e67856ce8446d20e577` independently sets `mentionedJidList`
+before merging `quotedMsg.msgContextInfo(chat.id)`. The inspected official
+`WAWebMsgModel` returns only four top-level fields: `quotedMsg`, `quotedParticipant`,
+`quotedStanzaID` and `quotedRemoteJid`. An original quote's own mention list remains
+nested in `quotedMsg`; it cannot replace the outgoing selected entities. The official
+`WAWebSendTextMsgChatAction` also composes quote context and explicit mention entities.
+Their complete named-module hashes appear below.
+
+Before the one `sendTextMessage` invocation, the composer synchronously rechecks both
+proofs and passes the original `MsgModel` plus the independently derived `mentionedList`.
+Quote and entity model/DOM subscriptions each advance the same composer revision,
+including changes restored before the next poll. `prepare` compares both wire components;
+changing either while a native worker is running revokes that worker's commit admission.
+Only a real ACK confirms delivery. Confirmed and uncertain combinations retain the whole
+draft and the existing duplicate guard; quote-only/entity-only changes or disabling
+translation cannot reopen an unchanged submitted body.
+
+`test/send-reply-mentions-guest.test.mjs` executes the actual composed guest with text,
+image and video quotes, PN/LID and repeated entities, detached contexts, both ABA paths,
+synchronous replacements, unsupported mixtures, same-ID retries, late/missing ACK and
+retained drafts. Native domain/transform and runner regressions exercise the combined
+validation, protected translation, account binding and concurrent context invalidation.
+A separate read-only experiment executed the actual pinned preparation function and
+inspected official quote method with quote entity A and outgoing entity B; A stayed
+nested while B remained the sole outgoing entity. No send or authenticated account was
+used. These checks establish source and synthetic integration evidence, not real delivery.
 
 ## Interactive attachment captions
 
@@ -465,6 +588,18 @@ contract to be identified without storing vendor bodies in this repository.
 | `WAWebMentionsPlugin.react` | `a834908326aedf6522ba909a5cca248f8a09113a78904b18b102185eaeb4ce42` | [Mention restoration][restore] |
 | `WAWebComposeBox.react` | `dd0705b3b79e4126b96723f58b31126524506ab01551391f7d07813c3ad225f3` | [Composer][composer] |
 | `WAWebChatModel` | `2f8615356f7cef6976d02cff1f15bdc36e9ee4c292d09a9ebd4357d2a355d970` | [Models and media prep][models] |
+| `WAWebMsgModel` | `b9ca07ce2c6e3591f86bd94d6e8777f968428f3da9d5ebfbd0ad81a2e3997be7` | [Models and media prep][models] |
+| `WAWebSendTextMsgChatAction` | `8218f67fc38f39cc1d13d21eddff0e78f5d69f4c64ee4e40f207491b53c4b024` | [Models and media prep][models] |
+| `WAWebQuotedMsgUtils` | `4d09279477d982a8810bc72557cee98e1110188a7b0338e5e0838908ed46be24` | [Document formatting][restore] |
+| `WAWebFormatMsgText` | `0d17b00bd47de454c59e314701d0dacccebdb45587e2181fc3136e9ec38b8fd9` | [Document formatting][restore] |
+| `WAWebMessagePluginFormatMsgText` | `e9046c0fc92c8511350436c935756a6cfff1990547876786b248588516ac02b1` | [Document formatting][restore] |
+| `WAWebMessagePluginFormatMsgTextRegistry` | `b639de73851abe55768e27628884a868ab9d2c04ecf729dc83bcf13b9fa0ea7d` | [Document formatting][restore] |
+| `WAWebFormatDocumentMsgText` | `a69a3b87dcbac8a451e7d524e25c1a5bba20ae8525a3d4faeb4f6c50e653a359` | [Document formatting][restore] |
+| `WAWebFormatMsgTextUtils` | `de33c6e3f641d10a217bafaea43b3984e9620b089954b1c79916bdc4d391df5e` | [Document formatting][restore] |
+| `WAWebQuotedMsgContent.react` | `0ccee5f053a84d5376619bb96486950d54ee4983ecf112220792953f7f6c04ce` | [Quoted media][quoted-media] |
+| `WAWebMediaMsgPreview.react` | `28c1f74f26c65cc73a473d821913cc2b88d00b6c201b6ea541950f30b3c4f049` | [Quoted media][quoted-media] |
+| `WAWebMediaMsgPreviewQuotedMsgThumbnailIcon.react` | `ad96bbf97af7a0ab1a3eac39f7c15c3b392d68cbc8c9f7aaeffb1ac1a24d9b7f` | [Quoted media][quoted-media] |
+| `WAWebMessagePluginQuotedMsgThumbnailIconRegistry` | `e982357b35573883038323bfed92befd126783f7a62636b62532304b75239792` | [Quoted media][quoted-media] |
 | `WAWebUpdateDraftMessageChatAction` | `7b8e74394fdb2bc6ed58bdb1247cdc76b0be4b34a39a13b3cfcbf60b1d9b3518` | [Models and media prep][models] |
 | `WAWebCopyPasteCopyable.react` | `b379ba61def0f28aac47bbcc3bf6ee789d8f3ad60062988f965d185a1e2d1c89` | [Caption UI][caption] |
 | `WAWebAttachMediaModel` | `dbcf6ef30912ed22fdf8912202acc143b5ab832bad6102d8f18ca46ed58bddcd` | [Composer][composer] |
@@ -496,6 +631,7 @@ contract to be identified without storing vendor bodies in this repository.
 
 [entities]: https://static.whatsapp.net/rsrc.php/v4iDmr4/yP/l/en_US-j/D0u5tvXqu7W7T09bvlJ7oufaGUaYdVti8co9TrzRIsI3Eu6Xsfswb4t_oayrl-rWOU25tnfcbs0TXP17R_g10IG7ap9XjpiZnSLhP-GdkUr6D_Gq5X_Ho1FIjzPwNwtEu_k2BzRAbOK83URfXj59NZEN6_LP5CkbSgW8ssecj6EXVJp6hv2-3oWVJl99TzQwv2BKS3q8GBBAQkpIX3Cqy_6usulsk5jRvIk23r_Xc11OI-vcItLFRgrHjexONYOR8caWn7QALvovRXLF19FoY5dKuoQUPihjeC9EzWiky1C8xEcCI-1GMUG-51HH_zQsXSds_kkOIp.js
 [restore]: https://static.whatsapp.net/rsrc.php/v4iTb14/yY/l/en_US-j/y8s9TQLFc98.js
+[quoted-media]: https://static.whatsapp.net/rsrc.php/v4iFSQ4/yn/l/en_US-j/lUmMBICs-yj.js
 [composer]: https://static.whatsapp.net/rsrc.php/v4iuOo4/yy/l/en_US-j/RsX7je4nhEUDoy_65rPHB-Z6svWH3WIKahnf9pmf3NRippdYC97NSWEodSTJvSsSXzJejYPoDQJ6cs3WMiU-2t36nGM0IFyoOMeXf8aY9cFBnXwn6gzLAxT2Y9mGVjWCBlVT1_-rTXRCMzX3s94nei1BWycI7LQcNEhxZWmuKyAq_whf66pj5cCEwjvIcSRyjvdZW3OL6DyAU-P9QRc12CWliTw5APcfAZb0NkIotJpgUVEhAovKwX3vTZ34QZovqWqcEL6NDukE4vUDwTjdVNcJDnmSWZSsVSSOHLOfq.js
 [models]: https://static.whatsapp.net/rsrc.php/v4iFkR4/yF/l/en_GB-j/rSSl-KoQn-T.js
 [flow]: https://static.whatsapp.net/rsrc.php/v4i-Tn4/yS/l/en_US-j/y7wK-7D14zF.js

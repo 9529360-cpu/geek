@@ -363,12 +363,17 @@ the requested subset. Ordinary label groups keep their existing catalog authorit
 not pass through the contact-only resolver. No label name-first lookup, arbitrary group/label
 script, dynamic scheduled expansion or additional task owner is introduced.
 
-Typed exclusion sets are account-local editor state, following the original product's all-chats
+Typed exclusion sets are account-owned durable presets, following the original product's all-chats
 minus-explicit-exclusions semantics. The two sets filter every source before the existing create
 command receives final IDs. Exclusion modes freeze the catalog population on entry; refresh may
 invalidate an ID but cannot silently add targets. An explicit update action rebuilds this frozen
-population from the current directory while retaining exclusions. Exclusions remain editor state;
-saving a reusable audience records the resulting fixed IDs, never a dynamic scheduled query.
+population from the current directory while retaining exclusions. Changes save through the same
+preset revision; failed or unresolved reads/writes block new shell submissions and preserve local
+choices for explicit retry or replacement with saved data. Missing directory IDs remain excluded.
+New native job creation checks saved exclusions while holding the preset owner through job commit,
+after releasing Workspace/catalog reads. A conflicting target rejects the entire creation; no
+silent target removal or send replay occurs. Already frozen jobs and idempotent create replies
+retain their original intent. Saving an audience records fixed IDs, never a dynamic scheduled query.
 
 `application/broadcast_report` snapshots the existing owner, including projected storage failure,
 then releases the lock before domain CSV encoding. Explicit account/job ownership is required;
@@ -381,19 +386,22 @@ checkpoints, persistence schema, retry policy or the sending owner.
 
 ### Reusable broadcast messages and audiences
 
-`application/broadcast_presets` is the sole durable owner for two account-scoped collections:
-raw message templates and fixed recipient ID lists. It never creates jobs, queries a platform,
-or bills translations. `infrastructure/broadcast_preset_repository` stores schema 1 in an independent
+`application/broadcast_presets` is the sole durable owner for account-scoped reusable message
+templates, fixed audiences and typed contact/group exclusions. It never creates jobs, queries a
+platform or bills translations. `infrastructure/broadcast_preset_repository` stores schema 2 in an independent
 `broadcast-presets.dpapi`, using DPAPI and synchronized temporary-file replacement under the
 existing process instance lock. Accounts schema 6 and live-job schema 2 remain unchanged;
 preset volume and failed preset writes cannot consume or replace the job checkpoint document.
+Schema 1 loads without an eager write and defaults exclusions to empty. Schema 2 requires both
+exclusion arrays; null, missing fields, invalid identity kinds or mixed platform namespaces fail
+closed. The next actual mutation upgrades the entire preset document, retaining every account.
 
 Every mutation checks an account-local expected revision, validates a complete candidate,
 persists it, then publishes memory. Stable native UUIDs replace array-index identity. Same-name
 messages overwrite in place; audience names may repeat and deletion addresses one UUID. Empty
 account rows retain their revision so deleting the final entry cannot revive an old revision-zero
 request. Limits are 100 entries per collection/account, 80 UTF-16 units per name, the existing text
-bounds per message, 2000 unique IDs per audience and less than 2 MiB of plaintext globally.
+bounds per message, 2000 unique IDs per audience/exclusion kind and less than 2 MiB of plaintext globally.
 Malformed/unknown-version state is never reset. Archiving does not delete presets.
 
 `desktop/broadcast/presets` checks the actual account and requires current catalog authority to
@@ -414,7 +422,7 @@ format; the Telegram length limit is enforced on all expanded variants before jo
 
 The frontend restores a list into the existing custom-selection draft and retains exclusions;
 applying a message changes only its raw body. Current editor/account/catalog/revision tokens guard
-asynchronous reads and writes. Five finite shell-only commands expose these operations; no generic
+asynchronous reads and writes. Finite shell-only commands expose these operations; no generic
 key/value store, path API, alternate job owner or legacy profile access is added.
 
 ### Portable settings and statistical exports
@@ -427,6 +435,10 @@ settings into the current shell snapshot.
 
 `domain/account_backup` defines strict portable v3 and bounded original-v2 conversion.
 Missing components preserve data; null is invalid and explicit empty collections clear.
+Portable exclusions carry only typed IDs, with the same validation and owner as interactive saves.
+Legacy typed exclusions preserve their kinds; the legacy combined list is classified by canonical
+ID and unioned with typed lists, never silently discarded. A present combined list covers both kinds,
+including explicit empty lists. Original group-tool collections remain visibly unsupported.
 `application/account_backup` coordinates the existing Accounts and BroadcastPresets owners:
 platform, capacity and both requested revisions are checked before any write, then each
 owner reports its own durable result. There is no cross-file rollback promise or new store.
@@ -597,7 +609,7 @@ never treats the worker's provider records or request route tag as another measu
 ## Interactive SendIntent ownership
 
 `application/send_intent` owns each UUID, native account/document/session binding,
-chat, source, typed plain/reply/mentions/attachment context, composer revision, frozen effective policy and attempt nonce. Its in-memory
+chat, source, typed plain/reply/mentions/replyMentions/attachment context, composer revision, frozen effective policy and attempt nonce. Its in-memory
 history retains at most 20000 records; output plus reserved output is bounded to 2 MiB.
 Confirmed and uncertain tombstones are never evicted to authorize replay. An explicit
 next attempt after definite precommit failure can rebind the current composer revision
@@ -640,12 +652,17 @@ enabling Tauri's tracing feature requires rechecking that property. A hidden-the
 guest receives a fresh lease, and deactivation cannot revive an earlier attempt.
 
 The guest requires the pinned WA-JS active chat model and plain composer DOM to agree.
-A reply additionally requires a loaded, replyable same-chat text or captioned image/video MsgModel and canonical
+A reply additionally requires a loaded, replyable same-chat text, captioned image/video, or
+ordinary PDF with a nonempty user-written caption, backed by a MsgModel and canonical
 MsgKey, plus visible footer quote text exactly matching that model. Any author label must
 match a known model name. No remote message fetch, quote-payload reconstruction or guessed
 quote selector establishes authority. Media replies also require matching type, MIME, hash,
-loaded preview and exact caption. Uncaptioned/audio/document/view-once/truncated/unknown quote
-shapes, mixed reply/entities, edits/forwards and link previews fail before paid
+loaded preview and exact caption. PDF replies additionally bind the official one/two CSS
+page-preview nodes to the original OpaqueData preview/full-preview values, plus filename,
+page count, byte size and caption provenance. Background-image, media/model and node ABA
+changes invalidate the same composer revision. No-caption filename/page-count cards and
+non-PDF documents remain unsupported. Uncaptioned/audio/view-once/truncated/unknown quote
+shapes, unverified reply/entity combinations, edits/forwards and link previews fail before paid
 work and again before commit. Every request has a mandatory strict typed context. Native code receives only
 the quote message/chat IDs and includes them in the fingerprint; quoted body, author and raw
 model never enter the transform. Prepare must match this frozen context. Quote model and
@@ -669,6 +686,14 @@ Protected URLs increase both actual input and output character counts under the 
 billing contract; the settings panel states that overhead instead of implying nickname-length billing.
 Explicit mentionedList is derived only from the frozen proof. Model/collection/DOM changes
 advance revision and final synchronous CAS revalidates every node/member before submission.
+
+Verified whole-message replies may combine with those same group contact entities in a strict
+`replyMentions` context. Quote and entity proofs retain their independent identity, body and DOM
+checks; the same composer revision invalidates either one's ABA change. Native fingerprints bind
+both quoted message identity and mention ranges, and the existing mention transform protects only
+the new body. Quote content stays inside the guest. One WA-JS send carries both the original
+quoted MsgModel and the frozen explicit mentionedList; quoted entities remain nested in the quote.
+Complete drafts remain after confirmed or uncertain outcomes, under the same duplicate guard.
 
 WhatsApp attachment captions use a separate finite composer adapter with the same SendIntent
 owner. It admits one READY standard image/video or PDF with a positively identified preview,

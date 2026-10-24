@@ -135,8 +135,8 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
       $(id).title = canPick && next.attachmentsAvailable ? next.attachmentBusy ? '正在处理附件…' : '选择要群发的附件' : '当前账号的附件发送尚未就绪';
     }
     for (const node of $('broadcast-files').querySelectorAll('button')) wire(node, filesBlocked);
-    wire($('broadcast-send'), blocked || !ready || next.attachmentBusy || next.importBusy);
-    wire($('broadcast-add-schedule'), blocked || !ready || next.attachmentBusy || next.importBusy
+    wire($('broadcast-send'), blocked || !ready || next.attachmentBusy || next.importBusy || next.exclusionsBlocked);
+    wire($('broadcast-add-schedule'), blocked || !ready || next.attachmentBusy || next.importBusy || next.exclusionsBlocked
       || !$('broadcast-schedule-toggle').checked || !catalog?.capabilities.scheduled);
     for (const node of $('broadcast-schedule-list').querySelectorAll('button')) {
       wire(node, blocked || next.pendingControls?.has(node.dataset.jobId));
@@ -193,6 +193,7 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     imported(result) { catalog = result.catalog; audience.imported(result); },
     resolved(kind, result, revision) { catalog = result.catalog; audience.resolved(kind, result, revision); },
     restored(result) { catalog = result.catalog; audience.restored(result); },
+    exclusions(value) { audience.exclusions(value); },
     message(value) { $('broadcast-message').value = value; $('broadcast-message').focus(); onChange(); },
     importStatus: audience.importStatus,
     sourceStatus: audience.sourceStatus,

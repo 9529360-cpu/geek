@@ -112,7 +112,7 @@ test('broadcast file commands keep optional result shape and cannot bypass their
     'broadcast_import_contacts', 'broadcast_export_failures',
     'broadcast_export_contacts', 'broadcast_history', 'broadcast_export_history',
     'account_export_backup', 'account_pick_backup', 'account_restore_backup',
-    'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience',
+    'broadcast_presets', 'broadcast_save_message', 'broadcast_save_audience', 'broadcast_save_exclusions',
     'broadcast_delete_preset', 'broadcast_restore_audience']) {
     const owner = [...files].find(([path, source]) => path.startsWith('src-tauri/src/desktop/commands')
       && source.includes(`pub async fn ${name}`))?.[0];

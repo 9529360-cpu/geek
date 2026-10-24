@@ -101,7 +101,7 @@ test('loaded real contact/member/self evidence is mandatory and failure leaves t
   }
 });
 
-test('unknown rich nodes, hidden or malformed markers, mixed quote/attachment and namespace ambiguities are rejected', async () => {
+test('unknown rich nodes, malformed markers, unproved quote/attachment and namespace ambiguities are rejected', async () => {
   const cases = [
     ['unknown entity attribute', (f) => f.elements[0].setAttribute('data-unknown', 'value')],
     ['wrong lexical marker', (f) => f.elements[0].setAttribute('data-lexical-text', 'false')],
@@ -121,7 +121,7 @@ test('unknown rich nodes, hidden or malformed markers, mixed quote/attachment an
       f.ui.editor.append(span); span.append(f.elements[0]);
     }],
     ['attachment', (f) => { f.chat.attachMediaContents = [{}]; }],
-    ['reply', (f) => f.ui.reply()],
+    ['unproved reply', (f) => f.ui.reply().banner.remove()],
     ['extra bare mention', (f) => f.setParts(['@all ', { id: mentionId, name: 'Alice' }])],
     ['bot entity', (f) => f.setParts([{ id: '123@bot', name: 'Bot' }])],
     ['group entity', (f) => f.setParts([{ id: '123@g.us', name: 'A group' }])],

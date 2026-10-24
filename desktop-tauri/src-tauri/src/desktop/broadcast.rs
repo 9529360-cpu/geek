@@ -38,6 +38,7 @@ mod attachments;
 mod audiences;
 mod backup;
 mod catalog;
+mod exclusion_gate;
 mod file_dialog;
 mod imports;
 mod overview;
@@ -448,20 +449,27 @@ impl BroadcastDesktop {
             &input.id,
             &input.attachment_ids,
         )?;
-        let job = self.service.submit(
-            BroadcastAccount {
-                id: account.id,
-                name: account.name,
-                platform_id: account.platform_id,
-                capabilities: BroadcastCapabilities {
-                    text: catalog.capabilities.text,
-                    tag_all: catalog.capabilities.tag_all,
-                    vcards: catalog.capabilities.vcards,
-                    attachments: catalog.capabilities.attachments,
-                },
+        let job = exclusion_gate::submit(
+            &self.presets,
+            &input.account_id,
+            &input.recipient_ids,
+            || {
+                self.service.submit(
+                    BroadcastAccount {
+                        id: account.id,
+                        name: account.name,
+                        platform_id: account.platform_id,
+                        capabilities: BroadcastCapabilities {
+                            text: catalog.capabilities.text,
+                            tag_all: catalog.capabilities.tag_all,
+                            vcards: catalog.capabilities.vcards,
+                            attachments: catalog.capabilities.attachments,
+                        },
+                    },
+                    draft,
+                    now_ms(),
+                )
             },
-            draft,
-            now_ms(),
         )?;
         Ok(CreatedBroadcast {
             job_id: job.id,

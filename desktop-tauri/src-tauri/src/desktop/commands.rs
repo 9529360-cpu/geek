@@ -283,6 +283,25 @@ pub async fn broadcast_presets(
 }
 
 #[tauri::command]
+pub async fn broadcast_save_exclusions(
+    webview: Webview,
+    account_id: String,
+    expected_revision: u64,
+    excluded_contact_ids: Vec<String>,
+    excluded_group_ids: Vec<String>,
+) -> Result<BroadcastPresetSnapshot> {
+    execute(webview, move |app| {
+        app.state::<Arc<BroadcastDesktop>>().save_exclusions(
+            &account_id,
+            expected_revision,
+            excluded_contact_ids,
+            excluded_group_ids,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn broadcast_save_message(
     webview: Webview,
     account_id: String,

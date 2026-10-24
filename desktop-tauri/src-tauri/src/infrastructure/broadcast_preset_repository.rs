@@ -2,7 +2,9 @@ use super::dpapi;
 use crate::{
     application::ports::BroadcastPresetRepository,
     domain::{
-        broadcast_presets::{BroadcastPresetDocument, MAX_PRESET_STORE_BYTES},
+        broadcast_presets::{
+            BroadcastPresetDocument, MAX_PRESET_STORE_BYTES, PRESET_SCHEMA_VERSION,
+        },
         error::{AppError, Result},
     },
 };
@@ -55,8 +57,11 @@ impl BroadcastPresetRepository for EncryptedBroadcastPresetRepository {
 
     fn save(&mut self, document: &BroadcastPresetDocument) -> Result<()> {
         document.validate()?;
+        let mut current = document.clone();
+        current.schema_version = PRESET_SCHEMA_VERSION;
+        current.validate()?;
         let plain = Zeroizing::new(
-            serde_json::to_vec(document).map_err(|_| AppError::BroadcastPresetInvalid)?,
+            serde_json::to_vec(&current).map_err(|_| AppError::BroadcastPresetInvalid)?,
         );
         let encrypted = dpapi::encrypt(&plain).map_err(|_| AppError::BroadcastPresetPersistence)?;
         if encrypted.len() > MAX_ENCRYPTED_BYTES {

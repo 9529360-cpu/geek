@@ -4,7 +4,8 @@ import { connectDesktop } from '../frontend/api/desktop.mjs';
 import { fixture, deferred, catalog, attachment } from './helpers/broadcast.mjs';
 
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
-const state = (accountId = 'a', overrides = {}) => ({ accountId, revision: 0, messages: [], audiences: [], ...overrides });
+const state = (accountId = 'a', overrides = {}) => ({ accountId, revision: 0, messages: [], audiences: [],
+  excludedContactIds: [], excludedGroupIds: [], ...overrides });
 const radio = (ui, value) => ui.get('broadcast-overlay').querySelectorAll('input')
   .find((node) => node.value === value && node.getAttribute('name') === 'bc-sendto');
 async function mode(ui, value) { const node = radio(ui, value); node.checked = true; await ui.fire(node, 'change'); }
@@ -24,18 +25,20 @@ async function startOpen(ui) {
   ui.get('btn-broadcast').fire('click'); await flush(); ui.get('bc-menu-send').fire('click'); await flush();
 }
 
-test('preset operations have five named gateway methods and fixed typed arguments', async () => {
+test('preset operations have named gateway methods and fixed typed arguments', async () => {
   const calls = [];
   const api = connectDesktop(async (command, args) => { calls.push([command, args]); return {}; });
   await api.broadcastPresets('a'); await api.broadcastSaveMessage('a', 2, 'Name', 'Body\n');
   await api.broadcastSaveAudience('a', 'catalog', 3, 'Targets', ['one']);
   await api.broadcastDeletePreset('a', 4, 'message', 'm1'); await api.broadcastRestoreAudience('a', 'catalog', 5, 'p1');
+  await api.broadcastSaveExclusions('a', 6, ['one'], ['group']);
   assert.deepEqual(calls, [
     ['broadcast_presets', { accountId: 'a' }],
     ['broadcast_save_message', { accountId: 'a', expectedRevision: 2, name: 'Name', message: 'Body\n' }],
     ['broadcast_save_audience', { accountId: 'a', catalogId: 'catalog', expectedRevision: 3, name: 'Targets', recipientIds: ['one'] }],
     ['broadcast_delete_preset', { accountId: 'a', expectedRevision: 4, kind: 'message', id: 'm1' }],
     ['broadcast_restore_audience', { accountId: 'a', catalogId: 'catalog', expectedRevision: 5, presetId: 'p1' }],
+    ['broadcast_save_exclusions', { accountId: 'a', expectedRevision: 6, excludedContactIds: ['one'], excludedGroupIds: ['group'] }],
   ]);
 });
 
@@ -147,7 +150,7 @@ test('saving tags freezes the final excluded audience and same-name tags retain 
   assert.equal(saved.length, 2); assert.notEqual(saved[0].id, saved[1].id);
   assert.deepEqual(saved[0].recipientIds, ['a-ben', 'a-team']);
   assert.deepEqual(ui.calls.find(([name]) => name === 'saveAudience')[1], {
-    accountId: 'a', catalogId: 'a-catalog', expectedRevision: 0, name: 'Customers', recipientIds: ['a-ben', 'a-team'],
+    accountId: 'a', catalogId: 'a-catalog', expectedRevision: 1, name: 'Customers', recipientIds: ['a-ben', 'a-team'],
   });
   assert.equal(ui.get('broadcast-recipient-tag-list').parentElement.classList.contains('bc-recipient-tag-canonical-row'), true);
   assert.equal(ui.calls.some(([name]) => name === 'create'), false);
@@ -224,12 +227,15 @@ test('late account-A list data cannot replace account-B presets or its inline na
   assert.equal(ui.get('broadcast-message-preset-name').value, 'B name');
 });
 
-test('metadata load failure has its own retry surface and does not prevent ordinary task creation', async (t) => {
+test('a failed durable exclusion read blocks creation while preserving the message and recipient draft', async (t) => {
   const ui = await fixture({ presets: {}, before: (name) => { if (name === 'presets') throw 'BROADCAST_PRESET_PERSISTENCE'; } });
   t.after(() => ui.controller.dispose()); await ui.open();
   assert.equal(ui.get('broadcast-message-preset-refresh').classList.contains('hidden'), false);
   await ui.select('a-ann'); await ui.input('broadcast-message', 'Send draft'); await review(ui); await ui.click('broadcast-send');
-  assert.equal(ui.backend.jobs.length, 1);
+  assert.equal(ui.backend.jobs.length, 0);
+  assert.equal(ui.get('broadcast-send').disabled, true);
+  assert.equal(ui.get('broadcast-message').value, 'Send draft');
+  assert.match(ui.get('broadcast-exclusions-contact-status').textContent, /未能读取/);
 });
 
 test('invalid names, oversized messages and unverified source audiences are rejected without persistence calls', async (t) => {
