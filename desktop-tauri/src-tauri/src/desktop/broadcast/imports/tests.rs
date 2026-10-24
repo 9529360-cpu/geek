@@ -32,7 +32,7 @@ fn row(candidate: &str, id: Option<&str>) -> serde_json::Value {
 
 #[test]
 fn telegram_resolution_is_platform_bound_and_cannot_retarget_explicit_peer_ids() {
-    let phone = vec!["12025550101".into()];
+    let phone: Vec<String> = vec!["12025550101".into()];
     let value = json!([row(&phone[0], Some("tg:101"))]);
     assert_eq!(
         super::resolved_batch(value.clone(), &phone, "telegram-k").unwrap()[0]
