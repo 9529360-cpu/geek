@@ -297,6 +297,24 @@
       "response": "SessionSnapshot"
     },
     {
+      "name": "contact_notes",
+      "arguments": [
+        "id",
+        "identity"
+      ],
+      "response": "Option<ContactNote>"
+    },
+    {
+      "name": "contact_notes_update",
+      "arguments": [
+        "id",
+        "identity",
+        "note",
+        "now"
+      ],
+      "response": "Snapshot"
+    },
+    {
       "name": "session_login",
       "arguments": [
         "email",

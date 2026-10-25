@@ -25,6 +25,7 @@ mod broadcast_support;
 mod broadcast_telegram_attachments;
 mod broadcast_validation;
 mod broadcast_worker_exit;
+mod contact_notes;
 mod desktop;
 mod doubles;
 mod persistence;

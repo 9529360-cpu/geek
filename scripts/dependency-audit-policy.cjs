@@ -34,6 +34,34 @@ const AUDIT_EXCEPTIONS = [
     // electron-builder/@electron/get release that drops the sprintf-js chain.
     reviewTrigger: 'patched sprintf-js release or electron-builder/@electron/get chain upgrade',
   },
+  {
+    ghsa: 'GHSA-m5mm-p8h7-m29v',
+    package: 'serialize-javascript',
+    // Rationale, recorded 2026-10-25:
+    // - XSS via unescaped </script in a serialized function body. mocha (10.8.x,
+    //   pulled by @wdio/mocha-framework 9.x) requires serialize-javascript ^6,
+    //   and 7.x does not satisfy that range. The library only runs inside the
+    //   mocha test runner over local spec files; it never serializes untrusted
+    //   input and never ships in the client (production audit is clean).
+    // - No compatible fix: mocha 10.x pins ^6; the escape hatches are mocha 11
+    //   or @wdio/mocha-framework 10 (both breaking this tree's WDIO 9 setup).
+    // Re-check trigger: @wdio/mocha-framework 10.x adoption or a mocha release
+    // accepting serialize-javascript 7.
+  },
+  {
+    ghsa: 'GHSA-mrhx-c7xc-m3w5',
+    package: 'zod',
+    // Rationale, recorded 2026-10-25:
+    // - Memory exhaustion validating oversized constrained collections
+    //   (CVSS 7.5). zod 3.25.x is reached only through chromium-bidi inside
+    //   puppeteer-core, a dev-only WebDriver end-to-end dependency talking to
+    //   locally launched browsers; no untrusted remote input is validated with
+    //   it, and zod never ships in the client (production audit is clean).
+    // - No compatible fix: chromium-bidi in this range pins zod ^3; clearing it
+    //   requires puppeteer-core 25 (major, breaking the WDIO 9 chain).
+    // Re-check trigger: puppeteer-core 25.x adoption, or a chromium-bidi
+    // release accepting zod >= 4.6.6.
+  },
 ];
 
 function exceptionFor(ghsaId, packageName) {

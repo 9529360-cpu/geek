@@ -1,10 +1,11 @@
 use super::{
     accounts::Accounts,
-    ports::{AccountRepository, DesktopHost},
+    ports::{AccountRepository, ContactNotesStore, DesktopHost},
     snapshot::{CreatedAccounts, Snapshot},
 };
 use crate::domain::{
     account::Settings,
+    contact_notes::ContactNote,
     error::{AppError, Result},
     presentation::Viewport,
     proxy::ProxyConfig,
@@ -18,6 +19,7 @@ pub struct Workspace<R: AccountRepository, H: DesktopHost> {
     host: H,
     active_id: Option<String>,
     content_visible: bool,
+    notes: Option<std::sync::Arc<dyn ContactNotesStore>>,
 }
 
 impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
@@ -27,7 +29,51 @@ impl<R: AccountRepository, H: DesktopHost> Workspace<R, H> {
             host,
             active_id: None,
             content_visible: false,
+            notes: None,
         }
+    }
+
+    /// Contact profiles live in their own per-account encrypted stores; absent
+    /// wiring keeps every notes command unavailable instead of guessing a path.
+    pub fn set_notes_store(&mut self, notes: std::sync::Arc<dyn ContactNotesStore>) {
+        self.notes = Some(notes);
+    }
+
+    fn notes_store(&self) -> Result<&std::sync::Arc<dyn ContactNotesStore>> {
+        self.notes.as_ref().ok_or(AppError::ContactNotesPersistence)
+    }
+
+    /// Read-only view bound to the account, never to a renderer-supplied identity.
+    pub fn contact_notes(
+        &self,
+        id: &str,
+        family: &str,
+        chat_id: &str,
+    ) -> Result<Option<ContactNote>> {
+        self.accounts.openable_account(id)?;
+        let (family, chat_id) = crate::domain::contact_notes::identity(family, chat_id)
+            .ok_or(AppError::ContactNotesInvalid)?;
+        Ok(self.notes_store()?.load(id)?.profile(&family, &chat_id))
+    }
+
+    /// One durable write keyed by the current account; validation happens before
+    /// the store is touched so a rejected note never rewrites the file.
+    pub fn update_contact_notes(
+        &mut self,
+        id: &str,
+        family: &str,
+        chat_id: &str,
+        note: ContactNote,
+        now: u64,
+    ) -> Result<ContactNote> {
+        self.accounts.openable_account(id)?;
+        let store = self.notes_store()?.clone();
+        let (family, chat_id) = crate::domain::contact_notes::identity(family, chat_id)
+            .ok_or(AppError::ContactNotesInvalid)?;
+        let mut document = store.load(id)?;
+        let note = document.update(&family, &chat_id, note, now)?;
+        store.save(id, &document)?;
+        Ok(note)
     }
 
     pub fn snapshot(&self) -> Snapshot {

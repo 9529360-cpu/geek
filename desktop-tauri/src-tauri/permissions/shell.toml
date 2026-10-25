@@ -39,6 +39,8 @@ commands.allow = [
   "broadcast_snapshot",
   "broadcast_control",
   "session_snapshot",
+  "contact_notes",
+  "contact_notes_update",
   "session_login",
   "session_refresh",
   "session_logout",

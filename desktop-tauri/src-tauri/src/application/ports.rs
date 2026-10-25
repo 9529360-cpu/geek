@@ -55,6 +55,17 @@ pub trait BroadcastPresetRepository: Send + 'static {
     ) -> Result<()>;
 }
 
+/// Per-account encrypted contact profiles. `load` returns an empty document when
+/// the account has never saved notes; a failed save must preserve the old file.
+pub trait ContactNotesStore: Send + Sync + 'static {
+    fn load(&self, account_id: &str) -> Result<crate::domain::contact_notes::ContactNotesDocument>;
+    fn save(
+        &self,
+        account_id: &str,
+        document: &crate::domain::contact_notes::ContactNotesDocument,
+    ) -> Result<()>;
+}
+
 /// Addressed semantic operations only. Implementations must bound every native wait.
 pub trait BroadcastPlatform: Send + Sync + 'static {
     fn acquire_binding(

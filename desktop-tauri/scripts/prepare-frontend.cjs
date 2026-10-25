@@ -50,12 +50,25 @@ function compose(root = ROOT) {
   return { html, inlineCss: css.join('\n') + '\n', sessionCss: session.css, advancedCss: advanced.css, original };
 }
 
+// Keep build copies synchronous and explicit. Some Windows Node runtimes abort
+// inside fs.cpSync before JavaScript can report an error.
+function copyTree(source, destination) {
+  fs.mkdirSync(destination, { recursive: true });
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(destination, entry.name);
+    if (entry.isDirectory()) copyTree(from, to);
+    else if (entry.isFile()) fs.copyFileSync(from, to);
+    else throw new Error('Unexpected non-file build input');
+  }
+}
+
 function prepare(root = ROOT, output = OUTPUT) {
   const { html, inlineCss, sessionCss, advancedCss } = compose(root);
   fs.mkdirSync(output, { recursive: true });
   // A stale bundle must not retain removed scripts/assets between builds.
   for (const entry of fs.readdirSync(output)) fs.rmSync(path.join(output, entry), { recursive: true, force: true });
-  fs.cpSync(path.join(root, 'desktop-tauri/frontend'), output, { recursive: true });
+  copyTree(path.join(root, 'desktop-tauri/frontend'), output);
   fs.rmSync(path.join(output, 'dialogs.html'));
   fs.writeFileSync(path.join(output, 'index.html'), html);
   fs.writeFileSync(path.join(output, 'original-inline.css'), inlineCss);
@@ -64,7 +77,7 @@ function prepare(root = ROOT, output = OUTPUT) {
   const inputs = ['ui/index.html', 'ui/subscription.html', 'ui/app.js', 'ui/advanced-tools-workbench.js',
     ...STYLES.map((name) => `ui/${name}`)];
   for (const name of STYLES) fs.copyFileSync(path.join(root, 'ui', name), path.join(output, name));
-  fs.cpSync(path.join(root, 'ui/fonts'), path.join(output, 'fonts'), { recursive: true });
+  copyTree(path.join(root, 'ui/fonts'), path.join(output, 'fonts'));
   const manifest = Object.fromEntries(inputs.map((name) => [name, digest(fs.readFileSync(path.join(root, name)))]));
   fs.writeFileSync(path.join(output, 'ui-provenance.json'), JSON.stringify(manifest, null, 2) + '\n');
   return output;

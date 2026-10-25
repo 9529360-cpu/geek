@@ -101,7 +101,7 @@ test('overlay is shown only after native hide succeeds; collapsed layout uses me
 
 test('pending features stay in place and disabled; window controls use their narrow command', async () => {
   const { get, state, calls, click } = await fixture();
-  for (const id of ['btn-lock', 'btn-restart', 'btn-contact-notes']) {
+  for (const id of ['btn-lock', 'btn-restart']) {
     assert.equal(get(id).disabled, true, id);
   }
   assert.equal(get('btn-broadcast').disabled, false);

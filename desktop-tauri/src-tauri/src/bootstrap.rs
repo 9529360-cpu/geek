@@ -16,9 +16,11 @@ use crate::{
         translation_guest::TranslationGuest,
         tray,
     },
+    domain::error::AppError,
     infrastructure::{
         broadcast_preset_repository::EncryptedBroadcastPresetRepository,
-        broadcast_repository::EncryptedBroadcastRepository, catalog, http::HttpTransport, profiles,
+        broadcast_repository::EncryptedBroadcastRepository, catalog,
+        contact_notes_repository::EncryptedContactNotesRepository, http::HttpTransport, profiles,
         repository::EncryptedRepository, service_api::NativeApi,
         session_repository::EncryptedSessionRepository,
         translation_cache_repository::EncryptedTranslationCacheRepository,
@@ -32,6 +34,29 @@ use tauri::{
 };
 
 pub fn run() {
+    // The workspace owns one adapter over the per-account encrypted note stores.
+    struct ContactNotesRepositoryAdapter {
+        root: std::path::PathBuf,
+    }
+
+    impl crate::application::ports::ContactNotesStore for ContactNotesRepositoryAdapter {
+        fn load(
+            &self,
+            account_id: &str,
+        ) -> crate::domain::error::Result<crate::domain::contact_notes::ContactNotesDocument>
+        {
+            EncryptedContactNotesRepository::open(&self.root, account_id)?.load()
+        }
+
+        fn save(
+            &self,
+            account_id: &str,
+            document: &crate::domain::contact_notes::ContactNotesDocument,
+        ) -> crate::domain::error::Result<()> {
+            EncryptedContactNotesRepository::open(&self.root, account_id)?.save(document)
+        }
+    }
+
     let result = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::desktop_snapshot,
@@ -74,6 +99,8 @@ pub fn run() {
             commands::session_login,
             commands::session_refresh,
             commands::session_logout,
+            commands::contact_notes::contact_notes,
+            commands::contact_notes::contact_notes_update,
             commands::translation::translation_context,
             commands::translation::translation_health,
             commands::translation::account_update_translation
@@ -81,7 +108,7 @@ pub fn run() {
         .on_window_event(tray::on_window_event)
         .setup(|app| {
             let base = app.path().app_local_data_dir()?;
-            let root = profiles::runtime_root(&base);
+            let root = profiles::prepare_runtime_root(&base)?;
             let repository = EncryptedRepository::open(root.clone())?;
             let accounts = Accounts::open(repository, catalog::load()?)?;
             let shell_profile = root.join("shell");
@@ -90,6 +117,12 @@ pub fn run() {
             let sessions = Arc::new(PlatformSessions::default());
             let host = TauriHost::new(app.handle().clone(), root.clone(), Arc::clone(&sessions));
             let workspace = Arc::new(Mutex::new(Workspace::new(accounts, host)));
+            workspace
+                .lock()
+                .map_err(|_| AppError::StateUnavailable)?
+                .set_notes_store(Arc::new(ContactNotesRepositoryAdapter {
+                    root: root.clone(),
+                }));
             let platform = Arc::new(NativePlatform::new(
                 app.handle().clone(),
                 Arc::clone(&workspace),

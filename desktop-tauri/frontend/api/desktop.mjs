@@ -54,6 +54,9 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     broadcastSnapshot: () => invoke('broadcast_snapshot'),
     broadcastControl: (jobId, action) => invoke('broadcast_control', { jobId, action }),
     sessionSnapshot: () => invoke('session_snapshot'),
+    contactNotes: (id, identity) => invoke('contact_notes', { id, identity }),
+    contactNotesUpdate: (id, identity, note, now) =>
+      invoke('contact_notes_update', { id, identity, note, now }),
     sessionLogin: (email, password) => invoke('session_login', { email, password }),
     sessionRefresh: () => invoke('session_refresh'),
     sessionLogout: () => invoke('session_logout'),

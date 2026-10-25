@@ -6,6 +6,7 @@ import { createBroadcastController } from './controllers/broadcast.mjs';
 import { createSessionController } from './controllers/session.mjs';
 import { createTranslationController } from './controllers/translation.mjs';
 import { createAdvancedToolsController } from './controllers/advanced-tools.mjs';
+import { createContactNotesController } from './controllers/contact-notes.mjs';
 
 export function mountShell({ document, window, api }) {
   const view = createShellView(document);
@@ -27,6 +28,7 @@ export function mountShell({ document, window, api }) {
   let session = null;
   let translation = null;
   let advanced = null;
+  let contactNotes = null;
   const setBusy = (value) => {
     busy = value;
     view.busy(value, Boolean(current && api), Boolean(api), pendingWindows);
@@ -34,6 +36,7 @@ export function mountShell({ document, window, api }) {
     session?.setShellBusy(value);
     translation?.setShellBusy(value);
     advanced?.setShellBusy(value);
+    contactNotes?.setShellBusy(value);
   };
   const syncLayout = (visible = !panel) => api.layout(viewportOf($('webview-container'), visible, $('broadcast-job-bar')));
 
@@ -51,6 +54,7 @@ export function mountShell({ document, window, api }) {
     broadcast?.renderShell(next);
     translation?.renderShell(next);
     advanced?.renderShell(next);
+    contactNotes?.renderShell(next);
     setBusy(busy);
   }
   function acceptTranslationSnapshot(next, id) {
@@ -107,6 +111,7 @@ export function mountShell({ document, window, api }) {
     session?.panelChanged(null);
     translation?.panelChanged(null);
     advanced?.panelChanged(null);
+    contactNotes?.panelChanged(null);
     view.statusPanel(null);
     await syncLayout(true);
     returnFocus?.focus();
@@ -124,6 +129,7 @@ export function mountShell({ document, window, api }) {
     session?.panelChanged(id);
     translation?.panelChanged(id);
     advanced?.panelChanged(id);
+    contactNotes?.panelChanged(id);
     if (id === 'ctx-menu') {
       const menu = $(id);
       const rect = menu.getBoundingClientRect();
@@ -196,6 +202,8 @@ export function mountShell({ document, window, api }) {
     refreshSession: () => session.refresh(), openSession: () => session.open(), reportError: (message) => view.status(message) });
   advanced = createAdvancedToolsController({ document, api, getShellSnapshot: () => current, showPanel, hidePanel,
     acceptSnapshot: acceptTranslationSnapshot, reportError: (message) => view.status(message) });
+  contactNotes = createContactNotesController({ document, api, getShellSnapshot: () => current,
+    showPanel, hidePanel, reportError: (message) => view.status(message) });
   on('btn-app-center', 'click', () => run(() => showPanel('add-overlay', () => {
     selectedPlatform = null;
     $('add-name').value = '';
@@ -321,8 +329,11 @@ export function mountShell({ document, window, api }) {
     view.status('\u8bf7\u4ece Tauri Windows \u5f00\u53d1\u7248\u542f\u52a8\uff1b\u6d4f\u89c8\u5668\u9884\u89c8\u4e0d\u6a21\u62df\u8d26\u53f7\u529f\u80fd\u3002');
   }
   return { idle: async () => {
-    await enqueue(() => {}); await broadcast.idle(); await session.idle(); await translation.idle(); await advanced.idle(); await enqueue(() => {});
+    await enqueue(() => {});
+    await broadcast.idle(); await session.idle(); await translation.idle();
+    await advanced.idle(); await contactNotes.idle(); await enqueue(() => {});
   }, dispose: () => {
-    observer?.disconnect(); broadcast.dispose(); session.dispose(); translation.dispose(); advanced.dispose(); window.removeEventListener?.('resize', resize);
+    observer?.disconnect(); broadcast.dispose(); session.dispose(); translation.dispose();
+    advanced.dispose(); contactNotes.dispose(); window.removeEventListener?.('resize', resize);
   } };
 }

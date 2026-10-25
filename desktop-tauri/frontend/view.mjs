@@ -19,7 +19,7 @@ export function createShellView(document) {
   $('add-count').value = '1';
   $('add-count').title = '1–10 个；整批保存成功后只打开第一个账号';
   $('account-settings-name').maxLength = 64;
-  const pending = ['btn-restart', 'btn-lock', 'btn-contact-notes'];
+  const pending = ['btn-restart', 'btn-lock'];
   for (const id of pending) {
     $(id).title += ' \u00b7 \u5c1a\u672a\u8fc1\u79fb';
     $(id).setAttribute('aria-label', $(id).title);

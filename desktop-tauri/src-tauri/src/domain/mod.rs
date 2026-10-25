@@ -11,6 +11,7 @@ pub mod broadcast_presets;
 pub mod broadcast_render;
 pub mod broadcast_report;
 pub mod broadcast_validation;
+pub mod contact_notes;
 pub(crate) mod csv_export;
 pub mod document;
 pub mod error;
