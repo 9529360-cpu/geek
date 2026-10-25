@@ -86,6 +86,9 @@
       .bc-workbench-step{display:flex;align-items:center;gap:7px;min-width:0;padding:8px 9px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--text-tertiary);cursor:pointer;text-align:left;transition:.18s ease}
       .bc-workbench-step:hover{background:var(--bg-hover);color:var(--text-primary)}
       .bc-workbench-step[data-active="true"]{border-color:color-mix(in srgb,var(--accent) 38%,var(--border-standard));background:var(--accent-soft);color:var(--accent);transform:translateY(-1px)}
+      .bc-workbench-step[data-complete="true"]{border-color:color-mix(in srgb,var(--accent) 22%,var(--border-standard));color:var(--text-primary)}
+      .bc-workbench-step[data-complete="true"] b{background:var(--accent);border-color:var(--accent);color:var(--bg-surface)}
+      .bc-workbench-step[data-complete="true"] b::before{content:'✓';font-size:11px}.bc-workbench-step[data-complete="true"] b{font-size:0}
       .bc-workbench-step b{display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:var(--bg-elevated);font-size:10.5px;border:1px solid var(--border-standard)}
       .bc-workbench-step span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;font-weight:650}
       #broadcast-overlay .bc-body{padding:12px;gap:10px;max-height:calc(100vh - 184px);background:color-mix(in srgb,var(--bg-elevated) 94%,var(--bg-surface))}
@@ -201,7 +204,11 @@
       if (own) card.dataset.workbenchHidden = own === step ? 'false' : 'true';
     });
     document.querySelectorAll('.bc-workbench-step').forEach(button => {
+      const index = STEP_IDS.indexOf(button.dataset.step);
       button.dataset.active = button.dataset.step === step ? 'true' : 'false';
+      button.dataset.complete = index >= 0 && index < STEP_IDS.indexOf(step) ? 'true' : 'false';
+      if (button.dataset.active === 'true') button.setAttribute('aria-current', 'step');
+      else button.removeAttribute('aria-current');
     });
     const send = document.getElementById('broadcast-send');
     const next = document.getElementById('broadcast-workbench-next');
