@@ -68,6 +68,47 @@ function stripAddedMarkdownEmphasis(sourceText, output) {
 const NUMBER_TOKEN_RE = /[-+]?\d(?:[\d.,]*\d)?%?/gu;
 const TRAILING_LITERAL_PUNCTUATION_RE = /[.,!?;:，。！？；：]+$/u;
 
+// 60.25 and 60,25 are the same value; 1,000 and 1.000 are the same thousands group.
+// A separator that is not a thousands group is a decimal point and must survive.
+// Deleting it (60.25 -> 6025) is a different value. Keep this form aligned with
+// scripts/geek-translate-worker.js and scripts/local_translation_gateway.py.
+function canonicalNumberToken(token) {
+  const raw = String(token || '');
+  const percent = raw.endsWith('%');
+  let body = percent ? raw.slice(0, -1) : raw;
+  const sign = body[0] === '+' || body[0] === '-' ? body[0] : '';
+  if (sign) body = body.slice(1);
+  const suffix = percent ? '%' : '';
+  const digitsOnly = () => `${sign}${body.replace(/[.,]/g, '')}${suffix}`;
+  if (!body.includes('.') && !body.includes(',')) return `${sign}${body}${suffix}`;
+
+  const hasDot = body.includes('.');
+  const hasComma = body.includes(',');
+  if (hasDot && hasComma) {
+    const decimalIndex = Math.max(body.lastIndexOf('.'), body.lastIndexOf(','));
+    const thousandsSep = body[decimalIndex] === '.' ? ',' : '.';
+    const fraction = body.slice(decimalIndex + 1);
+    const integer = body.slice(0, decimalIndex).split(thousandsSep).join('');
+    if (/^\d+$/.test(integer) && /^\d+$/.test(fraction)) return `${sign}${integer}.${fraction}${suffix}`;
+    return digitsOnly();
+  }
+
+  const separator = hasDot ? '.' : ',';
+  const parts = body.split(separator);
+  const thousandGrouped = parts.length > 1
+    && parts.every(part => /^\d+$/.test(part))
+    && parts[0].length >= 1
+    && parts[0].length <= 3
+    && parts.slice(1).every(part => part.length === 3);
+  if (thousandGrouped) return `${sign}${parts.join('')}${suffix}`;
+
+  const decimalIndex = body.lastIndexOf(separator);
+  const fraction = body.slice(decimalIndex + 1);
+  const integer = body.slice(0, decimalIndex).replace(/[.,]/g, '');
+  if (/^\d+$/.test(integer) && /^\d+$/.test(fraction)) return `${sign}${integer}.${fraction}${suffix}`;
+  return digitsOnly();
+}
+
 function protectedLiteralSignature(value) {
   const text = String(value || '');
   const literals = (text.match(URL_OR_EMAIL_RE) || [])
@@ -76,7 +117,7 @@ function protectedLiteralSignature(value) {
     .sort();
   const withoutLiterals = text.replace(URL_OR_EMAIL_RE, ' ');
   const numbers = (withoutLiterals.match(NUMBER_TOKEN_RE) || [])
-    .map(item => item.replace(/[.,]/g, ''))
+    .map(item => canonicalNumberToken(item))
     .sort();
   return { literals, numbers };
 }

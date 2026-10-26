@@ -390,6 +390,28 @@ async function rejects(promise, pattern) {
   {
     const h = createHarness();
     const partition = h.accounts.get('messenger-a').partition;
+    let url = MESSENGER_URL;
+    const guest = createGuest({
+      id: 16,
+      host: h.trustedSender,
+      session: h.sessions.get(partition),
+      url: MESSENGER_URL,
+    });
+    guest.getURL = () => url;
+    h.guests.set(16, guest);
+    assert.equal(await h.ipcMain.invoke('webview:register', h.trustedSender, 'messenger-a', 16, TOKEN_A), true);
+    url = TG_URL;
+    await rejects(
+      h.ipcMain.invoke('webview:insert-text', h.trustedSender, 'messenger-a', 16, 'cross platform', TOKEN_A, '/messages/t/thread-1'),
+      /账号输入页面不可用/,
+    );
+    assert.deepEqual(guest.inserted, [], 'insert-text must not run when the live page no longer belongs to the account platform');
+    assert.equal(guest.scripts.length, 0);
+  }
+
+  {
+    const h = createHarness();
+    const partition = h.accounts.get('messenger-a').partition;
     const guest = createGuest({ id: 11, host: h.trustedSender, session: h.sessions.get(partition), url: MESSENGER_URL, focused: 'STALE_CONTEXT' });
     h.guests.set(11, guest);
     await h.ipcMain.invoke('webview:register', h.trustedSender, 'messenger-a', 11, TOKEN_A);
