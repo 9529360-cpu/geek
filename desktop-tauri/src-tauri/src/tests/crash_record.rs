@@ -17,8 +17,6 @@ fn panic_allowance_is_two_per_window_and_resets_when_the_clock_moves_backwards()
     assert!(gate.allow(112));
     assert!(!gate.allow(113));
     assert!(gate.allow(50));
-    gate.reset();
-    assert!(gate.allow(50));
 }
 
 #[test]

@@ -29,7 +29,7 @@ pub fn install(root: &Path) {
     std::panic::set_hook(Box::new(move |info| {
         let now = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let location = info.location();
-        let allowed = limiter.lock().map_or(false, |mut gate| gate.allow(now));
+        let allowed = limiter.lock().is_ok_and(|mut gate| gate.allow(now));
         if allowed {
             let file = location.map(|item| item.file());
             let line = location.map(|item| item.line());

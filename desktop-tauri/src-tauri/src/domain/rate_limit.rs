@@ -36,9 +36,4 @@ impl SlidingWindow {
         self.stamps.push(now_ms);
         true
     }
-
-    pub fn reset(&mut self) {
-        self.stamps.clear();
-        self.last = None;
-    }
 }
