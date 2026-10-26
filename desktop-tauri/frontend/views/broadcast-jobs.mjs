@@ -1,4 +1,4 @@
-import { currentJob, terminal, pending, jobSummary, jobLabel, resultRows, formatTime, hasExportableIssues } from '../models/broadcast.mjs';
+import { currentJob, terminal, pending, jobSummary, jobLabel, resultRows, formatTime, hasExportableIssues, platformLabel } from '../models/broadcast.mjs';
 import { errorMessage } from '../models/broadcast-status.mjs';
 import { element, button, wire, hidden, statusNode } from './broadcast-elements.mjs';
 
@@ -191,7 +191,7 @@ export function createBroadcastJobs({ document, window, onControl, onOpen, onClo
     const rowHead = element(document, 'div', 'bc-task-row-head');
     rowHead.append(element(document, 'strong', '', jobLabel(job)));
     if (scope === 'all') {
-      const platform = job.platformId === 'telegram-k' ? 'Telegram K' : 'WhatsApp';
+      const platform = platformLabel(job.platformId);
       rowHead.append(element(document, 'span', 'bc-task-account-name', `${job.accountName || '未命名账号'}，${platform}`));
     }
     const files = job.attachments || [];

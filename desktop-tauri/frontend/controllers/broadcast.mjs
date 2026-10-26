@@ -84,10 +84,10 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   function render() {
     if (disposed) return;
     const account = shell?.accounts.find((item) => item.id === shell.activeId && !item.archived);
-    const supported = account && ['whatsapp', 'whatsapp-pure', 'telegram-k'].includes(account.platformId);
+    const supported = account && ['whatsapp', 'whatsapp-pure', 'telegram-k', 'telegram-z', 'messenger', 'instagram'].includes(account.platformId);
     wire($('btn-broadcast'), shellBusy || creating || !account || (!advancedAvailable && (!apiAvailable || !supported)));
     $('btn-broadcast').title = supported ? '群发' : account && advancedAvailable ? '高级工具'
-      : account ? '当前平台群发尚未迁移；现支持 WhatsApp 和 Telegram K' : '请先选择账号';
+      : account ? '当前平台群发尚未迁移；现支持 WhatsApp、Telegram、Messenger 和 Instagram' : '请先选择账号';
     $('btn-broadcast').setAttribute('aria-label', $('btn-broadcast').title);
     wire($('bc-menu-send'), shellBusy || creating || !apiAvailable || !supported);
     jobsView?.render(snapshot.jobs, shell?.activeId, shellBusy, pendingControls, apiAvailable,
@@ -153,7 +153,7 @@ export function createBroadcastController({ document, window, api, getShellSnaps
   async function openEditor() {
     if (disposed || creating || shellBusy || !apiAvailable) return;
     const account = shell?.accounts.find((item) => item.id === shell.activeId && !item.archived);
-    if (!account || !['whatsapp', 'whatsapp-pure', 'telegram-k'].includes(account.platformId)) return;
+    if (!account || !['whatsapp', 'whatsapp-pure', 'telegram-k', 'telegram-z', 'messenger', 'instagram'].includes(account.platformId)) return;
     if (activeJob(account.id)) {
       await hidePanel(); panelChanged(null);
       jobsView.feedback('当前账号已有群发任务，可在任务条或群发指挥台查看。');

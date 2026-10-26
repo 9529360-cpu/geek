@@ -5,8 +5,8 @@ use crate::{
     domain::{
         account::Account,
         broadcast::{BroadcastIssue, DispatchOutcome, DispatchRequest, GuestBinding},
+        platform::document_matches,
         translation::supports_outgoing,
-        url_policy::safe_https,
     },
 };
 use serde_json::{json, Value};
@@ -69,16 +69,7 @@ impl NativePlatform {
         let url = guest
             .url()
             .map_err(|_| BroadcastIssue::AccountUnavailable)?;
-        let owned_url = match binding.platform_id.as_str() {
-            "whatsapp" | "whatsapp-pure" => url.host_str() == Some("web.whatsapp.com"),
-            "telegram-k" => {
-                url.host_str() == Some("web.telegram.org")
-                    && matches!(url.path(), "/k" | "/k/")
-                    && url.query().is_none()
-            }
-            _ => false,
-        };
-        if !safe_https(&url) || !owned_url || !self.sessions.valid(binding) {
+        if !document_matches(&binding.platform_id, &url) || !self.sessions.valid(binding) {
             return Err(BroadcastIssue::GuestChanged);
         }
         Ok(guest)

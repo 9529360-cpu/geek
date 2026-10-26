@@ -179,12 +179,18 @@ fn supported_id(id: &str, kind: ChatKind) -> bool {
 fn supported_catalog_id(platform: &str, id: &str, kind: ChatKind) -> bool {
     match platform {
         "whatsapp" | "whatsapp-pure" => supported_id(id, kind),
-        "telegram-k" => {
+        "telegram-k" | "telegram-z" => {
             crate::domain::translation::valid_telegram_chat_id(id)
                 && id[3..]
                     .parse::<i64>()
                     .is_ok_and(|peer| peer.unsigned_abs() <= 9_007_199_254_740_991)
                 && id.starts_with("tg:-") == (kind == ChatKind::Group)
+        }
+        "messenger" => {
+            kind == ChatKind::Contact && crate::domain::translation::valid_messenger_chat_id(id)
+        }
+        "instagram" => {
+            kind == ChatKind::Contact && crate::domain::translation::valid_instagram_chat_id(id)
         }
         _ => false,
     }
@@ -201,8 +207,15 @@ fn native_catalog(value: serde_json::Value, platform: &str) -> Result<NativeCata
     result
         .chats
         .retain(|chat| supported_catalog_id(platform, &chat.id, chat.kind));
-    if platform == "telegram-k"
-        && (result.capabilities.tag_all || result.capabilities.vcards || result.labels.is_some())
+    if matches!(
+        platform,
+        "telegram-k" | "telegram-z" | "messenger" | "instagram"
+    ) && (result.capabilities.tag_all || result.capabilities.vcards || result.labels.is_some())
+    {
+        return Err(AppError::BroadcastUnavailable);
+    }
+    if matches!(platform, "telegram-z" | "messenger" | "instagram")
+        && result.capabilities.attachments
     {
         return Err(AppError::BroadcastUnavailable);
     }

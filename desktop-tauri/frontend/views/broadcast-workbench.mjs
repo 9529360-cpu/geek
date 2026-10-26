@@ -1,4 +1,4 @@
-import { steps, draftPayload, previewMessage, formatTime } from '../models/broadcast.mjs';
+import { steps, draftPayload, previewMessage, formatTime, platformLabel } from '../models/broadcast.mjs';
 import { errorMessage } from '../models/broadcast-status.mjs';
 import { element, button, hidden, statusNode, wire } from './broadcast-elements.mjs';
 
@@ -73,7 +73,7 @@ export function createWorkbenchView(document, retry, changed) {
     const count = draft.recipientIds.length;
     const scheduledAt = draft.scheduleEnabled ? new Date(draft.scheduleTime).getTime() : null;
     const account = owner?.name || catalog?.accountName || '当前账号';
-    const platform = (owner?.platformId || catalog?.platformId) === 'telegram-k' ? 'Telegram K' : 'WhatsApp';
+    const platform = platformLabel(owner?.platformId || catalog?.platformId);
     values.get('account').textContent = `${account}，${platform}`;
     values.get('audience').textContent = draft.excludedRecipientCount
       ? `${count} 个对象，已排除 ${draft.excludedRecipientCount} 个` : count ? `${count} 个对象` : '尚未选择对象';

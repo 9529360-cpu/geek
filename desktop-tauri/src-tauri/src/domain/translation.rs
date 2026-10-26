@@ -81,7 +81,11 @@ impl TranslationPolicy {
 
     pub fn validate_for_platform(&self, platform: &str) -> Result<()> {
         self.validate()?;
-        if platform == "telegram-z" && (self.enabled || self.auto_send) {
+        // Messenger and Instagram rows have no proved direction or send time.
+        // Click mode is the only receive policy those accounts can store.
+        if matches!(platform, "messenger" | "instagram")
+            && (self.translation_mode != "click" || self.group_auto)
+        {
             return Err(AppError::TranslationUnavailable);
         }
         Ok(())
@@ -191,7 +195,7 @@ impl TranslationSettings {
             return Err(AppError::TranslationLimit);
         }
         for (id, policy) in &self.chats {
-            if !valid_chat_id(id) && !valid_telegram_chat_id(id) {
+            if !valid_stored_chat_id(id) {
                 return Err(AppError::TranslationInvalid);
             }
             policy.validate()?;
@@ -283,11 +287,17 @@ pub fn is_telegram(platform: &str) -> bool {
 }
 
 pub fn supports_receive(platform: &str) -> bool {
-    matches!(platform, "whatsapp" | "whatsapp-pure") || is_telegram(platform)
+    matches!(
+        platform,
+        "whatsapp" | "whatsapp-pure" | "messenger" | "instagram"
+    ) || is_telegram(platform)
 }
 
 pub fn supports_outgoing(platform: &str) -> bool {
-    matches!(platform, "whatsapp" | "whatsapp-pure" | "telegram-k")
+    matches!(
+        platform,
+        "whatsapp" | "whatsapp-pure" | "telegram-k" | "telegram-z" | "messenger" | "instagram"
+    )
 }
 
 pub fn valid_send_chat_id(platform: &str, id: &str) -> bool {
@@ -296,7 +306,7 @@ pub fn valid_send_chat_id(platform: &str, id: &str) -> bool {
 
 pub fn validate_send_text(platform: &str, text: &str) -> Result<()> {
     validate_text(text)?;
-    if platform == "telegram-k" && text.encode_utf16().count() > 4096 {
+    if matches!(platform, "telegram-k" | "telegram-z") && text.encode_utf16().count() > 4096 {
         return Err(AppError::TranslationInvalid);
     }
     Ok(())
@@ -316,10 +326,43 @@ pub fn valid_telegram_chat_id(id: &str) -> bool {
     })
 }
 
+fn valid_segment(id: &str) -> bool {
+    let bytes = id.as_bytes();
+    (1..=128).contains(&bytes.len())
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+pub fn valid_messenger_chat_id(id: &str) -> bool {
+    [
+        "/messages/t/",
+        "/messages/e2ee/t/",
+        "/messages/marketplace/t/",
+        "/messages/requests/t/",
+    ]
+    .iter()
+    .any(|prefix| id.strip_prefix(prefix).is_some_and(valid_segment))
+}
+
+pub fn valid_instagram_chat_id(id: &str) -> bool {
+    id.strip_prefix("/direct/t/").is_some_and(valid_segment)
+}
+
+pub fn valid_stored_chat_id(id: &str) -> bool {
+    valid_chat_id(id)
+        || valid_telegram_chat_id(id)
+        || valid_messenger_chat_id(id)
+        || valid_instagram_chat_id(id)
+}
+
 pub fn valid_receive_chat_id(platform: &str, id: &str) -> bool {
     match platform {
         "whatsapp" | "whatsapp-pure" => valid_chat_id(id),
         "telegram-z" | "telegram-k" => valid_telegram_chat_id(id),
+        "messenger" => valid_messenger_chat_id(id),
+        "instagram" => valid_instagram_chat_id(id),
         _ => false,
     }
 }
@@ -355,7 +398,7 @@ pub struct IncomingTranslation {
 impl IncomingTranslation {
     pub fn validate(&self) -> Result<()> {
         if !super::account::valid_id(&self.id)
-            || (!valid_chat_id(&self.chat_id) && !valid_telegram_chat_id(&self.chat_id))
+            || !valid_stored_chat_id(&self.chat_id)
             || !(1..=10_000).contains(&self.attempt)
             || self.message_id.is_empty()
             || self.message_id.len() > 256

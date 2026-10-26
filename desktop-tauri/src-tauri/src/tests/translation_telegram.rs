@@ -27,6 +27,52 @@ fn event() -> crate::domain::translation::IncomingTranslation {
 }
 
 #[test]
+fn messenger_and_instagram_receive_stays_manual_and_cannot_save_automatic_billing() {
+    let h = setup();
+    for (platform, chat) in [
+        ("messenger", "/messages/t/thread-1"),
+        ("instagram", "/direct/t/thread-1"),
+    ] {
+        let mut account = account(ProxyConfig::System);
+        account.platform_id = platform.into();
+        let mut manual = incoming("manual");
+        manual.chat_id = chat.into();
+        manual.message_id = "11111111-1111-4111-8111-111111111111".into();
+        manual.manual = true;
+        manual.sent_at = 0;
+        manual.policy_revision = 0;
+        assert!(h.engine.prepare(account.clone(), manual).is_ok());
+        let mut automatic = incoming("automatic");
+        automatic.chat_id = chat.into();
+        automatic.message_id = "22222222-2222-4222-8222-222222222222".into();
+        automatic.manual = false;
+        automatic.sent_at = h.engine.auto_after();
+        automatic.policy_revision = 0;
+        account.translation.global.translation_mode = "auto".into();
+        assert!(matches!(
+            h.engine.prepare(account, automatic),
+            Err(AppError::TranslationUnavailable)
+        ));
+        let mut auto_policy = TranslationPolicy::default();
+        auto_policy.translation_mode = "auto".into();
+        assert_eq!(
+            auto_policy.validate_for_platform(platform),
+            Err(AppError::TranslationUnavailable)
+        );
+        let mut grouped = TranslationPolicy::default();
+        grouped.group_auto = true;
+        assert_eq!(
+            grouped.validate_for_platform(platform),
+            Err(AppError::TranslationUnavailable)
+        );
+        assert!(TranslationPolicy::default()
+            .validate_for_platform(platform)
+            .is_ok());
+    }
+    assert!(h.gateway.calls(Operation::Translate).is_empty());
+}
+
+#[test]
 fn telegram_receive_identity_is_separate_from_every_whatsapp_send_identity() {
     for id in [
         "tg:123",
@@ -117,23 +163,15 @@ fn telegram_automatic_and_outgoing_cannot_bypass_policy_or_request_admission() {
             h.engine.prepare(account.clone(), automatic),
             Err(AppError::TranslationUnavailable)
         ));
-        let unsupported = if platform == "telegram-z" {
-            vec!["enabled", "autoSend"]
-        } else {
-            vec![]
-        };
-        for field in unsupported {
+        if platform == "telegram-z" {
             let mut candidate = account.clone();
-            match field {
-                "enabled" => candidate.translation.global.enabled = true,
-                "autoSend" => candidate.translation.global.auto_send = true,
-                "groupAuto" => candidate.translation.global.group_auto = true,
-                _ => candidate.translation.global.translation_mode = "auto".into(),
-            }
-            assert!(matches!(
-                h.engine.prepare(candidate, event()),
-                Err(AppError::TranslationUnavailable)
-            ));
+            candidate.translation.global.enabled = true;
+            candidate.translation.global.auto_send = true;
+            assert!(candidate
+                .translation
+                .global
+                .validate_for_platform(platform)
+                .is_ok());
         }
         let mut wrong = event();
         wrong.chat_id = "123@c.us".into();
@@ -177,26 +215,19 @@ fn telegram_settings_save_atomically_reject_unsupported_switches_and_keep_other_
     let wa = accounts.accounts()[2].id.clone();
     let before = accounts.accounts().to_vec();
     let saves = repository.0.lock().unwrap().saves;
-    for field in ["enabled", "autoSend"] {
-        let mut policy = TranslationPolicy::default();
-        match field {
-            "enabled" => policy.enabled = true,
-            "autoSend" => policy.auto_send = true,
-            "groupAuto" => policy.group_auto = true,
-            _ => policy.translation_mode = "auto".into(),
-        }
-        assert_eq!(
-            accounts.update_translation(&id, None, Some(policy.into()), 0),
-            Err(AppError::TranslationUnavailable)
-        );
-    }
+    let mut history = TranslationPolicy::default();
+    history.translate_history = true;
+    assert_eq!(
+        accounts.update_translation(&id, None, Some(history.into()), 0),
+        Err(AppError::TranslationUnavailable)
+    );
     let mut chat = ChatTranslationPolicy::from_policy(&TranslationPolicy::default());
     chat.message_target = "it".into();
     let mut bad = chat.clone();
-    bad.enabled = true;
+    bad.translation_mode = "nope".into();
     assert_eq!(
         accounts.update_translation(&id, Some("tg:123"), Some(bad.into()), 0),
-        Err(AppError::TranslationUnavailable)
+        Err(AppError::TranslationInvalid)
     );
     assert_eq!(
         accounts.update_translation(&id, Some("123@c.us"), Some(chat.clone().into()), 0),

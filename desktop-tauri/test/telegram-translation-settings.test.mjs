@@ -10,11 +10,10 @@ for (const id of ['tg', 'tgk']) {
     assert.equal(ui.get('translation-message-to').disabled, false);
     assert.equal(ui.get('translation-chat-override').disabled, false);
     for (const control of ['translation-send', 'translation-include-zh']) {
-      assert.equal(ui.get(control).disabled, id === 'tg', control);
+      assert.equal(ui.get(control).disabled, false, control);
     }
     for (const control of ['translation-send-from', 'translation-send-to', 'translation-enabled', 'translation-target']) {
       assert.equal(ui.get(control).disabled, true, control);
-      if (id === 'tg') assert.match(ui.get(control).title, /发送翻译暂不可用/);
     }
     assert.equal(ui.get('translation-receive-auto').disabled, false);
     assert.equal(ui.get('translation-group').disabled, true);
@@ -49,11 +48,11 @@ for (const id of ['tg', 'tgk']) {
 }
 
 test('A forged disabled sending switch cannot enqueue unsupported policy IPC', async () => {
-  const ui = await fixture(); ui.switchAccount('tg'); await ui.click('btn-translation');
+  const ui = await fixture(); ui.switchAccount('line'); await ui.click('btn-translation');
   const before = structuredClone(ui.backend);
   const node = ui.get('translation-send'); node.disabled = false; node.checked = true; node.fire('change'); await ui.idle();
   assert.equal(ui.calls.filter(([name]) => name === 'update').length, 0);
-  assert.equal(node.disabled, true); assert.deepEqual(ui.backend, before);
+  assert.deepEqual(ui.backend, before);
 });
 
 test('K sending policy and language survive account switches without changing A or WhatsApp', async () => {
@@ -70,7 +69,7 @@ test('K sending policy and language survive account switches without changing A 
     assert.deepEqual(ui.backend.accounts.find((current) => current.id === account.id), account);
   }
   await ui.click('translation-close'); ui.switchAccount('tg'); await ui.click('btn-translation');
-  assert.equal(ui.get('translation-send').checked, false); assert.equal(ui.get('translation-send').disabled, true);
+  assert.equal(ui.get('translation-send').checked, false); assert.equal(ui.get('translation-send').disabled, false);
   await ui.click('translation-close'); ui.switchAccount('tgk'); await ui.click('btn-translation');
   assert.equal(ui.get('translation-send').checked, true); assert.equal(ui.get('translation-send-to').value, 'it');
 });
@@ -114,5 +113,8 @@ test('capabilities remain explicit for archived, unknown and unavailable Telegra
   for (const platformId of ['whatsapp', 'whatsapp-pure', 'telegram-k']) {
     assert.deepEqual(translationCapabilities({ platformId }), { receive: true, automatic: true, outgoing: true });
   }
-  assert.deepEqual(translationCapabilities({ platformId: 'telegram-z' }), { receive: true, automatic: true, outgoing: false });
+  assert.deepEqual(translationCapabilities({ platformId: 'telegram-z' }), { receive: true, automatic: true, outgoing: true });
+  for (const platformId of ['messenger', 'instagram']) {
+    assert.deepEqual(translationCapabilities({ platformId }), { receive: true, automatic: false, outgoing: true });
+  }
 });

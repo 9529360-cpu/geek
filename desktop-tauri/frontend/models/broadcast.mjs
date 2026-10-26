@@ -49,7 +49,17 @@ export function normalizeAttachments(value = []) {
 }
 
 export function messageLimit(platformId, attachmentCount = 0) {
-  return platformId === 'telegram-k' ? attachmentCount > 0 ? 1024 : 4096 : 10000;
+  if (platformId === 'telegram-k') return attachmentCount > 0 ? 1024 : 4096;
+  if (platformId === 'telegram-z') return 4096;
+  return 10000;
+}
+
+export function platformLabel(platformId) {
+  if (platformId === 'telegram-k') return 'Telegram K';
+  if (platformId === 'telegram-z') return 'Telegram A';
+  if (platformId === 'messenger') return 'Messenger';
+  if (platformId === 'instagram') return 'Instagram';
+  return 'WhatsApp';
 }
 
 export function localSchedule(now = Date.now()) {
@@ -155,7 +165,8 @@ export function draftPayload(draft, catalog, now = Date.now()) {
   const message = String(draft.message || '');
   const vcardIds = [...new Set(draft.vcardIds)];
   const attachments = normalizeAttachments(draft.attachments);
-  if (catalog.platformId === 'telegram-k' && message.length > messageLimit(catalog.platformId, attachments.length)) {
+  if (['telegram-k', 'telegram-z'].includes(catalog.platformId)
+    && message.length > messageLimit(catalog.platformId, attachments.length)) {
     throw attachments.length ? 'BROADCAST_TELEGRAM_CAPTION_LIMIT' : 'BROADCAST_TELEGRAM_TEXT_LIMIT';
   }
   if (!message.trim() && !vcardIds.length && !attachments.length) throw 'BROADCAST_CONTENT_EMPTY';

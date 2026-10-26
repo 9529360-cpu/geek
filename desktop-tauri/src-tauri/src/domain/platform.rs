@@ -68,6 +68,37 @@ impl Platform {
     }
 }
 
+pub fn document_matches(platform: &str, url: &Url) -> bool {
+    if !safe_https(url) {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    match platform {
+        "whatsapp" | "whatsapp-pure" => host == "web.whatsapp.com",
+        "telegram-k" => {
+            host == "web.telegram.org"
+                && matches!(url.path(), "/k" | "/k/")
+                && url.query().is_none()
+        }
+        "telegram-z" => {
+            host == "web.telegram.org"
+                && matches!(url.path(), "/a" | "/a/")
+                && url.query().is_none()
+        }
+        "messenger" => {
+            matches!(host, "www.facebook.com" | "facebook.com")
+                && url.path().starts_with("/messages")
+        }
+        "instagram" => {
+            matches!(host, "www.instagram.com" | "instagram.com")
+                && url.path().starts_with("/direct")
+        }
+        _ => false,
+    }
+}
+
 pub fn platform<'a>(catalog: &'a [Platform], id: &str) -> Result<&'a Platform> {
     catalog
         .iter()

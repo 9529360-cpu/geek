@@ -81,7 +81,9 @@ fn platform_admission_keeps_namespaces_and_unsupported_a_sends_out_of_the_owner(
         ("telegram-k", "123@c.us"),
         ("whatsapp", "tg:123"),
         ("whatsapp-pure", "tg:-123"),
-        ("telegram-z", "tg:123"),
+        ("telegram-z", "123@c.us"),
+        ("messenger", "tg:123"),
+        ("instagram", "/messages/t/thread-1"),
     ] {
         let (mut account, mut binding, session, mut request) = send_intent_support::fixture(true);
         account.platform_id = platform.into();
@@ -93,6 +95,38 @@ fn platform_admission_keeps_namespaces_and_unsupported_a_sends_out_of_the_owner(
             Err(AppError::SendIntentInvalid)
         ));
         assert!(owner.status(&request.id).is_none());
+    }
+    let (mut account, mut binding, session, mut request) = send_intent_support::fixture(true);
+    account.platform_id = "telegram-z".into();
+    binding.platform_id = "telegram-z".into();
+    request.chat_id = "tg:123".into();
+    let mut owner = SendIntents::new();
+    assert!(matches!(
+        owner.admit(account, binding, session, request),
+        Ok(Admission::Start(_))
+    ));
+    for (platform, peer) in [
+        ("messenger", "/messages/t/thread-1"),
+        ("messenger", "/messages/e2ee/t/thread-1"),
+        ("instagram", "/direct/t/thread-1"),
+    ] {
+        let (mut account, mut binding, session, mut request) = send_intent_support::fixture(true);
+        account.platform_id = platform.into();
+        binding.platform_id = platform.into();
+        request.chat_id = peer.into();
+        let mut owner = SendIntents::new();
+        assert!(matches!(
+            owner.admit(account, binding, session, request.clone()),
+            Ok(Admission::Start(_))
+        ));
+        request.context = SendContext::Reply {
+            message_id: "1".into(),
+            chat_id: peer.into(),
+        };
+        assert_eq!(
+            request.validate_for_platform(platform),
+            Err(AppError::SendIntentInvalid)
+        );
     }
     let (_, _, _, mut request) = send_intent_support::fixture(false);
     request.chat_id = "tg:123".into();

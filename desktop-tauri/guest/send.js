@@ -10,8 +10,18 @@ let sendConfiguration = null;
 let sendRevoked = false;
 let foreground = null;
 const sendView = createSendView();
-const sendComposer = window.location?.hostname === 'web.telegram.org'
-  ? createTelegramSendComposer(composerChanged) : createSendComposer(composerChanged);
+function selectSendComposer(changed) {
+  const host = String(window.location?.hostname || '');
+  const path = String(window.location?.pathname || '');
+  if (host === 'web.telegram.org') {
+    if (path === '/a' || path === '/a/') return createPageSendComposer('telegram-a', changed);
+    return createTelegramSendComposer(changed);
+  }
+  if (host === 'www.facebook.com' || host === 'facebook.com') return createPageSendComposer('messenger', changed);
+  if (host === 'www.instagram.com' || host === 'instagram.com') return createPageSendComposer('instagram', changed);
+  return createSendComposer(changed);
+}
+const sendComposer = selectSendComposer(composerChanged);
 const sendPolicy = (chatId) => sendConfiguration?.settings?.chats?.[chatId] || sendConfiguration?.settings?.global;
 const ownsSubmit = (policy) => policy?.enabled === true && policy?.autoSend === true;
 const requiresTranslation = (policy, text) => ownsSubmit(policy)
