@@ -23,7 +23,7 @@ test('composed image/video reply sends the loaded model, never its caption or th
     assert.equal(target, request.chatId); assert.equal(output, translated);
     assert.strictEqual(options.quotedMsg, model);
     assert.deepEqual(Object.keys(options).sort(), ['detectMentioned', 'linkPreview', 'quotedMsg', 'waitForAck']);
-    assert.equal(options.waitForAck, true); assert.equal(options.detectMentioned, false); assert.equal(options.linkPreview, false);
+    assert.equal(options.waitForAck, true); assert.equal(options.detectMentioned, false); assert.equal(options.linkPreview, true);
     await tick();
     const result = ui.read(request, flight.permit).value;
     assert.deepEqual(result, { status: 'confirmed', receipt: 'receipt-1', draftCleared: false });
@@ -60,7 +60,7 @@ test('captioned audio, voice and ordinary file replies quote the loaded message 
     assert.equal(target, request.chatId, type);
     assert.equal(output, translated, type);
     assert.strictEqual(options.quotedMsg, model, type);
-    assert.equal(options.linkPreview, false, type);
+    assert.equal(options.linkPreview, true, type);
     assert.equal(options.detectMentioned, false, type);
     assert.equal(ui.editor.innerText, request.text, type);
     assert.equal(ui.state.cleared.length, 0, type);

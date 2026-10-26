@@ -153,7 +153,9 @@ function createWhatsAppTextComposer(changed) {
     if (!valid()) throw issue('SEND_INTENT_CHANGED');
     const value = read();
     if (!matches(record, value)) throw issue('SEND_INTENT_CHANGED');
-    const options = { waitForAck: true, detectMentioned: false, linkPreview: false };
+    // detectMentioned stays false so untyped text cannot become a mention.
+    // linkPreview matches the old native composer: WhatsApp may preview URLs.
+    const options = { waitForAck: true, detectMentioned: false, linkPreview: true };
     if (['reply', 'replyMentions'].includes(record.context.kind)) options.quotedMsg = record.quoteModel;
     if (['mentions', 'replyMentions'].includes(record.context.kind)) Object.assign(options, mentions.submitOptions(record.composerState.mentions.proof));
     return value.W.chat.sendTextMessage(record.chatId, text, options);

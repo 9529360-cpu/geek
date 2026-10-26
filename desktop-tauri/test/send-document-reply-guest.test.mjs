@@ -27,6 +27,7 @@ test('a loaded captioned PDF uses the actual CSS thumbnail shape and sends only 
     const [target, text, options] = ui.state.sent[0];
     assert.equal(target, request.chatId); assert.equal(text, output(request)); assert.strictEqual(options.quotedMsg, model);
     assert.deepEqual(Object.keys(options).sort(), ['detectMentioned', 'linkPreview', 'quotedMsg', 'waitForAck']);
+    assert.equal(options.linkPreview, true); assert.equal(options.detectMentioned, false);
     const result = ui.read(request, flight.permit).value;
     assert.deepEqual(result, { status: 'confirmed', receipt: 'receipt-1', draftCleared: false });
     assert.equal(ui.editor.innerText, request.text); assert.equal(ui.state.cleared.length, 0);

@@ -123,8 +123,10 @@ new trusted gesture, retain the logical fingerprint, advance its attempt and inv
 the older attempt. An appearance-only policy revision does not create a new billing ID.
 
 `submitOptions` derives `mentionedList` only from this proof. The pinned send uses
-`detectMentioned: false` and `linkPreview: false`, so it cannot reinterpret untyped text
-as another mention. Confirmation requires a real message ID and ACK at least 1. Missing
+`detectMentioned: false` and `linkPreview: true`. Untyped text still cannot become a
+mention. The preview flag matches the old native composer button, which let
+WhatsApp build a link preview. File sends keep `linkPreview: false`.
+Confirmation requires a real message ID and ACK at least 1. Missing
 ACK, callback loss or an exception after possible invocation remains uncertain.
 Confirmed mention sends retain the **entire draft** with `draftCleared: false` and the
 existing retained-draft notice. Cleanup/cancellation cannot turn confirmation into a

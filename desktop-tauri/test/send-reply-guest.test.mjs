@@ -39,7 +39,7 @@ test('loaded model/key replies with a visible exact banner send the frozen model
     assert.equal(ui.state.sent[0][1], 'Invia 100 unità domani.');
     assert.strictEqual(ui.state.sent[0][2].quotedMsg, reply.message);
     assert.deepEqual(Object.keys(ui.state.sent[0][2]).sort(), ['detectMentioned', 'linkPreview', 'quotedMsg', 'waitForAck']);
-    assert.equal(ui.state.sent[0][2].detectMentioned, false); assert.equal(ui.state.sent[0][2].linkPreview, false);
+    assert.equal(ui.state.sent[0][2].detectMentioned, false); assert.equal(ui.state.sent[0][2].linkPreview, true);
     assert.equal(ui.state.sent[0][2].waitForAck, true);
     await tick();
     const outcome = ui.read(request, flight.permit).value;

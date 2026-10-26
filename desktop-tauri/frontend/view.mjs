@@ -13,6 +13,17 @@ export function createShellView(document) {
   let connected = false;
   let recoverable = false;
   $('side-nav').append(runtimeStatus);
+  const notice = $('message-notice');
+  if (notice) $('side-nav').append(notice);
+  function showNotice(title, body) {
+    if (!notice) return;
+    $('message-notice-title').textContent = title;
+    $('message-notice-body').textContent = body;
+    notice.classList.remove('hidden');
+  }
+  function hideNotice() {
+    notice?.classList.add('hidden');
+  }
   $('nav-version').textContent = 'Tauri \u5f00\u53d1\u7248';
   $('settings-account-email').textContent = '正在读取…';
   $('settings-account-quota').textContent = '字符余额未知';
@@ -103,5 +114,6 @@ export function createShellView(document) {
       ? '\u6258\u76d8\u53f3\u952e\u83dc\u5355\u53ef\u5b8c\u5168\u9000\u51fa\u3002'
       : '\u6258\u76d8\u4e0d\u53ef\u7528\uff0c\u5173\u95ed\u7a97\u53e3\u5c06\u9000\u51fa\u5e94\u7528\u3002';
   }
-  return { $, on, wire, accounts, busy, status, statusPanel, editor, readDisplay, proxy, readProxy, settings };
+  return { $, on, wire, accounts, busy, status, statusPanel, editor, readDisplay, proxy, readProxy, settings,
+    showNotice, hideNotice };
 }

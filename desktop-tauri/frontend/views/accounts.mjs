@@ -53,7 +53,10 @@ export function createAccountView(document) {
       title.style.fontSize = `${fontSize}px`;
       title.style.color = fontColor;
       main.append(icon(account.platformId), title);
-      row.append(main);
+      const dot = document.createElement('span');
+      dot.className = 'acc-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      row.append(main, dot);
       order.bind(row, account.id, visibleIds, handlers.moveAccount);
       row.addEventListener('contextmenu', (event) => {
         event.preventDefault();
@@ -80,7 +83,10 @@ export function createAccountView(document) {
       const tab = button(`tab-item${item.key === family ? ' active' : ''}`, item.name, () => handlers.family(item.key));
       tab.dataset.platform = item.key;
       tab.setAttribute('aria-pressed', String(item.key === family));
-      tab.append(icon(item.icon));
+      const marker = document.createElement('span');
+      marker.className = 'tab-dot';
+      marker.setAttribute('aria-hidden', 'true');
+      tab.append(icon(item.icon), marker);
       $('account-tabs').append(tab);
     }
     $('empty-state').classList.toggle('hidden', Boolean(snapshot.activeId));

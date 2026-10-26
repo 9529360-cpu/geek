@@ -46,5 +46,6 @@ commands.allow = [
   "session_logout",
   "translation_context",
   "translation_health",
-  "account_update_translation"
+  "account_update_translation",
+  "unread_poll"
 ]

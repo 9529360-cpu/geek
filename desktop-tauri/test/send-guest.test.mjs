@@ -111,7 +111,7 @@ test('prepare performs canonical quality validation and commit submits frozen pl
   assert.equal(ui.api.commit(generation, request.id, request.attempt, randomUUID()), false);
   await tick();
   assert.deepEqual(JSON.parse(JSON.stringify(ui.state.sent)), [[request.chatId, 'Invia 100 unità domani.',
-    { waitForAck: true, detectMentioned: false, linkPreview: false }]]);
+    { waitForAck: true, detectMentioned: false, linkPreview: true }]]);
   assert.deepEqual(ui.state.cleared, [['']]); assert.equal(ui.editor.innerText, '');
   const result = ui.read(request, flight.permit).value;
   assert.deepEqual(result, { status: 'confirmed', receipt: 'receipt-1', draftCleared: true });

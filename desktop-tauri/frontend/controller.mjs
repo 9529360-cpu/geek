@@ -7,6 +7,7 @@ import { createSessionController } from './controllers/session.mjs';
 import { createTranslationController } from './controllers/translation.mjs';
 import { createAdvancedToolsController } from './controllers/advanced-tools.mjs';
 import { createContactNotesController } from './controllers/contact-notes.mjs';
+import { createUnreadController } from './controllers/unread.mjs';
 
 export function mountShell({ document, window, api }) {
   const view = createShellView(document);
@@ -29,6 +30,7 @@ export function mountShell({ document, window, api }) {
   let translation = null;
   let advanced = null;
   let contactNotes = null;
+  let unread = null;
   const setBusy = (value) => {
     busy = value;
     view.busy(value, Boolean(current && api), Boolean(api), pendingWindows);
@@ -50,6 +52,7 @@ export function mountShell({ document, window, api }) {
     const groups = families(next);
     if (!groups.some((item) => item.key === family)) family = groups[0]?.key || null;
     view.accounts.render(next, family, { activate, context, moveAccount, family: selectFamily });
+    unread?.repaint();
     if (panel === 'account-library-overlay') renderLibrary();
     broadcast?.renderShell(next);
     translation?.renderShell(next);
@@ -140,7 +143,12 @@ export function mountShell({ document, window, api }) {
     if (focusId) window.setTimeout(() => $(focusId).focus(), 0);
   }
   function activate(id) {
-    return run(async () => { await syncLayout(!panel); render(await api.activate(id)); await syncLayout(!panel); });
+    return run(async () => {
+      await syncLayout(!panel);
+      render(await api.activate(id));
+      unread?.seen(id);
+      await syncLayout(!panel);
+    });
   }
   function selectFamily(key) {
     const list = visibleAccounts(current, key);
@@ -323,6 +331,11 @@ export function mountShell({ document, window, api }) {
   window.addEventListener('resize', resize);
   const observer = window.ResizeObserver ? new window.ResizeObserver(resize) : null;
   observer?.observe($('webview-container'));
+  unread = createUnreadController({
+    window, api, document, snapshot: () => current,
+    showNotice: (title, body) => view.showNotice(title, body),
+    hideNotice: () => view.hideNotice(),
+  });
   if (api) run(async () => { render(await api.snapshot()); await syncLayout(true); }, true, false);
   else {
     setBusy(false);
@@ -334,6 +347,7 @@ export function mountShell({ document, window, api }) {
     await advanced.idle(); await contactNotes.idle(); await enqueue(() => {});
   }, dispose: () => {
     observer?.disconnect(); broadcast.dispose(); session.dispose(); translation.dispose();
-    advanced.dispose(); contactNotes.dispose(); window.removeEventListener?.('resize', resize);
+    advanced.dispose(); contactNotes.dispose(); unread?.dispose();
+    window.removeEventListener?.('resize', resize);
   } };
 }

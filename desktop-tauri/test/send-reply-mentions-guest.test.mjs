@@ -45,7 +45,7 @@ test('one composed send keeps both the exact quote and selected entities, with t
     assert.equal(target, request.chatId); assert.equal(text, output(request)); assert.strictEqual(options.quotedMsg, reply.message);
     assert.deepEqual(copy(options.mentionedList), [mentionId, lidId]);
     assert.deepEqual(Object.keys(options).sort(), ['detectMentioned', 'linkPreview', 'mentionedList', 'quotedMsg', 'waitForAck']);
-    assert.equal(options.waitForAck, true); assert.equal(options.detectMentioned, false); assert.equal(options.linkPreview, false);
+    assert.equal(options.waitForAck, true); assert.equal(options.detectMentioned, false); assert.equal(options.linkPreview, true);
     const result = ui.read(request, flight.permit).value;
     assert.deepEqual(result, { status: 'confirmed', receipt: 'receipt-1', draftCleared: false });
     assert.equal(ui.state.cleared.length, 0); assert.equal(f.chat.getComposeContents().text, source);
