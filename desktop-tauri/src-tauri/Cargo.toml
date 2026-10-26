@@ -1,0 +1,35 @@
+[package]
+name = "geek-tauri"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Windows-only Geek Tauri migration prototype"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.5", features = ["unstable", "tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "=1.18.1", features = ["v4"] }
+tempfile = "=3.23.0"
+fs2 = "=0.4.3"
+sha2 = "=0.10.9"
+zeroize = "=1.8.2"
+url = "=2.5.8"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "time", "macros"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "native-tls", "socks"] }
+windows = { version = "=0.62.2", features = ["Foundation", "Networking_Connectivity"] }
+windows-future = "=0.3.2"
+base64 = "=0.22.1"
+rfd = { version = "=0.16.0", default-features = false, features = ["common-controls-v6"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

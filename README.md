@@ -1,6 +1,10 @@
 # 极客 Geek
 
-Electron 多平台多账号聊天客户端，当前支持 WhatsApp、Telegram、LINE、Facebook Messenger 与 Instagram Direct，并提供独立账号沙箱、群发能力和统一翻译桥。
+Windows 桌面客户端的新底座在 [`desktop-tauri/`](desktop-tauri/README.md)。Tauri 提供窗口和 WebView2，Rust 负责账号、加密资料和页面生命周期，界面继续使用原来的外壳。每个账号使用独立的 WebView2 配置目录。
+
+当前支持重点是 **WhatsApp**（含纯净版）和 **Telegram**（K 与 A）：多账号、收发翻译、已经接通的发送和群发、未读提示，以及页面心跳失败后只重载该账号页面。Messenger、Instagram 和自定义网站可以打开页面，但不是这批底座的支持重点。LINE / LINE Business 在新底座上保持禁用。极客账户注册、购买字符包、锁屏、群工具和首次引导还没有迁入。
+
+仓库仍保留原来的 Electron 客户端（`src/`、`ui/`）以及 Worker、测试安装包和正式发布流程。正式 Windows 客户端发布只在 `.github/release-client-version` 变化时触发。这次底座替换不修改版本，不发布安装包或 tag。指向 `master` 的拉取请求会运行 `tauri-windows-prototype`：前端测试、`cargo fmt --check`、`cargo test --locked`、`clippy -D warnings`，以及 Windows 上的 `cargo build --release --locked`。这份可执行文件不是安装包，也不上传更新源。
 
 > 自动化代理接手前先阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/README.md`](docs/README.md)。跨会话维护基线见 [Issue #50](https://github.com/9529360-cpu/geek/issues/50)，Cloudflare 生产部署状态见 [Issue #21](https://github.com/9529360-cpu/geek/issues/21)，账号生产 smoke 见 [Issue #23](https://github.com/9529360-cpu/geek/issues/23)。
 >
@@ -12,7 +16,20 @@ Electron 多平台多账号聊天客户端，当前支持 WhatsApp、Telegram、
 
 生产部署是否成功，应以对应 GitHub Actions run 及 Issue #21/#23 的非敏感状态记录为证据，不以本地临时环境能否解析域名为准。
 
-## 技术架构
+## 新底座怎么检查
+
+```powershell
+npm ci --ignore-scripts --omit=dev --no-audit --no-fund
+node desktop-tauri/scripts/run-tests.cjs
+cargo +stable fmt --manifest-path desktop-tauri/src-tauri/Cargo.toml -- --check
+cargo +stable test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+cargo +stable clippy --manifest-path desktop-tauri/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+cargo +stable build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+```
+
+账号隔离、WhatsApp / Telegram 的发送边界和尚未迁入的能力见 [`desktop-tauri/README.md`](desktop-tauri/README.md)。下面几节描述仍留在仓库里的 Electron 客户端，它不是新底座的日常入口。`npm test` 和 `electron-e2e` 继续检查这棵 Electron 树。
+
+## 仍保留的 Electron 客户端
 
 ```text
 src/main.cjs（主进程）

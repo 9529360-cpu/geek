@@ -1,0 +1,365 @@
+{
+  "version": 1,
+  "commands": [
+    {
+      "name": "desktop_snapshot",
+      "arguments": [],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_create",
+      "arguments": [
+        "name",
+        "platformId",
+        "websiteUrl",
+        "proxy"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_create_batch",
+      "arguments": [
+        "name",
+        "platformId",
+        "websiteUrl",
+        "proxy",
+        "count"
+      ],
+      "response": "CreatedAccounts"
+    },
+    {
+      "name": "account_set_proxy",
+      "arguments": [
+        "id",
+        "proxy"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_rename",
+      "arguments": [
+        "id",
+        "name"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_update_display",
+      "arguments": [
+        "id",
+        "name",
+        "fontSize",
+        "fontColor"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_move",
+      "arguments": [
+        "id",
+        "targetId"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_set_archived",
+      "arguments": [
+        "id",
+        "archived"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_activate",
+      "arguments": [
+        "id"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_close",
+      "arguments": [
+        "id"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "account_reload",
+      "arguments": [
+        "id"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "desktop_layout",
+      "arguments": [
+        "viewport"
+      ],
+      "response": "unit"
+    },
+    {
+      "name": "desktop_settings",
+      "arguments": [
+        "settings"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "desktop_window",
+      "arguments": [
+        "action"
+      ],
+      "response": "unit"
+    },
+    {
+      "name": "broadcast_catalog",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "BroadcastCatalog"
+    },
+    {
+      "name": "broadcast_pick_attachments",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "Option<PickedBroadcastAttachments>"
+    },
+    {
+      "name": "broadcast_release_attachments",
+      "arguments": [
+        "accountId",
+        "attachmentIds"
+      ],
+      "response": "unit"
+    },
+    {
+      "name": "broadcast_import_contacts",
+      "arguments": [
+        "accountId",
+        "catalogId"
+      ],
+      "response": "Option<ImportedBroadcastContacts>"
+    },
+    {
+      "name": "broadcast_resolve_recipients",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "text"
+      ],
+      "response": "ResolvedBroadcastRecipients"
+    },
+    {
+      "name": "broadcast_resolve_audience",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "source"
+      ],
+      "response": "ResolvedBroadcastRecipients"
+    },
+    {
+      "name": "broadcast_presets",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_save_exclusions",
+      "arguments": [
+        "accountId",
+        "expectedRevision",
+        "excludedContactIds",
+        "excludedGroupIds"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_save_message",
+      "arguments": [
+        "accountId",
+        "expectedRevision",
+        "name",
+        "message"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_save_audience",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "expectedRevision",
+        "name",
+        "recipientIds"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_delete_preset",
+      "arguments": [
+        "accountId",
+        "expectedRevision",
+        "kind",
+        "id"
+      ],
+      "response": "BroadcastPresetSnapshot"
+    },
+    {
+      "name": "broadcast_restore_audience",
+      "arguments": [
+        "accountId",
+        "catalogId",
+        "expectedRevision",
+        "presetId"
+      ],
+      "response": "ResolvedBroadcastRecipients"
+    },
+    {
+      "name": "broadcast_export_failures",
+      "arguments": [
+        "accountId",
+        "jobId"
+      ],
+      "response": "ExportedBroadcastFailures"
+    },
+    {
+      "name": "broadcast_export_contacts",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "ExportedBroadcastData"
+    },
+    {
+      "name": "broadcast_history",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "BroadcastHistoryReport"
+    },
+    {
+      "name": "broadcast_export_history",
+      "arguments": [
+        "accountId",
+        "expectedRevision"
+      ],
+      "response": "ExportedBroadcastData"
+    },
+    {
+      "name": "account_export_backup",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "ExportedAccountBackup"
+    },
+    {
+      "name": "account_pick_backup",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "Option<ReviewedAccountBackup>"
+    },
+    {
+      "name": "account_restore_backup",
+      "arguments": [
+        "accountId",
+        "expectedPresetRevision",
+        "expectedTranslationRevision",
+        "data"
+      ],
+      "response": "RestoredAccountBackup"
+    },
+    {
+      "name": "broadcast_create",
+      "arguments": [
+        "draft"
+      ],
+      "response": "CreatedBroadcast"
+    },
+    {
+      "name": "broadcast_snapshot",
+      "arguments": [],
+      "response": "BroadcastSnapshot"
+    },
+    {
+      "name": "broadcast_control",
+      "arguments": [
+        "jobId",
+        "action"
+      ],
+      "response": "BroadcastSnapshot"
+    },
+    {
+      "name": "session_snapshot",
+      "arguments": [],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "contact_notes",
+      "arguments": [
+        "id",
+        "identity"
+      ],
+      "response": "Option<ContactNote>"
+    },
+    {
+      "name": "contact_notes_update",
+      "arguments": [
+        "id",
+        "identity",
+        "note",
+        "now"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "session_login",
+      "arguments": [
+        "email",
+        "password"
+      ],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "session_refresh",
+      "arguments": [],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "session_logout",
+      "arguments": [],
+      "response": "SessionSnapshot"
+    },
+    {
+      "name": "translation_context",
+      "arguments": [
+        "accountId"
+      ],
+      "response": "TranslationContext"
+    },
+    {
+      "name": "translation_health",
+      "arguments": [],
+      "response": "TranslationHealthSnapshot"
+    },
+    {
+      "name": "account_update_translation",
+      "arguments": [
+        "id",
+        "chatId",
+        "policy",
+        "expectedRevision"
+      ],
+      "response": "Snapshot"
+    },
+    {
+      "name": "unread_poll",
+      "arguments": [
+        "focusedId"
+      ],
+      "response": "UnreadSnapshot"
+    }
+  ]
+}

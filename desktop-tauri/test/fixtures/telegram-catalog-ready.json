@@ -1,0 +1,15 @@
+{
+  "capabilities": {
+    "text": true,
+    "scheduled": true,
+    "attachments": true,
+    "tagAll": false,
+    "groupMembers": true,
+    "vcards": false
+  },
+  "chats": [
+    { "id": "tg:101", "name": "Alice", "realName": "Alice", "kind": "contact" },
+    { "id": "tg:-202", "name": "Team", "realName": "Team", "kind": "group" }
+  ],
+  "labels": null
+}
