@@ -118,7 +118,10 @@ export function createBroadcastEditor({ document, onChange, onSubmit, onClose, o
     $('broadcast-message').maxLength = messageLimit(catalog?.platformId, attachments.length);
     $('broadcast-message').title = catalog?.platformId === 'telegram-k'
       ? attachments.length ? '附件说明最多 1024 字符，插入姓名和问候语后的完整内容也受此限制。'
-        : '每条消息最多 4096 字符，插入姓名和问候语后的完整内容也受此限制。' : '';
+        : '每条消息最多 4096 字符，插入姓名和问候语后的完整内容也受此限制。'
+      : catalog?.platformId === 'telegram-z'
+        ? '每条消息最多 4096 字符。替换输入框会清掉 Telegram A 已同步的云草稿。'
+        : ['messenger', 'instagram'].includes(catalog?.platformId) ? '当前只发送文字，不支持附件、名片和全体提及。' : '';
     audience.availability(blocked || !ready || next.importBusy || next.attachmentBusy, next.importAvailable && imports,
       { canPaste: next.resolveAvailable && imports, canAudience: next.audienceAvailable && imports,
         editable: !blocked && ready && !next.attachmentBusy });

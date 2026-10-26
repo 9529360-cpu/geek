@@ -232,10 +232,10 @@ fn platform_namespaces_are_checked_from_target_account_and_chat_shapes_stay_stri
     let full = TranslationPolicy::default();
     assert!(parse(&legacy(json!({"translationChats": {"12@c.us": full}}))).is_err());
     let sending = legacy(json!({"translationGlobal": {"send": true}}));
-    assert_eq!(
-        parse_account_backup(&serde_json::to_vec(&sending).unwrap(), "telegram-z").unwrap_err(),
-        AppError::TranslationUnavailable
-    );
+    let imported =
+        parse_account_backup(&serde_json::to_vec(&sending).unwrap(), "telegram-z").unwrap();
+    let global = imported.data.translation.unwrap().global.unwrap();
+    assert!(global.enabled && global.auto_send);
 }
 
 #[test]

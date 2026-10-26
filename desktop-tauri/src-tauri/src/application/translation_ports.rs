@@ -4,7 +4,7 @@ use crate::domain::{
     error::{AppError, Result},
     proxy::ProxyConfig,
     session::SessionToken,
-    translation::{valid_chat_id, valid_telegram_chat_id, validate_text},
+    translation::{valid_stored_chat_id, validate_text},
     translation_cache::TranslationCacheDocument,
 };
 
@@ -59,9 +59,7 @@ pub struct OutgoingTranslation {
 
 impl OutgoingTranslation {
     pub fn validate(&self) -> Result<()> {
-        if !valid_id(&self.id)
-            || (!valid_chat_id(&self.chat_id) && !valid_telegram_chat_id(&self.chat_id))
-        {
+        if !valid_id(&self.id) || !valid_stored_chat_id(&self.chat_id) {
             return Err(AppError::TranslationInvalid);
         }
         validate_text(&self.text)

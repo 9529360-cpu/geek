@@ -28,6 +28,7 @@ function attach(generation, platform) {
     else if (['telegram-z', 'telegram-k'].includes(platform)) {
       adapter = telegramTranslationAdapter(platform, () => { clearPresentation(); needsBaseline = true; }, automaticEligibility);
     }
+    else if (platform === 'messenger' || platform === 'instagram') adapter = metaTranslationAdapter(platform);
     else return false;
     platformId = platform;
   }

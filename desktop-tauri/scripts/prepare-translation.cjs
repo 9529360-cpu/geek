@@ -9,6 +9,8 @@ const translationInputs = Object.freeze([
   'desktop-tauri/guest/translation-telegram-a-incoming.js',
   'desktop-tauri/guest/translation-telegram-k-incoming.js',
   'desktop-tauri/guest/translation-adapter-telegram.js',
+  'desktop-tauri/guest/page-input.js',
+  'desktop-tauri/guest/translation-adapter-meta.js',
   'desktop-tauri/guest/translation.js',
 ]);
 

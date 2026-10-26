@@ -144,7 +144,8 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             || (incoming.manual && !policy.message_action)
             || (incoming.refresh && !incoming.manual)
             || (!incoming.manual
-                && (policy.translation_mode != "auto"
+                && (matches!(account.platform_id.as_str(), "messenger" | "instagram")
+                    || policy.translation_mode != "auto"
                     || incoming.sent_at < self.auto_after
                     || incoming.sent_at > now.saturating_add(60)
                     || (policy.message_target == "zh"

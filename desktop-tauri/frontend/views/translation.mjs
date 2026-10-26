@@ -122,7 +122,10 @@ export function createTranslationView(document, actions) {
     const canEdit = connected && supported && !shellBusy;
     sendDescription.textContent = account?.platformId === 'telegram-k'
       ? '按 Enter 或点击发送可翻译普通文字，也可引用同聊天的纯文字消息后翻译回复。引用回复发送成功后请手动清除完整草稿；提及和聊天附件说明暂不支持。'
-      : account?.platformId === 'telegram-z' ? '此版本的 Telegram 发送翻译仍在迁移中；接收翻译可正常设置。'
+      : account?.platformId === 'telegram-z'
+        ? '按 Enter 或点击发送可翻译普通文字。替换输入框沿用旧版做法，会清掉 Telegram A 已同步的云草稿。引用、提及和附件暂不支持。'
+        : account?.platformId === 'messenger' || account?.platformId === 'instagram'
+          ? '按 Enter 或点击发送可翻译普通文字。收消息翻译需手动点击。群发只发送文字，不支持附件、名片和全体提及。'
         : '按 Enter 或点击发送可翻译普通文字、群内联系人提及，以及可识别的同聊天文字、带说明的图片和视频引用。'
           + '图片、视频及可识别预览的 PDF 支持说明翻译；多附件支持最多 10 个图片/PDF，或一个选中视频搭配图片。'
           + '请点击预览发送按钮，译文仅放在选中项，最多 1024 字。'
@@ -145,8 +148,7 @@ export function createTranslationView(document, actions) {
     $('translation-send-from').disabled = !canEdit || !globalPolicy.enabled;
     $('translation-send-to').disabled = !canEdit || !globalPolicy.enabled;
     $('translation-target').disabled = !canEdit || !hasChat || !override || !chatPolicy.enabled;
-    const unavailableTitle = !supported ? '此平台尚未接通翻译'
-      : capabilities.automatic ? 'Telegram 发送翻译暂不可用' : 'Telegram 仅支持手动消息翻译';
+    const unavailableTitle = !supported ? '此平台尚未接通翻译' : '发送翻译暂不可用';
     for (const id of ['translation-send', 'translation-send-from', 'translation-send-to', 'translation-include-zh',
       'translation-enabled', 'translation-target', 'translation-auto-send']) {
       $(id).disabled ||= !capabilities.outgoing;
@@ -154,7 +156,7 @@ export function createTranslationView(document, actions) {
     }
     for (const id of ['translation-receive-auto', 'translation-channel-receive-auto', 'translation-group']) {
       $(id).disabled ||= !capabilities.automatic;
-      $(id).title = capabilities.automatic ? '' : unavailableTitle;
+      $(id).title = capabilities.automatic ? '' : '接收翻译目前需要手动点击，不会自动计费';
     }
     $('translation-global-reset').textContent = confirmation ? '确认恢复推荐设置' : '恢复翻译推荐设置';
     fields(globalFields, globalPolicy); fields(chatFields, chatPolicy);

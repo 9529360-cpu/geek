@@ -37,7 +37,7 @@ fn validation_checks_owner_capability_names_and_encoding_before_persistence() {
     telegram.platform_id = "telegram-z".into();
     assert!(matches!(
         service.submit(telegram, input.clone(), NOW),
-        Err(AppError::BroadcastUnsupported)
+        Err(AppError::BroadcastInvalid)
     ));
     let mut over = input.clone();
     over.message = "😀".repeat(5_001);

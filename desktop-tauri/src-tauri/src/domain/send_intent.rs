@@ -4,8 +4,8 @@ use super::{
     error::{AppError, Result},
     send_mentions::{validate_mentions, SendMention},
     translation::{
-        valid_chat_id, valid_send_chat_id, valid_telegram_chat_id, validate_send_text,
-        validate_text,
+        valid_chat_id, valid_send_chat_id, valid_stored_chat_id, valid_telegram_chat_id,
+        validate_send_text, validate_text,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -141,7 +141,7 @@ pub struct OutgoingSend {
 impl OutgoingSend {
     pub fn validate(&self) -> Result<()> {
         if !valid_id(&self.id)
-            || (!valid_chat_id(&self.chat_id) && !valid_telegram_chat_id(&self.chat_id))
+            || !valid_stored_chat_id(&self.chat_id)
             || !self.context.valid_for(&self.chat_id, &self.text)
             || self.composer_revision == 0
             || self.policy_revision == 0
@@ -160,6 +160,8 @@ impl OutgoingSend {
                     self.context,
                     SendContext::Plain {} | SendContext::Reply { .. }
                 ))
+            || (matches!(platform, "telegram-z" | "messenger" | "instagram")
+                && !matches!(self.context, SendContext::Plain {}))
         {
             return Err(AppError::SendIntentInvalid);
         }

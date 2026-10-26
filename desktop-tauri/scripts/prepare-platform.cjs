@@ -36,6 +36,8 @@ function compose(root = ROOT) {
     read('desktop-tauri/guest/telegram-attachments.js'),
     read('desktop-tauri/guest/telegram-audience.js'),
     read('desktop-tauri/guest/telegram-send.js'),
+    read('desktop-tauri/guest/page-input.js'),
+    read('desktop-tauri/guest/page-broadcast.js'),
     read('desktop-tauri/guest/bridge.js'),
     '})();', '',
   ].join('\n');
@@ -59,6 +61,7 @@ function composeSend(root = ROOT) {
     read('desktop-tauri/guest/telegram-reply-context.js'),
     read('desktop-tauri/guest/send-composer-telegram.js'),
     read('desktop-tauri/guest/send-view.js'),
+    read('desktop-tauri/guest/page-input.js'),
     read('desktop-tauri/guest/send.js'), '})();', ''].join('\n');
 }
 
@@ -92,7 +95,8 @@ function prepare(output, root = ROOT) {
     'desktop-tauri/guest/telegram-reply-context.js',
     'desktop-tauri/guest/telegram-attachments.js',
     'desktop-tauri/guest/telegram-audience.js',
-    'desktop-tauri/guest/telegram-send.js', 'desktop-tauri/guest/send-composer-telegram.js',
+    'desktop-tauri/guest/telegram-send.js', 'desktop-tauri/guest/page-input.js',
+    'desktop-tauri/guest/page-broadcast.js', 'desktop-tauri/guest/send-composer-telegram.js',
     ...translationInputs,
     'desktop-tauri/guest/whatsapp-reply-context.js',
     'desktop-tauri/guest/whatsapp-mentions.js',

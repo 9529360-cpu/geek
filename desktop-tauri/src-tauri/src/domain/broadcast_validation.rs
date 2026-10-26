@@ -7,6 +7,15 @@ use super::{
 use std::collections::HashSet;
 use uuid::Uuid;
 
+fn valid_broadcast_target(platform: &str, id: &str) -> bool {
+    match platform {
+        "telegram-k" | "telegram-z" => super::translation::valid_telegram_chat_id(id),
+        "messenger" => super::translation::valid_messenger_chat_id(id),
+        "instagram" => super::translation::valid_instagram_chat_id(id),
+        _ => true,
+    }
+}
+
 pub fn valid_uuid(value: &str) -> bool {
     Uuid::parse_str(value).is_ok_and(|id| id.to_string() == value)
 }
@@ -27,11 +36,18 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     }
     if !matches!(
         account.platform_id.as_str(),
-        "whatsapp" | "whatsapp-pure" | "telegram-k"
+        "whatsapp" | "whatsapp-pure" | "telegram-k" | "telegram-z" | "messenger" | "instagram"
     ) {
         return Err(AppError::BroadcastUnsupported);
     }
     if account.platform_id == "telegram-k" && (draft.tag_all || !draft.vcards.is_empty()) {
+        return Err(AppError::BroadcastUnsupported);
+    }
+    if matches!(
+        account.platform_id.as_str(),
+        "telegram-z" | "messenger" | "instagram"
+    ) && (draft.tag_all || !draft.vcards.is_empty() || !draft.attachments.is_empty())
+    {
         return Err(AppError::BroadcastUnsupported);
     }
     if (!draft.message.trim().is_empty() && !account.capabilities.text)
@@ -64,8 +80,7 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     let mut ids = HashSet::new();
     for target in &draft.targets {
         if !label(&target.id, 256, false)
-            || (account.platform_id == "telegram-k"
-                && !super::translation::valid_telegram_chat_id(&target.id))
+            || !valid_broadcast_target(&account.platform_id, &target.id)
             || target.id != target.id.trim()
             || !ids.insert(&target.id)
             || !label(&target.name, 512, true)
@@ -73,7 +88,7 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
         {
             return Err(AppError::BroadcastInvalid);
         }
-        if account.platform_id == "telegram-k" {
+        if matches!(account.platform_id.as_str(), "telegram-k" | "telegram-z") {
             let limit = if draft.attachments.is_empty() {
                 4096
             } else {
