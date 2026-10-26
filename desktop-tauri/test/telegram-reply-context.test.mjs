@@ -39,6 +39,25 @@ test('official 110/111 UTF-16 preview cutoff retains the complete source, includ
   assert.equal(f.composer.clear(record), false); assert.equal(f.state.clears.length, 0);
 });
 
+test('captioned photo, video and file replies keep the same visible text-reply binding', () => {
+  const photo = { _: 'messageMediaPhoto', id: 9 };
+  const video = { _: 'messageMediaDocument', document: { _: 'document', id: '4',
+    attributes: [{ _: 'documentAttributeVideo', pFlags: {} }] } };
+  const file = { _: 'messageMediaDocument', document: { _: 'document', id: '5',
+    attributes: [{ _: 'documentAttributeFilename', file_name: 'report.pdf' }] } };
+  for (const media of [photo, video, file]) {
+    const f = telegramFixture();
+    const quote = installTelegramReply(f, { model: { media } });
+    const record = frozen(f);
+    assert.equal(record.context.kind, 'reply');
+    assert.equal(record.context.messageId, 'tg:101:51');
+    assert.equal(record.quoteBody, quote.model.message);
+    assert.equal(f.composer.matches(record, f.composer.read()), true);
+    quote.model.media = { _: 'messageMediaPhoto', id: 10 };
+    assert.equal(f.composer.matches(record, f.composer.read()), false);
+  }
+});
+
 test('model or DOM-only guesses, special draft options and unsupported source messages are rejected', () => {
   const scenarios = [
     (f, q) => { f.state.mirrors.delete(`101_history:${q.model.mid}`); },
@@ -46,6 +65,10 @@ test('model or DOM-only guesses, special draft options and unsupported source me
     (f, q) => { q.model.id = 0; }, (f, q) => { q.model.id = 2147483648; },
     (f, q) => { q.model.id = 2.5; }, (f, q) => { q.model._ = 'messageService'; },
     (f, q) => { q.model.media = { _: 'messageMediaPhoto' }; },
+    (f, q) => { q.model.media = { _: 'messageMediaPhoto', id: 9, pFlags: { spoiler: true } }; },
+    (f, q) => { q.model.media = { _: 'messageMediaDocument', document: { _: 'document', id: '4',
+      attributes: [{ _: 'documentAttributeAudio', pFlags: { voice: true } }] } }; },
+    (f, q) => { q.model.grouped_id = 'album'; },
     (f, q) => { q.model.rich_message = {}; }, (f, q) => { q.model.pending = true; },
     (f, q) => { q.model.deleted = true; }, (f, q) => { q.model.random_id = '10001'; },
     (f, q) => { q.model.ttl_period = 60; }, (f, q) => { q.model.pFlags.ephemeral = true; },

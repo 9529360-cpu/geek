@@ -46,6 +46,25 @@ test('composed reply owner sends literal translation once with server reply ID a
   }
 });
 
+test('a captioned photo reply uses the same server reply id and does not send the media again', async () => {
+  const f = telegramOwnerFixture();
+  installTelegramReply(f, { model: { media: { _: 'messageMediaPhoto', id: 9 } } });
+  const request = start(f);
+  assert.equal(request.context.kind, 'reply');
+  assert.deepEqual(f.prepare(request), { ok: true });
+  const result = await f.settle(request, f.commit(request));
+  assert.equal(result.status, 'confirmed');
+  assert.equal(result.draftCleared, false);
+  assert.equal(f.state.sends.length, 1);
+  assert.equal(f.state.sends[0].method, 'messages.sendMessage');
+  assert.equal(f.state.sends[0].params.message, 'Invia domani.');
+  assert.equal(f.state.sends[0].params.clear_draft, false);
+  assert.deepEqual(f.state.sends[0].params.reply_to, { _: 'inputReplyToMessage', reply_to_msg_id: 51 });
+  assert.equal(f.state.stages[0].message.media, undefined);
+  assert.equal(f.editor.innerText, request.text);
+  assert.equal(f.state.clears.length, 0);
+});
+
 test('reply identity exclusion and already-forwarded/replied plain sources retain the same finite send route', async () => {
   const f = telegramOwnerFixture({ policy: { includeZh: false }, text: '明天发送。', session: null });
   installTelegramReply(f, { from: 90, model: { pFlags: { out: true }, edit_date: 4,

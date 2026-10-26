@@ -38,7 +38,7 @@ and outgoing plain-text and verified same-chat text-reply translation for K. The
 serves K text, ordered attachments, schedules and saved messages/audiences. The same file list
 shows K photos/videos/documents and changes the caption limit without truncating a draft;
 unavailable import/entity controls remain disabled by capability. WhatsApp outgoing retains
-its original send gesture and adds verified group mentions, captioned image/video replies,
+its original send gesture and adds verified group mentions, captioned image/video/audio/file replies,
 and ordinary PDF replies with a user-written caption and matching loaded page previews,
 and verified same-group replies combined with selected contact mentions,
 single image/video or identified-PDF captions, and bounded image/PDF batches with one selected

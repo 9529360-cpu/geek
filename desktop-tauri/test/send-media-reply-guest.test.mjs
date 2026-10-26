@@ -35,6 +35,38 @@ test('composed image/video reply sends the loaded model, never its caption or th
   }
 });
 
+test('captioned audio, voice and ordinary file replies quote the loaded message without a thumbnail', async () => {
+  const cases = [
+    ['audio', 'audio/ogg; codecs=opus'],
+    ['ptt', 'audio/ogg'],
+    ['document', 'application/zip'],
+  ];
+  for (const [type, mime] of cases) {
+    const fixture = await withMedia({ type });
+    fixture.image.remove();
+    fixture.model.mimetype = mime;
+    fixture.model.mediaData.mimetype = mime;
+    fixture.model.mediaData.type = type;
+    const duration = fixture.ui.document.createElement('span');
+    duration.textContent = '0:03';
+    fixture.reply.banner.append(duration);
+    const { ui, model } = fixture;
+    const request = start(ui);
+    assert.equal(request.context.kind, 'reply', type);
+    assert.equal(JSON.stringify(request).includes(model.caption), false, type);
+    assert.deepEqual(ui.prepare(request, translated), { ok: true });
+    ui.commit(request); await tick();
+    const [target, output, options] = ui.state.sent[0];
+    assert.equal(target, request.chatId, type);
+    assert.equal(output, translated, type);
+    assert.strictEqual(options.quotedMsg, model, type);
+    assert.equal(options.linkPreview, false, type);
+    assert.equal(options.detectMentioned, false, type);
+    assert.equal(ui.editor.innerText, request.text, type);
+    assert.equal(ui.state.cleared.length, 0, type);
+  }
+});
+
 test('model and nested media A-to-B-to-A changes fence prepared attempts and retain the same paid intent on a new gesture', async () => {
   const changes = [
     ['caption', (f) => { const value = f.model.caption; f.model.caption = 'Temporary caption'; f.model.caption = value; }],
