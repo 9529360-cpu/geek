@@ -12,7 +12,14 @@ function createWhatsAppReplyContext({ normalize, visible, issue }) {
   const previewTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
   const imageAttributes = new Set(['src', 'alt', 'class', 'style', 'dir', 'width', 'height',
     'draggable', 'decoding', 'loading', 'data-testid', 'role', 'aria-hidden']);
-  const blobUrl = /^blob:https:\/\/web\.whatsapp\.com\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+    const blobUrl = /^blob:https:\/\/web\.whatsapp\.com\/[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+    const audioMime = /^audio\/[a-z0-9.+-]+(?:; ?[a-z0-9.+-]+=[a-z0-9.+-]+)?$/;
+    const fileMime = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/;
+    const acceptedMime = (model) => model.type === 'document' ? fileMime.test(model.mimetype)
+      : model.type === 'audio' || model.type === 'ptt' ? audioMime.test(model.mimetype)
+        : new RegExp(`^${model.type}/[a-z0-9.+-]+$`).test(model.mimetype);
+    const captionOnlyType = (model) => model.type === 'audio' || model.type === 'ptt'
+      || model.type === 'document' && model.mimetype !== 'application/pdf';
   const idOf = (value) => typeof value === 'string' ? value : value?._serialized || '';
   const sourceOf = (image) => image.currentSrc || image.getAttribute('src') || '';
   const scalar = (value) => value == null || typeof value === 'string'
@@ -109,7 +116,8 @@ function createWhatsAppReplyContext({ normalize, visible, issue }) {
     if (typeof types?.MsgModel !== 'function' || !(model instanceof types.MsgModel)
         || typeof types.MsgKey !== 'function' || !(model.id instanceof types.MsgKey)
         || idOf(model.id.remote) !== chatId || model.isStatusV3
-        || !['image', 'video', 'document'].includes(model.type) || model.isMedia !== true || model.isViewOnce !== false
+        || !['image', 'video', 'document', 'audio', 'ptt'].includes(model.type)
+        || model.isMedia !== true || model.isViewOnce !== false
         || typeof types.canReplyMsg !== 'function' || types.canReplyMsg(model) !== true
         || typeof model.on !== 'function' || typeof model.off !== 'function'
         || typeof model.caption !== 'string' || !normalize(model.caption)
@@ -117,8 +125,7 @@ function createWhatsAppReplyContext({ normalize, visible, issue }) {
         || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(model.caption)
         || typeof model.mimetype !== 'string' || model.mimetype.length > 100
         || model.mimetype.trim() !== model.mimetype
-        || (model.type === 'document' ? model.mimetype !== 'application/pdf'
-          : !new RegExp(`^${model.type}/[a-z0-9.+-]+$`).test(model.mimetype))
+        || !acceptedMime(model)
         || !scalar(model.filehash) || !visible(footer) || !footer.contains(editor)) throw issue();
     const media = model.mediaData;
     if (typeof types.MediaDataModel !== 'function' || !(media instanceof types.MediaDataModel)
@@ -127,6 +134,16 @@ function createWhatsAppReplyContext({ normalize, visible, issue }) {
         || media.type != null && media.type !== model.type
         || media.mimetype != null && media.mimetype !== model.mimetype
         || media.filehash != null && model.filehash != null && media.filehash !== model.filehash) throw issue();
+    if (captionOnlyType(model)) {
+      // Voice, audio and ordinary files have no proved thumbnail contract.
+      // A user-written caption still has to match the visible quote exactly.
+      const extras = [...footer.querySelectorAll('img, video, audio, canvas, [style]')].filter((node) => visible(node)
+        && !editor.contains(node));
+      if (extras.length) throw issue();
+      const proof = Object.freeze({ model, media, caption: normalize(model.caption), messageId: idOf(model.id),
+        values: Object.freeze(state(model)), captionOnly: true });
+      return { quoteBody: proof.caption, quoteMedia: proof };
+    }
     if (model.type === 'document') return documentProof(value, model, media);
     const { preview, url, size, type } = opaquePreview(types, media.preview);
     const proof = { model, media, preview, url, size, type, caption: normalize(model.caption),

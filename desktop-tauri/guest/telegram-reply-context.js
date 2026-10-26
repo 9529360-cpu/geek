@@ -38,6 +38,29 @@ function createTelegramReplyContext(runtime, changed) {
       && visible(node) && [...node.attributes].every((attr) => ['class', 'dir'].includes(attr.name))
       && [...node.childNodes].every(passiveBody);
   }
+  function ordinaryQuotedMedia(media) {
+    if (media === undefined) return true;
+    if (!object(media) || media.ttl_seconds !== undefined) return false;
+    const flags = media.pFlags;
+    if (flags !== undefined && (!object(flags) || Object.keys(flags).length
+        || Object.values(flags).some((value) => value !== false))) return false;
+    if (media._ === 'messageMediaPhoto') {
+      return Number.isSafeInteger(media.id) && media.id > 0
+        && Object.keys(media).every((key) => key === '_' || key === 'id' || key === 'pFlags');
+    }
+    if (media._ !== 'messageMediaDocument' || !object(media.document)
+        || media.document._ !== 'document' || !Array.isArray(media.document.attributes)
+        || !Object.keys(media).every((key) => key === '_' || key === 'document' || key === 'pFlags')) return false;
+    const id = media.document.id;
+    const names = media.document.attributes.map((attribute) => attribute?._);
+    const allowed = new Set(['documentAttributeFilename', 'documentAttributeVideo', 'documentAttributeImageSize']);
+    if (!(typeof id === 'string' && /^[1-9]\d{0,19}$/.test(id) || Number.isSafeInteger(id) && id > 0)) return false;
+    const video = media.document.attributes.filter((attribute) => attribute?._ === 'documentAttributeVideo');
+    return names.length > 0 && names.length <= 3 && names.every((name) => allowed.has(name))
+      && new Set(names).size === names.length
+      && names.some((name) => name === 'documentAttributeFilename' || name === 'documentAttributeVideo')
+      && video.length <= 1 && !video.some((attribute) => attribute.round_message || attribute.pFlags?.round_message);
+  }
   function source(snapshot, peerId, mid) {
     const model = snapshot.proxy.getMessageFromStorage(`${peerId}_history`, mid);
     const flags = model?.pFlags;
@@ -49,9 +72,10 @@ function createTelegramReplyContext(runtime, changed) {
         || !Number.isSafeInteger(model.fromId) || model.fromId <= 0
         || !Number.isSafeInteger(model.date) || model.date <= 0
         || model.edit_date !== undefined && (!Number.isSafeInteger(model.edit_date) || model.edit_date <= 0)
-        || ['pending', 'error', 'deleted', 'random_id', 'media', 'rich_message', 'action', 'grouped_id',
+        || ['pending', 'error', 'deleted', 'random_id', 'rich_message', 'action', 'grouped_id',
           'ttl_period', 'restriction_reason', 'paid_message_stars', 'suggested_post', 'saved_peer_id',
           'via_bot_id', 'reply_markup'].some((key) => model[key] !== undefined)
+        || !ordinaryQuotedMedia(model.media)
         || !emptyEntities(model.entities) || !runtime.textValid(model.message)
         || model.totalEntities !== undefined && (!Array.isArray(model.totalEntities)
           || model.totalEntities.some((entity) => !['messageEntityEmoji', 'messageEntityLinebreak'].includes(entity?._)))) throw issue();
@@ -98,7 +122,9 @@ function createTelegramReplyContext(runtime, changed) {
         || !display(authors[0].innerText) || display(bodies[0].innerText) !== display(preview)) throw issue();
     const signature = JSON.stringify({ id: model.id, mid, peerId: model.peerId, fromId: model.fromId,
       date: model.date, edit_date: model.edit_date, message: model.message, pFlags: model.pFlags,
-      entities: model.entities, totalEntities: model.totalEntities });
+      entities: model.entities, totalEntities: model.totalEntities,
+      media: model.media && { _: model.media._, id: model.media.id, document: model.media.document?.id,
+        attributes: model.media.document?.attributes?.map((attribute) => attribute?._) } });
     const telegramReply = Object.freeze({ snapshot, peerId: chat.peerId, mid, id: model.id, model, signature });
     latest = telegramReply;
     return { context: Object.freeze({ kind: 'reply', chatId, messageId: `${chatId}:${model.id}` }),

@@ -93,11 +93,17 @@ function createSendContext({ normalize, visible, issue, mentions }) {
     return new Set(values.filter((value) => typeof value === 'string' && value.length <= 200
       && !/[\x00-\x1f\x7f]/.test(value)).map(normalize).filter(Boolean));
   }
-  function outsideLeaves(footer, editor) {
+  function outsideLeaves(footer, editor, proof) {
     const leaves = [];
+    const incidental = (value) => proof?.captionOnly && (/^\d{1,2}:\d{2}$/.test(value)
+      || /^\d+(?:\.\d+)?\s?(?:kb|mb|gb)$/i.test(value));
     const visit = (node) => {
       if (node === editor) return;
-      if (node.nodeType === 3) { if (normalize(node.textContent)) leaves.push(node); return; }
+      if (node.nodeType === 3) {
+        const text = normalize(node.textContent);
+        if (text && !incidental(text)) leaves.push(node);
+        return;
+      }
       if (node.nodeType !== 1 || !visible(node) || node.matches('button, [role="button"], svg')) return;
       for (const child of node.childNodes) visit(child);
     };
@@ -128,7 +134,7 @@ function createSendContext({ normalize, visible, issue, mentions }) {
     const bodies = innermost(candidates.filter((node) => normalize(node.innerText) === body));
     if (bodies.length !== 1) throw issue();
     const bodyNode = bodies[0];
-    const leaves = outsideLeaves(footer, editor);
+    const leaves = outsideLeaves(footer, editor, imageProof);
     const extra = leaves.filter((node) => !bodyNode.contains(node));
     let author = null;
     if (extra.length) {
