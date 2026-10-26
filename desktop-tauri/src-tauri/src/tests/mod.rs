@@ -29,6 +29,7 @@ mod contact_notes;
 mod crash_record;
 mod desktop;
 mod doubles;
+mod page_pulse;
 mod persistence;
 mod policy;
 mod presentation;

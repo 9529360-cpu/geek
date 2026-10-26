@@ -35,12 +35,28 @@ pub struct Account {
     pub translation: TranslationSettings,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
+fn default_message_sound() -> bool {
+    true
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     // Opt-in: adding a tray must not silently change the existing close behavior.
     #[serde(default)]
     pub close_to_tray: bool,
+    // The old shell plays a sound unless the user turns it off.
+    #[serde(default = "default_message_sound")]
+    pub message_sound: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            close_to_tray: false,
+            message_sound: true,
+        }
+    }
 }
 
 pub fn valid_id(id: &str) -> bool {

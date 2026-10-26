@@ -93,7 +93,8 @@ fn settings_effects_are_published_only_after_persistence() {
     let (mut desktop, repository, host, _, _) = fixture();
     assert!(matches!(
         desktop.set_settings(Settings {
-            close_to_tray: true
+            close_to_tray: true,
+            ..Settings::default()
         }),
         Err(AppError::TrayUnavailable)
     ));
@@ -101,7 +102,8 @@ fn settings_effects_are_published_only_after_persistence() {
     repository.0.lock().unwrap().fail_save = true;
     assert!(desktop
         .set_settings(Settings {
-            close_to_tray: true
+            close_to_tray: true,
+            ..Settings::default()
         })
         .is_err());
     assert!(!desktop.snapshot().settings.close_to_tray);
@@ -110,6 +112,7 @@ fn settings_effects_are_published_only_after_persistence() {
     desktop
         .set_settings(Settings {
             close_to_tray: true,
+            ..Settings::default()
         })
         .unwrap();
     assert!(host.0.lock().unwrap().close_to_tray);

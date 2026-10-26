@@ -1,4 +1,4 @@
-import { badgeText, describeNotice } from '../models/unread.mjs';
+import { badgeText, describeNotice, playMessageSound } from '../models/unread.mjs';
 import { familyOf } from '../models/shell.mjs';
 
 function accepted(item) {
@@ -42,6 +42,7 @@ export function createUnreadController({ window, api, document, snapshot, showNo
   let timer = null;
   let hideTimer = null;
   let stopped = false;
+  let soundIndex = 0;
   function repaint() {
     const current = snapshot();
     if (current) paintUnread(document, current, latest);
@@ -62,6 +63,10 @@ export function createUnreadController({ window, api, document, snapshot, showNo
       const text = describeNotice(account, notice?.count);
       if (!text) continue;
       showNotice(text.title, text.body);
+      if (current.settings?.messageSound !== false) {
+        const played = playMessageSound(window, soundIndex);
+        if (played) soundIndex += 1;
+      }
       if (hideTimer != null) window.clearTimeout(hideTimer);
       hideTimer = window.setTimeout(() => { hideNotice(); hideTimer = null; }, 6000);
     }

@@ -117,7 +117,7 @@ pub fn run() {
             std::fs::create_dir_all(&shell_profile)?;
             app.manage(tray::TrayState::new(accounts.settings().close_to_tray));
             let sessions = Arc::new(PlatformSessions::default());
-            let unread = Arc::new(UnreadHub::new(app.handle().clone()));
+            let unread = Arc::new(UnreadHub::new(app.handle().clone(), Arc::clone(&sessions)));
             crash_record::install(&root);
             let host = TauriHost::new(
                 app.handle().clone(),

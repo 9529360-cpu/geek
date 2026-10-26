@@ -75,6 +75,7 @@ fn rename_archive_restore_preserve_identity_and_profile() {
     store
         .set_settings(Settings {
             close_to_tray: true,
+            ..Settings::default()
         })
         .unwrap();
     drop(store);
@@ -204,7 +205,8 @@ fn persistence_failure_never_publishes_any_mutation() {
     assert!(store.set_archived(&id, true).is_err());
     assert!(store
         .set_settings(Settings {
-            close_to_tray: true
+            close_to_tray: true,
+            ..Settings::default()
         })
         .is_err());
     assert_eq!(store.accounts(), before);

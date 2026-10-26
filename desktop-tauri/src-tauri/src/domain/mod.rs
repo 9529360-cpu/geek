@@ -17,6 +17,7 @@ pub mod document;
 pub mod error;
 pub(crate) mod export_time;
 pub mod navigation;
+pub mod page_pulse;
 pub mod platform;
 pub mod presentation;
 pub mod proxy;

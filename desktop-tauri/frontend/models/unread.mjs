@@ -1,5 +1,23 @@
 const NOTIFY = new Set(['whatsapp', 'whatsapp-pure', 'telegram-k', 'telegram-z']);
 
+export function soundSource(index) {
+  const step = Number.isSafeInteger(index) && index >= 0 ? index : 0;
+  return `sounds/message-${(step % 4) + 1}.mp3`;
+}
+
+export function playMessageSound(target, index) {
+  const AudioCtor = target?.Audio;
+  if (typeof AudioCtor !== 'function') return '';
+  const src = soundSource(index);
+  try {
+    const audio = new AudioCtor(src);
+    audio.volume = 0.9;
+    const played = audio.play?.();
+    if (played && typeof played.catch === 'function') played.catch(() => {});
+  } catch { return ''; }
+  return src;
+}
+
 export function badgeText(count) {
   if (!Number.isSafeInteger(count) || count <= 0) return '';
   return count > 99 ? '99+' : String(count);

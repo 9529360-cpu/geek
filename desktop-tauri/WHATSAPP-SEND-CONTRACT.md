@@ -385,9 +385,14 @@ inside the proven filmstrip invalidates the old attempt before React's reorder h
 including a reorder and reversal within one task. Platform methods are not patched.
 
 [`guest/whatsapp-caption-media.js`](guest/whatsapp-caption-media.js) creates a private
-MediaPrep for each item. The single permit authorizes sequential independent media
-messages in the frozen order. This deliberately does not call the original Flow's
-optional album-parent creation or reproduce its MEDIA_ALBUM grouping. Each item must
+MediaPrep for each item that is not sent as an album. A batch whose every item is an
+image writes the translated caption onto the selected model and the visible editor,
+then clicks WhatsApp's own send button so WhatsApp creates the album parent. The
+receipt is that new parent MsgKey only when it was not already in the chat, every
+child file hash is present, the translated caption is on the parent or a child and
+no caption differs, and every ACK is at least 1. If the button does not start a
+send, the batch falls back to the sequential independent messages below.
+PDF and video batches never use this album release. Each independent item must
 return its own exact validated MsgKey and ACK; duplicates are rejected. The complete
 proof and native intent validity are rechecked after every asynchronous return and
 before the next item. Cancellation, a changed draft, failure or the existing 50-second

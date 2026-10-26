@@ -23,7 +23,7 @@ function createWhatsAppCaption(changed) {
   const mediaReader = createWhatsAppCaptionMedia();
   const ids = new WeakMap();
   const proofs = new WeakSet();
-  let revision = 1, previous = null, disposed = false, emitter = null, wasActive = false;
+  let revision = 1, previous = null, disposed = false, emitter = null, wasActive = false, applying = false;
   let watched = [], subscriptions = [];
   const issue = (code = 'SEND_INTENT_UNSUPPORTED') => Object.assign(new Error(code), { code });
   const idOf = (value) => typeof value === 'string' ? value : value?._serialized || '';
@@ -35,7 +35,7 @@ function createWhatsAppCaption(changed) {
     && new TextEncoder().encode(text).length <= 32768 && !/[\x00-\x08\x0b-\x1f\x7f\u200b]/.test(text);
 
   function advance(reason, trusted = false) {
-    if (disposed) return;
+    if (disposed || applying) return;
     if (revision < Number.MAX_SAFE_INTEGER) revision += 1;
     changed({ reason, trusted, revision });
   }
@@ -272,7 +272,91 @@ function createWhatsAppCaption(changed) {
     const proof = value.captionProof;
     const check = () => { if (!valid() || !matches(record, read())) throw issue('SEND_INTENT_CHANGED'); };
     if (proof.items.length === 1) return mediaReader.send(proof.W, proof.items[0], proof.chat, proof.chatId, text, check);
+    if (proof.items.every((item) => item.media.type === 'image')) {
+      const album = releaseAlbum(proof, text);
+      if (album) return album;
+    }
     return submitBatch(record, proof, text, valid);
+  }
+  function messageList(chat) {
+    const msgs = chat?.msgs;
+    if (!msgs) return [];
+    if (typeof msgs.getModelsArray === 'function') return msgs.getModelsArray();
+    if (typeof msgs.values === 'function') return [...msgs.values()];
+    return [];
+  }
+  function messageId(message) {
+    const key = message?.id;
+    const value = typeof key?.toString === 'function' ? key.toString() : key?._serialized;
+    return typeof value === 'string' ? value : '';
+  }
+  function albumReceipt(proof, text, seen) {
+    const messages = messageList(proof.chat).filter((message) => {
+      const id = messageId(message);
+      return id && !seen.has(id);
+    });
+    const parent = messages.find((message) => message?.type === 'album'
+      && Number.isFinite(message.ack) && message.ack >= 1);
+    if (!parent) return null;
+    const parentKey = messageId(parent);
+    const children = messages.filter((message) => {
+      const link = message?.parentMsgId;
+      const linked = link === parent.id || link?.toString?.() === parentKey || link?._serialized === parentKey;
+      return linked && messageId(message) !== parentKey;
+    });
+    const hashes = proof.items.map((item) => item.fingerprint[4]);
+    if (children.length !== proof.items.length || hashes.some((hash) => !hash
+        || !children.some((message) => message.filehash === hash))) return null;
+    const captions = [parent.caption, ...children.map((message) => message.caption)]
+      .filter((value) => typeof value === 'string' && value);
+    if (text ? !captions.length || captions.some((value) => value !== text) : captions.length) return null;
+    if (children.some((message) => !Number.isFinite(message.ack) || message.ack < 1)) return null;
+    return { id: parentKey, ack: Math.min(parent.ack, ...children.map((message) => message.ack)) };
+  }
+  function releaseAlbum(proof, text) {
+    // WhatsApp groups the open image drawer when its own send button runs.
+    // The translated caption is written first. An older album already in the
+    // chat is not a receipt. A button that does not start a send falls back
+    // to the ordered per-file path instead of dropping the batch.
+    if (typeof proof.button?.click !== 'function') return null;
+    const leaves = typeof proof.editor?.querySelectorAll === 'function'
+      ? [...proof.editor.querySelectorAll('[data-lexical-text="true"]')] : [];
+    if (leaves.length !== 1) return null;
+    const leaf = leaves[0];
+    const textNode = leaf.childNodes?.length === 1 && leaf.childNodes[0].nodeType === 3 ? leaf.childNodes[0] : null;
+    // Replace the existing text node in place. Rebuilding the leaf would change
+    // the node identity the open attempt already proved, and the fallback send
+    // would then be rejected as a changed draft.
+    if (!textNode) return null;
+    const originals = proof.items.map((item) => item.media.caption);
+    const leafText = textNode.textContent;
+    const seen = new Set(messageList(proof.chat).map(messageId));
+    const restore = () => {
+      proof.items.forEach((item, index) => { item.media.caption = originals[index]; });
+      textNode.textContent = leafText;
+    };
+    let clicked = false;
+    applying = true;
+    try {
+      for (const item of proof.items) item.media.caption = item.media === proof.media ? text : '';
+      textNode.textContent = text;
+      proof.button.click();
+      clicked = true;
+      const album = albumReceipt(proof, text, seen);
+      if (album) return album;
+      restore();
+      if (messageList(proof.chat).some((message) => !seen.has(messageId(message)))) {
+        throw issue('SEND_INTENT_RECEIPT_MISSING');
+      }
+      return null;
+    } catch (error) {
+      if (!clicked) restore();
+      throw error;
+    } finally {
+      // The caption mutation is observed asynchronously. Keep this attempt
+      // stable until that callback has run, then allow later edits through.
+      Promise.resolve().then(() => { applying = false; });
+    }
   }
   async function submitBatch(record, proof, text, valid) {
     const check = () => {

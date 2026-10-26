@@ -261,7 +261,8 @@ export function mountShell({ document, window, api }) {
   }));
   on('settings-save', 'click', () => {
     const closeToTray = $('close-to-tray').checked;
-    run(async () => { render(await api.settings({ closeToTray })); await hidePanel(); });
+    const messageSound = $('message-sound').checked;
+    run(async () => { render(await api.settings({ closeToTray, messageSound })); await hidePanel(); });
   });
   on('open-library', 'click', () => run(() => showPanel('account-library-overlay', renderLibrary, 'search')));
   on('search', 'input', renderLibrary);

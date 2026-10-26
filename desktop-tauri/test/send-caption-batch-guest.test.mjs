@@ -28,6 +28,68 @@ async function confirm(c, call, { id, ack = 1, caption = call.options.caption } 
   return { messageSendResult: 'OK', msg };
 }
 
+test('an image batch lets the platform button build one album and confirms that parent', async () => {
+  const c = await captionBatchFixture({ types: ['image', 'image', 'image'], selected: 1 });
+  c.button.click = () => {
+    const parentKey = new c.W.whatsapp.MsgKey(`true_${c.chat.id}_ALBUM`);
+    const parent = new c.W.whatsapp.MsgModel(parentKey, '', '');
+    parent.type = 'album'; parent.ack = 1;
+    c.chat.msgs.set(parentKey.toString(), parent);
+    c.members.forEach((member, index) => {
+      const key = new c.W.whatsapp.MsgKey(`true_${c.chat.id}_PART${index + 1}`);
+      const msg = new c.W.whatsapp.MsgModel(key, '', '');
+      Object.assign(msg, { type: 'image', filehash: member.data.filehash, ack: 2, parentMsgId: parentKey,
+        caption: member.media.caption });
+      c.chat.msgs.set(key.toString(), msg);
+    });
+  };
+  const request = start(c); const flight = commit(c, request); await finish(c);
+  assert.equal(c.state.calls.length, 0);
+  assert.equal(c.ui.read(request, flight.permit).value.status, 'confirmed');
+  assert.equal(c.ui.read(request, flight.permit).value.receipt, `true_${request.chatId}_ALBUM`);
+  assert.equal(c.members[1].media.caption, output);
+  assert.equal(c.members[0].media.caption, '');
+});
+
+test('an album caption stored on the new parent still confirms that parent', async () => {
+  const c = await captionBatchFixture({ types: ['image', 'image'], selected: 0 });
+  c.button.click = () => {
+    const parentKey = new c.W.whatsapp.MsgKey(`true_${c.chat.id}_ALBUM`);
+    const parent = new c.W.whatsapp.MsgModel(parentKey, '', '');
+    parent.type = 'album'; parent.ack = 1; parent.caption = output;
+    c.chat.msgs.set(parentKey.toString(), parent);
+    c.members.forEach((member, index) => {
+      const key = new c.W.whatsapp.MsgKey(`true_${c.chat.id}_PART${index + 1}`);
+      const msg = new c.W.whatsapp.MsgModel(key, '', '');
+      Object.assign(msg, { type: 'image', filehash: member.data.filehash, ack: 1, parentMsgId: parentKey, caption: '' });
+      c.chat.msgs.set(key.toString(), msg);
+    });
+  };
+  const request = start(c); const flight = commit(c, request); await finish(c);
+  assert.equal(c.state.calls.length, 0);
+  assert.equal(c.ui.read(request, flight.permit).value.receipt, `true_${request.chatId}_ALBUM`);
+});
+
+test('an older album with the same files is not a receipt for this send', async () => {
+  const c = await captionBatchFixture({ types: ['image', 'image'], selected: 0 });
+  const oldKey = new c.W.whatsapp.MsgKey(`true_${c.chat.id}_OLD`);
+  const old = new c.W.whatsapp.MsgModel(oldKey, '', '');
+  old.type = 'album'; old.ack = 2;
+  c.chat.msgs.set(oldKey.toString(), old);
+  c.members.forEach((member, index) => {
+    const key = new c.W.whatsapp.MsgKey(`true_${c.chat.id}_OLD${index + 1}`);
+    const msg = new c.W.whatsapp.MsgModel(key, '', '');
+    Object.assign(msg, { type: 'image', filehash: member.data.filehash, ack: 2, parentMsgId: oldKey,
+      caption: index === 0 ? output : '' });
+    c.chat.msgs.set(key.toString(), msg);
+  });
+  c.button.click = () => {};
+  const request = start(c); const flight = commit(c, request); await finish(c);
+  const receipt = c.ui.read(request, flight.permit).value.receipt;
+  assert.equal(c.state.calls.length, 2);
+  assert.equal(receipt.startsWith('wa-batch:2:'), true);
+});
+
 test('the real owner sends a frozen ordered image batch and translates only the selected caption', async () => {
   const c = await captionBatchFixture({ types: ['image', 'image', 'image'], selected: 1 });
   const request = start(c); const flight = commit(c, request);

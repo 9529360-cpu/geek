@@ -2,6 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { telegramFixture, deferred, flush } from './helpers/telegram-send.mjs';
 
+test('a text send can keep the webpage Telegram generated for a URL in that text', async () => {
+  const f = telegramFixture();
+  const text = 'See https://example.test/a';
+  f.state.webpage = { _: 'messageMediaWebPage', webpage: { _: 'webPage', url: 'https://example.test/a' } };
+  const prepared = await f.runtime.prepare('101', text, () => true, null, { noWebpage: false });
+  const result = await f.finish(f.runtime.send(prepared, () => true));
+  assert.equal(result.id, 'tg:101:700');
+  assert.equal(f.state.sends[0].params.no_webpage, false);
+  f.state.webpage = { _: 'messageMediaPhoto' };
+  const rejected = f.runtime.prepare('101', text, () => true, null, { noWebpage: false })
+    .then((next) => f.runtime.send(next, () => true));
+  await assert.rejects(f.finish(rejected), (error) => error.submitted === true);
+});
+
 test('K stages an exact fractional pending identity and confirms its own server ID', async () => {
   const f = telegramFixture();
   const text = '**literal text** 🎲 https://example.test';
