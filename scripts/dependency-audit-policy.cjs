@@ -34,6 +34,26 @@ const AUDIT_EXCEPTIONS = [
     // electron-builder/@electron/get release that drops the sprintf-js chain.
     reviewTrigger: 'patched sprintf-js release or electron-builder/@electron/get chain upgrade',
   },
+  {
+    ghsa: 'GHSA-mrhx-c7xc-m3w5',
+    package: 'zod',
+    // Rationale, recorded 2026-10-26:
+    // - The advisory range is `<4.6.6`. The patched release is Zod 4.6.6, and
+    //   the described parser is Zod 4 `$ZodArray`. This tree only resolves
+    //   Zod 3.25.76, required by chromium-bidi 14.0.0 (root puppeteer-core
+    //   24.43.1) and 17.0.2 (@wdio/electron-service's puppeteer-core 25.10.0).
+    //   Both declare `zod@^3.24.1`. No Zod 3 patch exists.
+    // - Root puppeteer-core must stay on the v24 line: WebdriverIO 9 only
+    //   accepts that range, and test/electron-e2e-safety-contract.cjs locks it.
+    //   Moving the root pin to puppeteer-core 25.16.0 (the audit's suggested
+    //   fix, which pulls chromium-bidi with Zod 4) would break that contract.
+    // - Zod is dev-only, reached through WebDriver/Puppeteer. It is not a
+    //   production dependency, and the production audit stays zero-tolerance.
+    // Re-check trigger: a Zod 3 patch, an advisory range that excludes Zod 3,
+    // or a WebdriverIO release whose supported puppeteer-core depends on
+    // chromium-bidi with zod >=4.6.6.
+    reviewTrigger: 'Zod 3 patch, advisory range correction, or WebdriverIO puppeteer-core that depends on zod >=4.6.6',
+  },
 ];
 
 function exceptionFor(ghsaId, packageName) {

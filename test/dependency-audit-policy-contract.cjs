@@ -144,6 +144,31 @@ assert.throws(
   );
 }
 
+// Zod 3 is dev-only behind the WebdriverIO v24 puppeteer pin. This one GHSA
+// may pass, and dependents flagged only through it are not a separate finding.
+{
+  const result = validateAuditReports({
+    productionReport: report(),
+    fullReport: report({
+      zod: advisoryEntry('zod', { ghsa: 'GHSA-mrhx-c7xc-m3w5' }),
+      'chromium-bidi': advisoryEntry('chromium-bidi', { via: ['zod'] }),
+      'puppeteer-core': advisoryEntry('puppeteer-core', { via: ['chromium-bidi'] }),
+    }),
+  });
+  assert.deepEqual(result.exceptionsApplied, ['GHSA-mrhx-c7xc-m3w5']);
+}
+
+{
+  const fullReport = report({
+    zod: advisoryEntry('zod', { ghsa: 'GHSA-zzzz-yyyy-xxxx' }),
+    'chromium-bidi': advisoryEntry('chromium-bidi', { via: ['zod'] }),
+  });
+  assert.throws(
+    () => validateAuditReports({ productionReport: report(), fullReport }),
+    /full dependency audit must be clean; found .*zod/,
+  );
+}
+
 // A package flagged with an empty `via` (unknown shape) is never excused.
 {
   const fullReport = report({
