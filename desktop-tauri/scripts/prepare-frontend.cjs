@@ -78,6 +78,11 @@ function prepare(root = ROOT, output = OUTPUT) {
     ...STYLES.map((name) => `ui/${name}`)];
   for (const name of STYLES) fs.copyFileSync(path.join(root, 'ui', name), path.join(output, name));
   copyTree(path.join(root, 'ui/fonts'), path.join(output, 'fonts'));
+  const sounds = path.join(output, 'sounds');
+  fs.mkdirSync(sounds, { recursive: true });
+  for (const name of ['message-1.mp3', 'message-2.mp3', 'message-3.mp3', 'message-4.mp3']) {
+    fs.copyFileSync(path.join(root, 'resources/sounds', name), path.join(sounds, name));
+  }
   const manifest = Object.fromEntries(inputs.map((name) => [name, digest(fs.readFileSync(path.join(root, name)))]));
   fs.writeFileSync(path.join(output, 'ui-provenance.json'), JSON.stringify(manifest, null, 2) + '\n');
   return output;

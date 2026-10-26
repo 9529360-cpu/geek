@@ -139,7 +139,7 @@ header through `generateReplyHeader`, lines 5189–5282. A finite projection kee
 only `{ _: 'messageReplyHeader', pFlags: {}, reply_to_msg_id: <local-mid> }` in
 the pending message. Exactly one `messages.sendMessage` API call carries the
 canonical `{ _: 'inputReplyToMessage', reply_to_msg_id: <server-id> }`, literal
-translated body, empty entities and `clear_draft: false`. The high-level
+translated body, the verified `messageEntityMention` entities (empty when the draft has none), `no_webpage` only when that draft disabled link preview, and `clear_draft: false`. A preview is confirmed only as `messageMediaWebPage` whose URL is inside the sent text. Broadcast text keeps `no_webpage: true` and empty entities. The high-level
 `sendText`, composer mutation and draft-sync APIs are not invoked.
 
 Final history messages normalize reply IDs back into local mids at messages
@@ -160,7 +160,9 @@ existing SendIntent 50-second total deadline remains unchanged.
 
 ## Interactive attachment-caption boundary
 
-K's interactive media popup is still unavailable for translated caption sends.
+When send translation is on, a single visible media popup with one caption field and one send button is admitted. The translated caption is written into that field and the platform button is clicked. Two or more image/video previews confirm only when the resulting outgoing message carries a `grouped_id`; a single preview confirms the captioned message without one. The adapter still does not read popup file bytes. Empty captions and bare `@` mentions stay on Telegram's own button.
+
+K's older interactive media popup had no readable file model for translated caption sends.
 The fixed `showNewMediaPopup` is a Solid closure: `files`, `willAttach`, caption
 `messageInputField`, media edit/conversion/scaled-file state and pending
 `sendFileDetails` live inside it (media UI lines 196–274 and 305–307). Its public
@@ -175,12 +177,12 @@ lines 1786–1869, creates a document with `file`, and [wrapDocument][document-w
 lines 164–167, exposes that document as `docDiv.doc`. That fact does not expose
 the popup's caption field model, the full current selection/order or its hidden
 send/edit/conversion options. Ordinary photo/video previews lack this same
-document-row File binding. This slice therefore cannot prove a complete
-standard attachment-caption context without adding a second popup state owner.
+document-row File binding. The caption path therefore does not reconstruct those
+files or add a second popup state owner. It only replaces the visible caption
+and clicks the button Telegram already uses to group the album.
 
 The adapter does not recover source bytes from a blob URL, filename or image
-preview, hook/replace the platform popup, or relax the native K attachment
-guard. Broadcast files remain supported through their existing native-selected
+preview, or relax the native K attachment guard. Broadcast files remain supported through their existing native-selected
 immutable File transfer, which has a different, already explicit ownership
 contract.
 

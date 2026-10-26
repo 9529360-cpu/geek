@@ -126,7 +126,8 @@ export function installTelegramPorts({ window, container, chatInput, editor, but
           if (state.mode === 'updates') return Promise.resolve({ _: 'updates', updates: [{ _: 'updateMessageID',
             random_id: params.random_id, id: state.final }], users: [], chats: [], date: 5, seq: 1 });
           if (state.mode === 'never') return new Promise(() => {});
-          return Promise.resolve({ _: 'updateShortSentMessage', id: state.final, date: 5, pFlags: { out: true }, pts: 1, pts_count: 1 });
+          return Promise.resolve({ _: 'updateShortSentMessage', id: state.final, date: 5, pFlags: { out: true },
+            pts: 1, pts_count: 1, ...(state.webpage ? { media: state.webpage } : {}) });
         },
       },
       appPeersManager: {
@@ -191,7 +192,8 @@ export function installTelegramPorts({ window, container, chatInput, editor, but
           else {
             const random = state.byServerId.get(update.message.id);
             const pending = state.pending.get(random);
-            if (pending && !state.noAck) emitFinal(pending, { id: update.message.id });
+            if (pending && !state.noAck) emitFinal(pending, { id: update.message.id,
+              ...(update.message.media ? { media: update.message.media } : {}) });
           }
         },
         async processUpdateMessage(updates) {
@@ -282,7 +284,8 @@ export function telegramFixture({ install = true, touch = false } = {}) {
   document.createElement = (tag) => new Element(tag);
   document.getElementById = (id) => document.body.childNodes.find((node) => node.id === id) || null;
   document.querySelectorAll = (selector) => selector.startsWith('.chat[') ? [container]
-    : selector.includes('.popup') && state.popup ? [new Element('div')] : [];
+    : (selector.includes('.popup') || selector.includes('dialog')) && state.popupNodes ? state.popupNodes
+      : selector.includes('.popup') && state.popup ? [new Element('div')] : [];
   class Observer {
     constructor(callback) { this.callback = callback; }
     observe() { observers.add(this); }

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from './helpers/shell.mjs';
-import { describeNotice, badgeText } from '../frontend/models/unread.mjs';
-import { paintUnread } from '../frontend/controllers/unread.mjs';
+import { describeNotice, badgeText, playMessageSound, soundSource } from '../frontend/models/unread.mjs';
+import { paintUnread, createUnreadController } from '../frontend/controllers/unread.mjs';
 
 test('new-message copy is only the platform and the count', () => {
   const account = { id: 'a', name: '柜员', platformId: 'whatsapp' };
@@ -17,6 +17,29 @@ test('new-message copy is only the platform and the count', () => {
   assert.equal(describeNotice(account, 1.5), null);
   assert.equal(badgeText(120), '99+');
   assert.equal(badgeText(0), '');
+});
+
+test('a new-message notice plays the next bundled sound unless sound is off', async () => {
+  assert.equal(soundSource(0), 'sounds/message-1.mp3');
+  assert.equal(soundSource(4), 'sounds/message-1.mp3');
+  const played = [];
+  const window = {
+    Audio: class { constructor(src) { this.src = src; played.push(src); } play() { return { catch() {} }; } },
+    setTimeout(callback) { this.pending = callback; return 1; },
+    clearTimeout() {},
+  };
+  const document = { getElementById() { return null; } };
+  const snapshot = () => ({ activeId: 'a', settings: {}, accounts: [
+    { id: 'a', name: 'WA', platformId: 'whatsapp', archived: false }], platforms: [] });
+  let body = '';
+  const controller = createUnreadController({ window, document, snapshot,
+    api: { async unreadPoll() { return { accounts: [{ id: 'a', count: 2 }], notices: [{ id: 'a', count: 2 }] }; } },
+    showNotice(_title, text) { body = text; }, hideNotice() {} });
+  await window.pending();
+  assert.equal(body, 'WHATSAPP 收到 2 条新消息');
+  assert.deepEqual(played, ['sounds/message-1.mp3']);
+  assert.equal(playMessageSound({ Audio: window.Audio }, 1), 'sounds/message-2.mp3');
+  controller.dispose();
 });
 
 test('badges follow the count and only an unselected family flashes', async () => {

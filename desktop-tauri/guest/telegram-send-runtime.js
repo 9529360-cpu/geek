@@ -169,7 +169,19 @@ function createTelegramSendRuntime() {
     check(snapshot, valid);
     return { _: 'inputReplyToMessage', reply_to_msg_id: reply.id };
   }
-  async function prepare(chatId, text, valid = () => true, reply = null) {
+  function mentionEntities(text, entities) {
+    if (!Array.isArray(entities) || entities.length > 32) throw issue('CAPABILITY_UNAVAILABLE');
+    return entities.map((entity) => {
+      if (entity?._ !== 'messageEntityMention' || !Number.isInteger(entity.offset) || entity.offset < 0
+          || !Number.isInteger(entity.length) || entity.length < 2 || entity.length > 33
+          || entity.offset + entity.length > text.length) throw issue('CAPABILITY_UNAVAILABLE');
+      const token = text.slice(entity.offset, entity.offset + entity.length);
+      if (!/^@[\p{L}\p{N}_]{1,32}$/u.test(token)) throw issue('CAPABILITY_UNAVAILABLE');
+      if (entity.offset > 0 && !/\s/.test(text[entity.offset - 1])) throw issue('CAPABILITY_UNAVAILABLE');
+      return { _: 'messageEntityMention', offset: entity.offset, length: entity.length };
+    });
+  }
+  async function prepare(chatId, text, valid = () => true, reply = null, options = null) {
     try {
       const id = peerNumber(chatId);
       if (id === null || !textValid(text)) throw issue('CAPABILITY_UNAVAILABLE');
@@ -177,7 +189,9 @@ function createTelegramSendRuntime() {
       const deadline = performance.now() + 12000;
       await verify(snapshot, id, text, valid, deadline);
       await verifyReply(snapshot, id, reply, valid, deadline);
-      return { snapshot, id, text, reply, used: false };
+      const noWebpage = !options || options.noWebpage !== false;
+      const entities = mentionEntities(text, options?.entities || []);
+      return { snapshot, id, text, reply, used: false, noWebpage, entities };
     } catch (error) {
       // This entire phase is read-only. Do not accept a platform error's
       // claimed submission flag or expose its arbitrary error text/code.
@@ -200,7 +214,7 @@ function createTelegramSendRuntime() {
   async function send(prepared, valid) {
     if (!prepared || prepared.used) throw issue('NOT_SUBMITTED');
     prepared.used = true;
-    const { snapshot, id, text, reply = null } = prepared;
+    const { snapshot, id, text, reply = null, noWebpage = true, entities = [] } = prepared;
     let staged = false;
     let submitted = false;
     let message = null;
@@ -219,11 +233,11 @@ function createTelegramSendRuntime() {
       // closure exists for Telegram's pending/retry UI to invoke automatically.
       message = { _: 'message', id: message.id, random_id: message.random_id, date: message.date,
         from_id: { _: 'peerUser', user_id: snapshot.self }, peer_id: { ...message.peer_id },
-        pFlags: { out: true }, pending: true, message: text, entities: [],
+        pFlags: { out: true }, pending: true, message: text, entities,
         ...(replyMid === null ? {} : { reply_to: { _: 'messageReplyHeader', pFlags: {}, reply_to_msg_id: replyMid } }) };
       receipt = createTelegramSendReceipt(snapshot, message, id, text, () => {
         check(snapshot, valid);
-      }, null, replyMid);
+      }, null, replyMid, noWebpage !== true);
       check(snapshot, valid);
       staged = true;
       // beforeMessageSending returns the whole storage Map; invokeVoid avoids
@@ -236,10 +250,10 @@ function createTelegramSendRuntime() {
       readPeer(snapshot, id);
       submitted = true;
       const work = snapshot.managers.apiManager.invokeApiAfter('messages.sendMessage', {
-        peer: inputPeer, message: text, random_id: message.random_id, entities: [],
-        no_webpage: true, clear_draft: false, ...(inputReply ? { reply_to: inputReply } : {}),
+        peer: inputPeer, message: text, random_id: message.random_id, entities,
+        no_webpage: noWebpage !== false, clear_draft: false, ...(inputReply ? { reply_to: inputReply } : {}),
       }, { noErrorBox: true, rawError: true, ignoreErrors: true });
-      Promise.resolve(work).then((updates) => applyTelegramSendUpdates(snapshot.managers, message, updates))
+      Promise.resolve(work).then((updates) => applyTelegramSendUpdates(snapshot.managers, message, updates, null, noWebpage !== true))
         .catch(() => receipt.failed());
       return await receipt.confirmed();
     } catch (error) {

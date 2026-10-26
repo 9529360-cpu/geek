@@ -12,6 +12,13 @@ function telegramReplyHeaderMatches(header, mid = null) {
         && header[key] === undefined);
 }
 
+function textMediaAcceptable(media, text, allowWebpage) {
+  if (media == null) return true;
+  if (!allowWebpage || media._ !== 'messageMediaWebPage' || media.ttl_seconds) return false;
+  const url = media.webpage?.url;
+  return media.webpage?._ === 'webPage' && typeof url === 'string' && url.length > 0 && url.length <= 2048 && text.includes(url);
+}
+
 function validTelegramPending(message, peerId, self, replyMid = null) {
   const target = message?.peer_id;
   const targetId = target?._ === 'peerUser' ? target.user_id
@@ -26,7 +33,7 @@ function validTelegramPending(message, peerId, self, replyMid = null) {
     && !message.rich_message && !message.paid_message_stars && !message.suggested_post;
 }
 
-function createTelegramSendReceipt(snapshot, message, peerId, text, check, media = null, replyMid = null) {
+function createTelegramSendReceipt(snapshot, message, peerId, text, check, media = null, replyMid = null, allowWebpage = false) {
   const storageKey = `${peerId}_history`;
   const started = performance.now();
   let staged = false;
@@ -51,14 +58,15 @@ function createTelegramSendReceipt(snapshot, message, peerId, text, check, media
         || event.mid <= 0 || final.mid !== event.mid || final.pFlags?.out !== true
         || final.pFlags.is_outgoing || final.pending || final.error || final.rich_message
         || !telegramReplyHeaderMatches(final.reply_to, replyMid) || final.random_id
-        || (media ? !media.final(final.media) || final.ttl_period : final.media)) return;
+        || (media ? !media.final(final.media) || final.ttl_period : !textMediaAcceptable(final.media, text, allowWebpage))) return;
     // The mirror is written before message_sent in the official finalizer.
     const mirrored = snapshot.proxy.getMessageFromStorage(storageKey, event.mid);
     if (mirrored?.id !== final.id || mirrored?.mid !== event.mid || mirrored?.peerId !== peerId
         || mirrored?.message !== text || mirrored?.pFlags?.out !== true
         || mirrored?.pFlags?.is_outgoing || mirrored?.pending || mirrored?.error || mirrored?.rich_message
         || !telegramReplyHeaderMatches(mirrored?.reply_to, replyMid)
-        || (media ? !media.final(mirrored.media) || !media.same(final.media, mirrored.media) : mirrored.media)) return;
+        || (media ? !media.final(mirrored.media) || !media.same(final.media, mirrored.media)
+          : !textMediaAcceptable(mirrored.media, text, allowWebpage))) return;
     result = { id: `tg:${peerId}:${final.id}`, ack: 1 };
   };
   const errored = (event) => {
@@ -87,19 +95,21 @@ function createTelegramSendReceipt(snapshot, message, peerId, text, check, media
     } };
 }
 
-async function applyTelegramSendUpdates(managers, pending, updates, media = null) {
+async function applyTelegramSendUpdates(managers, pending, updates, media = null, allowWebpage = false) {
   if (updates?._ === 'updateShortSentMessage') {
     if (!Number.isSafeInteger(updates.id) || updates.id <= 0 || !Number.isSafeInteger(updates.date)
         || updates.date <= 0 || updates.pFlags?.out !== true || !Number.isSafeInteger(updates.pts)
         || !Number.isSafeInteger(updates.pts_count)
-        || (media ? !media.final(updates.media) || updates.ttl_period : updates.media)) throw new Error('RECEIPT_MISSING');
+        || (media ? !media.final(updates.media) || updates.ttl_period
+          : !textMediaAcceptable(updates.media, pending.message, allowWebpage))) throw new Error('RECEIPT_MISSING');
     // Same local-update expansion as K sendText (3328..3363); both RPC calls
     // remain bound to the submitting Telegram account, including late responses.
     await managers.apiUpdatesManager.processLocalUpdate({ _: 'updateMessageID', random_id: pending.random_id, id: updates.id });
     await managers.apiUpdatesManager.processLocalUpdate({
       _: pending.peer_id._ === 'peerChannel' ? 'updateNewChannelMessage' : 'updateNewMessage',
       message: { ...pending, id: updates.id, date: updates.date, entities: updates.entities,
-        ttl_period: updates.ttl_period, ...(media ? { media: updates.media } : {}) },
+        ttl_period: updates.ttl_period, ...(media || textMediaAcceptable(updates.media, pending.message, allowWebpage) && updates.media
+          ? { media: updates.media } : {}) },
       pts: updates.pts, pts_count: updates.pts_count,
     });
     return;

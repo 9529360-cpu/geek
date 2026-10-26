@@ -72,6 +72,50 @@ test('account A to B to A revokes the original model snapshot even for the same 
   assert.equal(f.composer.clear(record), false);
 });
 
+test('a draft mention survives translation and a disabled preview stays off', async () => {
+  const f = telegramFixture();
+  f.editor.innerText = 'Hello @alice';
+  f.state.draftOverride = { _: 'draftMessage', date: 1, message: 'Hello @alice', pFlags: {},
+    entities: [{ _: 'messageEntityMention', offset: 6, length: 6 }] };
+  const record = frozen(f.composer);
+  assert.equal(JSON.stringify(record.mentions), JSON.stringify(['@alice']));
+  const result = await f.finish(f.composer.submit(record, 'Ciao @alice', () => true));
+  assert.equal(result.id, 'tg:101:700');
+  assert.equal(f.state.sends[0].params.no_webpage, false);
+  assert.equal(JSON.stringify(f.state.sends[0].params.entities),
+    JSON.stringify([{ _: 'messageEntityMention', offset: 5, length: 6 }]));
+  f.editor.innerText = 'https://example.test/a';
+  f.state.draftOverride = { _: 'draftMessage', date: 1, message: 'https://example.test/a', pFlags: { no_webpage: true } };
+  const disabled = frozen(f.composer);
+  await f.finish(f.composer.submit(disabled, 'https://example.test/a', () => true));
+  assert.equal(f.state.sends[1].params.no_webpage, true);
+  assert.equal(JSON.stringify(f.state.sends[1].params.entities), '[]');
+});
+
+test('the media popup send keeps the translated caption and confirms an album', async () => {
+  const f = telegramFixture();
+  const popup = f.document.createElement('div');
+  popup.className = 'popup active';
+  const editor = f.document.createElement('div');
+  editor.innerText = 'See the photos';
+  editor.setAttribute('contenteditable', 'true');
+  const button = f.document.createElement('button');
+  button.className = 'send';
+  const first = f.document.createElement('img');
+  const second = f.document.createElement('img');
+  popup.append(first); popup.append(second); popup.append(editor); popup.append(button);
+  f.state.popupNodes = [popup];
+  button.click = () => f.root.emit('message_sent', { message: { _: 'message', peerId: 101, id: 700, mid: 700,
+    message: editor.innerText, pFlags: { out: true }, grouped_id: 'album-1' } });
+  const record = frozen(f.composer);
+  assert.equal(record.context.kind, 'popup-caption');
+  assert.equal(record.previewCount, 2);
+  const result = await f.finish(f.composer.submit(record, 'Guarda le foto', () => true));
+  assert.equal(result.id, 'tg:101:700');
+  assert.equal(editor.innerText, 'Guarda le foto');
+  assert.equal(f.state.sends.length, 0);
+});
+
 test('reply, media, mention, formatting, preview, scheduling and changed send-as are unsupported', () => {
   const mutations = [
     (f) => { f.input.replyToMsgId = 12; }, (f) => { f.input.willSendWebPage = {}; },

@@ -37,7 +37,7 @@ export function createShellView(document) {
   }
   for (const id of ['add-count', 'add-name', 'add-custom-url', 'account-settings-name', 'proxy-openProxy',
     'account-settings-fontSize', 'account-settings-fontColor',
-    'proxy-protocal', 'proxy-host', 'proxy-port', 'close-to-tray', 'search', 'archived-only',
+    'proxy-protocal', 'proxy-host', 'proxy-port', 'close-to-tray', 'message-sound', 'search', 'archived-only',
     'create-proxy-mode', 'create-proxy-host', 'create-proxy-port']) wire(id);
   for (const option of $('proxy-protocal').options) option.disabled = !['http', 'socks5'].includes(option.value);
   $('proxy-user').placeholder = '\u4ee3\u7406\u8ba4\u8bc1\u5c1a\u672a\u8fc1\u79fb';
@@ -110,6 +110,7 @@ export function createShellView(document) {
   }
   function settings(snapshot) {
     $('close-to-tray').checked = snapshot.settings.closeToTray;
+    $('message-sound').checked = snapshot.settings.messageSound !== false;
     $('tray-note').textContent = snapshot.trayAvailable
       ? '\u6258\u76d8\u53f3\u952e\u83dc\u5355\u53ef\u5b8c\u5168\u9000\u51fa\u3002'
       : '\u6258\u76d8\u4e0d\u53ef\u7528\uff0c\u5173\u95ed\u7a97\u53e3\u5c06\u9000\u51fa\u5e94\u7528\u3002';

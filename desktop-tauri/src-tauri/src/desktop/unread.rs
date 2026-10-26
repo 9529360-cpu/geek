@@ -1,16 +1,18 @@
 //! Count-only unread signal for WhatsApp and Telegram. The page script returns
 //! a number. Titles are reduced to that number before they leave this owner.
+use super::platform_sessions::PlatformSessions;
 use crate::domain::{
     account::valid_id,
     error::{AppError, Result},
+    page_pulse::PagePulse,
     unread::{
         apply_observations, combine_unread, monitors, parse_dom_count, title_unread,
         UnreadObservation, UnreadUpdate,
     },
 };
 use std::{
-    sync::{mpsc, Mutex},
-    time::Duration,
+    sync::{mpsc, Arc, Mutex},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, UserAttentionType};
 
@@ -39,22 +41,32 @@ struct UnreadState {
     titles: Vec<(String, u32)>,
     counts: Vec<UnreadObservation>,
     focused: Option<String>,
+    pulse: PagePulse,
+}
+
+enum Probe {
+    Missing,
+    Alive(u32),
+    Dead,
 }
 
 pub struct UnreadHub {
     app: AppHandle,
+    sessions: Arc<PlatformSessions>,
     inner: Mutex<UnreadState>,
 }
 
 impl UnreadHub {
-    pub fn new(app: AppHandle) -> Self {
+    pub fn new(app: AppHandle, sessions: Arc<PlatformSessions>) -> Self {
         Self {
             app,
+            sessions,
             inner: Mutex::new(UnreadState {
                 open: Vec::new(),
                 titles: Vec::new(),
                 counts: Vec::new(),
                 focused: None,
+                pulse: PagePulse::new(),
             }),
         }
     }
@@ -82,6 +94,7 @@ impl UnreadHub {
         state.open.retain(|item| item.id != id);
         state.titles.retain(|item| item.0 != id);
         state.counts.retain(|item| item.id != id);
+        state.pulse.forget(id);
         if state.focused.as_deref() == Some(id) {
             state.focused = None;
         }
@@ -117,7 +130,12 @@ impl UnreadHub {
                 .map(|item| (item.id.clone(), item.platform_id.clone()))
                 .collect::<Vec<_>>()
         };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|elapsed| u64::try_from(elapsed.as_millis()).ok());
         let mut observed = Vec::with_capacity(open.len());
+        let mut probed = Vec::with_capacity(open.len());
         for (id, platform_id) in &open {
             if !monitors(platform_id) {
                 continue;
@@ -130,14 +148,16 @@ impl UnreadHub {
                     .find(|item| item.0 == *id)
                     .map_or(0, |item| item.1)
             };
-            let count = match self.scan_dom(id) {
-                Some(dom) => combine_unread(title, dom),
-                None => title.min(9999),
+            let outcome = self.probe(id);
+            let count = match outcome {
+                Probe::Alive(dom) => combine_unread(title, dom),
+                Probe::Dead | Probe::Missing => title.min(9999),
             };
             observed.push(UnreadObservation {
                 id: id.clone(),
                 count,
             });
+            probed.push((id.clone(), outcome));
         }
         let focus = focused_id.filter(|id| valid_id(id));
         let mut state = self.inner.lock().map_err(|_| AppError::StateUnavailable)?;
@@ -149,9 +169,46 @@ impl UnreadHub {
         );
         state.counts.clone_from(&update.counts);
         state.focused.clone_from(&update.focused);
+        let mut reloads = Vec::new();
+        if let Some(now) = now {
+            for (id, outcome) in &probed {
+                let reload = match outcome {
+                    Probe::Alive(_) => {
+                        state.pulse.observe(id, true, now);
+                        false
+                    }
+                    Probe::Dead => state.pulse.observe(id, false, now),
+                    Probe::Missing => false,
+                };
+                if reload {
+                    reloads.push(id.clone());
+                }
+            }
+        }
         drop(state);
+        for id in reloads {
+            self.reload_hung(&id);
+        }
         self.attention(&update);
         Ok(crate::domain::unread::UnreadSnapshot::from(update))
+    }
+
+    fn reload_hung(&self, id: &str) {
+        if !valid_id(id) {
+            return;
+        }
+        let Some(guest) = self.app.get_webview(&format!("account-{id}")) else {
+            return;
+        };
+        if let Some(binding) = self.sessions.current(id) {
+            if let Ok(generation) = serde_json::to_string(&binding.generation) {
+                let _ = guest.eval(format!(
+                    "window.__geekTauriSend?.revoke({generation}); window.__geekTauriTranslation?.revoke({generation}); window.__geekTauriPlatform?.revoke({generation})"
+                ));
+            }
+        }
+        self.sessions.invalidate(id);
+        let _ = guest.reload();
     }
 
     fn attention(&self, update: &UnreadUpdate) {
@@ -163,21 +220,28 @@ impl UnreadHub {
         }
     }
 
-    fn scan_dom(&self, id: &str) -> Option<u32> {
+    fn probe(&self, id: &str) -> Probe {
         if !valid_id(id) {
-            return None;
+            return Probe::Missing;
         }
-        let guest = self.app.get_webview(&format!("account-{id}"))?;
+        let Some(guest) = self.app.get_webview(&format!("account-{id}")) else {
+            return Probe::Missing;
+        };
         let (sender, receiver) = mpsc::sync_channel(1);
-        guest
+        if guest
             .eval_with_callback(DOM_SCAN, move |value| {
                 let _ = sender.try_send(value);
             })
-            .ok()?;
-        let value = receiver.recv_timeout(Duration::from_millis(750)).ok()?;
-        if value.len() > 16 {
-            return None;
+            .is_err()
+        {
+            return Probe::Dead;
         }
-        parse_dom_count(&value)
+        let Ok(value) = receiver.recv_timeout(Duration::from_millis(750)) else {
+            return Probe::Dead;
+        };
+        if value.len() > 16 {
+            return Probe::Dead;
+        }
+        parse_dom_count(&value).map_or(Probe::Dead, Probe::Alive)
     }
 }
