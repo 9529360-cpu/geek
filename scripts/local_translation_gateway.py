@@ -82,6 +82,49 @@ NUMBER_TOKEN_RE = re.compile(r'[-+]?\d(?:[\d.,]*\d)?%?')
 TRAILING_LITERAL_PUNCTUATION_RE = re.compile(r'[.,!?;:，。！？；：]+$')
 
 
+def canonical_number_token(token):
+    """Keep aligned with src/translation-output-safety.cjs and scripts/geek-translate-worker.js."""
+    raw = str(token or '')
+    percent = raw.endswith('%')
+    body = raw[:-1] if percent else raw
+    sign = body[0] if body[:1] in '+-' else ''
+    if sign:
+        body = body[1:]
+    suffix = '%' if percent else ''
+
+    def digits_only():
+        return f"{sign}{body.replace('.', '').replace(',', '')}{suffix}"
+
+    if '.' not in body and ',' not in body:
+        return f'{sign}{body}{suffix}'
+    has_dot = '.' in body
+    has_comma = ',' in body
+    if has_dot and has_comma:
+        decimal_index = max(body.rfind('.'), body.rfind(','))
+        thousands_sep = ',' if body[decimal_index] == '.' else '.'
+        fraction = body[decimal_index + 1:]
+        integer = body[:decimal_index].replace(thousands_sep, '')
+        if integer.isdigit() and fraction.isdigit():
+            return f'{sign}{integer}.{fraction}{suffix}'
+        return digits_only()
+    separator = '.' if has_dot else ','
+    parts = body.split(separator)
+    thousand_grouped = (
+        len(parts) > 1
+        and all(part.isdigit() for part in parts)
+        and 1 <= len(parts[0]) <= 3
+        and all(len(part) == 3 for part in parts[1:])
+    )
+    if thousand_grouped:
+        return f"{sign}{''.join(parts)}{suffix}"
+    decimal_index = body.rfind(separator)
+    fraction = body[decimal_index + 1:]
+    integer = body[:decimal_index].replace('.', '').replace(',', '')
+    if integer.isdigit() and fraction.isdigit():
+        return f'{sign}{integer}.{fraction}{suffix}'
+    return digits_only()
+
+
 def protected_literal_signature(value):
     text = str(value or '')
     literals = sorted(
@@ -90,7 +133,7 @@ def protected_literal_signature(value):
         if item
     )
     without_literals = URL_OR_EMAIL_RE.sub(' ', text)
-    numbers = sorted(match.group(0).replace('.', '').replace(',', '') for match in NUMBER_TOKEN_RE.finditer(without_literals))
+    numbers = sorted(canonical_number_token(match.group(0)) for match in NUMBER_TOKEN_RE.finditer(without_literals))
     return literals, numbers
 
 

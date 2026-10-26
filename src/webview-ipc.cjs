@@ -100,6 +100,16 @@ function clearNativeCommitMarkerScript() {
   return `document.documentElement?.removeAttribute('data-geek-native-submit-commit')`;
 }
 
+function isAccountComposerPage(account, url) {
+  if (!account) return false;
+  if (TELEGRAM_TYPES.has(account.type)) return TELEGRAM_URL.test(url);
+  if (LINE_TYPES.has(account.type)) return LINE_URL.test(url);
+  if (whatsappSendIntent.isWhatsAppType(account.type)) return whatsappSendIntent.isWhatsAppUrl(url);
+  if (messengerSendIntent.isMessengerType(account.type)) return messengerSendIntent.isMessengerMessagesUrl(url);
+  if (instagramSendIntent.isInstagramType(account.type)) return instagramSendIntent.isInstagramDirectUrl(url);
+  return false;
+}
+
 function installWebviewIpc(options = {}) {
   const {
     ipcMain,
@@ -195,14 +205,13 @@ function installWebviewIpc(options = {}) {
   });
 
   register('webview:insert-text', async (event, accountId, guestId, text, token, expectedChatId = '') => {
-    const { partition } = resolveAccountBinding(accountId, '账号输入页面不可用');
+    const { account, partition } = resolveAccountBinding(accountId, '账号输入页面不可用');
     const value = String(text ?? '');
     const chatId = String(expectedChatId || '');
     if (!value || value.length > 10000 || chatId.length > 2048) throw new Error('输入文本不合法');
     const guest = resolveLiveGuest(guestId);
     const url = guestUrl(guest);
-    const allowedInputPage = TELEGRAM_URL.test(url) || LINE_URL.test(url) || whatsappSendIntent.isWhatsAppUrl(url)
-      || messengerSendIntent.isMessengerMessagesUrl(url) || instagramSendIntent.isInstagramDirectUrl(url);
+    const allowedInputPage = isAccountComposerPage(account, url);
     const ownershipOk = webviewOwnership.authorize({
       guestId,
       accountId,
