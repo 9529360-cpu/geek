@@ -1,5 +1,6 @@
 pub mod broadcast;
 pub mod commands;
+pub mod crash_record;
 pub mod host;
 pub mod layout;
 mod platform_attachments;
@@ -11,6 +12,7 @@ pub mod session;
 pub mod translation;
 pub mod translation_guest;
 pub mod tray;
+pub mod unread;
 pub mod window;
 
 use crate::{application::workspace::Workspace, infrastructure::repository::EncryptedRepository};

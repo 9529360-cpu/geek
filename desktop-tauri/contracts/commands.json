@@ -353,6 +353,13 @@
         "expectedRevision"
       ],
       "response": "Snapshot"
+    },
+    {
+      "name": "unread_poll",
+      "arguments": [
+        "focusedId"
+      ],
+      "response": "UnreadSnapshot"
     }
   ]
 }

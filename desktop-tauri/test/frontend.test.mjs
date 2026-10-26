@@ -92,7 +92,8 @@ test('only the local shell webview receives narrow permissions', () => {
 test('all commands share the same native sender gate and blocking executor', () => {
   const commands = read('../src-tauri/src/desktop/commands.rs');
   const ingress = [commands, read('../src-tauri/src/desktop/commands/advanced.rs'),
-    read('../src-tauri/src/desktop/commands/translation.rs')];
+    read('../src-tauri/src/desktop/commands/translation.rs'),
+    read('../src-tauri/src/desktop/commands/unread.rs')];
   const security = read('../src-tauri/src/desktop/security.rs');
   assert.match(commands, /authorize\(&webview\)\?;/);
   assert.match(commands, /spawn_blocking/);
@@ -113,6 +114,9 @@ test('all commands share the same native sender gate and blocking executor', () 
       if (section.includes('fn session_login(')) assert.match(section, /Zeroizing::new\(password\)/);
     } else if (/pub async fn translation_(context|health)\(/.test(section)) {
       assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<TranslationDesktop>>\(\)/);
+      assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
+    } else if (section.includes('pub async fn unread_poll(')) {
+      assert.match(section, /execute\(webview, move \|app\|\s*\{\s*app\.state::<Arc<UnreadHub>>\(\)/);
       assert.doesNotMatch(section, /SharedDesktop|execute_workspace|\.lock\(/);
     } else assert.match(section, /\{\s*execute_workspace\(webview, state,/);
   }

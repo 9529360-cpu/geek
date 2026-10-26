@@ -1,4 +1,4 @@
-use super::{layout, platform_sessions::PlatformSessions, tray::TrayState};
+use super::{layout, platform_sessions::PlatformSessions, tray::TrayState, unread::UnreadHub};
 use crate::{
     application::ports::DesktopHost,
     domain::{
@@ -22,6 +22,7 @@ pub struct TauriHost {
     root: PathBuf,
     viewport: Viewport,
     sessions: Arc<PlatformSessions>,
+    unread: Arc<UnreadHub>,
 }
 
 fn label(id: &str) -> String {
@@ -37,12 +38,18 @@ fn revoke_document(guest: &Webview, generation: &str) {
 }
 
 impl TauriHost {
-    pub fn new(app: AppHandle, root: PathBuf, sessions: Arc<PlatformSessions>) -> Self {
+    pub fn new(
+        app: AppHandle,
+        root: PathBuf,
+        sessions: Arc<PlatformSessions>,
+        unread: Arc<UnreadHub>,
+    ) -> Self {
         Self {
             app,
             root,
             viewport: Viewport::default(),
             sessions,
+            unread,
         }
     }
 
@@ -81,6 +88,10 @@ impl DesktopHost for TauriHost {
         let incarnation = self.sessions.created(&account.id, &account.platform_id);
         let sessions = Arc::clone(&self.sessions);
         let account_id = account.id.clone();
+        let unread = Arc::clone(&self.unread);
+        let title_account = account.id.clone();
+        let title_platform = account.platform_id.clone();
+        self.unread.register(&account.id, &account.platform_id);
         let builder = WebviewBuilder::new(
             label(&account.id),
             WebviewUrl::External(navigation.start().clone()),
@@ -89,6 +100,9 @@ impl DesktopHost for TauriHost {
         .browser_extensions_enabled(false)
         .devtools(false)
         .focused(false)
+        .on_document_title_changed(move |_guest, title| {
+            unread.note_title(&title_account, &title_platform, &title);
+        })
         .on_navigation(move |url| navigation.allows(url))
         .on_page_load(move |guest, payload| {
             if payload.event() == PageLoadEvent::Started {
@@ -123,12 +137,14 @@ impl DesktopHost for TauriHost {
             Ok(guest) => guest,
             Err(_) => {
                 self.sessions.removed(&account.id);
+                self.unread.forget(&account.id);
                 return Err(AppError::WebviewFailed);
             }
         };
         if guest.hide().is_err() {
             let _ = guest.close();
             self.sessions.removed(&account.id);
+            self.unread.forget(&account.id);
             return Err(AppError::WebviewFailed);
         }
         Ok(())
@@ -179,6 +195,7 @@ impl DesktopHost for TauriHost {
         self.revoke(id, &guest);
         guest.close().map_err(|_| AppError::WebviewFailed)?;
         self.sessions.removed(id);
+        self.unread.forget(id);
         Ok(())
     }
 

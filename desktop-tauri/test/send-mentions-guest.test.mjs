@@ -25,7 +25,7 @@ test('actual composed send preserves PN/LID entities, UTF16 offsets, duplicate n
   assert.deepEqual(ui.prepare(request, output(request)), { ok: true });
   const flight = ui.commit(request); assert.equal(flight.accepted, true); await tick();
   assert.deepEqual(copy(ui.state.sent), [[request.chatId, output(request), {
-    waitForAck: true, detectMentioned: false, linkPreview: false, mentionedList: [mentionId, lidId],
+    waitForAck: true, detectMentioned: false, linkPreview: true, mentionedList: [mentionId, lidId],
   }]]);
   const outcome = ui.read(request, flight.permit).value;
   assert.deepEqual(outcome, { status: 'confirmed', receipt: 'receipt-1', draftCleared: false });

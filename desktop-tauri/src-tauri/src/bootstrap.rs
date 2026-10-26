@@ -5,7 +5,7 @@ use crate::{
     },
     desktop::{
         broadcast::BroadcastDesktop,
-        commands,
+        commands, crash_record,
         host::TauriHost,
         platform_bridge::NativePlatform,
         platform_sessions::PlatformSessions,
@@ -15,6 +15,7 @@ use crate::{
         translation::TranslationDesktop,
         translation_guest::TranslationGuest,
         tray,
+        unread::UnreadHub,
     },
     domain::error::AppError,
     infrastructure::{
@@ -103,7 +104,8 @@ pub fn run() {
             commands::contact_notes::contact_notes_update,
             commands::translation::translation_context,
             commands::translation::translation_health,
-            commands::translation::account_update_translation
+            commands::translation::account_update_translation,
+            commands::unread::unread_poll
         ])
         .on_window_event(tray::on_window_event)
         .setup(|app| {
@@ -115,7 +117,14 @@ pub fn run() {
             std::fs::create_dir_all(&shell_profile)?;
             app.manage(tray::TrayState::new(accounts.settings().close_to_tray));
             let sessions = Arc::new(PlatformSessions::default());
-            let host = TauriHost::new(app.handle().clone(), root.clone(), Arc::clone(&sessions));
+            let unread = Arc::new(UnreadHub::new(app.handle().clone()));
+            crash_record::install(&root);
+            let host = TauriHost::new(
+                app.handle().clone(),
+                root.clone(),
+                Arc::clone(&sessions),
+                Arc::clone(&unread),
+            );
             let workspace = Arc::new(Mutex::new(Workspace::new(accounts, host)));
             workspace
                 .lock()
@@ -164,6 +173,7 @@ pub fn run() {
                 TranslationGuest::new(platform, app.handle().clone(), sessions),
             ));
             app.manage(workspace);
+            app.manage(unread);
             app.manage(Arc::clone(&broadcast));
             app.manage(session);
             app.manage(Arc::clone(&translation));

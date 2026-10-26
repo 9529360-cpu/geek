@@ -110,6 +110,11 @@ function checkCommands(files) {
           || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
         failures.push('Translation command must use shared authorization and its independent owner without account state');
       }
+    } else if (name === 'unread_poll') {
+      if (!/\{\s*execute\(webview, move \|app\|\s*(?:\{\s*)?app\.state::<Arc<UnreadHub>>\(\)\s*\./.test(section)
+          || /\b(?:SharedDesktop|NativeDesktop|execute_workspace)\b|\.lock\(/.test(section)) {
+        failures.push('Unread command must use shared authorization and its independent owner without account state');
+      }
     } else if (!/\{\s*execute_workspace\(webview, state,/.test(section)) {
       failures.push('Rust account command bypasses shared sender authorization/workspace execution boundary');
     }

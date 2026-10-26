@@ -64,5 +64,6 @@ export function connectDesktop(invoke = globalThis.window?.__TAURI__?.core?.invo
     translationHealth: () => invoke('translation_health'),
     updateTranslation: (id, chatId, policy, expectedRevision) =>
       invoke('account_update_translation', { id, chatId, policy, expectedRevision }),
+    unreadPoll: (focusedId) => invoke('unread_poll', { focusedId }),
   });
 }
