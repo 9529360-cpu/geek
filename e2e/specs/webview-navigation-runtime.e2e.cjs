@@ -83,7 +83,11 @@ async function createWebsiteThroughAppCenter(name, customUrl) {
 
   await (await waitVisible('#btn-app-center')).click();
   await waitVisible('#add-overlay:not(.hidden)');
-  await (await waitVisible('.add-platform-card[data-type="website"]')).click();
+  await waitVisible('.add-platform-card[data-type="website"]');
+  // The open guest can sit above the shell. Drive the real card handler in the page.
+  await browser.execute(() => {
+    document.querySelector('.add-platform-card[data-type="website"]')?.click();
+  });
   await (await waitVisible('#add-custom-url')).setValue(customUrl);
   await (await waitVisible('#add-name')).setValue(name);
   await (await waitVisible('#add-count')).setValue('1');

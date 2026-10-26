@@ -129,6 +129,36 @@ assert.equal(
 );
 assert.equal(
   assessTranslationOutput({
+    source: '价格是 60.25 美元',
+    output: 'The price is 6025 dollars',
+    sourceLanguage: 'zh',
+    target: 'en',
+  }).reason,
+  'PROTECTED_LITERAL_CHANGED',
+  'dropping a decimal separator must not pass as the same number'
+);
+assert.equal(
+  assessTranslationOutput({
+    source: '价格是 1,234.50 美元',
+    output: 'Il prezzo è 1.234,50 dollari',
+    sourceLanguage: 'zh',
+    target: 'it',
+  }).ok,
+  true,
+  'thousands grouping and locale decimal marks may change together'
+);
+assert.equal(
+  assessTranslationOutput({
+    source: '合计 1,000 件',
+    output: 'Totale 1000 pezzi',
+    sourceLanguage: 'zh',
+    target: 'it',
+  }).ok,
+  true,
+  'a thousands group may be written without separators'
+);
+assert.equal(
+  assessTranslationOutput({
     source: '请查看 https://example.com/order/42',
     output: 'Controlla https://example.com/order/43',
     sourceLanguage: 'zh',
@@ -191,6 +221,16 @@ assert.throws(
   () => workerSandbox.__validateOutput('价格是 60.25 美元。', 'Il prezzo è 61,25 dollari.', 'zh', 'it'),
   /changed protected literals/,
   'Worker must reject changed numeric literals'
+);
+assert.throws(
+  () => workerSandbox.__validateOutput('价格是 60.25 美元。', 'The price is 6025 dollars.', 'zh', 'en'),
+  /changed protected literals/,
+  'Worker must reject a translation that drops the decimal separator'
+);
+assert.equal(
+  workerSandbox.__validateOutput('价格是 1,234.50 美元。', 'Il prezzo è 1.234,50 dollari.', 'zh', 'it'),
+  'Il prezzo è 1.234,50 dollari.',
+  'Worker must accept locale thousands and decimal marks for the same value'
 );
 assert.equal(
   workerSandbox.__validateOutput('你准备好了吗？🙂', 'Sei pronto? 🙂', 'zh', 'it'),

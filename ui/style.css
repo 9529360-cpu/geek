@@ -407,6 +407,11 @@ input, select { font-family: inherit; }
   pointer-events: auto;
   z-index: 1;
 }
+/* Guest WebViews composite above the shell. An open modal must take the pointer. */
+body:has(.overlay:not(.hidden)) .webview-container webview {
+  visibility: hidden;
+  pointer-events: none;
+}
 
 .empty-state {
   position: absolute;
