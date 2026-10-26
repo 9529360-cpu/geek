@@ -26,8 +26,10 @@ impl SlidingWindow {
             self.stamps.clear();
         }
         self.last = Some(now_ms);
-        let start = now_ms.saturating_sub(self.window_ms);
-        self.stamps.retain(|stamp| *stamp > start);
+        // Keep a stamp while stamp + window is still after now. Subtracting the
+        // window from a small clock saturates and would drop the first event.
+        self.stamps
+            .retain(|stamp| stamp.saturating_add(self.window_ms) > now_ms);
         if self.stamps.len() as u32 >= self.max {
             return false;
         }
