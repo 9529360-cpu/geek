@@ -53,14 +53,18 @@ fn messenger_and_instagram_receive_stays_manual_and_cannot_save_automatic_billin
             h.engine.prepare(account, automatic),
             Err(AppError::TranslationUnavailable)
         ));
-        let mut auto_policy = TranslationPolicy::default();
-        auto_policy.translation_mode = "auto".into();
+        let auto_policy = TranslationPolicy {
+            translation_mode: "auto".into(),
+            ..TranslationPolicy::default()
+        };
         assert_eq!(
             auto_policy.validate_for_platform(platform),
             Err(AppError::TranslationUnavailable)
         );
-        let mut grouped = TranslationPolicy::default();
-        grouped.group_auto = true;
+        let grouped = TranslationPolicy {
+            group_auto: true,
+            ..TranslationPolicy::default()
+        };
         assert_eq!(
             grouped.validate_for_platform(platform),
             Err(AppError::TranslationUnavailable)
@@ -215,8 +219,10 @@ fn telegram_settings_save_atomically_reject_unsupported_switches_and_keep_other_
     let wa = accounts.accounts()[2].id.clone();
     let before = accounts.accounts().to_vec();
     let saves = repository.0.lock().unwrap().saves;
-    let mut history = TranslationPolicy::default();
-    history.translate_history = true;
+    let history = TranslationPolicy {
+        translate_history: true,
+        ..TranslationPolicy::default()
+    };
     assert_eq!(
         accounts.update_translation(&id, None, Some(history.into()), 0),
         Err(AppError::TranslationUnavailable)
