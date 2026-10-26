@@ -2,6 +2,7 @@ pub mod broadcast;
 pub mod commands;
 pub mod host;
 pub mod layout;
+mod line_extension;
 mod platform_attachments;
 pub mod platform_bridge;
 pub mod platform_sessions;

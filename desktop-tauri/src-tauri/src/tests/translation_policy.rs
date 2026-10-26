@@ -137,7 +137,7 @@ fn sending_flags_do_not_change_incoming_admission_and_history_remains_unavailabl
         h.engine.prepare(history, incoming("history")),
         Err(AppError::TranslationUnavailable)
     ));
-    for platform in ["telegram", "line", "website"] {
+    for platform in ["telegram", "website"] {
         let mut account = account(ProxyConfig::System);
         account.platform_id = platform.into();
         assert!(matches!(
@@ -154,6 +154,36 @@ fn sending_flags_do_not_change_incoming_admission_and_history_remains_unavailabl
     assert!(h.gateway.calls(Operation::Quota).is_empty());
     assert!(h.gateway.calls(Operation::Token).is_empty());
     assert!(h.gateway.calls(Operation::Translate).is_empty());
+}
+
+#[test]
+fn line_receive_accepts_only_manual_clicks_on_its_own_chat_ids() {
+    let h = setup();
+    let mut account = account(ProxyConfig::System);
+    account.platform_id = "line".into();
+    let mut event = incoming("line-manual");
+    event.chat_id = "ln:abcd1234".into();
+    event.message_id = "mid123".into();
+    assert!(h.engine.prepare(account.clone(), event.clone()).is_ok());
+    event.manual = false;
+    assert!(matches!(
+        h.engine.prepare(account.clone(), event),
+        Err(AppError::TranslationUnavailable)
+    ));
+    let mut auto = account.clone();
+    auto.translation.global.translation_mode = "auto".into();
+    let mut manual = incoming("line-auto");
+    manual.chat_id = "ln:abcd1234".into();
+    assert!(matches!(
+        h.engine.prepare(auto, manual),
+        Err(AppError::TranslationUnavailable)
+    ));
+    let mut foreign = incoming("line-foreign");
+    foreign.chat_id = "12025550123@c.us".into();
+    assert!(matches!(
+        h.engine.prepare(account, foreign),
+        Err(AppError::TranslationInvalid)
+    ));
 }
 
 #[test]

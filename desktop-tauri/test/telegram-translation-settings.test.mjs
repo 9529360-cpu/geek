@@ -48,7 +48,9 @@ for (const id of ['tg', 'tgk']) {
 }
 
 test('A forged disabled sending switch cannot enqueue unsupported policy IPC', async () => {
-  const ui = await fixture(); ui.switchAccount('line'); await ui.click('btn-translation');
+  const ui = await fixture();
+  ui.shell.accounts.find((account) => account.id === 'line').platformId = 'website';
+  ui.switchAccount('line'); await ui.click('btn-translation');
   const before = structuredClone(ui.backend);
   const node = ui.get('translation-send'); node.disabled = false; node.checked = true; node.fire('change'); await ui.idle();
   assert.equal(ui.calls.filter(([name]) => name === 'update').length, 0);
@@ -106,7 +108,7 @@ for (const id of ['tg', 'tgk']) test(`${id} saves automatic/group policy and cha
 
 test('capabilities remain explicit for archived, unknown and unavailable Telegram aliases', () => {
   for (const account of [{ platformId: 'telegram' }, { platformId: 'telegram-pure' },
-    { platformId: 'line' }, { platformId: 'telegram-z', archived: true }]) {
+    { platformId: 'telegram' }, { platformId: 'telegram-z', archived: true }]) {
     assert.equal(translationCapabilities(account).receive, false);
     assert.throws(() => validatePlatformPolicy(account, DEFAULT_POLICY));
   }
@@ -114,7 +116,7 @@ test('capabilities remain explicit for archived, unknown and unavailable Telegra
     assert.deepEqual(translationCapabilities({ platformId }), { receive: true, automatic: true, outgoing: true });
   }
   assert.deepEqual(translationCapabilities({ platformId: 'telegram-z' }), { receive: true, automatic: true, outgoing: true });
-  for (const platformId of ['messenger', 'instagram']) {
+  for (const platformId of ['messenger', 'instagram', 'line', 'line-business']) {
     assert.deepEqual(translationCapabilities({ platformId }), { receive: true, automatic: false, outgoing: true });
   }
 });

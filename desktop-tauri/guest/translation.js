@@ -29,6 +29,7 @@ function attach(generation, platform) {
       adapter = telegramTranslationAdapter(platform, () => { clearPresentation(); needsBaseline = true; }, automaticEligibility);
     }
     else if (platform === 'messenger' || platform === 'instagram') adapter = metaTranslationAdapter(platform);
+    else if (platform === 'line' || platform === 'line-business') adapter = lineTranslationAdapter(platform);
     else return false;
     platformId = platform;
   }

@@ -59,6 +59,8 @@ export function platformLabel(platformId) {
   if (platformId === 'telegram-z') return 'Telegram A';
   if (platformId === 'messenger') return 'Messenger';
   if (platformId === 'instagram') return 'Instagram';
+  if (platformId === 'line') return 'LINE';
+  if (platformId === 'line-business') return 'LINE Business';
   return 'WhatsApp';
 }
 

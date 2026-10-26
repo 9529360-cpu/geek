@@ -192,6 +192,7 @@ fn supported_catalog_id(platform: &str, id: &str, kind: ChatKind) -> bool {
         "instagram" => {
             kind == ChatKind::Contact && crate::domain::translation::valid_instagram_chat_id(id)
         }
+        "line" | "line-business" => crate::domain::translation::valid_line_chat_id(id),
         _ => false,
     }
 }
@@ -209,13 +210,15 @@ fn native_catalog(value: serde_json::Value, platform: &str) -> Result<NativeCata
         .retain(|chat| supported_catalog_id(platform, &chat.id, chat.kind));
     if matches!(
         platform,
-        "telegram-k" | "telegram-z" | "messenger" | "instagram"
+        "telegram-k" | "telegram-z" | "messenger" | "instagram" | "line" | "line-business"
     ) && (result.capabilities.tag_all || result.capabilities.vcards || result.labels.is_some())
     {
         return Err(AppError::BroadcastUnavailable);
     }
-    if matches!(platform, "telegram-z" | "messenger" | "instagram")
-        && result.capabilities.attachments
+    if matches!(
+        platform,
+        "telegram-z" | "messenger" | "instagram" | "line" | "line-business"
+    ) && result.capabilities.attachments
     {
         return Err(AppError::BroadcastUnavailable);
     }

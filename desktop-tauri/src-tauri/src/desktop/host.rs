@@ -1,4 +1,7 @@
-use super::{layout, platform_sessions::PlatformSessions, tray::TrayState};
+use super::{
+    layout, line_extension::prepare_line_extension_host, platform_sessions::PlatformSessions,
+    tray::TrayState,
+};
 use crate::{
     application::ports::DesktopHost,
     domain::{
@@ -16,6 +19,7 @@ use tauri::{
 };
 
 const TELEGRAM_A_OBSERVER: &str = include_str!(concat!(env!("OUT_DIR"), "/telegram-a-observer.js"));
+const LINE_CHROME_SHIM: &str = include_str!("../../../guest/line-chrome-shim.js");
 
 pub struct TauriHost {
     app: AppHandle,
@@ -78,6 +82,13 @@ impl DesktopHost for TauriHost {
         let window = self.app.get_window("main").ok_or(AppError::WebviewFailed)?;
         let profile = account_profile(&self.root, &account.id)?;
         std::fs::create_dir_all(&profile).map_err(|_| AppError::StoreIo)?;
+        let line = matches!(account.platform_id.as_str(), "line" | "line-business");
+        // One child directory, this account's profile only. Other platforms keep extensions off.
+        let extension_host = if line {
+            Some(prepare_line_extension_host(&self.root)?)
+        } else {
+            None
+        };
         let incarnation = self.sessions.created(&account.id, &account.platform_id);
         let sessions = Arc::clone(&self.sessions);
         let account_id = account.id.clone();
@@ -86,7 +97,7 @@ impl DesktopHost for TauriHost {
             WebviewUrl::External(navigation.start().clone()),
         )
         .data_directory(profile)
-        .browser_extensions_enabled(false)
+        .browser_extensions_enabled(line)
         .devtools(false)
         .focused(false)
         .on_navigation(move |url| navigation.allows(url))
@@ -105,9 +116,13 @@ impl DesktopHost for TauriHost {
         .on_new_window(|_, _| NewWindowResponse::Deny)
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_download(|_, _| false);
-        // Observe only the owned Web A document before its production API worker
-        // starts. This packaged read-only observer grants no native capabilities.
-        let builder = if account.platform_id == "telegram-z" {
+        let builder = if let Some(path) = extension_host {
+            builder
+                .extensions_path(path)
+                .initialization_script(LINE_CHROME_SHIM)
+        } else if account.platform_id == "telegram-z" {
+            // Observe only the owned Web A document before its production API worker
+            // starts. This packaged read-only observer grants no native capabilities.
             builder.initialization_script(TELEGRAM_A_OBSERVER)
         } else {
             builder

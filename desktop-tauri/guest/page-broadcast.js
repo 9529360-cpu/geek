@@ -1,4 +1,6 @@
-// Text-only broadcast for Messenger, Instagram and Telegram A.
+// Text-only broadcast for Messenger, Instagram, Telegram A and LINE.
+// LINE uses the extension chat list and insertValue, then waits for a new
+// message and an empty composer. Unconfirmed sends stay uncertain.
 // Chat list, open and confirmations follow the existing page scripts.
 // Telegram A reports the button click as submitted, matching the old
 // transport's CLICKED result. Messenger and Instagram still require the
@@ -9,6 +11,10 @@ function createPageBroadcastAdapter(kind) {
   const targetId = (value) => {
     if (kind === 'telegram-a') return String(value || '').startsWith('tg:') ? telegramAPeer(`#${String(value).slice(3)}`) : '';
     if (kind === 'messenger') return messengerConversationId(value);
+    if (kind === 'line') {
+      const raw = String(value || '');
+      return raw.startsWith('ln:') && lineToken(raw.slice(3)) === raw ? raw : '';
+    }
     return instagramConversationId(value);
   };
   function instagramThreadKey(node) {
@@ -52,6 +58,20 @@ function createPageBroadcastAdapter(kind) {
     });
     return out;
   }
+  function listLine() {
+    const out = [];
+    const seen = new Set();
+    document.querySelectorAll('[class*="chatlistItem-module__chatlist_item__"][data-mid]').forEach((row) => {
+      const id = lineToken(row.getAttribute('data-mid') || '');
+      const title = row.querySelector('[class*="chatlistItem-module__title_box__"]');
+      const name = clean(title ? title.textContent : '').replace(/\s*\(\d+\)\s*$/, '');
+      if (!id || seen.has(id) || !name) return;
+      seen.add(id);
+      const group = Boolean(row.querySelector('[class*="member_count"]'));
+      out.push({ id, name, realName: name, kind: group ? 'group' : 'contact' });
+    });
+    return out;
+  }
   function listTelegram() {
     const out = [];
     const seen = new Set();
@@ -76,6 +96,13 @@ function createPageBroadcastAdapter(kind) {
         .find((node) => node.getAttribute('href') === `#${peer}`);
       if (!anchor) return false;
       pageClick(anchor);
+    } else if (kind === 'line') {
+      const raw = id.slice(3);
+      const row = [...document.querySelectorAll('[class*="chatlistItem-module__chatlist_item__"][data-mid]')]
+        .find((item) => String(item.getAttribute('data-mid') || '') === raw);
+      const button = row?.querySelector('[class*="button_chatlist_item"]');
+      if (!button) return false;
+      button.click();
     } else if (kind === 'messenger') {
       const anchor = [...document.querySelectorAll('a[href*="/messages/"]')].find((node) => {
         try {
@@ -106,7 +133,9 @@ function createPageBroadcastAdapter(kind) {
   }
   async function listChats() {
     await ready();
-    const chats = kind === 'messenger' ? listMessenger() : kind === 'instagram' ? listInstagram() : listTelegram();
+    const chats = kind === 'messenger' ? listMessenger()
+      : kind === 'instagram' ? listInstagram()
+        : kind === 'line' ? listLine() : listTelegram();
     if (chats.length > 20000) throw issue('CAPABILITY_UNAVAILABLE');
     return chats;
   }

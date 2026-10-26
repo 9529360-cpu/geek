@@ -3,7 +3,7 @@ use crate::{
     domain::{
         account::{valid_id, valid_name},
         navigation::{normalize_website_url, NavigationPolicy},
-        platform::platform,
+        platform::{document_matches, platform},
     },
     infrastructure::catalog::load as catalog,
 };
@@ -32,14 +32,48 @@ fn platform_boundary_is_not_a_global_allowlist() {
 }
 
 #[test]
-fn line_stays_disabled_and_catalog_entries_remain_valid() {
+fn line_extension_document_is_isolated_from_other_origins() {
     let all = catalog().unwrap();
-    for id in ["line", "line-business", "unknown"] {
-        assert!(platform(&all, id).is_err());
+    for id in ["line", "line-business"] {
+        let platform = platform(&all, id).unwrap();
+        let policy = NavigationPolicy::new(platform, None).unwrap();
+        assert_eq!(
+            policy.start().as_str(),
+            "chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html"
+        );
+        assert!(policy.allows(policy.start()));
+        let line_host = Url::parse("https://access.line.me/dialog").unwrap();
+        assert!(policy.allows(&line_host));
+        assert!(!document_matches(id, &line_host));
+        assert!(document_matches(id, policy.start()));
+        for input in [
+            "chrome-extension://ophjlpahpchlmihnnnihgmmeilfjmjjc/index.html?lw-key=secret",
+            "chrome-extension://other-extension/index.html",
+            "https://web.whatsapp.com/",
+            "file:///C:/Windows/win.ini",
+            "https://user@access.line.me/",
+        ] {
+            let url = Url::parse(input).unwrap();
+            assert!(!policy.allows(&url), "{input}");
+            assert!(!document_matches(id, &url), "{input}");
+        }
+        assert!(NavigationPolicy::new(platform, Some("https://example.com/")).is_err());
     }
-    for p in all.iter().filter(|p| p.enabled() && p.id != "website") {
-        assert!(NavigationPolicy::new(p, None).is_ok());
-        assert!(NavigationPolicy::new(p, Some("https://example.com/")).is_err());
+    assert!(platform(&all, "unknown").is_err());
+    let line = platform(&all, "line").unwrap();
+    assert!(!line.allows(&Url::parse("https://manager.line.biz/").unwrap()));
+    let business = platform(&all, "line-business").unwrap();
+    assert!(business.allows(&Url::parse("https://manager.line.biz/").unwrap()));
+    assert!(!document_matches(
+        "line-business",
+        &Url::parse("https://manager.line.biz/").unwrap()
+    ));
+    for item in all
+        .iter()
+        .filter(|item| item.enabled() && item.id != "website")
+    {
+        assert!(NavigationPolicy::new(item, None).is_ok());
+        assert!(NavigationPolicy::new(item, Some("https://example.com/")).is_err());
     }
 }
 

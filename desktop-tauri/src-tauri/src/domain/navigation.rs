@@ -1,6 +1,6 @@
 use super::{
     error::{AppError, Result},
-    platform::Platform,
+    platform::{line_entry_url, line_family, Platform},
     url_policy::safe_https,
 };
 use url::Url;
@@ -23,12 +23,16 @@ impl NavigationPolicy {
             if website_url.is_some() {
                 return Err(AppError::WebsiteUrlUnexpected);
             }
-            platform
-                .url
-                .as_ref()
-                .ok_or(AppError::CatalogInvalid)?
-                .parse::<Url>()
-                .map_err(|_| AppError::CatalogInvalid)?
+            if line_family(&platform.id) {
+                line_entry_url(platform)?
+            } else {
+                platform
+                    .url
+                    .as_ref()
+                    .ok_or(AppError::CatalogInvalid)?
+                    .parse::<Url>()
+                    .map_err(|_| AppError::CatalogInvalid)?
+            }
         };
         let policy = Self {
             platform: platform.clone(),

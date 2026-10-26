@@ -19,6 +19,10 @@ function selectSendComposer(changed) {
   }
   if (host === 'www.facebook.com' || host === 'facebook.com') return createPageSendComposer('messenger', changed);
   if (host === 'www.instagram.com' || host === 'instagram.com') return createPageSendComposer('instagram', changed);
+  if (window.location?.protocol === 'chrome-extension:' && host === 'ophjlpahpchlmihnnnihgmmeilfjmjjc'
+      && (path === '/index.html' || path === '/index.html/') && !window.location.search) {
+    return createPageSendComposer('line', changed);
+  }
   return createSendComposer(changed);
 }
 const sendComposer = selectSendComposer(composerChanged);

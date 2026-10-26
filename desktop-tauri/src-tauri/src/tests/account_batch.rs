@@ -108,7 +108,7 @@ fn invalid_batch_rejects_every_member_before_any_write_or_native_effect() {
         .create_batch("Bad", "website", Some("http://example.com"), proxy(), 2)
         .is_err());
     assert!(workspace
-        .create_batch("Bad", "line", None, proxy(), 2)
+        .create_batch("Bad", "unknown", None, proxy(), 2)
         .is_err());
     let invalid_proxy = ProxyConfig::Http {
         host: "user:password@host".into(),

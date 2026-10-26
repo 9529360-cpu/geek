@@ -83,8 +83,7 @@ impl TranslationPolicy {
         self.validate()?;
         // Messenger and Instagram rows have no proved direction or send time.
         // Click mode is the only receive policy those accounts can store.
-        if matches!(platform, "messenger" | "instagram")
-            && (self.translation_mode != "click" || self.group_auto)
+        if receive_is_manual_only(platform) && (self.translation_mode != "click" || self.group_auto)
         {
             return Err(AppError::TranslationUnavailable);
         }
@@ -286,17 +285,34 @@ pub fn is_telegram(platform: &str) -> bool {
     matches!(platform, "telegram-z" | "telegram-k")
 }
 
+pub fn is_line(platform: &str) -> bool {
+    matches!(platform, "line" | "line-business")
+}
+
+/// Page rows that do not prove incoming direction or send time. Paid auto stays closed.
+pub fn receive_is_manual_only(platform: &str) -> bool {
+    matches!(platform, "messenger" | "instagram") || is_line(platform)
+}
+
 pub fn supports_receive(platform: &str) -> bool {
     matches!(
         platform,
         "whatsapp" | "whatsapp-pure" | "messenger" | "instagram"
     ) || is_telegram(platform)
+        || is_line(platform)
 }
 
 pub fn supports_outgoing(platform: &str) -> bool {
     matches!(
         platform,
-        "whatsapp" | "whatsapp-pure" | "telegram-k" | "telegram-z" | "messenger" | "instagram"
+        "whatsapp"
+            | "whatsapp-pure"
+            | "telegram-k"
+            | "telegram-z"
+            | "messenger"
+            | "instagram"
+            | "line"
+            | "line-business"
     )
 }
 
@@ -350,11 +366,25 @@ pub fn valid_instagram_chat_id(id: &str) -> bool {
     id.strip_prefix("/direct/t/").is_some_and(valid_segment)
 }
 
+/// Opaque LINE `data-mid`, kept out of the WhatsApp and Telegram namespaces.
+pub fn valid_line_chat_id(id: &str) -> bool {
+    id.strip_prefix("ln:").is_some_and(|raw| {
+        let bytes = raw.as_bytes();
+        (8..=128).contains(&bytes.len())
+            && bytes[0].is_ascii_alphanumeric()
+            && bytes.iter().all(|byte| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'+' | b'/' | b'=' | b'_' | b'-' | b'.')
+            })
+    })
+}
+
 pub fn valid_stored_chat_id(id: &str) -> bool {
     valid_chat_id(id)
         || valid_telegram_chat_id(id)
         || valid_messenger_chat_id(id)
         || valid_instagram_chat_id(id)
+        || valid_line_chat_id(id)
 }
 
 pub fn valid_receive_chat_id(platform: &str, id: &str) -> bool {
@@ -363,6 +393,7 @@ pub fn valid_receive_chat_id(platform: &str, id: &str) -> bool {
         "telegram-z" | "telegram-k" => valid_telegram_chat_id(id),
         "messenger" => valid_messenger_chat_id(id),
         "instagram" => valid_instagram_chat_id(id),
+        "line" | "line-business" => valid_line_chat_id(id),
         _ => false,
     }
 }

@@ -7,6 +7,7 @@ function exportPlatforms() {
     familyLabel: p.familyLabel || (p.navigationKind || id).replace(/^./, (c) => c.toUpperCase()), url: p.url || null,
     hostnames: p.hostnames || [], allowSuffix: p.allowSuffix || null,
     needsExtension: p.needsExtension === true,
+    extensionId: p.extensionId || null,
   }));
 }
 if (require.main === module) process.stdout.write(JSON.stringify(exportPlatforms()));

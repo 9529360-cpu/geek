@@ -136,7 +136,7 @@ test('unsupported account and capability controls remain explicitly unavailable'
   await ui.open();
   assert.equal(ui.get('broadcast-add-vcard').disabled, true); assert.equal(ui.get('broadcast-tagall').disabled, true);
   await ui.hidePanel();
-  ui.shell.accounts.find((account) => account.id === 'tg').platformId = 'line';
+  ui.shell.accounts.find((account) => account.id === 'tg').platformId = 'website';
   ui.switchAccount('tg');
   assert.equal(ui.get('btn-broadcast').disabled, true);
   assert.match(ui.get('btn-broadcast').title, /尚未迁移/);

@@ -2,13 +2,17 @@ const adapter = createWhatsAppAdapter();
 const telegramAdapter = createTelegramKAdapter();
 const pageFamilies = Object.freeze({
   messenger: 'messenger', instagram: 'instagram', 'telegram-z': 'telegram-a',
+  line: 'line', 'line-business': 'line',
 });
 const pageAdapters = Object.freeze({
   messenger: createPageBroadcastAdapter('messenger'),
   instagram: createPageBroadcastAdapter('instagram'),
   'telegram-z': createPageBroadcastAdapter('telegram-a'),
+  line: createPageBroadcastAdapter('line'),
+  'line-business': createPageBroadcastAdapter('line'),
 });
-const bridged = (type) => ['whatsapp', 'whatsapp-pure', 'telegram-k', 'telegram-z', 'messenger', 'instagram'].includes(type);
+const bridged = (type) => ['whatsapp', 'whatsapp-pure', 'telegram-k', 'telegram-z', 'messenger', 'instagram',
+  'line', 'line-business'].includes(type);
 const GeekPlatformTransports = createPlatformCapabilities({
   familyOf: (type) => ({ key: ['whatsapp', 'whatsapp-pure'].includes(type) ? 'whatsapp' : bridged(type) ? type : '' }),
   definitions: { definitionFor: ({ family }) => bridged(family) || pageFamilies[family] ? Object.freeze({}) : null },

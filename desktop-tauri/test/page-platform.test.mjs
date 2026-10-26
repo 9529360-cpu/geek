@@ -29,4 +29,14 @@ test('page conversation ids keep the owned thread shape and drop everything else
   assert.equal(page.pageOwned('messenger'), true);
   assert.equal(page.pageOwned('instagram'), false);
   assert.equal(page.pageOwned('telegram-a'), false);
+  const line = load({ protocol: 'chrome-extension:', hostname: 'ophjlpahpchlmihnnnihgmmeilfjmjjc',
+    pathname: '/index.html', hash: '#/chats/abcd1234', search: '', username: '', password: '' });
+  assert.equal(line.pageOwned('line'), true);
+  assert.equal(line.lineToken('abcd1234'), 'ln:abcd1234');
+  assert.equal(line.lineToken('bad id'), '');
+  assert.equal(line.lineToken('12025550123@c.us'), '');
+  assert.equal(line.pageConversationId('line'), 'ln:abcd1234');
+  const queried = load({ protocol: 'https:', hostname: 'web.whatsapp.com', pathname: '/', hash: '', search: '',
+    username: '', password: '' });
+  assert.equal(queried.pageOwned('line'), false);
 });

@@ -17,8 +17,8 @@ use crate::domain::{
     proxy::ProxyConfig,
     session::SessionToken,
     translation::{
-        receive_requires_group_auto, supports_receive, valid_send_chat_id, validate_send_text,
-        IncomingTranslation,
+        receive_is_manual_only, receive_requires_group_auto, supports_receive, valid_send_chat_id,
+        validate_send_text, IncomingTranslation,
     },
 };
 use sha2::{Digest, Sha256};
@@ -144,7 +144,7 @@ impl<R: SessionRepository, T: SessionTransport, G: TranslationGateway> Translati
             || (incoming.manual && !policy.message_action)
             || (incoming.refresh && !incoming.manual)
             || (!incoming.manual
-                && (matches!(account.platform_id.as_str(), "messenger" | "instagram")
+                && (receive_is_manual_only(&account.platform_id)
                     || policy.translation_mode != "auto"
                     || incoming.sent_at < self.auto_after
                     || incoming.sent_at > now.saturating_add(60)

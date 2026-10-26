@@ -12,6 +12,7 @@ fn valid_broadcast_target(platform: &str, id: &str) -> bool {
         "telegram-k" | "telegram-z" => super::translation::valid_telegram_chat_id(id),
         "messenger" => super::translation::valid_messenger_chat_id(id),
         "instagram" => super::translation::valid_instagram_chat_id(id),
+        "line" | "line-business" => super::translation::valid_line_chat_id(id),
         _ => true,
     }
 }
@@ -36,7 +37,14 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     }
     if !matches!(
         account.platform_id.as_str(),
-        "whatsapp" | "whatsapp-pure" | "telegram-k" | "telegram-z" | "messenger" | "instagram"
+        "whatsapp"
+            | "whatsapp-pure"
+            | "telegram-k"
+            | "telegram-z"
+            | "messenger"
+            | "instagram"
+            | "line"
+            | "line-business"
     ) {
         return Err(AppError::BroadcastUnsupported);
     }
@@ -45,7 +53,7 @@ pub fn validate_draft(account: &BroadcastAccount, draft: &BroadcastDraft) -> Res
     }
     if matches!(
         account.platform_id.as_str(),
-        "telegram-z" | "messenger" | "instagram"
+        "telegram-z" | "messenger" | "instagram" | "line" | "line-business"
     ) && (draft.tag_all || !draft.vcards.is_empty() || !draft.attachments.is_empty())
     {
         return Err(AppError::BroadcastUnsupported);

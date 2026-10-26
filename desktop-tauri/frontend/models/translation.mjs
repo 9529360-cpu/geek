@@ -61,8 +61,9 @@ export function translationCapabilities(account) {
   const whatsapp = isWhatsApp(account);
   const telegram = Boolean(account && !account.archived && ['telegram-z', 'telegram-k'].includes(account.platformId));
   const meta = Boolean(account && !account.archived && ['messenger', 'instagram'].includes(account.platformId));
-  return { receive: whatsapp || telegram || meta, automatic: whatsapp || telegram,
-    outgoing: whatsapp || telegram || meta };
+  const line = Boolean(account && !account.archived && ['line', 'line-business'].includes(account.platformId));
+  return { receive: whatsapp || telegram || meta || line, automatic: whatsapp || telegram,
+    outgoing: whatsapp || telegram || meta || line };
 }
 
 export function validatePlatformPolicy(account, policy) {

@@ -8,6 +8,8 @@
 const PAGE_SEND_LABEL = /(send|发送|傳送|invia|envoyer|senden|enviar|envoie|gönder|wyślij)/i;
 const MESSENGER_THREAD = /^\/messages\/(?:(?:e2ee|marketplace|requests)\/)?t\/([^/?#]+)/i;
 const INSTAGRAM_THREAD = /^\/direct\/t\/([^/?#]+)/i;
+const LINE_EXTENSION_ID = 'ophjlpahpchlmihnnnihgmmeilfjmjjc';
+const LINE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9+/=_.-]{7,127}$/;
 
 function pageNormalize(value) {
   return String(value || '').replace(/\u200b/g, '').replace(/\r\n?/g, '\n').replace(/\n[\t ]*\n+/g, '\n').trim();
@@ -32,6 +34,39 @@ function instagramConversationId(pathname = window.location?.pathname) {
   return canonicalThread(pathname, INSTAGRAM_THREAD);
 }
 
+function lineToken(value) {
+  const raw = String(value || '');
+  return LINE_TOKEN.test(raw) ? `ln:${raw}` : '';
+}
+
+function lineConversationId() {
+  const selected = document.querySelector?.(
+    '[class*="chatlistItem-module__chatlist_item__"][data-mid][aria-current="true"]');
+  const selectedId = lineToken(selected?.getAttribute?.('data-mid') || '');
+  if (selectedId) return selectedId;
+  const pathname = String(window.location?.hash || '').replace(/^#/, '').split('?')[0];
+  const match = pathname.match(/^\/[^/]+\/([^/]+)\/?$/);
+  if (!match) return '';
+  try { return lineToken(decodeURIComponent(match[1])); } catch { return ''; }
+}
+
+function lineComposerText(host) {
+  const values = Array.isArray(host?.value) ? host.value : [host?.value];
+  return pageNormalize(values.filter((value) => typeof value === 'string').join(''));
+}
+
+function lineReplaceText(host, text) {
+  const textarea = host?.shadowRoot?.querySelector?.('textarea');
+  if (!textarea || typeof host.insertValue !== 'function') return 'failed';
+  const before = lineComposerText(host);
+  textarea.focus();
+  try { document.execCommand('selectAll', false, null); } catch { /* The value check decides. */ }
+  try { host.insertValue([text]); } catch { return 'failed'; }
+  const actual = lineComposerText(host);
+  if (actual === pageNormalize(text)) return 'ok';
+  return actual === before ? 'failed' : 'changed';
+}
+
 function telegramAPeer(hash = window.location?.hash) {
   const peer = String(hash || '').replace(/^#/, '').split('?')[0];
   if (!/^-?[1-9]\d{0,18}$/.test(peer)) return '';
@@ -46,12 +81,18 @@ function pageConversationId(kind) {
   if (kind === 'messenger') return messengerConversationId();
   if (kind === 'instagram') return instagramConversationId();
   if (kind === 'telegram-a') return telegramAPeer();
+  if (kind === 'line') return lineConversationId();
   return '';
 }
 
 function pageOwned(kind) {
   const url = window.location;
-  if (!url || url.protocol !== 'https:' || url.username || url.password) return false;
+  if (!url || url.username || url.password) return false;
+  if (kind === 'line') {
+    return url.protocol === 'chrome-extension:' && url.hostname === LINE_EXTENSION_ID
+      && ['/index.html', '/index.html/'].includes(url.pathname) && !url.search;
+  }
+  if (url.protocol !== 'https:') return false;
   const host = url.hostname;
   if (kind === 'messenger') return ['www.facebook.com', 'facebook.com'].includes(host) && url.pathname.startsWith('/messages');
   if (kind === 'instagram') return ['www.instagram.com', 'instagram.com'].includes(host) && url.pathname.startsWith('/direct');
@@ -68,7 +109,9 @@ function pageVisible(node) {
 }
 
 function pageEditors(kind) {
-  const selector = kind === 'telegram-a'
+  const selector = kind === 'line'
+    ? 'textarea-ex[class*="chatroomEditor-module__textarea__"]'
+    : kind === 'telegram-a'
     ? '#editable-message-text[contenteditable="true"], .form-control.ProseMirror, '
       + '.input-message-input[contenteditable="true"]:not(.input-field-input-fake)'
     : '[role="main"] [contenteditable="true"][role="textbox"]';
@@ -76,10 +119,12 @@ function pageEditors(kind) {
 }
 
 function pageText(editor) {
+  if (editor?.tagName === 'TEXTAREA-EX') return lineComposerText(editor);
   return pageNormalize(editor?.innerText || editor?.textContent || '');
 }
 
 function pageReplaceText(editor, text) {
+  if (editor?.tagName === 'TEXTAREA-EX') return lineReplaceText(editor, text);
   if (!editor || typeof document.execCommand !== 'function') return 'failed';
   const before = pageText(editor);
   editor.focus();
@@ -95,6 +140,12 @@ function pageReplaceText(editor, text) {
 }
 
 function pageSendButton(kind, editor) {
+  if (kind === 'line') {
+    const area = editor?.closest?.('[class*="chatroomEditor-module__editor_area__"]')
+      || document.querySelector('[class*="chatroomEditor-module__editor_area__"]');
+    const selector = 'button[aria-label*="send" i],button[aria-label="发送"],button[type="submit"],button[data-action="send"]';
+    return [...(area?.querySelectorAll(selector) || [])].find((node) => pageVisible(node) && !node.disabled) || null;
+  }
   if (kind === 'telegram-a') {
     const selector = '#MiddleColumn button.Button.send.main-button, #Main button.Button.send.main-button, '
       + 'button[aria-label="发送消息"], button[aria-label="Send"], .btn-send, button[class*="send"], button[class*="Send"]';
@@ -171,7 +222,12 @@ function telegramMessageCount() {
   return document.querySelectorAll('.Message, .bubble:not(.service):not(.is-date)').length;
 }
 
+function lineMessageCount() {
+  return document.querySelectorAll('[class*="message-module__message__"][data-mid]').length;
+}
+
 function pageSnapshot(kind, editor, text) {
+  if (kind === 'line') return { count: lineMessageCount(), length: 0, empty: !pageText(editor) };
   if (kind === 'instagram') {
     const transcript = instagramSurface(editor);
     return { count: instagramOccurrences(transcript, text), length: transcript.length, empty: !pageText(editor) };
@@ -266,7 +322,8 @@ function createPageSendComposer(kind, changed) {
   document.addEventListener('input', input, true);
   window.addEventListener('hashchange', onHash);
   return {
-    selector: kind === 'telegram-a' ? '.form-control.ProseMirror' : '[role="main"] [contenteditable="true"][role="textbox"]',
+    selector: kind === 'line' ? 'textarea-ex[class*="chatroomEditor-module__textarea__"]'
+      : kind === 'telegram-a' ? '.form-control.ProseMirror' : '[role="main"] [contenteditable="true"][role="textbox"]',
     read, matches,
     currentChat() { try { return synchronize(raw()).chatId || null; } catch { return null; } },
     rawText() { try { return raw().text; } catch { return ''; } },
@@ -303,6 +360,7 @@ function createPageSendComposer(kind, changed) {
         if (replaced !== 'ok') pageFail(replaced === 'changed' ? 'SEND_INTENT_UNCERTAIN' : 'SEND_INTENT_UNSUPPORTED', replaced === 'changed');
         if (!valid() || pageConversationId(kind) !== record.chatId) pageFail('SEND_INTENT_CHANGED');
         const button = pageSendButton(kind, value.editor);
+        if (kind === 'line' && !button) pageFail('SEND_INTENT_UNSUPPORTED');
         if (button) pageClick(button);
         else pagePressEnter(value.editor);
         for (let attempt = 0; attempt < 40; attempt += 1) {

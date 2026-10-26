@@ -168,7 +168,9 @@ test('failed drafts survive closing and switching accounts, and global reset ret
 });
 
 test('unsupported platforms keep the original settings visible but cannot write or enumerate chats', async () => {
-  const ui = await fixture(); ui.switchAccount('line'); await ui.click('btn-translation');
+  const ui = await fixture();
+  ui.shell.accounts.find((account) => account.id === 'line').platformId = 'website';
+  ui.switchAccount('line'); await ui.click('btn-translation');
   assert.equal(ui.get('translation-receive-auto').disabled, true);
   assert.equal(ui.get('translation-chat-override').disabled, true);
   assert.match(ui.get('translation-service-detail').textContent, /尚未迁移/);

@@ -126,6 +126,8 @@ export function createTranslationView(document, actions) {
         ? '按 Enter 或点击发送可翻译普通文字。替换输入框沿用旧版做法，会清掉 Telegram A 已同步的云草稿。引用、提及和附件暂不支持。'
         : account?.platformId === 'messenger' || account?.platformId === 'instagram'
           ? '按 Enter 或点击发送可翻译普通文字。收消息翻译需手动点击。群发只发送文字，不支持附件、名片和全体提及。'
+        : account?.platformId === 'line' || account?.platformId === 'line-business'
+          ? '按 Enter 或点击发送可翻译普通文字。收消息翻译需手动点击。群发只发送文字，不支持附件、名片和全体提及。'
         : '按 Enter 或点击发送可翻译普通文字、群内联系人提及，以及可识别的同聊天文字、带说明的图片和视频引用。'
           + '图片、视频及可识别预览的 PDF 支持说明翻译；多附件支持最多 10 个图片/PDF，或一个选中视频搭配图片。'
           + '请点击预览发送按钮，译文仅放在选中项，最多 1024 字。'
