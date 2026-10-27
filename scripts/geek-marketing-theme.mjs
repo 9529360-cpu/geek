@@ -1,5 +1,6 @@
 export const MARKETING_ROUTES = new Set(['/product', '/translation', '/broadcast', '/security', '/pricing', '/guide', '/faq', '/windows']);
 export const SITE_ORIGIN = 'https://geek.bbnba.com';
+export const SITE_KEYWORDS = '极客 Geek, 多平台多账号, 聊天客户端, WhatsApp, Telegram, LINE, 实时翻译, 群发, 账号隔离, 出海沟通';
 
 export const PAGE_META = {
   '/product': {
