@@ -84,7 +84,12 @@ test('only the local shell webview receives narrow permissions', () => {
   assert.equal(capability.local, true);
   assert.deepEqual(capability.permissions, ['shell-commands']);
   assert.deepEqual(config.app.security.capabilities, ['shell']);
-  assert.equal(config.bundle.active, false);
+  assert.equal(config.version, '0.1.0');
+  assert.equal(config.bundle.active, true);
+  assert.deepEqual(config.bundle.targets, ['nsis']);
+  assert.equal(config.bundle.createUpdaterArtifacts, false);
+  assert.equal(config.bundle.windows.nsis.installMode, 'currentUser');
+  assert.equal(config.plugins, undefined);
   assert.match(config.app.security.csp, /frame-src 'none'/);
   assert.doesNotMatch(config.app.security.csp, /unsafe-eval/);
 });

@@ -4,7 +4,7 @@ Windows 桌面客户端的新底座在 [`desktop-tauri/`](desktop-tauri/README.m
 
 当前支持重点是 **WhatsApp**（含纯净版）和 **Telegram**（K 与 A）：多账号、收发翻译、已经接通的发送和群发、未读提示，以及页面心跳失败后只重载该账号页面。Messenger、Instagram 和自定义网站可以打开页面，但不是这批底座的支持重点。LINE / LINE Business 在新底座上保持禁用。极客账户注册、购买字符包、锁屏、群工具和首次引导还没有迁入。
 
-仓库仍保留原来的 Electron 客户端（`src/`、`ui/`）以及 Worker、测试安装包和正式发布流程。正式 Windows 客户端发布只在 `.github/release-client-version` 变化时触发。这次底座替换不修改版本，不发布安装包或 tag。指向 `master` 的拉取请求会运行 `tauri-windows-prototype`：前端测试、`cargo fmt --check`、`cargo test --locked`、`clippy -D warnings`，以及 Windows 上的 `cargo build --release --locked`。这份可执行文件不是安装包，也不上传更新源。
+仓库仍保留原来的 Electron 客户端（`src/`、`ui/`）以及 Worker、测试安装包和正式发布流程。正式 Windows 客户端发布只在 `.github/release-client-version` 变化时触发。新底座的版本号保持 `0.1.0`，产品版本和发布标记也不改。指向 `master` 的拉取请求会运行 `tauri-windows-prototype`：前端测试、`cargo fmt --check`、`cargo test --locked`、`clippy -D warnings`、Windows 上的 `cargo build --release --locked`，然后用 `@tauri-apps/cli@2.12.4` 把已经编好的程序打成未签名的 NSIS 安装包。该安装包只作为这个工作流的下载产物，不创建 GitHub Release 或 tag，也不发布自动更新。Telegram A 的发送翻译仍会清掉已同步的云草稿：官方发送把 `clearDraft` 写死为 true，没有保留草稿的参数。
 
 > 自动化代理接手前先阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/README.md`](docs/README.md)。跨会话维护基线见 [Issue #50](https://github.com/9529360-cpu/geek/issues/50)，Cloudflare 生产部署状态见 [Issue #21](https://github.com/9529360-cpu/geek/issues/21)，账号生产 smoke 见 [Issue #23](https://github.com/9529360-cpu/geek/issues/23)。
 >
