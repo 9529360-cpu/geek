@@ -11,6 +11,10 @@ This finding is separate from automatic incoming translation, whose document-sta
 observer only reads production events. No account, message, payment, draft mutation
 or live Telegram send was used for this investigation.
 
+The page composer path is shipped anyway, matching the original Electron client, and
+it does clear the synced cloud draft. The recheck below records why that clear cannot
+be removed without a hack. WhatsApp and Telegram K keep their existing draft behavior.
+
 Official source is fixed to Ajaxy/telegram-tt commit
 `f67a40879a7d78c2683ec5a296cf55bc22417d56`. This establishes the source contract;
 it does not identify the exact asset revision deployed to every Telegram session.
@@ -94,6 +98,35 @@ This is a contract-level limitation; no real-account loss was deliberately induc
 No Worker text rewriting, debug-mode activation, fabricated platform update, general
 method bridge, or authentication extraction is part of the proposed adapter.
 
+## Shipped page path and 2026-10-27 recheck
+
+Geek's Telegram A send translation and text broadcast do not call `sendApiMessage`.
+`guest/page-input.js` selects the composer, runs `document.execCommand('insertText')`,
+and clicks Telegram's own send control. That is the original Electron composer
+replacement. Telegram saves the replacement into the synced draft, then its sender
+clears that draft.
+
+On 2026-10-27, current `Ajaxy/telegram-tt` `master` still hardcodes the clear. This
+recheck is newer than the pinned commit above and was read from the public source;
+it did not send a message or touch a draft:
+
+- `src/api/gramjs/methods/messages.ts` line 603 sets `clearDraft: true` on the shared
+  `sendApiMessage` arguments.
+- The same file line 987 sets `clearDraft: true` for `messages.SendMultiMedia`.
+- `src/types/index.ts` `SendMessageParams` (lines 862–903) still has no `clearDraft`
+  field. `wasDrafted` (line 888) only describes local editor handling.
+
+A fix is not feasible without a hack:
+
+- An extra `clearDraft: false` on a request never reaches the hardcoded argument.
+- Restoring the previous draft after send is a second remote write with no server
+  version compare and can overwrite a newer draft from another device.
+- `invokeRequest` and GramJS are installed only in Telegram's DEBUG build.
+- Patching the page bundle, or synthesizing a different submit, still ends in the
+  same sender.
+
+The page path stays, with this known draft clear. It is not changed by this recheck.
+
 ## Original Electron active paths
 
 The original files were inspected without modification. Their active mechanics do
@@ -136,12 +169,14 @@ Replacements, reconnects, account changes, missing ACKs, and late responses must
 invalidate or conservatively settle that operation. The current incoming observer
 is read-only and does not already implement this sending capability.
 
-The concrete next prerequisite is a production-accessible text-send method that
-preserves drafts, or an equally narrow platform seam with that verified behavior.
-After that, validate the actual adapter against official-shaped Worker responses:
-same-text concurrent messages, wrong local ID, failed send, missing ACK, replacement
-Worker, and a newer draft while the original send is pending. No A outgoing or
-broadcast capability should be advertised before this boundary is satisfied.
+The concrete next prerequisite for a draft-preserving send is a production-accessible
+text-send method that preserves drafts, or an equally narrow platform seam with that
+verified behavior. After that, validate the actual adapter against official-shaped
+Worker responses: same-text concurrent messages, wrong local ID, failed send, missing
+ACK, replacement Worker, and a newer draft while the original send is pending. The
+page-script path above is already shipped and clears the cloud draft. A
+draft-preserving Worker adapter must not be advertised before this boundary is
+satisfied.
 
 [connector]: https://github.com/Ajaxy/telegram-tt/blob/f67a40879a7d78c2683ec5a296cf55bc22417d56/src/api/gramjs/worker/connector.ts
 [worker]: https://github.com/Ajaxy/telegram-tt/blob/f67a40879a7d78c2683ec5a296cf55bc22417d56/src/api/gramjs/worker/worker.ts

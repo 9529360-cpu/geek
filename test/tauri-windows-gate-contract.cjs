@@ -43,7 +43,38 @@ assert.match(
   /cargo \+stable build --release --locked --manifest-path desktop-tauri\/src-tauri\/Cargo\.toml/,
   'Windows release build must run and must not publish'
 );
+assert.match(
+  workflow,
+  /npx --yes @tauri-apps\/cli@2\.12\.4 bundle --bundles nsis --ci --no-sign/,
+  'CI must bundle an unsigned NSIS installer from the existing release binary'
+);
+assert.match(
+  workflow,
+  /name: geek-tauri-nsis-\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
+  'the installer artifact name must include the exact head SHA'
+);
+assert.match(
+  workflow,
+  /desktop-tauri\/src-tauri\/target\/release\/bundle\/nsis\/\*-setup\.exe/,
+  'the installer artifact must be the NSIS setup executable'
+);
+assert.match(workflow, /^permissions:\n {2}contents: read$/m, 'the workflow must not gain release write permission');
 assert.doesNotMatch(workflow, /release-client-version/, 'the Tauri build gate must not publish a client release');
 assert.doesNotMatch(workflow, /workflow_dispatch:\s*\n\s*release-client/, 'the Tauri build gate must not dispatch release-client');
+assert.doesNotMatch(
+  workflow,
+  /tauri-action|action-gh-release|softprops\/|gh release|git tag|createUpdaterArtifacts:\s*true/,
+  'the installer artifact must not publish a release, tag, or updater'
+);
+
+const config = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '../desktop-tauri/src-tauri/tauri.conf.json'), 'utf8')
+);
+assert.equal(config.version, '0.1.0', 'bundling must not bump the prototype version');
+assert.equal(config.bundle.active, true);
+assert.deepEqual(config.bundle.targets, ['nsis']);
+assert.equal(config.bundle.createUpdaterArtifacts, false);
+assert.equal(config.bundle.windows.nsis.installMode, 'currentUser');
+assert.equal(config.plugins, undefined);
 
 console.log('TAURI_WINDOWS_GATE_CONTRACT_OK');

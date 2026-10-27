@@ -13,7 +13,7 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@v7
@@ -71,8 +71,11 @@ jobs:
         run: cargo +stable test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
       - name: Rust lint gate
         run: cargo +stable clippy --manifest-path desktop-tauri/src-tauri/Cargo.toml --all-targets --locked -- -D warnings
-      - name: Build standalone prototype executable (not an installer or release)
+      - name: Build release executable used by the installer
         run: cargo +stable build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+      - name: Bundle unsigned NSIS installer artifact
+        working-directory: desktop-tauri/src-tauri
+        run: npx --yes @tauri-apps/cli@2.12.4 bundle --bundles nsis --ci --no-sign
       - name: Verify committed dependency lock was not rewritten
         if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         run: git diff --exit-code -- desktop-tauri/src-tauri/Cargo.lock
@@ -97,5 +100,13 @@ jobs:
           path: |
             desktop-tauri/src-tauri/target/release/geek-tauri.exe
             desktop-tauri/src-tauri/Cargo.lock
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain unsigned NSIS installer
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: geek-tauri-nsis-${{ github.event.pull_request.head.sha || github.sha }}
+          path: desktop-tauri/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
           retention-days: 7

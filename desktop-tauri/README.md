@@ -22,7 +22,7 @@ cargo run --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
 cargo build --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
 ```
 
-EXE 位于 `desktop-tauri/src-tauri/target/release/geek-tauri.exe`。`tauri-windows-prototype` 在 GitHub-hosted Windows 上运行前端行为/边界测试、Rust 单元测试及 EXE 构建。源码快照、EXE 和解析得到的 Cargo.lock 分别保存在带 SHA 的短期 artifact 中。测试 EXE 不是安装包或正式发行。Cargo.lock 来自实际成功的 Windows 构建，已纳入源码。测试、Clippy 和 release 构建统一使用 `--locked`，CI 也会检查锁文件没有被重写。这锁定的是依赖解析结果，不代表编译器、SDK、WebView2 版本或二进制字节完全可复现。
+EXE 位于 `desktop-tauri/src-tauri/target/release/geek-tauri.exe`。`tauri-windows-prototype` 在 GitHub-hosted Windows 上运行前端行为/边界测试、Rust 单元测试及 EXE 构建，再用 Tauri CLI `bundle --bundles nsis --ci --no-sign` 打出未签名的当前用户 NSIS 安装包。源码快照、EXE、安装包和解析得到的 Cargo.lock 分别保存在带 SHA 的短期 artifact 中。安装包只供下载该工作流产物，不是 GitHub Release，也不生成更新元数据。Cargo.lock 来自实际成功的 Windows 构建，已纳入源码。测试、Clippy 和 release 构建统一使用 `--locked`，CI 也会检查锁文件没有被重写。这锁定的是依赖解析结果，不代表编译器、SDK、WebView2 版本或二进制字节完全可复现。
 
 ## 可操作的代码路径
 
@@ -74,7 +74,7 @@ schema 6 将聊天翻译覆盖收敛为原界面可独立设置的七个字段�
 
 前端测试包含实际 app.mjs 的 DOM 替身事件测试（搜索、管理非活动账号、改名、归档失败与恢复、托盘设置失败反馈），以及命令授权/配置边界检查。Rust 测试包含 DPAPI、损坏与未知版本 fail closed、旧 schema 兼容、落盘失败不发布状态、归档保留 profile、精确 Website 导航和托盘策略。它们不替代真实 WebView2 或真实平台账号验收。
 
-真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。群发与翻译已接通 WhatsApp 文字/附件群发、Telegram K 文字/附件群发及文字/引用回复发送翻译、Telegram A/K 新消息自动接收翻译，以及 WhatsApp 已核验的提及、媒体引用和附件说明。各自的具体边界见下节。仍未迁移：注册/购买字符包、整个应用自动重启、Electron 数据迁移、安装器及自动更新。Telegram A 的发送翻译和文字群发已按旧版页面脚本接通，替换输入会清掉同步云草稿。WhatsApp 与 Telegram 的新消息提示只报条数、播放提示音并请求任务栏注意，不包含聊天正文；设置里可以关闭提示音。本机 panic 记录只写源文件名和行号，不上传。WhatsApp 与 Telegram 页面若连续两次心跳没有回应，会按每分钟最多两次自动重载该账号页面；WebView2 没有渲染进程崩溃事件，因此不用崩溃回调，也不重启整个应用。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
+真机验收由维护者单独安排，不作为继续开发其他功能的前置等待项。群发与翻译已接通 WhatsApp 文字/附件群发、Telegram K 文字/附件群发及文字/引用回复发送翻译、Telegram A/K 新消息自动接收翻译，以及 WhatsApp 已核验的提及、媒体引用和附件说明。各自的具体边界见下节。仍未迁移：注册/购买字符包、整个应用自动重启、Electron 数据迁移和自动更新。未签名 NSIS 安装包只作为 CI 产物。Telegram A 的发送翻译和文字群发已按旧版页面脚本接通，替换输入会清掉同步云草稿；官方发送把 clearDraft 写死，不能在不另写补丁的情况下保留。WhatsApp 与 Telegram 的新消息提示只报条数、播放提示音并请求任务栏注意，不包含聊天正文；设置里可以关闭提示音。本机 panic 记录只写源文件名和行号，不上传。WhatsApp 与 Telegram 页面若连续两次心跳没有回应，会按每分钟最多两次自动重载该账号页面；WebView2 没有渲染进程崩溃事件，因此不用崩溃回调，也不重启整个应用。不自动发送真实消息，不读取已有真实 profile，不发布正式客户端。
 
 ## 官方接口参考
 
@@ -124,8 +124,9 @@ new-message automatic incoming translation, Telegram K plain-text and verified s
 and WhatsApp text, verified same-chat replies, group contact mentions and bounded attachment
 captions with account/chat settings and the existing independent SendIntent owner.
 Not yet wired: restart/lock, registration/purchase, theme/startup options, notes,
-Telegram Web A outgoing translation/broadcast and complex contexts outside the explicit
-supported contracts below.
+and complex contexts outside the explicit supported contracts below.
+Telegram Web A outgoing translation and text broadcast use the page composer.
+That path clears the synced cloud draft; the reason is in TELEGRAM-A-SEND-CONTRACT.md.
 Those original controls are disabled with unavailable guidance, not removed or
 pretended to work. LINE remains disabled. Visual parity is not full feature parity.
 

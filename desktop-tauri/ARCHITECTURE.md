@@ -587,7 +587,7 @@ Session/context commands share the native authorization/blocking boundary but us
 own owners. Translation policy saves stay in Workspace; no HTTP operation holds it.
 The original UI provides login, quota, account/chat translation settings, incoming
 display and the WhatsApp/Telegram K outgoing paths specified below. Unsupported attachment,
-reply/entity shapes, Telegram Web A outgoing, registration/purchase and bulk history remain explicitly unavailable
+reply/entity shapes, a draft-preserving Telegram Web A Worker send, registration/purchase and bulk history remain explicitly unavailable
 until their corresponding owners and adapters are implemented.
 Already submitted work remains uncertain if confirmation is lost. This is not a guarantee
 that a malicious remote service reports truthful receipts, nor an exactly-once server protocol.
@@ -768,10 +768,14 @@ submitted-draft duplicate guard. Newer, switched, hidden or changed drafts remai
 Broadcast and interactive adapters share
 that same finite runtime/receipt code but retain their existing independent job/intent owners.
 
-Web A outgoing remains disabled in both UI and native ingress: its production send method
-unconditionally clears the target cloud draft and offers no preservation option. The original
-Electron automation provides neither a stronger draft contract nor exact delivery correlation.
-The source-pinned analysis and required future contract are in `TELEGRAM-A-SEND-CONTRACT.md`.
+Web A page send translation and text broadcast are enabled. They replace the composer
+and click Telegram's own send control, the same path the original Electron client used.
+Official telegram-tt still hardcodes `clearDraft: true`, and `SendMessageParams` has no
+override, so the synced cloud draft is cleared. Writing the old draft back would be a
+second remote write with no server version compare. Debug GramJS and a raw invoke stay
+unavailable. A draft-preserving Worker adapter is still not implemented.
+The source-pinned analysis, the 2026-10-27 upstream recheck, and the rejected alternatives
+are in `TELEGRAM-A-SEND-CONTRACT.md`.
 
 The original four-step workbench and task center expose this contract. A measured task bar
 strip is reserved above native guest bounds before displaying controls; z-index alone cannot
